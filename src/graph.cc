@@ -91,7 +91,22 @@ int graph_t::insert_output(
 }
 
 void graph_t::set_outputs() {
-  // TODO
+  int num_nodes_time_zero = nodes.size();
+  for(int i = 0; i != num_nodes_time_zero; ++i) {
+    // All non-output nodes must have an outgoing edge.
+    // If any non-output nodes don't have that, set the output
+    // of the node.
+    node_t const& n = nodes[i];
+    if(!n.op.is_output()) {
+      if(n.outs.size() == 0) {
+        // Create a placement that matches closely to the
+        // output tensor of the input node
+        this->insert_output(
+          placement_t::join_to_out(n.placement, n.op.out_rank()),
+          i);
+      }
+    }
+  }
 }
 
 vector<uint64_t> graph_t::out_shape(int id) {

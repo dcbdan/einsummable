@@ -6,10 +6,12 @@
 #include <variant>
 #include <tuple>
 #include <set>
+#include <map>
 
 using std::vector;
 using std::tuple;
 using std::set;
+using std::map;
 
 int product(vector<int> const& xs);
 

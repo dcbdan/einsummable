@@ -1,4 +1,5 @@
 #pragma once
+#include "setup.h"
 
 #include "indexer.h"
 

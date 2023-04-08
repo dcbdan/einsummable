@@ -32,6 +32,20 @@ public:
     return std::visit([](auto x){ return x.out_shape(); }, op);
   }
 
+  int out_rank() const {
+    return this->out_shape().size();
+  }
+
+  bool is_output() const {
+    return std::holds_alternative<output_t>(op);
+  }
+  bool is_input() const {
+    return std::holds_alternative<input_t>(op);
+  }
+  bool is_einsummable() const {
+    return std::holds_alternative<einsummable_t>(op);
+  }
+
 private:
   _op_t op;
 };
@@ -71,6 +85,7 @@ struct graph_t {
   // for each input and einsummable ops O, make sure O
   // is used by another op. If not, add an output op that
   // uses O.
+  // TODO: better name for this method
   void set_outputs();
   // }}}
 
