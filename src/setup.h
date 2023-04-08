@@ -3,29 +3,17 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <variant>
+#include <tuple>
 
 using std::vector;
+using std::tuple;
 
-int product(vector<int> const& xs) {
-  int ret = 1;
-  for(int const& x: xs) {
-    ret *= x;
-  }
-  return ret;
-}
+int product(vector<int> const& xs);
 
-void print_vec(vector<int> const& xs) {
-  std::cout << "{";
-  if(xs.size() >= 1) {
-    std::cout << xs[0];
-  }
-  if(xs.size() > 1) {
-    for(int i = 1; i != xs.size(); ++i) {
-      std::cout << "," << xs[i];
-    }
-  }
-  std::cout << "}";
-}
+void print_vec(vector<int> const& xs);
+
+vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
 
 template <typename T>
 void vector_concatenate(vector<T>& vs, vector<T> const& add_these) {
@@ -33,18 +21,6 @@ void vector_concatenate(vector<T>& vs, vector<T> const& add_these) {
   for(auto const& x: add_these) {
     vs.push_back(x);
   }
-}
-
-vector<int> divide_evenly(int num_parts, uint64_t n) {
-  if(n < num_parts) {
-    throw std::runtime_error("Cannot have size zero parts");
-  }
-  vector<int> ret(num_parts, n / num_parts);
-  uint64_t d = n % num_parts;
-  for(int i = 0; i != d; ++i) {
-    ret[i]++;
-  }
-  return ret;
 }
 
 template <typename T>
