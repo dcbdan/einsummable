@@ -5,9 +5,11 @@
 #include <algorithm>
 #include <variant>
 #include <tuple>
+#include <set>
 
 using std::vector;
 using std::tuple;
+using std::set;
 
 int product(vector<int> const& xs);
 
@@ -21,6 +23,20 @@ void vector_concatenate(vector<T>& vs, vector<T> const& add_these) {
   for(auto const& x: add_these) {
     vs.push_back(x);
   }
+}
+
+template <typename T>
+bool vector_equal(vector<T> const& xs, vector<T> const& ys) {
+  if(xs.size() != ys.size()) {
+    return false;
+  }
+  for(int i = 0; i != xs.size(); ++i) {
+    if(xs[i] != ys[i]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 template <typename T>

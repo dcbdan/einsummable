@@ -6,14 +6,35 @@
 
 struct input_t {
   vector<uint64_t> shape;
+
+  vector<uint64_t> out_shape() const { return shape; }
 };
 
 struct output_t {
   vector<uint64_t> shape;
+
+  vector<uint64_t> out_shape() const { return shape; }
 };
 
-// TODO: make node a class proper
-using node_t = std::variant<input_t, output_t, einsummable_t>;
+
+struct op_t {
+private:
+  using _op_t = std::variant<input_t, output_t, einsummable_t>;
+
+public:
+  op_t(_op_t op): op(op) {}
+
+  op_t(input_t       x): op_t(_op_t(x)) {}
+  op_t(output_t      x): op_t(_op_t(x)) {}
+  op_t(einsummable_t x): op_t(_op_t(x)) {}
+
+  vector<uint64_t> out_shape() const {
+    return std::visit([](auto x){ return x.out_shape(); }, op);
+  }
+
+private:
+  _op_t op;
+};
 
 struct graph_t {
   // Methods to construct a graph object
@@ -53,14 +74,19 @@ struct graph_t {
   void set_outputs();
   // }}}
 
+  vector<uint64_t> out_shape(int id);
+
 private:
-  struct info_t {
-    node_t node;
+  struct node_t {
+    op_t op;
     vector<int> inns;
-    vector<int> outs;
-    partition_t partition;
+    set<int> outs;
+    placement_t placement;
   };
 
-  vector<info_t> infos;
+  vector<node_t> nodes;
+
+private:
+  int insert(op_t const& op, vector<int> inns, placement_t placement);
 };
 
