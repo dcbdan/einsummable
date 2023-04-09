@@ -4,52 +4,6 @@
 #include "placement.h"
 #include "einsummable.h"
 
-struct input_t {
-  vector<uint64_t> shape;
-
-  vector<uint64_t> out_shape() const { return shape; }
-};
-
-struct output_t {
-  vector<uint64_t> shape;
-
-  vector<uint64_t> out_shape() const { return shape; }
-};
-
-
-struct op_t {
-private:
-  using _op_t = std::variant<input_t, output_t, einsummable_t>;
-
-public:
-  op_t(_op_t op): op(op) {}
-
-  op_t(input_t       x): op_t(_op_t(x)) {}
-  op_t(output_t      x): op_t(_op_t(x)) {}
-  op_t(einsummable_t x): op_t(_op_t(x)) {}
-
-  vector<uint64_t> out_shape() const {
-    return std::visit([](auto x){ return x.out_shape(); }, op);
-  }
-
-  int out_rank() const {
-    return this->out_shape().size();
-  }
-
-  bool is_output() const {
-    return std::holds_alternative<output_t>(op);
-  }
-  bool is_input() const {
-    return std::holds_alternative<input_t>(op);
-  }
-  bool is_einsummable() const {
-    return std::holds_alternative<einsummable_t>(op);
-  }
-
-private:
-  _op_t op;
-};
-
 struct graph_t {
   // Methods to construct a graph object
   // {{{
@@ -92,6 +46,52 @@ struct graph_t {
   vector<uint64_t> out_shape(int id);
 
 private:
+  struct input_t {
+    vector<uint64_t> shape;
+
+    vector<uint64_t> out_shape() const { return shape; }
+  };
+
+  struct output_t {
+    vector<uint64_t> shape;
+
+    vector<uint64_t> out_shape() const { return shape; }
+  };
+
+
+  struct op_t {
+  private:
+    using _op_t = std::variant<input_t, output_t, einsummable_t>;
+
+  public:
+    op_t(_op_t op): op(op) {}
+
+    op_t(input_t       x): op_t(_op_t(x)) {}
+    op_t(output_t      x): op_t(_op_t(x)) {}
+    op_t(einsummable_t x): op_t(_op_t(x)) {}
+
+    vector<uint64_t> out_shape() const {
+      return std::visit([](auto x){ return x.out_shape(); }, op);
+    }
+
+    int out_rank() const {
+      return this->out_shape().size();
+    }
+
+    bool is_output() const {
+      return std::holds_alternative<output_t>(op);
+    }
+    bool is_input() const {
+      return std::holds_alternative<input_t>(op);
+    }
+    bool is_einsummable() const {
+      return std::holds_alternative<einsummable_t>(op);
+    }
+
+  private:
+    _op_t op;
+  };
+
   struct node_t {
     op_t op;
     vector<int> inns;
@@ -99,6 +99,7 @@ private:
     placement_t placement;
   };
 
+private:
   vector<node_t> nodes;
 
 private:
