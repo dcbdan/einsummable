@@ -5,6 +5,22 @@
 
 template <typename T>
 struct tensor_t {
+  tensor_t(){}
+
+  tensor_t(tensor_t const& other):
+    tensor_t(other.shape, other.vec)
+  {}
+  tensor_t(tensor_t && other):
+    tensor_t(other.shape, std::move(other.vec))
+  {}
+
+  tensor_t operator=(tensor_t const& other) {
+    return tensor_t(other);
+  }
+  tensor_t operator=(tensor_t && other) {
+    return tensor_t(std::move(other));
+  }
+
   tensor_t(
     vector<int> const& shape):
       tensor_t(shape, vector<T>(product(shape)))
@@ -14,6 +30,16 @@ struct tensor_t {
     vector<int> const& shape,
     vector<T> const& vec):
       shape(shape), vec(vec)
+  {
+    if(shape.size() == 0) {
+      throw std::runtime_error("shape must not be empty");
+    }
+  }
+
+  tensor_t(
+    vector<int> const& shape,
+    vector<T> && vec):
+      shape(shape), vec(std::move(vec))
   {
     if(shape.size() == 0) {
       throw std::runtime_error("shape must not be empty");
@@ -48,7 +74,11 @@ struct tensor_t {
     return vec;
   }
 
+  vector<int> const& get_shape() const {
+    return shape;
+  }
+
 private:
-  vector<int> const shape;
+  vector<int> shape;
   vector<T> vec;
 };

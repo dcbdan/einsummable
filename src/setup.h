@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <numeric>
 #include <variant>
 #include <tuple>
 #include <set>
@@ -15,9 +16,32 @@ using std::map;
 
 int product(vector<int> const& xs);
 
-void print_vec(vector<int> const& xs);
+template <typename T>
+void print_vec(vector<T> const& xs)
+{
+  std::cout << "{";
+  if(xs.size() >= 1) {
+    std::cout << xs[0];
+  }
+  if(xs.size() > 1) {
+    for(int i = 1; i != xs.size(); ++i) {
+      std::cout << "," << xs[i];
+    }
+  }
+  std::cout << "}";
+}
 
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
+
+template <typename T, typename U>
+vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
+  vector<T> xs;
+  xs.reserve(xys.size());
+  for(auto const& [x,_]: xys) {
+    xs.push_back(x);
+  }
+  return xs;
+}
 
 template <typename T>
 void vector_concatenate(vector<T>& vs, vector<T> const& add_these) {
@@ -39,6 +63,32 @@ bool vector_equal(vector<T> const& xs, vector<T> const& ys) {
   }
 
   return true;
+}
+
+// Remove the duplicates in a sorted list
+template <typename T>
+void vector_remove_duplicates(vector<T>& xs) {
+  std::size_t i = 0;
+  std::size_t j = 0;
+  while(j < xs.size()) {
+    xs[i++] = xs[j++];
+    while(xs[i-1] == xs[j]) {
+      ++j;
+    }
+  }
+  xs.resize(i);
+}
+
+// Take a bunch of sorted lists and merge em into a single sorted list
+template <typename T>
+vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {
+  // TODO: make this more efficient
+  vector<T> ret;
+  for(auto const& x: xs) {
+    vector_concatenate(ret, x);
+  }
+  std::sort(ret.begin(), ret.end());
+  return ret;
 }
 
 template <typename T>

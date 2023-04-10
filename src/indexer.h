@@ -7,6 +7,9 @@ bool is_valid_idxs(vector<int> const& shape, vector<int> const& idxs);
 int idxs_to_index(vector<int> const& shape, vector<int> const& idxs);
 vector<int> index_to_idxs(vector<int> const& shape, int index);
 bool increment_idxs(vector<int> const& shape, vector<int>& idxs);
+bool increment_idxs_region(
+  vector<tuple<int,int>> const& region,
+  vector<int>& idxs);
 
 //int main() {
 //  vector<int> shape{3,2,4,5};

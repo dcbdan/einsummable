@@ -113,6 +113,15 @@ vector<uint64_t> graph_t::out_shape(int id) {
   return nodes[id].op.out_shape();
 }
 
+vector<int> graph_t::get_order() const {
+  // Because of the way the graph is constructed,
+  // it must be the case that a valid ordering of the compute
+  // graph is 0,1,2,...
+  vector<int> ret(nodes.size());
+  std::iota(ret.begin(), ret.end(), 0);
+  return ret;
+}
+
 int graph_t::insert(
   op_t const& op,
   vector<int> inns,

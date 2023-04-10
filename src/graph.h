@@ -45,7 +45,10 @@ struct graph_t {
 
   vector<uint64_t> out_shape(int id);
 
-private:
+  vector<int> get_order() const;
+
+public:
+
   struct input_t {
     vector<uint64_t> shape;
 
@@ -97,9 +100,15 @@ private:
     vector<int> inns;
     set<int> outs;
     placement_t placement;
+
+    set<int> get_inns_set() {
+      return set<int>(inns.begin(), inns.end());
+    }
+    int num_distinct_inputs() {
+      return get_inns_set().size();
+    }
   };
 
-private:
   vector<node_t> nodes;
 
 private:

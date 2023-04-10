@@ -4,7 +4,16 @@
 #include "einsummable.h"
 #include "graph.h"
 
+// TODO: note that inputs refer to nodes in the task graph,
+//       not to wtvr tids are
+
 struct taskgraph_t {
+  static
+  tuple<
+    map<int, tensor_t<int> >, // for each output id, the tids of the blocks
+    taskgraph_t>              // the actual taskgraph
+  make(graph_t const& graph);
+
   // Methods to construct a task graph object
   // {{{
   int insert_input(
@@ -25,10 +34,19 @@ struct taskgraph_t {
 
 private:
   struct input_t {
-    vector<uint64_t> shape;
+    int loc;
+    uint64_t size;
   };
-  struct compute_t {
-    std::variant<input_t, einsummable_t>;
+  struct apply_t {
+    int loc;
+    vector<int> inns;
+    einsummable_t einsummable;
+  };
+  struct move_t {
+    int src;
+    int dst;
+    int inn;
+    uint64_t size;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -111,10 +129,25 @@ private:
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
   };
-};
 
-tuple<
-  map<int, tensor_t<int> > // for each output id, the tids of the blocks
-  taskgraph_t>             // the actual taskgraph
-make_taskgraph(graph_t const& graph);
+  struct op_t {
+  private:
+    using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
+  public:
+    op_t(_op_t op): op(op) {}
+
+    op_t(input_t      x): op_t(_op_t(x)) {}
+    op_t(apply_t      x): op_t(_op_t(x)) {}
+    op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(partialize_t x): op_t(_op_t(x)) {}
+  private:
+    _op_t op;
+  };
+
+  struct node_t {
+    op_t op;
+    set<int> outs;
+  };
+  vector<node_t> nodes;
+};
 

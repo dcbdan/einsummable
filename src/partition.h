@@ -37,6 +37,41 @@ struct partition_t {
     return ret;
   }
 
+  // Get the hyper-rectanuglar set represnted by this index
+  vector<tuple<uint64_t, uint64_t>>
+  get_hrect(vector<int> const& idxs) const
+  {
+    if(idxs.size() != partdims.size()) {
+      throw std::runtime_error("partition_t::get_hrect");
+    }
+
+    vector<tuple<uint64_t, uint64_t>> ret;
+    ret.reserve(idxs.size());
+    for(int i = 0; i != partdims.size(); ++i) {
+      ret.push_back(partdims[i].which_vals(idxs[i]));
+    }
+
+    return ret;
+  }
+
+  // hrect:  hyper-rectangular subset of uint64s
+  // region: hyper-rectangular subset of blocks
+  vector<tuple<int,int> >
+  get_exact_region(
+    vector<tuple<uint64_t,uint64_t>> const& region) const
+  {
+    if(region.size() != partdims.size()) {
+      throw std::runtime_error("partition_t::get_region");
+    }
+    vector<tuple<int,int> > ret;
+    ret.reserve(region.size());
+    for(int i = 0; i != partdims.size(); ++i) {
+      auto const& [beg,end] = region[i];
+      ret.push_back(partdims[i].exact_region(beg,end));
+    }
+    return ret;
+  }
+
   vector<partdim_t> partdims;
 };
 

@@ -8,19 +8,6 @@ int product(vector<int> const& xs) {
   return ret;
 }
 
-void print_vec(vector<int> const& xs) {
-  std::cout << "{";
-  if(xs.size() >= 1) {
-    std::cout << xs[0];
-  }
-  if(xs.size() > 1) {
-    for(int i = 1; i != xs.size(); ++i) {
-      std::cout << "," << xs[i];
-    }
-  }
-  std::cout << "}";
-}
-
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n) {
   if(n < num_parts) {
     throw std::runtime_error("Cannot have size zero parts");

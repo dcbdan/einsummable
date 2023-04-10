@@ -74,4 +74,20 @@ bool increment_idxs(vector<int> const& shape, vector<int>& idxs) {
   return could_increment;
 }
 
-
+// (Mostly the same as increment_idxs)
+bool increment_idxs_region(
+  vector<tuple<int,int>> const& region,
+  vector<int>& idxs)
+{
+  bool could_increment = false;
+  for(int i = idxs.size() - 1; i >= 0; --i) {
+    if(idxs[i] + 1 == std::get<1>(region[i])) {
+      idxs[i] = std::get<0>(region[i]);
+    } else {
+      idxs[i] += 1;
+      could_increment = true;
+      break;
+    }
+  }
+  return could_increment;
+}
