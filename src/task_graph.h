@@ -74,19 +74,40 @@ private:
   // and a partialize is a list of partialize units.
   // It must be the case that each partial_unit is representing
   // a disjoint portion of the output.
-  struct partial_unit_t {
-    // Each partial unit can have a different castable.
-    // If the number of inputs is one, this value does not get used.
-    castable_t castable;
-
-    // For each dimension in the write shape,
-    //   contain the offset and the size for the write
-    vector<tuple<uint64_t, uint64_t>> write_offset_and_size;
-
-    // For each input, contain the input offset
-    vector<tuple<int, vector<uint64_t>>> inns_and_their_offsets;
-  };
+  //
+  // Another tidbit: every input that has the same shape as the output may
+  // be "consumed"--that is, if a consumable input is the first input ready, the
+  // memory referred to by the input becomes consumed and used as the output
+  // memory.
   struct partialize_t {
+    struct partial_unit_t {
+      struct out_regiondim_t {
+        uint64_t offset;
+        uint64_t size;
+      };
+      struct input_op_t {
+        int id;                      // the input
+        bool consumable;             // can the input be consumsed
+        struct inn_regiondim_t {
+          uint64_t dim;
+          uint64_t offset;
+        };                           // necc info for where in the input region
+        vector<inn_regiondim_t> region;
+      };
+
+      // Each partial unit can have a different castable.
+      // If the number of inputs is one, this value does not get used.
+      castable_t castable;
+
+      // For each dimension in the write shape,
+      //   contain the offset and the size for the write region
+      vector<out_regiondim_t> out_region;
+
+      // For each input, the relevant info to figure out the region
+      // and the initial behaviour (consumable)
+      vector<input_op_t> inputs;
+    };
+
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
   };
