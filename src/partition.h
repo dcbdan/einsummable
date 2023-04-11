@@ -90,3 +90,7 @@ struct partition_t {
   vector<partdim_t> partdims;
 };
 
+bool operator==(partition_t const& lhs, partition_t const& rhs);
+bool operator!=(partition_t const& lhs, partition_t const& rhs);
+
+

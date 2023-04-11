@@ -48,19 +48,7 @@ vector<vector<uint64_t>> einsummable_t::inn_shapes() const {
 vector<vector<int>>
 einsummable_t::input_idxs(vector<int> const& join_idx) const
 {
-  if(join_shape.size() != join_idx.size()) {
-    throw std::runtime_error("einsummable_t::input_idxs");
-  }
-
-  vector<vector<int>> ret(join_idx.size());
-  for(int i = 0; i != ret.size(); ++i) {
-    ret[i].reserve(inns.size());
-    for(auto const& j: inns[i]) {
-      ret[i].push_back(join_idx[j]);
-    }
-  }
-
-  return ret;
+  return get_inputs_from_join(join_idx);
 }
 
 

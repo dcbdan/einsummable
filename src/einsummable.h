@@ -25,5 +25,39 @@ struct einsummable_t {
   vector<vector<uint64_t>> inn_shapes() const;
 
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
+
+  template <typename T>
+  vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
+  {
+    if(join_shape.size() != join_ts.size()) {
+      throw std::runtime_error("einsummable_t::input_idxs");
+    }
+
+    vector<T> ret;
+    ret.reserve(inns[which_inn].size());
+    for(auto const& i: inns[which_inn]) {
+      ret.push_back(join_ts[i]);
+    }
+
+    return ret;
+  }
+
+  template <typename T>
+  vector<vector<T>> get_inputs_from_join(vector<T> const& join_ts) const
+  {
+    if(join_shape.size() != join_ts.size()) {
+      throw std::runtime_error("einsummable_t::input_idxs");
+    }
+
+    vector<vector<T>> ret(join_ts.size());
+    for(int i = 0; i != ret.size(); ++i) {
+      ret[i].reserve(inns.size());
+      for(auto const& j: inns[i]) {
+        ret[i].push_back(join_ts[j]);
+      }
+    }
+
+    return ret;
+  }
 };
 

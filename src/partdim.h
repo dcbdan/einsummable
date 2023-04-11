@@ -138,4 +138,7 @@ struct partdim_t {
   vector<uint64_t> spans;
 };
 
+bool operator==(partdim_t const& lhs, partdim_t const& rhs);
+bool operator!=(partdim_t const& lhs, partdim_t const& rhs);
+
 
