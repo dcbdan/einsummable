@@ -47,6 +47,17 @@ struct graph_t {
 
   vector<int> get_order() const;
 
+  // TODO: implement a fuse:
+  //   void optimize_fuse();
+  //
+  // Given
+  //   B = relu(A); D = BC
+  // compile it to a single einsummable of
+  //   D = relu(A)C
+  // if the intermediate B is not used anywhere.
+  //
+  // Perhaps similarly for ops like (A+B)C
+
 public:
 
   struct input_t {
@@ -89,6 +100,10 @@ public:
     }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
+    }
+
+    einsummable_t const& get_einsummable() const {
+      return std::get<einsummable_t>(op);
     }
 
     _op_t op;

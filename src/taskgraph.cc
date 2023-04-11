@@ -27,7 +27,11 @@
 // TODO: better name for multiple_placement_t and multiple_tensor_t?
 
 struct multiple_placement_t {
+  static multiple_placement_t from_single_placement(placement_t const& p);
+
   static multiple_placement_t make_refinement(vector<placement_t> const& ps);
+
+  static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
 
   static multiple_placement_t make_einsummable_input(
     placement_t const& join_placement,
@@ -286,6 +290,34 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   // 2. form the multiple_tensor_t object by doing the computation and insert it into
   //    refined_tensors
 
+  auto const& join_node = graph.nodes[join_gid];
+
+  vector<multiple_placement_t> usage_placements;
+  usage_placements.reserve(2*join_node.outs.size());
+  for(auto const& out_gid: join_node.outs) {
+    auto const& out_node = graph.nodes[out_gid];
+    if(out_node.op.is_output()) {
+      usage_placements.push_back(
+        multiple_placement_t::from_single_placement(out_node.placement));
+    } else if(out_node.op.is_einsummable()) {
+      // Note that an einsummable node can use an input multiple times
+      // and therefore there may be multiple usage placements to collect
+      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
+        if(out_node.inns[which_input] == join_gid) {
+          usage_placements.push_back(
+            multiple_placement_t::make_einsummable_input(
+              out_node.placement,
+              out_node.op.get_einsummable(),
+              which_input));
+        }
+      }
+    } else {
+      throw std::runtime_error("state_t::communicate: should not happen");
+    }
+  }
+
+  auto refinement = multiple_placement_t::make_refinement(usage_placements);
+
   //multiple_tensor_t refined_tensor {
   //  .partition = refined_partition,
   //  .tensor    = std::move(ret)
@@ -294,30 +326,27 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   //retined_tensors.insert({join_gid, refined_tensor});
 }
 
-multiple_placement_t multiple_placement_t::make_refinement(vector<placement_t> const& ps) {
-  if(ps.size() == 0) {
-    throw std::runtime_error("make_placement_refinement: empty input");
-  }
-  if(ps.size() == 1) {
-    auto const& p = ps[0];
-
-    vector<set<int>> locs;
-    locs.reserve(p.locations.get().size());
-    for(int const& loc: p.locations.get()) {
-      locs.push_back({loc});
-    }
-
-    return multiple_placement_t {
-      .partition = p.partition,
-      .locations = tensor_t<set<int>>(p.locations.get_shape(), locs)
-    };
+multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)
+{
+  vector<set<int>> locs;
+  locs.reserve(p.locations.get().size());
+  for(int const& loc: p.locations.get()) {
+    locs.push_back({loc});
   }
 
-  auto const& p0 = ps[0];
-  int rank = p0.partition.block_shape().size();
+  return multiple_placement_t {
+    .partition = p.partition,
+    .locations = tensor_t<set<int>>(p.locations.get_shape(), locs)
+  };
+}
 
-  // Setup the refined partition
+// Here T must have member T::partition of type partition_t
+// Assumption: ps is non-empty
+template <typename T>
+partition_t union_partition_holders(vector<T> const& ps)
+{
   vector<partdim_t> partdims;
+  int rank = ps[0].partition.block_shape().size();
   partdims.reserve(rank);
   for(int i = 0; i != rank; ++i) {
     vector<partdim_t> xs;
@@ -327,7 +356,24 @@ multiple_placement_t multiple_placement_t::make_refinement(vector<placement_t> c
     }
     partdims.push_back(partdim_t::unions(xs));
   }
-  partition_t partition(partdims);
+  return partition_t(partdims);
+}
+
+multiple_placement_t
+multiple_placement_t::make_refinement(
+  vector<placement_t> const& ps)
+{
+  if(ps.size() == 0) {
+    throw std::runtime_error("make_placement_refinement: empty input");
+  }
+  if(ps.size() == 1) {
+    return from_single_placement(ps[0]);
+  }
+
+  auto const& p0 = ps[0];
+
+  // Setup the refined partition
+  partition_t partition = union_partition_holders(ps);
 
   // Now set up the locations.
   // For each partition,
@@ -347,6 +393,50 @@ multiple_placement_t multiple_placement_t::make_refinement(vector<placement_t> c
       vector<int> index = vector_mapfst(region);
       do {
         locations.at(index).insert(loc);
+      } while(increment_idxs_region(region, index));
+    } while(increment_idxs(p_shape, p_index));
+  }
+
+  return multiple_placement_t {
+    .partition = std::move(partition),
+    .locations = std::move(locations)
+  };
+}
+
+multiple_placement_t
+multiple_placement_t::make_refinement(
+  vector<multiple_placement_t> const& ps)
+{
+  if(ps.size() == 0) {
+    throw std::runtime_error("make_placement_refinement: empty input_");
+  }
+  if(ps.size() == 1) {
+    return ps[0];
+  }
+
+  auto const& p0 = ps[0];
+
+  // Setup the refined partition
+  partition_t partition = union_partition_holders(ps);
+
+  // Now set up the locations.
+  // For each partition,
+  //   for each block in the partition,
+  //     get the refined block,
+  //     add the current location to the refined block
+  tensor_t<set<int>> locations(partition.block_shape());
+  for(auto const& p: ps) {
+    vector<int> p_shape = p.partition.block_shape();
+    vector<int> p_index(p_shape.size(), 0);
+    do {
+      set<int> const& locs = p.locations.at(p_index);
+
+      auto hrect = p.partition.get_hrect(p_index);
+      vector<tuple<int,int>> region = partition.get_exact_region(hrect);
+
+      vector<int> index = vector_mapfst(region);
+      do {
+        locations.at(index).insert(locs.begin(), locs.end());
       } while(increment_idxs_region(region, index));
     } while(increment_idxs(p_shape, p_index));
   }
