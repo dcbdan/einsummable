@@ -37,6 +37,21 @@ struct partition_t {
     return ret;
   }
 
+  vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const
+  {
+    if(idxs.size() != partdims.size()) {
+      throw std::runtime_error("partition_t::tensor_shape_at");
+    }
+
+    vector<uint64_t> ret;
+    ret.reserve(partdims.size());
+    for(int i = 0; i != partdims.size(); ++i) {
+      ret.push_back(partdims[i].size_at(idxs[i]));
+    }
+
+    return ret;
+  }
+
   // Get the hyper-rectanuglar set represnted by this index
   vector<tuple<uint64_t, uint64_t>>
   get_hrect(vector<int> const& idxs) const

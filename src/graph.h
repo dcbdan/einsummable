@@ -91,7 +91,6 @@ public:
       return std::holds_alternative<einsummable_t>(op);
     }
 
-  private:
     _op_t op;
   };
 

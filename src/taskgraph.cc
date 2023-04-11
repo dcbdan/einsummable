@@ -148,3 +148,73 @@ taskgraph_t::make(graph_t const& graph)
 
   return {std::move(outputs), std::move(state.taskgraph)};
 }
+
+// TODO: this could be better if it stored previous results and detected
+//       similar placement usages...
+//       Consider y = x + x where x (lhs input) and x(rhs input) are placed
+//       in the same way. Then if x (previous computation) was formed differently
+//       then either of the lhs or rhs x inputs, this does a bunch of duplicate work.
+// TODO TODO TODO
+tensor_t<int>
+state_t::access(int gid, int which_input)
+{
+  return {}; // TODO
+};
+
+tensor_t<int>
+state_t::compute(int gid)
+{
+  graph_t::node_t const& node = graph.nodes[gid];
+
+  if(node.op.is_input()) {
+    auto shape = node.placement.block_shape();
+    tensor_t<int> ret(shape);
+    vector<int> index(shape.size(), 0);
+    do {
+      int const& loc = node.placement.locations.at(index);
+      auto subtensor_shape = node.placement.partition.tensor_shape_at(index);
+      ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
+    } while(increment_idxs(shape, index));
+
+    return ret;
+  }
+
+  // Get the inputs
+  vector<tensor_t<int>> inputs;
+  inputs.reserve(node.inns.size());
+  for(int i = 0; i != inputs.size(); ++i) {
+    inputs.push_back(this->access(gid, i));
+  }
+
+  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
+
+  auto shape = node.placement.block_shape();
+  tensor_t<int> ret(shape);
+  vector<int> index(shape.size(), 0);
+
+  do {
+    vector<int> inns;
+    inns.reserve(inputs.size());
+    auto inn_idxs = base_einsummable.input_idxs(index);
+    for(int i = 0; i != inputs.size(); ++i) {
+      auto const& inn_tensor = inputs[i];
+      auto const& inn_idx = inn_idxs[i];
+      inns.push_back(inn_tensor.at(inn_idx));
+    }
+
+    int const& loc = node.placement.locations.at(index);
+    auto subtensor_shape = node.placement.partition.tensor_shape_at(index);
+    ret.at(index) = taskgraph.insert_einsummable(
+      loc,
+      einsummable_t::with_new_shape(base_einsummable, subtensor_shape),
+      inns);
+  } while(increment_idxs(shape, index));
+
+  return ret;
+}
+
+void
+state_t::communicate(int gid, tensor_t<int> compute_result)
+{
+  // TODO
+}

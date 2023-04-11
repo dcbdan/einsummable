@@ -59,6 +59,16 @@ struct partdim_t {
     return ret;
   }
 
+  uint64_t size_at(int i) const {
+    if(i == 0) {
+      return spans[0];
+    } else if(i < spans.size()) {
+      return spans[i] - spans[i-1];
+    } else {
+      throw std::runtime_error("partdim_t::size_at input error");
+    }
+  }
+
   int num_parts() const {
     return spans.size();
   }

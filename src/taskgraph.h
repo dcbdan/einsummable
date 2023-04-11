@@ -16,14 +16,14 @@ struct taskgraph_t {
 
   // Methods to construct a task graph object
   // {{{
-  int insert_input(
+  int insert_input( // TODO
     int loc,
     vector<uint64_t> shape);
-  int insert_einsummable(
+  int insert_einsummable( // TODO
     int loc,
     einsummable_t e,
     vector<int> inns);
-  int insert_move(
+  int insert_move( // TODO
     int src,
     int dst,
     int tid);

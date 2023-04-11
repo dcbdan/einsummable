@@ -17,9 +17,13 @@ struct einsummable_t {
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);
+  static einsummable_t with_new_shape(
+    einsummable_t const& e, vector<uint64_t> const& new_join_shape);
 
   vector<uint64_t> out_shape() const;
 
   vector<vector<uint64_t>> inn_shapes() const;
+
+  vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 };
 
