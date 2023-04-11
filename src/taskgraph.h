@@ -184,6 +184,8 @@ private:
     op_t(partialize_t x): op_t(_op_t(x)) {}
 
     _op_t op;
+
+    uint64_t tensor_size() const;
   };
 
   struct node_t {

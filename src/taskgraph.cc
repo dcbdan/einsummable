@@ -492,6 +492,56 @@ taskgraph_t::partialize_builder_t taskgraph_t::new_partialize(
   return partialize_builder_t(this, write_shape, loc);
 }
 
+int taskgraph_t::insert_input(
+  int loc,
+  vector<uint64_t> shape)
+{
+  int ret = nodes.size();
+
+  input_t input {
+    .loc = loc,
+    .size = product(shape)
+  };
+
+  nodes.push_back(node_t {
+    .op = op_t(input),
+    .outs = set<int>()
+  });
+
+  return ret;
+}
+
+int taskgraph_t::insert_einsummable(
+  int loc,
+  einsummable_t e,
+  vector<int> inns)
+{
+  int ret = nodes.size();
+
+  apply_t apply {
+    .loc = loc,
+    .inns = inns,
+    .einsummable = e
+  };
+
+  nodes.push_back(node_t {
+    .op = op_t(apply),
+    .outs = set<int>()
+  });
+
+  if(e.inns.size() != inns.size()) {
+    throw std::runtime_error("insert_einsummable: incorrect number of inputs");
+  }
+  auto inn_shapes = e.inn_shapes();
+  for(int i = 0; i != inns.size(); ++i) {
+    if(nodes[i].op.tensor_size() != product(inn_shapes[i])) {
+      throw std::runtime_error("insert_einsummable: input has wrong size");
+    }
+  }
+
+  return ret;
+}
+
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs)
@@ -503,4 +553,20 @@ bool operator!=(
   taskgraph_t::partialize_t::out_regiondim_t const& rhs)
 {
   return !(lhs == rhs);
+}
+
+uint64_t taskgraph_t::op_t::tensor_size() const
+{
+  if(std::holds_alternative<input_t>(op)) {
+    return std::get<input_t>(op).size;
+  } else if(std::holds_alternative<apply_t>(op)) {
+    return product(std::get<apply_t>(op).einsummable.out_shape());
+  } else if(std::holds_alternative<move_t>(op)) {
+    return std::get<move_t>(op).size;
+  } else if(std::holds_alternative<partialize_t>(op)) {
+    return product(std::get<partialize_t>(op).write_shape);
+  } else {
+    throw std::runtime_error("should not reach");
+    return 0;
+  }
 }

@@ -14,7 +14,15 @@ using std::tuple;
 using std::set;
 using std::map;
 
-int product(vector<int> const& xs);
+template <typename T>
+T product(vector<T> const& xs)
+{
+  T ret = 1;
+  for(int const& x: xs) {
+    ret *= x;
+  }
+  return ret;
+}
 
 template <typename T>
 void print_vec(vector<T> const& xs)
