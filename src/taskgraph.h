@@ -4,50 +4,13 @@
 #include "einsummable.h"
 #include "graph.h"
 
-// TODO: note that inputs refer to nodes in the task graph,
-//       not to wtvr tids are
-
 struct taskgraph_t {
-  struct partialize_builder_t {
-    partialize_builder_t(): loc(-1), id(-1) {}
-    partialize_builder_t(
-      taskgraph_t* self,
-      vector<uint64_t> write_shape,
-      int loc);
-
-    void region_write(
-      vector<tuple<uint64_t, uint64_t>> hrect_out,
-      vector<tuple<uint64_t, uint64_t>> hrect_inn,
-      int id_inn);
-
-    int loc;
-    int id;
-    taskgraph_t* self;
-  };
-
   static
   tuple<
     map<int, tensor_t<int> >, // for each output id, the tids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph);
 
-  // Methods to construct a task graph object
-  // {{{
-  int insert_input( // TODO
-    int loc,
-    vector<uint64_t> shape);
-  int insert_einsummable( // TODO
-    int loc,
-    einsummable_t e,
-    vector<int> inns);
-  int insert_move( // TODO
-    int src,
-    int dst,
-    int tid);
-  partialize_builder_t new_partialize(
-    vector<uint64_t> write_shape,
-    int loc); // TODO
-  // }}}
 
 private:
   struct input_t {
@@ -115,21 +78,23 @@ private:
   // memory referred to by the input becomes consumed and used as the output
   // memory.
   struct partialize_t {
-    struct partial_unit_t {
-      struct out_regiondim_t {
-        uint64_t offset;
-        uint64_t size;
-      };
-      struct input_op_t {
-        int id;                      // the input
-        bool consumable;             // can the input be consumsed
-        struct inn_regiondim_t {
-          uint64_t dim;
-          uint64_t offset;
-        };                           // necc info for where in the input region
-        vector<inn_regiondim_t> region;
-      };
+    struct out_regiondim_t {
+      uint64_t offset;
+      uint64_t size;
+    };
 
+    struct inn_regiondim_t {
+      uint64_t dim;
+      uint64_t offset;
+    };                             // necc info for where in the input region
+
+    struct input_op_t {
+      int id;                      // the input
+      bool consumable;             // can the input be consumsed
+      vector<inn_regiondim_t> region;
+    };
+
+    struct partial_unit_t {
       // Each partial unit can have a different castable.
       // If the number of inputs is one, this value does not get used.
       castable_t castable;
@@ -148,6 +113,65 @@ private:
     vector<partial_unit_t> units;
   };
 
+  friend
+  bool operator==(
+    partialize_t::out_regiondim_t const& lhs,
+    partialize_t::out_regiondim_t const& rhs);
+  friend
+  bool operator!=(
+    partialize_t::out_regiondim_t const& lhs,
+    partialize_t::out_regiondim_t const& rhs);
+
+public:
+  struct partialize_builder_t {
+    partialize_builder_t(): self(nullptr), id(-1) {}
+
+    partialize_builder_t(
+      taskgraph_t* self,
+      vector<uint64_t> write_shape,
+      int loc);
+
+    ~partialize_builder_t();
+
+    void region_write_full_input(
+      vector<tuple<uint64_t, uint64_t>> hrect_out,
+      int id_inn);
+
+    int loc() const { return get().loc; }
+
+    taskgraph_t* self;
+    int id;
+  private:
+    partialize_t&       get()       { return std::get<partialize_t>(self->nodes[id].op.op); }
+    partialize_t const& get() const { return std::get<partialize_t>(self->nodes[id].op.op); }
+
+    void insert_partial_unit(partialize_t::partial_unit_t const& unit);
+  };
+
+  // Methods to construct a task graph object
+  // {{{
+  int insert_input( // TODO
+    int loc,
+    vector<uint64_t> shape);
+
+  int insert_einsummable( // TODO
+    int loc,
+    einsummable_t e,
+    vector<int> inns);
+
+  int insert_move( // TODO
+    int src,
+    int dst,
+    int tid);
+
+  // Note: it is assumed that the partialize_builder_t object is
+  //       destructed before the corresponding id is ever used again.
+  partialize_builder_t new_partialize(
+    vector<uint64_t> write_shape,
+    int loc);
+  // }}}
+
+private:
   struct op_t {
   private:
     using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
@@ -158,7 +182,7 @@ private:
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
     op_t(partialize_t x): op_t(_op_t(x)) {}
-  private:
+
     _op_t op;
   };
 
@@ -169,3 +193,9 @@ private:
   vector<node_t> nodes;
 };
 
+bool operator==(
+  taskgraph_t::partialize_t::out_regiondim_t const& lhs,
+  taskgraph_t::partialize_t::out_regiondim_t const& rhs);
+bool operator!=(
+  taskgraph_t::partialize_t::out_regiondim_t const& lhs,
+  taskgraph_t::partialize_t::out_regiondim_t const& rhs);

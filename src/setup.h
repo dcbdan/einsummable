@@ -109,3 +109,28 @@ vector<T> variadic_to_vec(Args... is) {
   std::reverse(x.begin(), x.end());
   return x;
 }
+
+// -------------------
+// |A   |A           |
+// |----|------------|
+// |A   |A  |A       |
+// |    |   |B       |
+// |    |   |        |
+// -------------------
+// A: full
+// B: small
+//
+//  --------------
+//  |   |Output  |
+//  |   |        |
+//  |   |        |
+//  --------------
+// It is an error if the small is not within the big
+vector<tuple<uint64_t, uint64_t>>
+center_hrect(
+  vector<tuple<uint64_t, uint64_t>> const& full,
+  vector<tuple<uint64_t, uint64_t>> const& small);
+
+
+vector<uint64_t> shape_hrect(
+  vector<tuple<uint64_t, uint64_t>> const& hrect);

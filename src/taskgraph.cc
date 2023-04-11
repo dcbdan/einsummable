@@ -173,7 +173,7 @@ state_t::access(int join_gid, int which_input)
       auto builder = taskgraph.new_partialize(write_shape, loc);
       ret.at(out_index).push_back(
         multiple_tensor_t::locid_t {
-          .loc = builder.loc,
+          .loc = builder.loc(),
           .id  = builder.id
         });
       builders.push_back(builder);
@@ -181,16 +181,40 @@ state_t::access(int join_gid, int which_input)
 
     // Now iterate through all the refined subtensors writing
     // into the output
-    auto hrect = inn_placement.partition.get_hrect(out_index);
-    auto refine_region = refine_tensor.partition.get_exact_region(hrect);
+    auto hrect_wrt_full = inn_placement.partition.get_hrect(out_index);
+    auto refine_region = refine_tensor.partition.get_exact_region(hrect_wrt_full);
     vector<int> refine_index = vector_mapfst(refine_region);
 
-    // Get the out offset here
+    // Welcome to the tedious world of hyper-rectangles...
+    //
+    // The full hrect of the entire tensor
+    // -------------------------
+    // |          |            |
+    // |          |            |
+    // |----------|------------|
+    // |          |A    |A     |
+    // |          |-----|------|
+    // |          |A    |AB    |
+    // -------------------------
+    //
+    // --------------
+    // |C    |C     |
+    // |-----|------|
+    // |C    |CD    |
+    // --------------
+    //
+    // A := hrect_wrt_full             (the hrect of this output)
+    // B := refined_hrect_wrt_full     (one of the refined hrects)
+    // C := output region for op       (from the perspective of the partialize op)
+    // D := one input to output region (from the perspective of the partialize op)
+
     do {
-      auto refine_hrect = refine_tensor.partition.get_hrect(refine_index);
+      auto refine_hrect_wrt_full = refine_tensor.partition.get_hrect(refine_index);
+      auto centered_hrect = center_hrect(hrect_wrt_full, refine_hrect_wrt_full);
+
       for(auto& builder: builders) {
-        int refine_tensor_id = refine_tensor.at(refine_index, builder.loc);
-        builder.region_write(hrect, refine_hrect, refine_tensor_id);
+        int refine_tensor_id = refine_tensor.at(refine_index, builder.loc());
+        builder.region_write_full_input(centered_hrect, refine_tensor_id);
       }
     } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
@@ -368,4 +392,115 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   }
 
   return ret;
+}
+
+taskgraph_t::partialize_builder_t::partialize_builder_t(
+  taskgraph_t* self,
+  vector<uint64_t> write_shape,
+  int loc): self(self)
+{
+  // insert a new partialize_t node into the graph
+  // and save the id
+  partialize_t partialize{
+    .loc = loc,
+    .write_shape = write_shape,
+    .units = vector<partialize_t::partial_unit_t>()
+  };
+
+  id = self->nodes.size();
+
+  self->nodes.push_back(node_t {
+    .op = op_t(partialize),
+    .outs = set<int>()
+  });
+}
+
+taskgraph_t::partialize_builder_t::~partialize_builder_t()
+{
+  // TODO: check that the partialize object is valid
+  // 1. make sure that units.size() > 0
+  // 2. make sure each partial_unit_t is over a disjoint out region
+}
+
+void
+taskgraph_t::partialize_builder_t::region_write_full_input(
+  vector<tuple<uint64_t, uint64_t>> hrect_out,
+  int id_inn)
+{
+  using inn_regiondim_t = partialize_t::inn_regiondim_t;
+  using out_regiondim_t = partialize_t::out_regiondim_t;
+  using input_op_t      = partialize_t::input_op_t;
+  using partial_unit_t  = partialize_t::partial_unit_t;
+
+  vector<inn_regiondim_t> inn_regiondims;
+  inn_regiondims.reserve(hrect_out.size());
+
+  vector<out_regiondim_t> out_regiondims;
+  out_regiondims.reserve(hrect_out.size());
+
+  for(auto const& [b,e]: hrect_out) {
+    inn_regiondims.push_back(inn_regiondim_t {
+      .dim    = e-b,
+      .offset = 0
+    });
+    out_regiondims.push_back(out_regiondim_t {
+      .offset = b,
+      .size   = e-b
+    });
+  }
+
+  input_op_t input {
+    .id         = id_inn,
+    .consumable = false,
+    .region     = inn_regiondims
+  };
+
+  partial_unit_t partial_unit {
+    .castable = castable_t::add,
+    .out_region = out_regiondims,
+    .inputs = {input}
+  };
+
+  insert_partial_unit(partial_unit);
+  get().units.push_back(partial_unit);
+}
+
+void
+taskgraph_t::partialize_builder_t::insert_partial_unit(
+  taskgraph_t::partialize_t::partial_unit_t const& unit)
+{
+  // Make sure that this will indeed be a new write into the partial
+  // (really, all the out regions should be disjoint as well)
+  for(auto const& other_unit: get().units) {
+    if(vector_equal(other_unit.out_region, unit.out_region)) {
+      throw std::runtime_error("region_write_full_input should have different regions");
+    }
+  }
+
+  get().units.push_back(unit);
+
+  // now all the inputs need to be registered on the other end
+  for(auto const& unit_input: unit.inputs) {
+    self->nodes[unit_input.id].outs.insert(id);
+  }
+}
+
+taskgraph_t::partialize_builder_t taskgraph_t::new_partialize(
+  vector<uint64_t> write_shape,
+  int loc)
+{
+  return partialize_builder_t(this, write_shape, loc);
+}
+
+bool operator==(
+  taskgraph_t::partialize_t::out_regiondim_t const& lhs,
+  taskgraph_t::partialize_t::out_regiondim_t const& rhs)
+{
+  return lhs.offset == rhs.offset && lhs.size == rhs.size;
+}
+bool operator!=(
+  taskgraph_t::partialize_t::out_regiondim_t const& lhs,
+  taskgraph_t::partialize_t::out_regiondim_t const& rhs)
+{
+  return !(lhs == rhs);
 }
