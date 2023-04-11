@@ -8,6 +8,23 @@
 //       not to wtvr tids are
 
 struct taskgraph_t {
+  struct partialize_builder_t {
+    partialize_builder_t(): loc(-1), id(-1) {}
+    partialize_builder_t(
+      taskgraph_t* self,
+      vector<uint64_t> write_shape,
+      int loc);
+
+    void region_write(
+      vector<tuple<uint64_t, uint64_t>> hrect_out,
+      vector<tuple<uint64_t, uint64_t>> hrect_inn,
+      int id_inn);
+
+    int loc;
+    int id;
+    taskgraph_t* self;
+  };
+
   static
   tuple<
     map<int, tensor_t<int> >, // for each output id, the tids of the blocks
@@ -27,9 +44,9 @@ struct taskgraph_t {
     int src,
     int dst,
     int tid);
-  // TODO: what does the partialize interface look like?
-
-
+  partialize_builder_t new_partialize(
+    vector<uint64_t> write_shape,
+    int loc); // TODO
   // }}}
 
 private:
@@ -126,6 +143,7 @@ private:
       vector<input_op_t> inputs;
     };
 
+    int loc;
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
   };

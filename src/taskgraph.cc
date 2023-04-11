@@ -141,16 +141,64 @@ state_t::access(int join_gid, int which_input)
   int gid = join_node.inns[which_input];
   multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
 
-  // When there isn't a refinement, just return the refined tensor
+  // When the refinement is a no-op, just return the refined tensor
   if(inn_placement.partition == refine_tensor.partition) {
     return refine_tensor;
   }
 
-  // 3. If the refined partition is the output partition,
-  //    return the value of the correct id.
-  //    Otherwise, construct the appropriate partialize
-  return refine_tensor; // TODO
+  // At this point we have refine_tensor, which contains a hyper-rectangular
+  // grid of sub-tensors, each sub-tensor at all the locations it will be used
+  // across all operations.
+  //
+  // For this particular operation, it will be used according to the partition
+  // and locations in inn_placement. Each sub-tensor in the refine_tensor maps
+  // to exactly one subtensor in the inn_placement partition.
+  //
+  // For each sub-tensor in refine_tensor, write it into the locations it'll
+  // be used at for inn_placement.
+  tensor_t<vector<multiple_tensor_t::locid_t>> ret;
 
+  auto out_shape = inn_placement.partition.block_shape();
+  vector<int> out_index(out_shape.size(), 0);
+  do {
+    // At this index and all locations it'll be used at, we need
+    // to write the new id into the return tensor and get the
+    // partialize builders
+    auto const& locs = inn_placement.locations.at(out_index);
+    vector<taskgraph_t::partialize_builder_t> builders;
+    builders.reserve(locs.size());
+
+    auto write_shape = inn_placement.partition.tensor_shape_at(out_index);
+    for(auto const& loc: locs) {
+      auto builder = taskgraph.new_partialize(write_shape, loc);
+      ret.at(out_index).push_back(
+        multiple_tensor_t::locid_t {
+          .loc = builder.loc,
+          .id  = builder.id
+        });
+      builders.push_back(builder);
+    }
+
+    // Now iterate through all the refined subtensors writing
+    // into the output
+    auto hrect = inn_placement.partition.get_hrect(out_index);
+    auto refine_region = refine_tensor.partition.get_exact_region(hrect);
+    vector<int> refine_index = vector_mapfst(refine_region);
+
+    // Get the out offset here
+    do {
+      auto refine_hrect = refine_tensor.partition.get_hrect(refine_index);
+      for(auto& builder: builders) {
+        int refine_tensor_id = refine_tensor.at(refine_index, builder.loc);
+        builder.region_write(hrect, refine_hrect, refine_tensor_id);
+      }
+    } while(increment_idxs_region(refine_region, refine_index));
+  } while(increment_idxs(out_shape, out_index));
+
+  return multiple_tensor_t {
+    .partition = inn_placement.partition,
+    .tensor = std::move(ret)
+  };
 };
 
 tensor_t<int>
@@ -207,9 +255,11 @@ state_t::compute(int gid)
 }
 
 void
-state_t::communicate(int gid, tensor_t<int> compute_result)
+state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
   // TODO
+  // 1. where does this tensor get used? get those placements and call make_refinement
+  // 2. form the multiple_tensor_t object by doing the computation
 }
 
 multiple_placement_t multiple_placement_t::make_refinement(vector<placement_t> const& ps) {

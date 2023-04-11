@@ -5,7 +5,7 @@
 
 template <typename T>
 struct tensor_t {
-  tensor_t(){}
+  tensor_t(){} // TODO: Can I delete this guy and get away witht it?
 
   tensor_t(tensor_t const& other):
     tensor_t(other.shape, other.vec)
