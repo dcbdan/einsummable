@@ -150,19 +150,19 @@ public:
 
   // Methods to construct a task graph object
   // {{{
-  int insert_input( // TODO
+  int insert_input(
     int loc,
     vector<uint64_t> shape);
 
-  int insert_einsummable( // TODO
+  int insert_einsummable(
     int loc,
     einsummable_t e,
     vector<int> inns);
 
-  int insert_move( // TODO
+  int insert_move(
     int src,
     int dst,
-    int tid);
+    int inn);
 
   // Note: it is assumed that the partialize_builder_t object is
   //       destructed before the corresponding id is ever used again.
@@ -186,6 +186,8 @@ private:
     _op_t op;
 
     uint64_t tensor_size() const;
+
+    set<int> inputs() const;
   };
 
   struct node_t {
@@ -193,6 +195,8 @@ private:
     set<int> outs;
   };
   vector<node_t> nodes;
+
+  int insert(node_t node);
 };
 
 bool operator==(

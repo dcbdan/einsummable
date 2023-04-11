@@ -283,7 +283,15 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
   // TODO
   // 1. where does this tensor get used? get those placements and call make_refinement
-  // 2. form the multiple_tensor_t object by doing the computation
+  // 2. form the multiple_tensor_t object by doing the computation and insert it into
+  //    refined_tensors
+
+  //multiple_tensor_t refined_tensor {
+  //  .partition = refined_partition,
+  //  .tensor    = std::move(ret)
+  //};
+
+  //retined_tensors.insert({join_gid, refined_tensor});
 }
 
 multiple_placement_t multiple_placement_t::make_refinement(vector<placement_t> const& ps) {
@@ -496,19 +504,15 @@ int taskgraph_t::insert_input(
   int loc,
   vector<uint64_t> shape)
 {
-  int ret = nodes.size();
-
   input_t input {
     .loc = loc,
     .size = product(shape)
   };
 
-  nodes.push_back(node_t {
+  return insert(node_t {
     .op = op_t(input),
     .outs = set<int>()
   });
-
-  return ret;
 }
 
 int taskgraph_t::insert_einsummable(
@@ -516,18 +520,16 @@ int taskgraph_t::insert_einsummable(
   einsummable_t e,
   vector<int> inns)
 {
-  int ret = nodes.size();
-
   apply_t apply {
     .loc = loc,
     .inns = inns,
     .einsummable = e
   };
 
-  nodes.push_back(node_t {
+  node_t node {
     .op = op_t(apply),
     .outs = set<int>()
-  });
+  };
 
   if(e.inns.size() != inns.size()) {
     throw std::runtime_error("insert_einsummable: incorrect number of inputs");
@@ -539,8 +541,37 @@ int taskgraph_t::insert_einsummable(
     }
   }
 
-  return ret;
+  return insert(node);
 }
+
+int taskgraph_t::insert_move(
+  int src,
+  int dst,
+  int inn)
+{
+  move_t move {
+    .src = src,
+    .dst = dst,
+    .inn = inn,
+    .size = nodes[inn].op.tensor_size()
+  };
+
+  return insert(node_t {
+    .op = op_t(move),
+    .outs = set<int>()
+  });
+}
+
+int taskgraph_t::insert(node_t node) {
+  int ret = nodes.size();
+
+  for(auto inn: node.op.inputs()) {
+    nodes[inn].outs.insert(ret);
+  }
+
+  nodes.push_back(node);
+  return ret;
+};
 
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
@@ -568,5 +599,28 @@ uint64_t taskgraph_t::op_t::tensor_size() const
   } else {
     throw std::runtime_error("should not reach");
     return 0;
+  }
+}
+
+set<int> taskgraph_t::op_t::inputs() const
+{
+  if(std::holds_alternative<input_t>(op)) {
+    return {};
+  } else if(std::holds_alternative<apply_t>(op)) {
+    auto const& inns = std::get<apply_t>(op).inns;
+    return set<int>(inns.begin(), inns.end());
+  } else if(std::holds_alternative<move_t>(op)) {
+    return {std::get<move_t>(op).inn};
+  } else if(std::holds_alternative<partialize_t>(op)) {
+    set<int> ret;
+    for(auto const& partial_unit: std::get<partialize_t>(op).units) {
+      for(auto const& input: partial_unit.inputs) {
+        ret.insert(input.id);
+      }
+    }
+    return ret;
+  } else {
+    throw std::runtime_error("should not reach");
+    return {};
   }
 }
