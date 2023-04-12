@@ -16,6 +16,40 @@
 #define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << ": " << x << std::endl;
 #define DLINEFILE DLINEFILEOUT(' ')
 
+#define vector_from_each_member(xs, member_type, member_name) [](auto const& xs) { \
+    std::vector<member_type> ret; \
+    ret.reserve(xs.size()); \
+    std::transform( \
+      xs.begin(), \
+      xs.end(), \
+      std::back_inserter(ret), \
+      [](auto const& x){ return x.member_name; }); \
+    return ret; \
+  }(xs)
+
+#define vector_from_each_method(xs, type, method) [](auto const& xs) { \
+    std::vector<type> ret; \
+    ret.reserve(xs.size()); \
+    std::transform( \
+      xs.begin(), \
+      xs.end(), \
+      std::back_inserter(ret), \
+      [](auto const& x){ return x.method(); }); \
+    return ret; \
+  }(xs)
+
+#define vector_from_each_tuple(xs, which_type, which) [](auto const& xs) { \
+    std::vector<which_type> ret; \
+    ret.reserve(xs.size()); \
+    std::transform( \
+      xs.begin(), \
+      xs.end(), \
+      std::back_inserter(ret), \
+      [](auto const& x){ return std::get<which>(x); }); \
+    return ret; \
+  }(xs)
+
+
 using std::vector;
 using std::tuple;
 using std::set;
@@ -69,12 +103,7 @@ vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
 
 template <typename T, typename U>
 vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
-  vector<T> xs;
-  xs.reserve(xys.size());
-  for(auto const& [x,_]: xys) {
-    xs.push_back(x);
-  }
-  return xs;
+  return vector_from_each_tuple(xys, T, 0);
 }
 
 template <typename T>

@@ -18,12 +18,7 @@ struct partition_t {
   };
 
   vector<uint64_t> total_shape() const {
-    vector<uint64_t> ret;
-    ret.reserve(partdims.size());
-    for(auto const& pdim: partdims) {
-      ret.push_back(pdim.total());
-    }
-    return ret;
+    return vector_from_each_method(partdims, uint64_t, total);
   }
 
   int num_parts() const {
@@ -31,12 +26,7 @@ struct partition_t {
   }
 
   vector<int> block_shape() const {
-    vector<int> ret;
-    ret.reserve(partdims.size());
-    for(auto const& p: partdims) {
-      ret.push_back(p.num_parts());
-    }
-    return ret;
+    return vector_from_each_method(partdims, int, num_parts);
   }
 
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const

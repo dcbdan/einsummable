@@ -53,7 +53,7 @@
 //     do the copy from inn buffer to out buffer using
 //       out shape, inn shape, copy shape, offset inn, offset out
 //   } while(indexer.increment());
-struct copy_region_to_t {
+struct copyregion_t {
   struct diminfo_t {
     int idx;
     uint64_t offset_inn;
@@ -61,7 +61,7 @@ struct copy_region_to_t {
     uint64_t size;
   };
 
-  copy_region_to_t(
+  copyregion_t(
     partition_t const& out,
     partition_t const& inn,
     vector<int> const& inn_index)

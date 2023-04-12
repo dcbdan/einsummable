@@ -1,4 +1,5 @@
 #include "taskgraph.h"
+#include "copyregion.h"
 
 // The compilation from graph to taskgraph is designed to
 // minimize the total number of bytes issued in moves.
@@ -445,7 +446,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     }
 
     for(auto const& [partial_loc, id]: partials) {
+      // This partial needs to be copied into the
+      // correct output region at the correct location.
+      copyregion_t get_regions(refinement.partition, out_partition, out_index);
+      do {
 
+      } while(get_regions.increment());
     }
 
   } while(increment_idxs(out_shape, out_index));

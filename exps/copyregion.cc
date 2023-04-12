@@ -1,6 +1,6 @@
 #include "../src/copyregion.h"
 
-void print(copy_region_to_t& c) {
+void print(copyregion_t& c) {
   std::cout << "-----------------" << std::endl << std::endl;
 
   do {
@@ -34,9 +34,9 @@ int main() {
     partdim_t::split(nj, 3),
   });
 
-  copy_region_to_t c1(singleton, split2, {1,1});
-  copy_region_to_t c2(split2, singleton, {0,0});
-  copy_region_to_t c3(split2, split3, {1,1});
+  copyregion_t c1(singleton, split2, {1,1});
+  copyregion_t c2(split2, singleton, {0,0});
+  copyregion_t c3(split2, split3, {1,1});
 
   std::cout << "### " << "split2[1,1] to singleton" << std::endl;
   print(c1);
