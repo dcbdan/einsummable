@@ -87,9 +87,26 @@ public:
     vector<uint64_t> out_shape() const {
       return std::visit([](auto x){ return x.out_shape(); }, op);
     }
-
     int out_rank() const {
       return this->out_shape().size();
+    }
+
+    vector<uint64_t> shape() const {
+      if(std::holds_alternative<input_t>(op)) {
+        return std::get<input_t>(op).shape;
+      }
+      if(std::holds_alternative<output_t>(op)) {
+        return std::get<output_t>(op).shape;
+      }
+      if(std::holds_alternative<einsummable_t>(op)) {
+        return std::get<einsummable_t>(op).join_shape;
+      }
+      throw std::runtime_error("graph::op_t should not reach");
+      return {};
+    }
+
+    int rank() const {
+      return this->shape().size();
     }
 
     bool is_output() const {

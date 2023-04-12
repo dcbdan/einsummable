@@ -285,12 +285,10 @@ state_t::compute(int gid)
 void
 state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
-  // TODO
-  // 1. where does this tensor get used? get those placements and call make_refinement
-  // 2. form the multiple_tensor_t object by doing the computation and insert it into
-  //    refined_tensors
+  using locid_t = multiple_tensor_t::locid_t;
 
   auto const& join_node = graph.nodes[join_gid];
+  auto const& join_placement = join_node.placement;
 
   vector<multiple_placement_t> usage_placements;
   usage_placements.reserve(2*join_node.outs.size());
@@ -318,12 +316,128 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
   auto refinement = multiple_placement_t::make_refinement(usage_placements);
 
-  //multiple_tensor_t refined_tensor {
-  //  .partition = refined_partition,
-  //  .tensor    = std::move(ret)
-  //};
+  // TODO:
+  // 1. if the refinement is equivalent to a placement the same as the join_result,
+  //    we're actually done
+  // 2. if the agg block size is one and the refinement is equivalent to a placement
+  //    the same as the out join_result, we're actually done
+  // TODO:
+  // If some but not all join outputs are already correct, what do you do?
+  // Want to avoid copying
+  // (can change buyilds to a map<int, vector<builder>> instead where
+  //  all missing ones have already been filled)
 
-  //retined_tensors.insert({join_gid, refined_tensor});
+  auto block_shape = refinement.partition.block_shape();
+
+  // the output object
+  tensor_t<vector<locid_t>> ret(block_shape);
+
+  // a build partial for every object in the output
+  tensor_t<vector<taskgraph_t::partialize_builder_t> > builds(block_shape);
+
+  // init builds and fill out ret: go through each index and
+  // call constructor to set the write shape and id,
+  // then copy id into ret
+  {
+    vector<int> index(block_shape.size(), 0);
+    do {
+      auto const& locs = refinement.locations.at(index);
+
+      auto& ret_at = ret.at(index);
+      auto& builds_at = builds.at(index);
+
+      ret_at.reserve(locs.size());
+      builds_at.reserve(locs.size());
+
+      vector<uint64_t> write_shape = refinement.partition.tensor_shape_at(index);
+
+      for(auto const& loc: locs) {
+        builds_at.push_back(taskgraph.new_partialize(write_shape, loc));
+
+        ret_at.push_back(locid_t {
+          .loc = loc,
+          .id = builds_at.back().id
+        });
+      }
+    } while(increment_idxs(block_shape, index));
+  }
+  // at this point, ret is correct, but the all the partials in the task graph
+  // are not properly filled out
+
+  auto const& _join_partdims = join_placement.partition.partdims;
+
+  int out_rank = join_node.op.out_rank();
+  partition_t out_partition(vector<partdim_t>(
+    _join_partdims.begin(),
+    _join_partdims.begin() + out_rank));
+
+  int join_rank = join_node.op.rank() - out_rank;
+  std::optional<partition_t> maybe_agg_partition;
+  if(join_rank > 0) {
+    maybe_agg_partition = vector<partdim_t>(
+      _join_partdims.begin() + out_rank,
+      _join_partdims.end());
+  }
+
+  // TODO:
+  //   for every out index:
+  //     1. for each loc, do local aggregations
+  //     2. for each loc, partial:
+  //          write directly into any local outputs
+  //        otherwise
+  //          a. create the subset
+  //          b. move the subset
+  //          c. write the subset to the out loc partial
+
+  vector<int> out_shape = out_partition.block_shape();
+
+  vector<int> join_shape;
+  if(maybe_agg_partition) {
+    join_shape = maybe_agg_partition.value().block_shape();
+  }
+
+  vector<int> out_index(out_rank, 0);
+  do {
+    // Form the partials that will need to be aggregated across locations.
+    map<int, int> partials; // loc to id map
+    if(maybe_agg_partition) {
+      auto const& agg_partition = maybe_agg_partition.value();
+      map<int, vector<int>> loc_to_ids;
+      vector<int> join_index(join_rank, 0);
+      do {
+        auto index = vector_concatenate(out_index, join_index);
+        int loc = join_placement.locations.at(index);
+        int id = join_result.at(index);
+        loc_to_ids[index].push_back(id);
+      } while(increment_idxs(join_shape, join_index));
+
+      for(auto const& [loc, ids]: loc_to_ids.items()) {
+        if(ids.size() == 1) {
+          partials[loc] = id;
+        } else {
+          int local_aggd_id = taskgraph.insert_consumed_aggregate(loc, castable, ids);
+          partials[loc] = local_aggd_id;
+        }
+      }
+    } else {
+      // here the join placement is the out placement
+      int loc = join_placement.locations.at(index);
+      int id  = join_result.at(index);
+      partials[loc] = id;
+    }
+
+    for(auto const& [partial_loc, id]: partials) {
+    //
+    }
+
+  } while(increment_idxs(out_shape, out_rank));
+
+  multiple_tensor_t refined_tensor {
+    .partition = refinement.partition,
+    .tensor    = std::move(ret)
+  };
+
+  refined_tensors.insert({join_gid, refined_tensor});
 }
 
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)
@@ -650,6 +764,54 @@ int taskgraph_t::insert_move(
     .op = op_t(move),
     .outs = set<int>()
   });
+}
+
+int taskgraph_t::insert_consumed_aggregate(
+  int loc,
+  castable_t castable,
+  vector<int> inns)
+{
+  using inn_regiondim_t = partialize_t::inn_regiondim_t;
+  using out_regiondim_t = partialize_t::out_regiondim_t;
+  using input_op_t      = partialize_t::input_op_t;
+  using partial_unit_t  = partialize_t::partial_unit_t;
+
+  if(inns.size() == 0) {
+    throw std::runtime_error("invalid insert_consumed_aggregate argument");
+  }
+
+  uint64_t sz = get_size_at(inns[0]);
+
+  int ret = nodes.size();
+
+  vector<input_op_t> inputs;
+  inputs.reserve(inns.size());
+  for(auto const& inn: inns) {
+    inputs.push_back(input_op_t {
+      .id = id,
+      .consumable = true,
+      .region = { inn_regiondim_t { .dim = sz, .offset = 0 } }
+    });
+  }
+
+  auto unit = partial_unit_t {
+    .castable = castable,
+    .out_region = { out_regiondim_t { .offset = 0, .size = sz } },
+    .inputs = inputs
+  };
+
+  nodes.push_back(partialize_t {
+    .loc = loc,
+    .write_shape = {sz},
+    .units = {unit}
+  });
+
+  return ret;
+}
+
+uint64_t taskgraph_t::get_size_at(int id) const
+{
+  return nodes[id].op.tensor_size();
 }
 
 int taskgraph_t::insert(node_t node) {

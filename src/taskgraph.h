@@ -10,7 +10,8 @@ struct taskgraph_t {
     map<int, tensor_t<int> >, // for each output id, the tids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph);
-
+  // TODO: The conversion between tensors is a bit tricky.
+  //       See what to optimize.
 
 private:
   struct input_t {
@@ -164,12 +165,22 @@ public:
     int dst,
     int inn);
 
+  int insert_consumed_aggregate(
+    int loc,
+    castable_t castable,
+    vector<int> inns);
+  // TODO: loc and src is always deducible because an id belongs to a loc
+  //       so either remove the loc from the api or assert the
+  //       loc is correct
+
   // Note: it is assumed that the partialize_builder_t object is
   //       destructed before the corresponding id is ever used again.
   partialize_builder_t new_partialize(
     vector<uint64_t> write_shape,
     int loc);
   // }}}
+
+  uint64_t get_size_at(int id) const;
 
 private:
   struct op_t {

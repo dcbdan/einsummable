@@ -8,6 +8,7 @@
 #include <tuple>
 #include <set>
 #include <map>
+#include <optional>
 
 using std::vector;
 using std::tuple;
