@@ -14,8 +14,11 @@ struct partdim_t {
   static partdim_t repeat(int n_repeat, uint64_t sz) {
     return from_sizes(vector<uint64_t>(n_repeat, sz));
   }
-  static partdim_t singleton(uint64_t shape) {
-    return partdim_t { .spans = {shape} };
+  static partdim_t singleton(uint64_t sz) {
+    return partdim_t { .spans = {sz} };
+  }
+  static partdim_t split(uint64_t total_size, int n_split) {
+    return from_sizes(divide_evenly(n_split, total_size));
   }
   static partdim_t unions(vector<partdim_t> ps) {
     if(ps.size() == 0) {
@@ -107,7 +110,7 @@ struct partdim_t {
     //   9,40  -> 0,4
     //   25,35 -> 2,4
     //   25,30 -> 2,3
-    if(end >= beg) {
+    if(end <= beg) {
       throw std::runtime_error("region: end >= beg");
     }
     return {which_block(beg), which_block(end-1) + 1};

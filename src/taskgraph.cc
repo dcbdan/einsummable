@@ -327,19 +327,19 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   // (can change buyilds to a map<int, vector<builder>> instead where
   //  all missing ones have already been filled)
 
-  auto block_shape = refinement.partition.block_shape();
+  auto refinement_shape = refinement.partition.block_shape();
 
   // the output object
-  tensor_t<vector<locid_t>> ret(block_shape);
+  tensor_t<vector<locid_t>> ret(refinement_shape);
 
   // a build partial for every object in the output
-  tensor_t<vector<taskgraph_t::partialize_builder_t> > builds(block_shape);
+  tensor_t<vector<taskgraph_t::partialize_builder_t> > builds(refinement_shape);
 
   // init builds and fill out ret: go through each index and
   // call constructor to set the write shape and id,
   // then copy id into ret
   {
-    vector<int> index(block_shape.size(), 0);
+    vector<int> index(refinement_shape.size(), 0);
     do {
       auto const& locs = refinement.locations.at(index);
 
@@ -359,7 +359,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
           .id = builds_at.back().id
         });
       }
-    } while(increment_idxs(block_shape, index));
+    } while(increment_idxs(refinement_shape, index));
   }
   // at this point, ret is correct, but the all the partials in the task graph
   // are not properly filled out
@@ -387,15 +387,24 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     castable = graph.nodes[join_gid].op.get_einsummable().castable;
   }
 
-  // TODO:
-  //   for every out index:
-  //     1. for each loc, do local aggregations
-  //     2. for each loc, partial:
-  //          write directly into any local outputs
-  //        otherwise
-  //          a. create the subset
-  //          b. move the subset
-  //          c. write the subset to the out loc partial
+  // TODO
+  //
+  // There are out index, agg index, join index
+  // that refer tot he acutal join_gid and join_result.
+  //
+  // Then there is the refinement_index that is being created.
+  //
+  // for every out index:
+  //   1. vector<loc,int> partials
+  //      for each loc:
+  //        do local aggregations and write to partial
+  //
+  //   2. for each loc, partial pair:
+  //        write directly into any local output refinement blocks
+  //      otherwise
+  //        a. create the subset
+  //        b. move the subset
+  //        c. write the subset to the output refinement block
 
   vector<int> out_shape = out_partition.block_shape();
 
@@ -436,7 +445,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     }
 
     for(auto const& [partial_loc, id]: partials) {
-    //
+
     }
 
   } while(increment_idxs(out_shape, out_index));

@@ -9,7 +9,8 @@ struct partition_t {
   {}
 
   static partition_t singleton(vector<uint64_t> shape) {
-    vector<partdim_t> partdims(shape.size());
+    vector<partdim_t> partdims;
+    partdims.reserve(shape.size());
     for(auto const& sz: shape) {
       partdims.push_back(partdim_t::singleton(sz));
     }
@@ -17,7 +18,8 @@ struct partition_t {
   };
 
   vector<uint64_t> total_shape() const {
-    vector<uint64_t> ret(partdims.size());
+    vector<uint64_t> ret;
+    ret.reserve(partdims.size());
     for(auto const& pdim: partdims) {
       ret.push_back(pdim.total());
     }
@@ -76,13 +78,29 @@ struct partition_t {
     vector<tuple<uint64_t,uint64_t>> const& region) const
   {
     if(region.size() != partdims.size()) {
-      throw std::runtime_error("partition_t::get_region");
+      throw std::runtime_error("partition_t::get_exact_region");
     }
     vector<tuple<int,int> > ret;
     ret.reserve(region.size());
     for(int i = 0; i != partdims.size(); ++i) {
       auto const& [beg,end] = region[i];
       ret.push_back(partdims[i].exact_region(beg,end));
+    }
+    return ret;
+  }
+
+  vector<tuple<int,int> >
+  get_region(
+    vector<tuple<uint64_t,uint64_t>> const& region) const
+  {
+    if(region.size() != partdims.size()) {
+      throw std::runtime_error("partition_t::get_region");
+    }
+    vector<tuple<int,int> > ret;
+    ret.reserve(region.size());
+    for(int i = 0; i != partdims.size(); ++i) {
+      auto const& [beg,end] = region[i];
+      ret.push_back(partdims[i].region(beg,end));
     }
     return ret;
   }

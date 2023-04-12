@@ -10,6 +10,12 @@
 #include <map>
 #include <optional>
 
+#define DOUT(x) std::cout << x << std::endl;
+#define DLINEOUT(x) std::cout << __LINE__ << " " << x << std::endl;
+#define DLINE DLINEOUT(' ')
+#define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << ": " << x << std::endl;
+#define DLINEFILE DLINEFILEOUT(' ')
+
 using std::vector;
 using std::tuple;
 using std::set;
@@ -28,6 +34,12 @@ T product(vector<T> const& xs)
 template <typename T>
 void print_vec(vector<T> const& xs)
 {
+  print_vec(std::cout, xs);
+}
+
+template <typename T>
+void print_vec(std::ostream& out, vector<T> const& xs)
+{
   std::cout << "{";
   if(xs.size() >= 1) {
     std::cout << xs[0];
@@ -38,6 +50,19 @@ void print_vec(vector<T> const& xs)
     }
   }
   std::cout << "}";
+}
+
+template <typename T>
+std::ostream& operator<<(std::ostream& out, vector<T> const& ts) {
+  print_vec(out, ts);
+  return out;
+}
+
+template <typename T, typename U>
+std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
+  auto const& [x1,x2] = x12;
+  out << "tup[" << x1 << "|" << x2 << "]";
+  return out;
 }
 
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
@@ -152,3 +177,5 @@ center_hrect(
 
 vector<uint64_t> shape_hrect(
   vector<tuple<uint64_t, uint64_t>> const& hrect);
+
+
