@@ -366,17 +366,25 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
   auto const& _join_partdims = join_placement.partition.partdims;
 
+  int join_rank = join_node.op.rank();
   int out_rank = join_node.op.out_rank();
+  int agg_rank = join_rank - out_rank;
+
+  castable_t castable;
+
   partition_t out_partition(vector<partdim_t>(
     _join_partdims.begin(),
     _join_partdims.begin() + out_rank));
 
-  int join_rank = join_node.op.rank() - out_rank;
   std::optional<partition_t> maybe_agg_partition;
-  if(join_rank > 0) {
+  if(agg_rank > 0) {
     maybe_agg_partition = vector<partdim_t>(
       _join_partdims.begin() + out_rank,
       _join_partdims.end());
+
+    // an agg will only happen if this is an einsummable node;
+    // so set the castable value
+    castable = graph.nodes[join_gid].op.get_einsummable().castable;
   }
 
   // TODO:
@@ -391,9 +399,9 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
   vector<int> out_shape = out_partition.block_shape();
 
-  vector<int> join_shape;
+  vector<int> agg_shape;
   if(maybe_agg_partition) {
-    join_shape = maybe_agg_partition.value().block_shape();
+    agg_shape = maybe_agg_partition.value().block_shape();
   }
 
   vector<int> out_index(out_rank, 0);
@@ -403,17 +411,17 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     if(maybe_agg_partition) {
       auto const& agg_partition = maybe_agg_partition.value();
       map<int, vector<int>> loc_to_ids;
-      vector<int> join_index(join_rank, 0);
+      vector<int> agg_index(agg_rank, 0);
       do {
-        auto index = vector_concatenate(out_index, join_index);
-        int loc = join_placement.locations.at(index);
-        int id = join_result.at(index);
-        loc_to_ids[index].push_back(id);
-      } while(increment_idxs(join_shape, join_index));
+        auto join_index = vector_concatenate(out_index, agg_index);
+        int loc = join_placement.locations.at(join_index);
+        int id = join_result.at(join_index);
+        loc_to_ids[loc].push_back(id);
+      } while(increment_idxs(agg_shape, agg_index));
 
-      for(auto const& [loc, ids]: loc_to_ids.items()) {
+      for(auto const& [loc, ids]: loc_to_ids) {
         if(ids.size() == 1) {
-          partials[loc] = id;
+          partials[loc] = ids[0];
         } else {
           int local_aggd_id = taskgraph.insert_consumed_aggregate(loc, castable, ids);
           partials[loc] = local_aggd_id;
@@ -421,8 +429,9 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       }
     } else {
       // here the join placement is the out placement
-      int loc = join_placement.locations.at(index);
-      int id  = join_result.at(index);
+      auto const& join_index = out_index;
+      int loc = join_placement.locations.at(join_index);
+      int id  = join_result.at(join_index);
       partials[loc] = id;
     }
 
@@ -430,7 +439,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     //
     }
 
-  } while(increment_idxs(out_shape, out_rank));
+  } while(increment_idxs(out_shape, out_index));
 
   multiple_tensor_t refined_tensor {
     .partition = refinement.partition,
@@ -621,10 +630,7 @@ taskgraph_t::partialize_builder_t::partialize_builder_t(
 
   id = self->nodes.size();
 
-  self->nodes.push_back(node_t {
-    .op = op_t(partialize),
-    .outs = set<int>()
-  });
+  self->nodes.emplace_back(partialize);
 }
 
 taskgraph_t::partialize_builder_t::~partialize_builder_t()
@@ -713,10 +719,7 @@ int taskgraph_t::insert_input(
     .size = product(shape)
   };
 
-  return insert(node_t {
-    .op = op_t(input),
-    .outs = set<int>()
-  });
+  return insert(input);
 }
 
 int taskgraph_t::insert_einsummable(
@@ -730,11 +733,6 @@ int taskgraph_t::insert_einsummable(
     .einsummable = e
   };
 
-  node_t node {
-    .op = op_t(apply),
-    .outs = set<int>()
-  };
-
   if(e.inns.size() != inns.size()) {
     throw std::runtime_error("insert_einsummable: incorrect number of inputs");
   }
@@ -745,7 +743,7 @@ int taskgraph_t::insert_einsummable(
     }
   }
 
-  return insert(node);
+  return insert(apply);
 }
 
 int taskgraph_t::insert_move(
@@ -760,10 +758,7 @@ int taskgraph_t::insert_move(
     .size = nodes[inn].op.tensor_size()
   };
 
-  return insert(node_t {
-    .op = op_t(move),
-    .outs = set<int>()
-  });
+  return insert(move);
 }
 
 int taskgraph_t::insert_consumed_aggregate(
@@ -788,7 +783,7 @@ int taskgraph_t::insert_consumed_aggregate(
   inputs.reserve(inns.size());
   for(auto const& inn: inns) {
     inputs.push_back(input_op_t {
-      .id = id,
+      .id = inn,
       .consumable = true,
       .region = { inn_regiondim_t { .dim = sz, .offset = 0 } }
     });
@@ -800,7 +795,7 @@ int taskgraph_t::insert_consumed_aggregate(
     .inputs = inputs
   };
 
-  nodes.push_back(partialize_t {
+  nodes.emplace_back(partialize_t {
     .loc = loc,
     .write_shape = {sz},
     .units = {unit}
@@ -814,14 +809,15 @@ uint64_t taskgraph_t::get_size_at(int id) const
   return nodes[id].op.tensor_size();
 }
 
-int taskgraph_t::insert(node_t node) {
+int taskgraph_t::insert(op_t op) {
   int ret = nodes.size();
 
-  for(auto inn: node.op.inputs()) {
+  for(auto inn: op.inputs()) {
     nodes[inn].outs.insert(ret);
   }
 
-  nodes.push_back(node);
+  nodes.emplace_back(op);
+
   return ret;
 };
 

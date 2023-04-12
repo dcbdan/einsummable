@@ -53,11 +53,20 @@ vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
 }
 
 template <typename T>
-void vector_concatenate(vector<T>& vs, vector<T> const& add_these) {
+void vector_concatenate_into(vector<T>& vs, vector<T> const& add_these) {
   vs.reserve(vs.size() + add_these.size());
   for(auto const& x: add_these) {
     vs.push_back(x);
   }
+}
+
+template <typename T>
+vector<T> vector_concatenate(vector<T> vs, vector<T> const& add_these) {
+  vs.reserve(vs.size() + add_these.size());
+  for(auto const& x: add_these) {
+    vs.push_back(x);
+  }
+  return vs;
 }
 
 template <typename T>

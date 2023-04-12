@@ -57,7 +57,7 @@ graph_t three_dimensional_matrix_multiplication(
     vector<uint64_t> sizes_row;
     sizes_row.reserve(nr*np);
     for(int i = 0; i != nr; ++i) {
-      vector_concatenate(sizes_row, part_sizes);
+      vector_concatenate_into(sizes_row, part_sizes);
     }
     partdim_t part_row = partdim_t::from_sizes(sizes_row);
 

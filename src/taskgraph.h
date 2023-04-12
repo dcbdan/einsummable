@@ -202,12 +202,14 @@ private:
   };
 
   struct node_t {
+    node_t(op_t op): op(op) {}
+
     op_t op;
     set<int> outs;
   };
   vector<node_t> nodes;
 
-  int insert(node_t node);
+  int insert(op_t op);
 };
 
 bool operator==(
