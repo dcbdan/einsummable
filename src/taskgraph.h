@@ -169,6 +169,11 @@ public:
     int loc,
     castable_t castable,
     vector<int> inns);
+  int insert_select_subset(
+    int loc,
+    vector<uint64_t> offset,
+    vector<uint64_t> shape,
+    int inn);
   // TODO: loc and src is always deducible because an id belongs to a loc
   //       so either remove the loc from the api or assert the
   //       loc is correct

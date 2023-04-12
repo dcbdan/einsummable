@@ -445,14 +445,42 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       partials[loc] = id;
     }
 
-    for(auto const& [partial_loc, id]: partials) {
-      // This partial needs to be copied into the
-      // correct output region at the correct location.
-      copyregion_t get_regions(refinement.partition, out_partition, out_index);
-      do {
+    vector<uint64_t> out_tensor_shape = out_partition.tensor_shape_at(out_index);
 
-      } while(get_regions.increment());
-    }
+    copyregion_t get_regions(refinement.partition, out_partition, out_index);
+    do {
+      auto const& subset_info = get_regions.info;
+      // r for refinement
+      vector<int> r_index = vector_from_each_member(subset_info, int, idx);
+      set<int> const& required_locs = refinement.locations.at(r_index);
+
+      for(auto const& [partial_loc, id]: partials) {
+        int subset_id = -1;
+        for(int loc: required_locs) {
+          if(partial_loc == loc) {
+            // copy directly into the output
+          } else {
+            // create the subset if it hasn't yet been created
+            if(subset_id == -1) {
+              vector<uint64_t> selection_shape = vector_from_each_member(
+                subset_info, uint64_t, size);
+              if(vector_equal(selection_shape, out_tensor_shape)) {
+                subset_id = id;
+              } else {
+                subset_id = taskgraph.insert_select_subset(
+                  partial_loc,
+                  vector_from_each_member(subset_info, uint64_t, offset_inn),
+                  selection_shape,
+                  id);
+              }
+            }
+            // move the subset, write to refined output
+            // TODO
+          }
+        }
+      }
+    } while(get_regions.increment());
+
 
   } while(increment_idxs(out_shape, out_index));
 
@@ -792,8 +820,6 @@ int taskgraph_t::insert_consumed_aggregate(
 
   uint64_t sz = get_size_at(inns[0]);
 
-  int ret = nodes.size();
-
   vector<input_op_t> inputs;
   inputs.reserve(inns.size());
   for(auto const& inn: inns) {
@@ -810,13 +836,62 @@ int taskgraph_t::insert_consumed_aggregate(
     .inputs = inputs
   };
 
-  nodes.emplace_back(partialize_t {
+  return insert(partialize_t {
     .loc = loc,
     .write_shape = {sz},
     .units = {unit}
   });
+}
 
-  return ret;
+int taskgraph_t::insert_select_subset(
+  int loc,
+  vector<uint64_t> offset,
+  vector<uint64_t> out_shape,
+  int inn)
+{
+  using inn_regiondim_t = partialize_t::inn_regiondim_t;
+  using out_regiondim_t = partialize_t::out_regiondim_t;
+  using input_op_t      = partialize_t::input_op_t;
+  using partial_unit_t  = partialize_t::partial_unit_t;
+
+  if(offset.size() != out_shape.size()) {
+    throw std::runtime_error("insert_select_subset incorrect sizes");
+  }
+
+  vector<out_regiondim_t> out_region;
+  out_region.reserve(offset.size());
+
+  vector<inn_regiondim_t> inn_region;
+  inn_region.reserve(offset.size());
+
+  for(int i = 0; i != offset.size(); ++i) {
+    out_region.push_back(out_regiondim_t {
+      .offset = 0,
+      .size = out_shape[i]
+    });
+    inn_region.push_back(inn_regiondim_t {
+      .dim = offset[i] + out_shape[i],
+      .offset = offset[i]
+    });
+  }
+
+  auto input = input_op_t {
+    .id = inn,
+    .consumable = false,
+    .region = inn_region
+  };
+
+  auto unit = partial_unit_t {
+    .castable = castable_t::add,
+    .out_region = out_region,
+    .inputs = {input}
+  };
+
+  return insert(partialize_t {
+    .loc = loc,
+    .write_shape = out_shape,
+    .units = {unit}
+  });
 }
 
 uint64_t taskgraph_t::get_size_at(int id) const

@@ -16,7 +16,7 @@
 #define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << ": " << x << std::endl;
 #define DLINEFILE DLINEFILEOUT(' ')
 
-#define vector_from_each_member(xs, member_type, member_name) [](auto const& xs) { \
+#define vector_from_each_member(items, member_type, member_name) [](auto const& xs) { \
     std::vector<member_type> ret; \
     ret.reserve(xs.size()); \
     std::transform( \
@@ -25,9 +25,9 @@
       std::back_inserter(ret), \
       [](auto const& x){ return x.member_name; }); \
     return ret; \
-  }(xs)
+  }(items)
 
-#define vector_from_each_method(xs, type, method) [](auto const& xs) { \
+#define vector_from_each_method(items, type, method) [](auto const& xs) { \
     std::vector<type> ret; \
     ret.reserve(xs.size()); \
     std::transform( \
@@ -36,9 +36,9 @@
       std::back_inserter(ret), \
       [](auto const& x){ return x.method(); }); \
     return ret; \
-  }(xs)
+  }(items)
 
-#define vector_from_each_tuple(xs, which_type, which) [](auto const& xs) { \
+#define vector_from_each_tuple(items, which_type, which) [](auto const& xs) { \
     std::vector<which_type> ret; \
     ret.reserve(xs.size()); \
     std::transform( \
@@ -47,8 +47,7 @@
       std::back_inserter(ret), \
       [](auto const& x){ return std::get<which>(x); }); \
     return ret; \
-  }(xs)
-
+  }(items)
 
 using std::vector;
 using std::tuple;
