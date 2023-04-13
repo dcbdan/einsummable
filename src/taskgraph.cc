@@ -49,6 +49,34 @@ struct multiple_tensor_t {
     int id;
   };
 
+  multiple_tensor_t(
+    partition_t p,
+    tensor_t<vector<locid_t>> && t)
+    : partition(p), tensor(std::move(t))
+  {
+    if(tensor.get_shape() != p.block_shape()){
+      throw std::runtime_error("multiple_tensor_t incorrect shape");
+    }
+  }
+
+  multiple_tensor_t(multiple_placement_t p, int init_value = 0)
+    : partition(p.partition), tensor(p.partition.block_shape())
+  {
+    auto shape = partition.block_shape();
+    vector<int> index(shape.size(), 0);
+    do {
+      auto const& locs = p.locations.at(index);
+      auto& tensor_at = tensor.at(index);
+      tensor_at.reserve(locs.size());
+      for(auto const& loc: locs) {
+        tensor_at.push_back(locid_t {
+          .loc = loc,
+          .id = init_value
+        });
+      }
+    } while(increment_idxs(shape, index));
+  }
+
   int vec_at(int vec_index, int desired_loc) const {
     for(auto const& [loc,id]: tensor.get()[vec_index]) {
       if(desired_loc == loc) {
@@ -58,8 +86,17 @@ struct multiple_tensor_t {
     throw std::runtime_error("multiple_tensor_t::vec_at could not get");
   }
 
-  int at(vector<int> const& index, int desired_loc) const {
+  int const& at(vector<int> const& index, int desired_loc) const {
     for(auto const& [loc,id]: tensor.at(index)) {
+      if(desired_loc == loc) {
+        return id;
+      }
+    }
+    throw std::runtime_error("multiple_tensor_t::at could not get");
+  }
+
+  int& at(vector<int> const& index, int desired_loc) {
+    for(auto& [loc,id]: tensor.at(index)) {
       if(desired_loc == loc) {
         return id;
       }
@@ -224,10 +261,7 @@ state_t::access(int join_gid, int which_input)
     } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
 
-  return multiple_tensor_t {
-    .partition = inn_placement.partition,
-    .tensor = std::move(ret)
-  };
+  return multiple_tensor_t(inn_placement.partition, std::move(ret));
 };
 
 tensor_t<int>
@@ -316,38 +350,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   }
 
   auto refinement = multiple_placement_t::make_refinement(usage_placements);
-
-  // TODO:
-  // 1. if the refinement is equivalent to a placement the same as the join_result,
-  //    we're actually done
-  // 2. if the agg block size is one and the refinement is equivalent to a placement
-  //    the same as the out join_result, we're actually done
-  // TODO:
-  // If some but not all join outputs are already correct, what do you do?
-  // Want to avoid copying
-  // (can change buyilds to a map<int, vector<builder>> instead where
-  //  all missing ones have already been filled)
-
   auto refinement_shape = refinement.partition.block_shape();
 
   // the output
   // initialize every id to -1 initially; the locs
   // will track with the refinement locs
-  tensor_t<vector<locid_t>> ret(refinement_shape);
-  {
-    vector<int> index(refinement_shape.size(), 0);
-    do {
-      auto const& locs = refinement.locations.at(index);
-      auto& ret_at = ret.at(index);
-      ret_at.reserve(locs.size());
-      for(auto const& loc: locs) {
-        ret_at.push_back(locid_t {
-          .loc = loc,
-          .id = -1
-        });
-      }
-    } while(increment_idxs(refinement_shape, index));
-  }
+  multiple_tensor_t refined_tensor(refinement, -1);
 
   auto const& _join_partdims = join_placement.partition.partdims;
 
@@ -372,10 +380,8 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     castable = graph.nodes[join_gid].op.get_einsummable().castable;
   }
 
-  // TODO
-  //
   // There are out index, agg index, join index
-  // that refer tot he acutal join_gid and join_result.
+  // that refer to the acutal join_gid and join_result.
   //
   // Then there is the refinement_index that is being created.
   //
@@ -383,13 +389,26 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   //   1. vector<loc,int> partials
   //      for each loc:
   //        do local aggregations and write to partial
-  //
   //   2. for each loc, partial pair:
-  //        write directly into any local output refinement blocks
-  //      otherwise
-  //        a. create the subset
-  //        b. move the subset
-  //        c. write the subset to the output refinement block
+  //        aggregate into local output refinement blocks
+  //        and move data if necessary
+  //
+  // Note that all this is rather smart.
+  //
+  // If there are no aggregations
+  // and the join_result is not refined, then join_result will be
+  // copied directly into refined_tensor.
+  //
+  // The minimum amount of communication happens: if necessary,
+  // output partials are split into subsets and moved to the correct
+  // location.
+  //
+  // Since all moved data is only used once, it is always consumed
+  // when aggregated into a partial. Unless the selection shape
+  // does not equal the refinement shape, in which case the
+  // mvoed data can't be consumed.
+  //
+  // Moreover, this all occurs on an output index basis.
 
   vector<int> out_shape = out_partition.block_shape();
 
@@ -440,46 +459,167 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
       vector<uint64_t> selection_shape = vector_from_each_member(
         subset_info, uint64_t, size);
+      vector<uint64_t> refinement_shape =
+        refinement.partition.tensor_shape_at(r_index);
 
-      for(auto const& [partial_loc, id]: partials) {
-        int subset_id = -1;
-        for(int loc: required_locs) {
-          if(partial_loc == loc) {
-            // copy directly into the output
-            // TODO
+      auto insert_out_to_selection = [&](int partial_loc, int partial_id) {
+        vector<regiondim_t> selection;
+        selection.reserve(subset_info.size());
+        for(int i = 0; i != subset_info.size(); ++i) {
+          selection.push_back(regiondim_t {
+            .dim = out_tensor_shape[i],
+            .offset = subset_info[i].offset_inn,
+            .size = selection_shape[i]
+          });
+        }
+        return taskgraph.insert_select_subset(partial_loc, selection, partial_id);
+      };
+
+      auto insert_selection_to_refinement = [&](int loc, int subset_id) {
+        return -1; // TODO
+      };
+      auto add_selection_to_refinement = [&](int loc, int ref_id, int sel_id) {
+        return -1;
+      };
+
+      auto insert_out_to_refinement = [&](int partial_loc, int partial_id) {
+        return -1; // TODO
+      };
+      auto add_out_to_refinement = [&](int loc, int ref_id, int partial_id) {
+        return -1; // TODO
+      };
+
+      // case 1: out_tensor_shape == selection_shape == refinement_shape
+      // case 2: out_tensor_shape >> (selection_shape == refinement_shape)
+      // case 3: out_tensor_shape >> selection_shape,
+      //         selection_shape != refinement_shape
+
+      if(partials.size() == 1) {
+        auto const& [partial_loc, partial_id] = *partials.begin();
+        if(vector_equal(out_tensor_shape, refinement_shape)) {
+          // case 1: copy right into the refined_tensor
+          for(int loc: required_locs) {
+            if(loc == partial_loc) {
+              refined_tensor.at(r_index, loc) = partial_id;
+            } else {
+              refined_tensor.at(r_index, loc) =
+                taskgraph.insert_move(partial_loc, loc, partial_id);
+            }
+          }
+        } else if(vector_equal(selection_shape, refinement_shape)) {
+          // case 2: subset then copy right into the refined tensor
+          int subset_id = insert_out_to_selection(partial_loc, partial_id);
+          for(int loc: required_locs) {
+            if(loc == partial_loc) {
+              refined_tensor.at(r_index, loc) = subset_id;
+            } else {
+              refined_tensor.at(r_index, loc) =
+                taskgraph.insert_move(partial_loc, loc, subset_id);
+            }
+          }
+        } else {
+          // case 3:
+          // 1. Will a subset selection need to be made?
+          //      If so, create the subset and use that
+          // 2. Otherwise, copy straight from the output to the refinement
+          //      This only happens when partial_id is used exclusively at
+          //      partial_loc
+          if(required_locs.size() == 1 && *required_locs.begin() == partial_loc)
+          {
+            refined_tensor.at(r_index, partial_loc) =
+              insert_out_to_refinement(partial_loc, partial_id);
           } else {
-            // create the subset if it hasn't yet been created
-            if(subset_id == -1) {
-              if(vector_equal(selection_shape, out_tensor_shape)) {
-                subset_id = id;
+            int subset_id = insert_out_to_selection(partial_loc, partial_id);
+            for(int loc: required_locs) {
+              if(loc == partial_loc) {
+                refined_tensor.at(r_index, partial_loc) =
+                  insert_selection_to_refinement(partial_loc, subset_id);
               } else {
-                vector<regiondim_t> selection;
-                selection.reserve(subset_info.size());
-                for(int i = 0; i != subset_info.size(); ++i) {
-                  selection.push_back(regiondim_t {
-                    .dim = out_tensor_shape[i],
-                    .offset = subset_info[i].offset_inn,
-                    .size = selection_shape[i]
-                  });
-                }
-                subset_id = taskgraph.insert_select_subset(partial_loc, selection, id);
+                int moved_subset_id =
+                  taskgraph.insert_move(partial_loc, loc, subset_id);
+                refined_tensor.at(r_index, loc) =
+                  insert_selection_to_refinement(loc, moved_subset_id);
               }
             }
-            // move the subset, write to refined output
-            int moved_subset_id = taskgraph.insert_move(partial_loc, loc, subset_id);
-            // TODO
+          }
+        }
+      } else {
+        // Here there are multiple partials which means partialize_t
+        // objects need to be created, but the same cases holds
+
+        for(int loc: required_locs) {
+          refined_tensor.at(r_index, loc) =
+            taskgraph.new_partial(loc, refinement_shape);
+        }
+
+        if(vector_equal(out_tensor_shape, refinement_shape)) {
+          // case 1: aggregate the full input
+          for(auto const& [partial_loc, partial_id]: partials) {
+            for(int loc: required_locs) {
+              int builder = refined_tensor.at(r_index, loc);
+              if(loc == partial_loc) {
+                // partial_id will also be moved since required_locs.size() > 1.
+                // So don't consume the output!
+                taskgraph.add_to_partial_the_full_aggregate(
+                  builder, partial_id, castable, false);
+              } else {
+                // Here, the moved data can be consumed
+                int moved_partial_id =
+                  taskgraph.insert_move(partial_loc, loc, partial_id);
+                taskgraph.add_to_partial_the_full_aggregate(
+                  builder, moved_partial_id, castable, true);
+              }
+            }
+          }
+        } else if(vector_equal(selection_shape, refinement_shape)) {
+          // case 2: subset then aggregate into the refined tensor
+          for(auto const& [partial_loc, partial_id]: partials) {
+            int subset_id = insert_out_to_selection(partial_loc, partial_id);
+            for(int loc: required_locs) {
+              int builder = refined_tensor.at(r_index, loc);
+              if(loc == partial_loc) {
+                // subset_id will also be moved since required_locs.size() > 1.
+                // So don't consume the output!
+                taskgraph.add_to_partial_the_full_aggregate(
+                  builder, subset_id, castable, false);
+              } else {
+                // Here, the moved data can be consumed
+                int moved_subset_id =
+                  taskgraph.insert_move(partial_loc, loc, subset_id);
+                taskgraph.add_to_partial_the_full_aggregate(
+                  builder, moved_subset_id, castable, true);
+              }
+            }
+          }
+        } else {
+          // case 3:
+          for(auto const& [partial_loc, partial_id]: partials) {
+            // 1. If a subset selection needs to be made,
+            //    create it and use that
+            // 2. otherwise, copy straight into the builder
+            if(required_locs.size() == 1 && *required_locs.begin() == partial_loc)
+            {
+              int builder = refined_tensor.at(r_index, partial_loc);
+              refined_tensor.at(r_index, partial_loc) =
+                add_out_to_refinement(partial_loc, builder, partial_id);
+            } else {
+              int subset_id = insert_out_to_selection(partial_loc, partial_id);
+              for(int loc: required_locs) {
+                int builder = refined_tensor.at(r_index, loc);
+                if(loc == partial_loc) {
+                  add_selection_to_refinement(partial_loc, builder, subset_id);
+                } else {
+                  int moved_subset_id =
+                    taskgraph.insert_move(partial_loc, loc, subset_id);
+                  add_selection_to_refinement(loc, builder, moved_subset_id);
+                }
+              }
+            }
           }
         }
       }
     } while(get_regions.increment());
-
-
   } while(increment_idxs(out_shape, out_index));
-
-  multiple_tensor_t refined_tensor {
-    .partition = refinement.partition,
-    .tensor    = std::move(ret)
-  };
 
   refined_tensors.insert({join_gid, refined_tensor});
 }
@@ -901,6 +1041,37 @@ void taskgraph_t::add_to_partial_the_full_input(
   touch_t touch {
     .selection = ts,
     .castable = optional<castable_t>()
+  };
+
+  add_to_partial(id_out, id_inn, touch, consume);
+}
+
+void taskgraph_t::add_to_partial_the_full_aggregate(
+  int id_out,
+  int id_inn,
+  castable_t castable,
+  bool consume)
+{
+  auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
+  if(nodes[id_inn].op.tensor_size() != product(write_shape)) {
+    throw std::runtime_error("invalid input size when adding aggregate");
+  }
+
+  vector<touchdim_t> ts;
+  ts.reserve(write_shape.size());
+  for(int i = 0; i != write_shape.size(); ++i) {
+    ts.push_back(touchdim_t {
+      .d_inn = write_shape[i],
+      .d_out = write_shape[i],
+      .offset_inn = 0,
+      .offset_out = 0,
+      .size = write_shape[i]
+    });
+  }
+
+  touch_t touch {
+    .selection = ts,
+    .castable = optional<castable_t>(castable)
   };
 
   add_to_partial(id_out, id_inn, touch, consume);

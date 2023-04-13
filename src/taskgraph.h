@@ -78,6 +78,12 @@ struct taskgraph_t {
     int id_inn,
     vector<tuple<uint64_t, uint64_t>> hrect_out,
     bool consume = false);
+
+  void add_to_partial_the_full_aggregate(
+    int id_out,
+    int id_inn,
+    castable_t castable,
+    bool consume);
   // }}}
 
   uint64_t get_size_at(int id) const;
