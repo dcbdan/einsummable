@@ -53,6 +53,7 @@ using std::vector;
 using std::tuple;
 using std::set;
 using std::map;
+using std::optional;
 
 template <typename T>
 T product(vector<T> const& xs)

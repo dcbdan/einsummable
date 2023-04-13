@@ -170,18 +170,17 @@ state_t::access(int join_gid, int which_input)
     // to write the new id into the return tensor and get the
     // partialize builders
     auto const& locs = inn_placement.locations.at(out_index);
-    vector<taskgraph_t::partialize_builder_t> builders;
-    builders.reserve(locs.size());
-
     auto write_shape = inn_placement.partition.tensor_shape_at(out_index);
+
+    auto& ret_at = ret.at(out_index);
+    ret_at.reserve(locs.size());
     for(auto const& loc: locs) {
-      auto builder = taskgraph.new_partialize(write_shape, loc);
-      ret.at(out_index).push_back(
+      int builder_id = taskgraph.new_partial(loc, write_shape);
+      ret_at.push_back(
         multiple_tensor_t::locid_t {
-          .loc = builder.loc(),
-          .id  = builder.id
+          .loc = loc,
+          .id  = builder_id
         });
-      builders.push_back(builder);
     }
 
     // Now iterate through all the refined subtensors writing
@@ -217,9 +216,10 @@ state_t::access(int join_gid, int which_input)
       auto refine_hrect_wrt_full = refine_tensor.partition.get_hrect(refine_index);
       auto centered_hrect = center_hrect(hrect_wrt_full, refine_hrect_wrt_full);
 
-      for(auto& builder: builders) {
-        int refine_tensor_id = refine_tensor.at(refine_index, builder.loc());
-        builder.region_write_full_input(centered_hrect, refine_tensor_id);
+      for(auto const& [loc, builder_id]: ret_at) {
+        int refine_tensor_id = refine_tensor.at(refine_index, builder_id);
+        taskgraph.add_to_partial_the_full_input(
+          builder_id, refine_tensor_id, centered_hrect);
       }
     } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
@@ -330,40 +330,24 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
   auto refinement_shape = refinement.partition.block_shape();
 
-  // the output object
+  // the output
+  // initialize every id to -1 initially; the locs
+  // will track with the refinement locs
   tensor_t<vector<locid_t>> ret(refinement_shape);
-
-  // a build partial for every object in the output
-  tensor_t<vector<taskgraph_t::partialize_builder_t> > builds(refinement_shape);
-
-  // init builds and fill out ret: go through each index and
-  // call constructor to set the write shape and id,
-  // then copy id into ret
   {
     vector<int> index(refinement_shape.size(), 0);
     do {
       auto const& locs = refinement.locations.at(index);
-
       auto& ret_at = ret.at(index);
-      auto& builds_at = builds.at(index);
-
       ret_at.reserve(locs.size());
-      builds_at.reserve(locs.size());
-
-      vector<uint64_t> write_shape = refinement.partition.tensor_shape_at(index);
-
       for(auto const& loc: locs) {
-        builds_at.push_back(taskgraph.new_partialize(write_shape, loc));
-
         ret_at.push_back(locid_t {
           .loc = loc,
-          .id = builds_at.back().id
+          .id = -1
         });
       }
     } while(increment_idxs(refinement_shape, index));
   }
-  // at this point, ret is correct, but the all the partials in the task graph
-  // are not properly filled out
 
   auto const& _join_partdims = join_placement.partition.partdims;
 
@@ -454,27 +438,35 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       vector<int> r_index = vector_from_each_member(subset_info, int, idx);
       set<int> const& required_locs = refinement.locations.at(r_index);
 
+      vector<uint64_t> selection_shape = vector_from_each_member(
+        subset_info, uint64_t, size);
+
       for(auto const& [partial_loc, id]: partials) {
         int subset_id = -1;
         for(int loc: required_locs) {
           if(partial_loc == loc) {
             // copy directly into the output
+            // TODO
           } else {
             // create the subset if it hasn't yet been created
             if(subset_id == -1) {
-              vector<uint64_t> selection_shape = vector_from_each_member(
-                subset_info, uint64_t, size);
               if(vector_equal(selection_shape, out_tensor_shape)) {
                 subset_id = id;
               } else {
-                subset_id = taskgraph.insert_select_subset(
-                  partial_loc,
-                  vector_from_each_member(subset_info, uint64_t, offset_inn),
-                  selection_shape,
-                  id);
+                vector<regiondim_t> selection;
+                selection.reserve(subset_info.size());
+                for(int i = 0; i != subset_info.size(); ++i) {
+                  selection.push_back(regiondim_t {
+                    .dim = out_tensor_shape[i],
+                    .offset = subset_info[i].offset_inn,
+                    .size = selection_shape[i]
+                  });
+                }
+                subset_id = taskgraph.insert_select_subset(partial_loc, selection, id);
               }
             }
             // move the subset, write to refined output
+            int moved_subset_id = taskgraph.insert_move(partial_loc, loc, subset_id);
             // TODO
           }
         }
@@ -658,101 +650,6 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   return ret;
 }
 
-taskgraph_t::partialize_builder_t::partialize_builder_t(
-  taskgraph_t* self,
-  vector<uint64_t> write_shape,
-  int loc): self(self)
-{
-  // insert a new partialize_t node into the graph
-  // and save the id
-  partialize_t partialize{
-    .loc = loc,
-    .write_shape = write_shape,
-    .units = vector<partialize_t::partial_unit_t>()
-  };
-
-  id = self->nodes.size();
-
-  self->nodes.emplace_back(partialize);
-}
-
-taskgraph_t::partialize_builder_t::~partialize_builder_t()
-{
-  // TODO: check that the partialize object is valid
-  // 1. make sure that units.size() > 0
-  // 2. make sure each partial_unit_t is over a disjoint out region
-}
-
-void
-taskgraph_t::partialize_builder_t::region_write_full_input(
-  vector<tuple<uint64_t, uint64_t>> hrect_out,
-  int id_inn)
-{
-  using inn_regiondim_t = partialize_t::inn_regiondim_t;
-  using out_regiondim_t = partialize_t::out_regiondim_t;
-  using input_op_t      = partialize_t::input_op_t;
-  using partial_unit_t  = partialize_t::partial_unit_t;
-
-  vector<inn_regiondim_t> inn_regiondims;
-  inn_regiondims.reserve(hrect_out.size());
-
-  vector<out_regiondim_t> out_regiondims;
-  out_regiondims.reserve(hrect_out.size());
-
-  for(auto const& [b,e]: hrect_out) {
-    inn_regiondims.push_back(inn_regiondim_t {
-      .dim    = e-b,
-      .offset = 0
-    });
-    out_regiondims.push_back(out_regiondim_t {
-      .offset = b,
-      .size   = e-b
-    });
-  }
-
-  input_op_t input {
-    .id         = id_inn,
-    .consumable = false,
-    .region     = inn_regiondims
-  };
-
-  partial_unit_t partial_unit {
-    .castable = castable_t::add,
-    .out_region = out_regiondims,
-    .inputs = {input}
-  };
-
-  insert_partial_unit(partial_unit);
-  get().units.push_back(partial_unit);
-}
-
-void
-taskgraph_t::partialize_builder_t::insert_partial_unit(
-  taskgraph_t::partialize_t::partial_unit_t const& unit)
-{
-  // Make sure that this will indeed be a new write into the partial
-  // (really, all the out regions should be disjoint as well)
-  for(auto const& other_unit: get().units) {
-    if(vector_equal(other_unit.out_region, unit.out_region)) {
-      throw std::runtime_error("region_write_full_input should have different regions");
-    }
-  }
-
-  get().units.push_back(unit);
-
-  // now all the inputs need to be registered on the other end
-  for(auto const& unit_input: unit.inputs) {
-    self->nodes[unit_input.id].outs.insert(id);
-  }
-}
-
-taskgraph_t::partialize_builder_t taskgraph_t::new_partialize(
-  vector<uint64_t> write_shape,
-  int loc)
-{
-  return partialize_builder_t(this, write_shape, loc);
-}
-
 int taskgraph_t::insert_input(
   int loc,
   vector<uint64_t> shape)
@@ -845,8 +742,7 @@ int taskgraph_t::insert_consumed_aggregate(
 
 int taskgraph_t::insert_select_subset(
   int loc,
-  vector<uint64_t> offset,
-  vector<uint64_t> out_shape,
+  vector<regiondim_t> selection,
   int inn)
 {
   using inn_regiondim_t = partialize_t::inn_regiondim_t;
@@ -854,44 +750,160 @@ int taskgraph_t::insert_select_subset(
   using input_op_t      = partialize_t::input_op_t;
   using partial_unit_t  = partialize_t::partial_unit_t;
 
-  if(offset.size() != out_shape.size()) {
-    throw std::runtime_error("insert_select_subset incorrect sizes");
-  }
+  vector<uint64_t> write_shape;
+  write_shape.reserve(selection.size());
 
-  vector<out_regiondim_t> out_region;
-  out_region.reserve(offset.size());
+  vector<touchdim_t> ts;
+  ts.reserve(selection.size());
+  for(auto const& [dim_inn, offset_inn, size]: selection)
+  {
+    write_shape.push_back(size);
 
-  vector<inn_regiondim_t> inn_region;
-  inn_region.reserve(offset.size());
-
-  for(int i = 0; i != offset.size(); ++i) {
-    out_region.push_back(out_regiondim_t {
-      .offset = 0,
-      .size = out_shape[i]
-    });
-    inn_region.push_back(inn_regiondim_t {
-      .dim = offset[i] + out_shape[i],
-      .offset = offset[i]
+    ts.push_back(touchdim_t {
+      .d_inn = dim_inn,
+      .d_out = size,
+      .offset_inn = offset_inn,
+      .offset_out = 0,
+      .size = size
     });
   }
 
-  auto input = input_op_t {
-    .id = inn,
-    .consumable = false,
-    .region = inn_region
+  touch_t touch {
+    .selection = ts,
+    .castable = optional<castable_t>()
   };
 
-  auto unit = partial_unit_t {
-    .castable = castable_t::add,
-    .out_region = out_region,
-    .inputs = {input}
-  };
+  int ret = new_partial(loc, write_shape);
+  add_to_partial(ret, inn, touch);
+  return ret;
+}
 
+int taskgraph_t::new_partial(
+  int loc,
+  vector<uint64_t> write_shape)
+{
   return insert(partialize_t {
     .loc = loc,
-    .write_shape = out_shape,
-    .units = {unit}
+    .write_shape = write_shape,
+    .units = {}
   });
+}
+
+void taskgraph_t::add_to_partial(
+  int id_out,
+  int id_inn,
+  touch_t touch,
+  bool consume)
+{
+  using inn_regiondim_t = partialize_t::inn_regiondim_t;
+  using out_regiondim_t = partialize_t::out_regiondim_t;
+  using input_op_t      = partialize_t::input_op_t;
+  using partial_unit_t  = partialize_t::partial_unit_t;
+
+  partialize_t& partialize = nodes[id_out].op.get_partialize();
+
+  {
+    vector<uint64_t> shape_out = vector_from_each_member(
+      touch.selection, uint64_t, d_out);
+    if(!vector_equal(partialize.write_shape, shape_out)) {
+      throw std::runtime_error("add_to_partial: incorrect output shape");
+    }
+  }
+
+  vector<out_regiondim_t> region_out;
+  region_out.reserve(touch.selection.size());
+
+  vector<inn_regiondim_t> region_inn;
+  region_inn.reserve(touch.selection.size());
+
+  for(auto const& [d_inn, _, offset_inn, offset_out, size]: touch.selection)
+  {
+    region_out.push_back(out_regiondim_t {
+      .offset = offset_out,
+      .size = size
+    });
+    region_inn.push_back(inn_regiondim_t {
+      .dim = d_inn,
+      .offset = offset_inn
+    });
+  }
+
+  input_op_t input {
+    .id = id_inn,
+    .consumable = consume,
+    .region = region_inn
+  };
+
+  bool found = false;
+  for(partial_unit_t& unit: partialize.units) {
+    if(vector_equal(unit.out_region, region_out)) {
+      if(!touch.castable || !unit.castable) {
+        throw std::runtime_error("optional castable must be something");
+      }
+      if(unit.castable.value() != touch.castable.value()) {
+        throw std::runtime_error("cannot use different castables");
+      }
+
+      unit.inputs.push_back(input);
+
+      found = true;
+      break;
+    } else {
+      // TODO: assert that unit.out_region and region_out are disjoint
+    }
+  }
+
+  if(!found) {
+    partialize.units.push_back(partial_unit_t {
+      .castable = touch.castable,
+      .out_region = region_out,
+      .inputs = {input}
+    });
+  }
+
+  // make sure to tell nodes this id_inn gets used at id_out
+  nodes[id_inn].outs.insert(id_out);
+}
+
+void taskgraph_t::add_to_partial_the_full_input(
+  int id_out,
+  int id_inn,
+  vector<tuple<uint64_t, uint64_t>> hrect_out,
+  bool consume)
+{
+  // this is a little goofy: we're gonna get the write shape,
+  // put it into touches, the add_to_partial is gonna extract
+  // the write shape and verify that it is the same shape as
+  // the partialize we're adding to.
+  //
+  // Oh well.
+  auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
+
+  if(hrect_out.size() != write_shape.size()) {
+    throw std::runtime_error("incorrect sizing");
+  }
+
+  vector<touchdim_t> ts;
+  ts.reserve(hrect_out.size());
+  for(int i = 0; i != hrect_out.size(); ++i) {
+    auto const& [b,e] = hrect_out[i];
+    auto const& d_out = write_shape[i];
+
+    ts.push_back(touchdim_t {
+      .d_inn = e-b,
+      .d_out = d_out,
+      .offset_inn = 0,
+      .offset_out = b,
+      .size = e-b
+    });
+  }
+
+  touch_t touch {
+    .selection = ts,
+    .castable = optional<castable_t>()
+  };
+
+  add_to_partial(id_out, id_inn, touch, consume);
 }
 
 uint64_t taskgraph_t::get_size_at(int id) const

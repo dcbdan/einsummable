@@ -4,6 +4,25 @@
 #include "einsummable.h"
 #include "graph.h"
 
+struct touchdim_t {
+  uint64_t d_inn;
+  uint64_t d_out;
+  uint64_t offset_inn;
+  uint64_t offset_out;
+  uint64_t size;
+};
+
+struct touch_t {
+  vector<touchdim_t> selection;
+  optional<castable_t> castable;
+};
+
+struct regiondim_t {
+  uint64_t dim;
+  uint64_t offset;
+  uint64_t size;
+};
+
 struct taskgraph_t {
   static
   tuple<
@@ -12,6 +31,60 @@ struct taskgraph_t {
   make(graph_t const& graph);
   // TODO: The conversion between tensors is a bit tricky.
   //       See what to optimize.
+
+  // Methods to construct a task graph object
+  // {{{
+
+  // TODO: loc and src is always deducible because an id belongs to a loc
+  //       so either remove the loc from the api or assert the
+  //       loc is correct
+
+  int insert_input(
+    int loc,
+    vector<uint64_t> shape);
+
+  int insert_einsummable(
+    int loc,
+    einsummable_t e,
+    vector<int> inns);
+
+  int insert_move(
+    int src,
+    int dst,
+    int inn);
+
+  int insert_consumed_aggregate(
+    int loc,
+    castable_t castable,
+    vector<int> inns);
+
+  int insert_select_subset(
+    int loc,
+    vector<regiondim_t> selection,
+    int inn);
+
+  int new_partial(
+    int loc,
+    vector<uint64_t> write_shape);
+
+  void add_to_partial(
+    int id_out,
+    int id_inn,
+    touch_t touch,
+    bool consume = false);
+
+  void add_to_partial_the_full_input(
+    int id_out,
+    int id_inn,
+    vector<tuple<uint64_t, uint64_t>> hrect_out,
+    bool consume = false);
+  // }}}
+
+  uint64_t get_size_at(int id) const;
+
+  // find all partial inputs that can be consumed and
+  // consume them
+  void insert_possible_consumables() { /* TODO */ }
 
 private:
   struct input_t {
@@ -98,7 +171,7 @@ private:
     struct partial_unit_t {
       // Each partial unit can have a different castable.
       // If the number of inputs is one, this value does not get used.
-      castable_t castable;
+      optional<castable_t> castable;
 
       // For each dimension in the write shape,
       //   contain the offset and the size for the write region
@@ -123,71 +196,6 @@ private:
     partialize_t::out_regiondim_t const& lhs,
     partialize_t::out_regiondim_t const& rhs);
 
-public:
-  struct partialize_builder_t {
-    partialize_builder_t(): self(nullptr), id(-1) {}
-
-    partialize_builder_t(
-      taskgraph_t* self,
-      vector<uint64_t> write_shape,
-      int loc);
-
-    ~partialize_builder_t();
-
-    void region_write_full_input(
-      vector<tuple<uint64_t, uint64_t>> hrect_out,
-      int id_inn);
-
-    int loc() const { return get().loc; }
-
-    taskgraph_t* self;
-    int id;
-  private:
-    partialize_t&       get()       { return std::get<partialize_t>(self->nodes[id].op.op); }
-    partialize_t const& get() const { return std::get<partialize_t>(self->nodes[id].op.op); }
-
-    void insert_partial_unit(partialize_t::partial_unit_t const& unit);
-  };
-
-  // Methods to construct a task graph object
-  // {{{
-  int insert_input(
-    int loc,
-    vector<uint64_t> shape);
-
-  int insert_einsummable(
-    int loc,
-    einsummable_t e,
-    vector<int> inns);
-
-  int insert_move(
-    int src,
-    int dst,
-    int inn);
-
-  int insert_consumed_aggregate(
-    int loc,
-    castable_t castable,
-    vector<int> inns);
-  int insert_select_subset(
-    int loc,
-    vector<uint64_t> offset,
-    vector<uint64_t> shape,
-    int inn);
-  // TODO: loc and src is always deducible because an id belongs to a loc
-  //       so either remove the loc from the api or assert the
-  //       loc is correct
-
-  // Note: it is assumed that the partialize_builder_t object is
-  //       destructed before the corresponding id is ever used again.
-  partialize_builder_t new_partialize(
-    vector<uint64_t> write_shape,
-    int loc);
-  // }}}
-
-  uint64_t get_size_at(int id) const;
-
-private:
   struct op_t {
   private:
     using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
@@ -204,6 +212,8 @@ private:
     uint64_t tensor_size() const;
 
     set<int> inputs() const;
+
+    partialize_t& get_partialize() { return std::get<partialize_t>(op); }
   };
 
   struct node_t {
