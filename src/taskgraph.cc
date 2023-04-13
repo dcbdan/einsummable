@@ -462,31 +462,74 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       vector<uint64_t> refinement_shape =
         refinement.partition.tensor_shape_at(r_index);
 
-      auto insert_out_to_selection = [&](int partial_loc, int partial_id) {
-        vector<regiondim_t> selection;
-        selection.reserve(subset_info.size());
+      vector<regiondim_t> _out_to_selection_rs;
+      {
+        _out_to_selection_rs.reserve(subset_info.size());
         for(int i = 0; i != subset_info.size(); ++i) {
-          selection.push_back(regiondim_t {
-            .dim = out_tensor_shape[i],
+          _out_to_selection_rs.push_back(regiondim_t {
+            .dim    = out_tensor_shape[i],
             .offset = subset_info[i].offset_inn,
-            .size = selection_shape[i]
+            .size   = selection_shape[i]
           });
         }
-        return taskgraph.insert_select_subset(partial_loc, selection, partial_id);
+      }
+      auto insert_out_to_selection = [&](int partial_loc, int partial_id) {
+        return taskgraph.insert_select_subset(
+          partial_loc, _out_to_selection_rs, partial_id);
       };
 
+      vector<touchdim_t> _selection_to_refinement_ts;
+      {
+        _selection_to_refinement_ts.reserve(subset_info.size());
+        for(int i = 0; i != subset_info.size(); ++i) {
+          _selection_to_refinement_ts.push_back(touchdim_t {
+            .d_inn      = selection_shape[i],
+            .d_out      = refinement_shape[i],
+            .offset_inn = 0,
+            .offset_out = subset_info[i].offset_out,
+            .size       = selection_shape[i]
+          });
+        }
+      }
+      touch_t _selection_to_refinement_touch {
+        .selection = _selection_to_refinement_ts,
+        .castable = optional<castable_t>(castable)
+      };
       auto insert_selection_to_refinement = [&](int loc, int subset_id) {
-        return -1; // TODO
+        int ret = taskgraph.new_partial(loc, refinement_shape);
+        taskgraph.add_to_partial(ret, subset_id, _selection_to_refinement_touch, false);
+        return ret;
       };
       auto add_selection_to_refinement = [&](int loc, int ref_id, int sel_id) {
-        return -1;
+        // (could check loc is correct here)
+        taskgraph.add_to_partial(ref_id, sel_id, _selection_to_refinement_touch, false);
       };
 
+      vector<touchdim_t> _out_to_refinement_ts;
+      {
+        _out_to_refinement_ts.reserve(subset_info.size());
+        for(int i = 0; i != subset_info.size(); ++i) {
+          _out_to_refinement_ts.push_back(touchdim_t {
+            .d_inn      = out_tensor_shape[i],
+            .d_out      = refinement_shape[i],
+            .offset_inn = subset_info[i].offset_inn,
+            .offset_out = subset_info[i].offset_out,
+            .size       = subset_info[i].size
+          });
+        }
+      }
+      touch_t _out_to_refinement_touch {
+        .selection = _out_to_refinement_ts,
+        .castable = optional<castable_t>(castable)
+      };
       auto insert_out_to_refinement = [&](int partial_loc, int partial_id) {
-        return -1; // TODO
+        int ret = taskgraph.new_partial(partial_loc, refinement_shape);
+        taskgraph.add_to_partial(ret, partial_id, _out_to_refinement_touch, false);
+        return ret;
       };
       auto add_out_to_refinement = [&](int loc, int ref_id, int partial_id) {
-        return -1; // TODO
+        // (could check loc is correct here)
+        taskgraph.add_to_partial(ref_id, partial_id, _out_to_refinement_touch, false);
       };
 
       // case 1: out_tensor_shape == selection_shape == refinement_shape
@@ -600,8 +643,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
             if(required_locs.size() == 1 && *required_locs.begin() == partial_loc)
             {
               int builder = refined_tensor.at(r_index, partial_loc);
-              refined_tensor.at(r_index, partial_loc) =
-                add_out_to_refinement(partial_loc, builder, partial_id);
+              add_out_to_refinement(partial_loc, builder, partial_id);
             } else {
               int subset_id = insert_out_to_selection(partial_loc, partial_id);
               for(int loc: required_locs) {
