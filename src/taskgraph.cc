@@ -2,7 +2,8 @@
 #include "copyregion.h"
 
 // The compilation from graph to taskgraph is designed to
-// minimize the total number of bytes issued in moves.
+// automatically split up tensors so as to only move
+// the specified bytes.
 //
 // Their are three phases to worry about. The "compute" phase,
 // the "access" phase, the "communicate" phase.
@@ -406,7 +407,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   // and the join_result is not refined, then join_result will be
   // copied directly into refined_tensor.
   //
-  // The minimum amount of communication happens: if necessary,
+  // Only the specified communication happens: if necessary,
   // output partials are split into subsets and moved to the correct
   // location.
   //

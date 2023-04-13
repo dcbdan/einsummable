@@ -63,6 +63,22 @@ struct graph_t {
   //
   // Perhaps similarly for ops like (A+B)C
 
+  // TODO: Implement a way to intelligently insert formation nodes.
+  // Why would you want a formation node that is not also an output node?
+  // The reason is to avoid broadcasting partial aggregation results.
+  // For instance
+  //   X -> A
+  //     -> B
+  //     -> C
+  // If X is partition alot and A,B,C all use blocks at varying locations,
+  // each partial will get sent to all the locations the partial gets used
+  // at. Doing this instead will leaf to less communication
+  //   X -> Formation Node -> A
+  //                       -> B
+  //                       -> C
+  // as the formation node will aggregate partials of X into a
+  // single location
+
 public:
 
   struct input_t {
