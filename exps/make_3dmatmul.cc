@@ -161,8 +161,8 @@ graph_t three_dimensional_matrix_multiplication(
     id_op = ret.insert_einsummable(placement, matmul, {id_lhs, id_rhs});
   }
 
-  // the output node
-  ret.insert_output(make_matrix_placement(rcp_t::ikj), id_op);
+  // the save node
+  ret.insert_formation(make_matrix_placement(rcp_t::ikj), id_op, true);
 
   return ret;
 }

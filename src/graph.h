@@ -26,21 +26,26 @@ struct graph_t {
     einsummable_t e,
     vector<int> inns);
 
-  int insert_output(
+  int insert_formation(
     placement_t placement,
-    int inn);
-  int insert_output(
+    int inn,
+    bool is_save = true);
+  int insert_formation(
     partition_t partition,
-    int inn);
-  int insert_output(
+    int inn,
+    bool is_save = true);
+  int insert_formation(
     vector<uint64_t> shape,
-    int inn);
+    int inn,
+    bool is_save = true);
 
-  // for each input and einsummable ops O, make sure O
-  // is used by another op. If not, add an output op that
-  // uses O.
-  // TODO: better name for this method
-  void set_outputs();
+  // For each non-save node, make sure it gets marked as save if it isn't used
+  // elsewhere.
+  // For non-formation nodes, if the node is not used elsewhere, insert an outgoing
+  // formation node with is_save = true.
+  // For formation nodes with is_save = false, if there are no outgoing edges,
+  // flip is_save to true.
+  void set_saves();
   // }}}
 
   vector<uint64_t> out_shape(int id);
@@ -66,8 +71,9 @@ public:
     vector<uint64_t> out_shape() const { return shape; }
   };
 
-  struct output_t {
+  struct formation_t {
     vector<uint64_t> shape;
+    bool is_save; // if this is false, it is a temporary
 
     vector<uint64_t> out_shape() const { return shape; }
   };
@@ -75,13 +81,13 @@ public:
 
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, output_t, einsummable_t>;
+    using _op_t = std::variant<input_t, formation_t, einsummable_t>;
 
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t       x): op_t(_op_t(x)) {}
-    op_t(output_t      x): op_t(_op_t(x)) {}
+    op_t(formation_t   x): op_t(_op_t(x)) {}
     op_t(einsummable_t x): op_t(_op_t(x)) {}
 
     vector<uint64_t> out_shape() const {
@@ -95,8 +101,8 @@ public:
       if(std::holds_alternative<input_t>(op)) {
         return std::get<input_t>(op).shape;
       }
-      if(std::holds_alternative<output_t>(op)) {
-        return std::get<output_t>(op).shape;
+      if(std::holds_alternative<formation_t>(op)) {
+        return std::get<formation_t>(op).shape;
       }
       if(std::holds_alternative<einsummable_t>(op)) {
         return std::get<einsummable_t>(op).join_shape;
@@ -109,8 +115,11 @@ public:
       return this->shape().size();
     }
 
-    bool is_output() const {
-      return std::holds_alternative<output_t>(op);
+    bool is_save() const {
+      return is_formation() && get_formation().is_save;
+    }
+    bool is_formation() const {
+      return std::holds_alternative<formation_t>(op);
     }
     bool is_input() const {
       return std::holds_alternative<input_t>(op);
@@ -121,6 +130,16 @@ public:
 
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
+    }
+    einsummable_t& get_einsummable() {
+      return std::get<einsummable_t>(op);
+    }
+
+    formation_t const& get_formation() const {
+      return std::get<formation_t>(op);
+    }
+    formation_t& get_formation() {
+      return std::get<formation_t>(op);
     }
 
     _op_t op;

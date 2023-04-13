@@ -62,48 +62,52 @@ int graph_t::insert_einsummable(
     inns);
 }
 
-int graph_t::insert_output(
+int graph_t::insert_formation(
   placement_t placement,
-  int inn)
+  int inn,
+  bool is_save)
 {
   if(!vector_equal(placement.total_shape(), out_shape(inn))) {
-    throw std::runtime_error("invalid shape: insert_output");
+    throw std::runtime_error("invalid shape: insert_formation");
   }
 
   return this->insert(
-    output_t { .shape = placement.total_shape() },
+    formation_t {
+      .shape = placement.total_shape(),
+      .is_save = is_save },
     {inn},
     placement);
 }
 
-int graph_t::insert_output(
+int graph_t::insert_formation(
   partition_t partition,
-  int inn)
+  int inn,
+  bool is_save)
 {
-  return this->insert_output(placement_t(partition), inn);
+  return this->insert_formation(placement_t(partition), inn, is_save);
 }
 
-int graph_t::insert_output(
+int graph_t::insert_formation(
   vector<uint64_t> shape,
-  int inn)
+  int inn,
+  bool is_save)
 {
-  return this->insert_output(partition_t::singleton(shape), inn);
+  return this->insert_formation(partition_t::singleton(shape), inn, is_save);
 }
 
-void graph_t::set_outputs() {
+void graph_t::set_saves() {
   int num_nodes_time_zero = nodes.size();
   for(int i = 0; i != num_nodes_time_zero; ++i) {
-    // All non-output nodes must have an outgoing edge.
-    // If any non-output nodes don't have that, set the output
-    // of the node.
-    node_t const& n = nodes[i];
-    if(!n.op.is_output()) {
-      if(n.outs.size() == 0) {
-        // Create a placement that matches closely to the
-        // output tensor of the input node
-        this->insert_output(
+
+    node_t& n = nodes[i];
+    if(n.outs.size() == 0 && !n.op.is_save()) {
+      if(n.op.is_formation()) {
+        n.op.get_formation().is_save = true;
+      } else {
+        this->insert_formation(
           placement_t::join_to_out(n.placement, n.op.out_rank()),
-          i);
+          i,
+          true);
       }
     }
   }

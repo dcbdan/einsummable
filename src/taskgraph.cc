@@ -139,27 +139,34 @@ struct state_t {
 };
 
 tuple<
-  map<int, tensor_t<int> >, // for each output id, the tids of the blocks
+  map<int, tensor_t<int> >, // for each save id, the tids of the blocks
   taskgraph_t>              // the actual taskgraph
 taskgraph_t::make(graph_t const& graph)
 {
   state_t state(graph);
 
-  // map from output gid to tensor
-  map<int, tensor_t<int>> outputs;
+  // map from saves gid to tensor
+  map<int, tensor_t<int>> saves;
 
   for(int gid: graph.get_order()) {
     graph_t::node_t const& node = graph.nodes[gid];
 
-    if(node.op.is_output()) {
-      outputs[gid] = state.access(gid, 0).to_tensor(node.placement);
+    if(node.op.is_formation()) {
+      tensor_t<int> access_result = state.access(gid, 0).to_tensor(node.placement);
+      if(node.op.is_save()) {
+        saves[gid] = access_result;
+      }
+      if(node.outs.size() > 0) {
+        state.communicate(gid, std::move(access_result));
+      }
     } else {
+      // the node is an input or a einsummable
       tensor_t<int> compute_result = state.compute(gid);
       state.communicate(gid, std::move(compute_result));
     }
   }
 
-  return {std::move(outputs), std::move(state.taskgraph)};
+  return {std::move(saves), std::move(state.taskgraph)};
 }
 
 // TODO: this could be better if it stored previous results and detected
@@ -329,7 +336,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   usage_placements.reserve(2*join_node.outs.size());
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
-    if(out_node.op.is_output()) {
+    if(out_node.op.is_formation()) {
       usage_placements.push_back(
         multiple_placement_t::from_single_placement(out_node.placement));
     } else if(out_node.op.is_einsummable()) {
