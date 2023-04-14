@@ -44,7 +44,7 @@ int main02() {
   return 0;
 }
 
-int main() {
+int main03() {
   partition_t partition({
     partdim_t::split(3, 1),
     partdim_t::split(4, 2),
@@ -65,4 +65,28 @@ int main() {
   }
 
   return 0;
+}
+
+int main() {
+  placement_t placement_start(
+    partition_t({ partdim_t::split(20, 5) }),
+    tensor_t<int>({5}, {0,0,0,0,0})
+  );
+  placement_t placement_finish(
+    partition_t({ partdim_t::split(20, 5) }),
+    tensor_t<int>({5}, {0,0,0,0,0})
+  );
+
+  buffer_t inn_buffer = std::make_shared<buffer_holder_t>(20);
+  inn_buffer->iota(0);
+
+  graph_t graph;
+  {
+    int inn = graph.insert_input(placement_start);
+    graph.insert_formation(placement_finish, inn);
+  }
+
+  auto [input_map, output_map, taskgraph] = taskgraph_t::make(graph);
+
+  taskgraph.print();
 }

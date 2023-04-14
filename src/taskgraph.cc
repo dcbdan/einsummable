@@ -189,12 +189,20 @@ multiple_tensor_t
 state_t::access(int join_gid, int which_input)
 {
   graph_t::node_t const& join_node = graph.nodes[join_gid];
-  einsummable_t const& einsummable = std::get<einsummable_t>(join_node.op.op);
 
   // get the multiple placement of the input necessary for the join
-  multiple_placement_t inn_placement =
-    multiple_placement_t::make_einsummable_input(
-      join_node.placement, einsummable, which_input);
+  multiple_placement_t inn_placement = [&]
+  {
+    if(join_node.op.is_einsummable()) {
+      einsummable_t const& einsummable = std::get<einsummable_t>(join_node.op.op);
+      return multiple_placement_t::make_einsummable_input(
+        join_node.placement, einsummable, which_input);
+    } else {
+      // If it isn't an einsummable node, then it is a formation node,
+      // in which case the required inn placement is the join_node.placement.
+      return multiple_placement_t::from_single_placement(join_node.placement);
+    }
+  }();
 
   // get the refined tensor of the relevant input tensor
   int gid = join_node.inns[which_input];
@@ -1240,4 +1248,34 @@ vector<vector<tuple<int, touch_t>>> taskgraph_t::partialize_t::as_touches_from()
     }
   }
   return rets;
+}
+
+void taskgraph_t::print() const {
+  std::cout << "taskgraph[num nodes = " << nodes.size() << "]" << std::endl;
+  std::cout << std::endl;
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    auto const& node = nodes[id];
+
+    std::cout << "node " << id;
+    if(node.is_save) {
+      std::cout << " (save)";
+    }
+    std::cout << std::endl;
+
+    auto inputs = node.op.inputs();
+    std::cout << "inputs: " << vector<int>(inputs.begin(), inputs.end()) << std::endl;
+
+    if(node.op.is_input()) {
+      std::cout << "input" << std::endl;
+    } else if(node.op.is_apply()) {
+      std::cout << "apply" << std::endl;
+    } else if(node.op.is_move()) {
+      std::cout << "move" << std::endl;
+    } else if(node.op.is_partialize()) {
+      std::cout << "partialize" << std::endl;
+    }
+
+    std::cout << std::endl;
+  }
 }

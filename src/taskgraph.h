@@ -99,6 +99,9 @@ struct taskgraph_t {
   // consume them
   void insert_possible_consumables() { /* TODO */ }
 
+  // for debugging
+  void print() const;
+
 private:
   struct input_t {
     int loc;
@@ -229,7 +232,8 @@ public:
 
     set<int> inputs() const;
 
-    partialize_t& get_partialize() { return std::get<partialize_t>(op); }
+    partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
+    partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
 
     bool is_input() const {
       return std::holds_alternative<input_t>(op);

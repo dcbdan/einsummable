@@ -34,6 +34,9 @@ struct tensor_t {
     if(shape.size() == 0) {
       throw std::runtime_error("shape must not be empty");
     }
+    if(product(shape) != vec.size()) {
+      throw std::runtime_error("tensor input length is incorrect");
+    }
   }
 
   tensor_t(
