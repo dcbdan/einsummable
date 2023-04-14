@@ -124,6 +124,23 @@ vector<T> vector_concatenate(vector<T> vs, vector<T> const& add_these) {
 }
 
 template <typename T>
+vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
+  vector<T> ret;
+  ret.reserve(lhs.size());
+  for(int i = 0; i != lhs.size(); ++i) {
+    ret.push_back(lhs[i] + rhs[i]);
+  }
+  return ret;
+}
+
+template <typename T>
+void vector_add_into(vector<T>& out, vector<T> const& inn) {
+  for(int i = 0; i != out.size(); ++i) {
+    out[i] += inn[i];
+  }
+}
+
+template <typename T>
 bool vector_equal(vector<T> const& xs, vector<T> const& ys) {
   if(xs.size() != ys.size()) {
     return false;

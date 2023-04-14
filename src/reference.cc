@@ -141,12 +141,50 @@ buffer_t reference_einsummable(
   return ret;
 }
 
+std::function<void(float&, float const&)> reference_touch_update(
+  std::optional<castable_t> castable)
+{
+  if(castable) {
+    return einsummable_update(castable.value());
+  } else {
+    return [](float& val, float const& inn) {
+      val = inn;
+    };
+  }
+}
+
 void reference_touch(
   touch_t const& touch,
   buffer_t& out,
   buffer_t const& inn)
 {
-  // TODO
+  vector<uint64_t> shape = vector_from_each_member(
+    touch.selection, uint64_t, size);
+  vector<uint64_t> shape_inn = vector_from_each_member(
+    touch.selection, uint64_t, d_inn);
+  vector<uint64_t> shape_out = vector_from_each_member(
+    touch.selection, uint64_t, d_out);
+  vector<uint64_t> offset_inn = vector_from_each_member(
+    touch.selection, uint64_t, offset_inn);
+  vector<uint64_t> offset_out = vector_from_each_member(
+    touch.selection, uint64_t, offset_out);
+
+  vector<uint64_t> index(shape.size(), 0);
+
+  vector<uint64_t> index_inn(shape.size());
+  vector<uint64_t> index_out(shape.size());
+
+  auto update = reference_touch_update(touch.castable);
+
+  do {
+    index_inn = vector_add(index, offset_inn);
+    int idx_inn = indexer_utils<uint64_t>::idxs_to_index(shape_inn, index_inn);
+
+    index_out = vector_add(index, offset_out);
+    int idx_out = indexer_utils<uint64_t>::idxs_to_index(shape_out, index_out);
+
+    update(out->data[idx_out], inn->data[idx_inn]);
+  } while(indexer_utils<uint64_t>::increment_idxs(shape, index));
 }
 
 std::ostream& operator<<(std::ostream& out, buffer_t const& buffer)
