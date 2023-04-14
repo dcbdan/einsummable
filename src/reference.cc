@@ -71,9 +71,15 @@ map<int, buffer_t> reference_compute_taskgraph(
       };
     } else if(node.op.is_move()) {
       auto const& move = node.op.get_move();
-      tensors[id] = std::make_tuple(
-        move.dst,
-        get_at(move.inn, move.src));
+      buffer_t buffer_src = get_at(move.inn, move.src);
+
+      buffer_t buffer_dst = std::make_shared<buffer_holder_t>(buffer_src->size);
+      std::copy(
+        buffer_src->data,
+        buffer_src->data + buffer_src->size,
+        buffer_dst->data);
+
+      tensors[id] = std::make_tuple(move.dst, buffer_dst);
     } else if(node.op.is_partialize()) {
       int loc = node.op.output_loc();
 
@@ -330,6 +336,46 @@ void reference_touch(
   } while(indexer_utils<uint64_t>::increment_idxs(shape, index));
 }
 
+tensor_t<buffer_t> get_partitioned_buffer(
+  map<int, buffer_t> items,
+  tensor_t<int> whiches)
+{
+  vector<buffer_t> vec;
+  vec.reserve(product(whiches.get_shape()));
+  for(auto const& which: whiches.get()) {
+    vec.push_back(items.at(which));
+  }
+
+  return tensor_t<buffer_t>(whiches.get_shape(), vec);
+}
+
+map<int, buffer_t> init_buffer_map(
+  tensor_t<int> keys,
+  tensor_t<buffer_t> values)
+{
+  map<int, buffer_t> ret;
+  fill_buffer_map(ret, keys, values);
+  return ret;
+}
+
+void fill_buffer_map(
+  map<int, buffer_t>& items,
+  tensor_t<int> keys,
+  tensor_t<buffer_t> values)
+{
+  if(!vector_equal(keys.get_shape(), values.get_shape())) {
+    std::cout << keys.get_shape() << ", " << values.get_shape() << std::endl;
+    throw std::runtime_error("invalid fill_buffer_map");
+  }
+  auto const& ks = keys.get();
+  auto const& vs = values.get();
+  for(int i = 0; i != ks.size(); ++i) {
+    auto const& k = ks[i];
+    auto const& v = vs[i];
+    items.insert({k,v});
+  }
+}
+
 std::ostream& operator<<(std::ostream& out, buffer_t const& buffer)
 {
   out << "buffer[" << buffer->size << "]{";
@@ -342,4 +388,5 @@ std::ostream& operator<<(std::ostream& out, buffer_t const& buffer)
   out << "}";
   return out;
 }
+
 

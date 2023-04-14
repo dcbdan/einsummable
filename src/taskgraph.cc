@@ -854,7 +854,7 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
     ret.push_back(vec_at(i, locs[i]));
   }
 
-  return ret;
+  return tensor_t<int>(tensor.get_shape(), ret);
 }
 
 int taskgraph_t::insert_input(

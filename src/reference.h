@@ -53,5 +53,18 @@ void reference_touch(
   buffer_t& out,
   buffer_t const& inn);
 
+tensor_t<buffer_t> get_partitioned_buffer(
+  map<int, buffer_t> items,
+  tensor_t<int> whiches);
+
+map<int, buffer_t> init_buffer_map(
+  tensor_t<int> keys,
+  tensor_t<buffer_t> values);
+
+void fill_buffer_map(
+  map<int, buffer_t>& items,
+  tensor_t<int> keys,
+  tensor_t<buffer_t> values);
+
 std::ostream& operator<<(std::ostream& out, buffer_t const& buffer);
 

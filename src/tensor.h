@@ -5,21 +5,7 @@
 
 template <typename T>
 struct tensor_t {
-  tensor_t(){} // TODO: Can I delete this guy and get away witht it?
-
-  tensor_t(tensor_t const& other):
-    tensor_t(other.shape, other.vec)
-  {}
-  tensor_t(tensor_t && other):
-    tensor_t(other.shape, std::move(other.vec))
-  {}
-
-  tensor_t operator=(tensor_t const& other) {
-    return tensor_t(other);
-  }
-  tensor_t operator=(tensor_t && other) {
-    return tensor_t(std::move(other));
-  }
+  tensor_t(){}
 
   tensor_t(
     vector<int> const& shape):
@@ -32,32 +18,36 @@ struct tensor_t {
       shape(shape), vec(vec)
   {
     if(shape.size() == 0) {
-      throw std::runtime_error("shape must not be empty");
-    }
-    if(product(shape) != vec.size()) {
+      if(vec.size() != 0) {
+        throw std::runtime_error("vec is not empty");
+      }
+    } else if(product(shape) != vec.size()) {
       throw std::runtime_error("tensor input length is incorrect");
     }
   }
 
   tensor_t(
     vector<int> const& shape,
-    vector<T> && vec):
-      shape(shape), vec(std::move(vec))
+    vector<T> && v):
+      shape(shape), vec(std::move(v))
   {
     if(shape.size() == 0) {
-      throw std::runtime_error("shape must not be empty");
+      if(vec.size() != 0) {
+        throw std::runtime_error("vec is not empty");
+      }
+    } else if(product(shape) != vec.size()) {
+      throw std::runtime_error("tensor input length is incorrect");
     }
   }
-
   T& at(vector<int> idxs) {
-    if(!is_valid_idxs(shape, idxs)) {
+    if(shape.size() == 0 || !is_valid_idxs(shape, idxs)) {
       throw std::runtime_error("invalid tensor access");
     }
     return vec[idxs_to_index(shape, idxs)];
   }
 
   T const& at(vector<int> idxs) const {
-    if(!is_valid_idxs(shape, idxs)) {
+    if(shape.size() == 0 || !is_valid_idxs(shape, idxs)) {
       throw std::runtime_error("invalid tensor access");
     }
     return vec[idxs_to_index(shape, idxs)];
@@ -85,3 +75,21 @@ private:
   vector<int> shape;
   vector<T> vec;
 };
+
+template <typename T>
+std::ostream& operator<<(std::ostream& out, tensor_t<T> const& tensor)
+{
+  auto const& shape = tensor.get_shape();
+  if(shape.size() == 0) {
+    out << "tensur[null]";
+    return out;
+  }
+  out << "tensor" << shape << "@";
+  vector<int> index(shape.size(), 0);
+  do {
+    out << "I" << index << tensor.at(index) << " ";
+  } while(increment_idxs(shape, index));
+
+  return out;
+}
+

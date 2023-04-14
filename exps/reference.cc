@@ -74,19 +74,46 @@ int main() {
   );
   placement_t placement_finish(
     partition_t({ partdim_t::split(20, 5) }),
-    tensor_t<int>({5}, {0,0,0,0,0})
+    tensor_t<int>({5}, {0,0,0,0,1})
   );
 
   buffer_t inn_buffer = std::make_shared<buffer_holder_t>(20);
   inn_buffer->iota(0);
 
   graph_t graph;
-  {
-    int inn = graph.insert_input(placement_start);
-    graph.insert_formation(placement_finish, inn);
-  }
+  int gid_inn = graph.insert_input(placement_start);
+  int gid_out = graph.insert_formation(placement_finish, gid_inn);
 
-  auto [input_map, output_map, taskgraph] = taskgraph_t::make(graph);
+  buffer_t out_buffer = reference_compute_graph(graph, { {gid_inn, inn_buffer} })[gid_out];
+
+  std::cout << "-- graph " << std::endl;
+  std::cout << "inn " << inn_buffer << std::endl;
+  std::cout << "out " << out_buffer << std::endl;
+  std::cout << std::endl;
+
+  auto [input_gid_to_tids, output_gid_to_tids, taskgraph] = taskgraph_t::make(graph);
 
   taskgraph.print();
+
+  tensor_t<buffer_t> inn_pbuffer = partition_buffer(
+    placement_start.partition, inn_buffer);
+  tensor_t<buffer_t> out_pbuffer = partition_buffer(
+    placement_finish.partition, out_buffer);
+
+  std::cout << inn_pbuffer << std::endl;
+  std::cout << out_pbuffer << std::endl;
+
+  map<int, buffer_t> t_input_map = init_buffer_map(
+    input_gid_to_tids.at(gid_inn),
+    inn_pbuffer);
+
+  auto t_out_map = reference_compute_taskgraph(taskgraph, t_input_map);
+
+  tensor_t<buffer_t> t_out_pbuffer = get_partitioned_buffer(
+    t_out_map,
+    output_gid_to_tids[gid_out]);
+  buffer_t t_out_buffer = unpartition_buffer(placement_finish.partition, t_out_pbuffer);
+
+  std::cout << "-- taskgraph " << std::endl;
+  std::cout << t_out_buffer << std::endl;
 }
