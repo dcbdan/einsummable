@@ -140,13 +140,15 @@ struct state_t {
 };
 
 tuple<
+  map<int, tensor_t<int> >, // for each input, the tids of the blocks
   map<int, tensor_t<int> >, // for each save id, the tids of the blocks
   taskgraph_t>              // the actual taskgraph
 taskgraph_t::make(graph_t const& graph)
 {
   state_t state(graph);
 
-  // map from saves gid to tensor
+  // maps from gid to tensor
+  map<int, tensor_t<int>> inns;
   map<int, tensor_t<int>> saves;
 
   for(int gid: graph.get_order()) {
@@ -163,11 +165,14 @@ taskgraph_t::make(graph_t const& graph)
     } else {
       // the node is an input or a einsummable
       tensor_t<int> compute_result = state.compute(gid);
+      if(node.op.is_input()) {
+        inns[gid] = compute_result;
+      }
       state.communicate(gid, std::move(compute_result));
     }
   }
 
-  return {std::move(saves), std::move(state.taskgraph)};
+  return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
 }
 
 // TODO: this could be better if it stored previous results and detected

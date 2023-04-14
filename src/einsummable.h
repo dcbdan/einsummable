@@ -3,7 +3,7 @@
 
 enum class castable_t { add, mul, min, max };
 
-enum class scalar_join_t { mul };
+enum class scalar_join_t { add, sub, mul, relu, negate, min, max };
 
 struct einsummable_t {
   vector<uint64_t> join_shape;
