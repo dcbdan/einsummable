@@ -54,3 +54,4 @@ void reference_touch(
   buffer_t const& inn);
 
 std::ostream& operator<<(std::ostream& out, buffer_t const& buffer);
+

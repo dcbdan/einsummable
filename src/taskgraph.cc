@@ -158,6 +158,10 @@ taskgraph_t::make(graph_t const& graph)
       tensor_t<int> access_result = state.access(gid, 0).to_tensor(node.placement);
       if(node.op.is_save()) {
         saves[gid] = access_result;
+        // Set the things to be saved on the taskgraph
+        for(int const& taskgraph_tid: access_result.get()) {
+          state.taskgraph.nodes[taskgraph_tid].is_save = true;
+        }
       }
       if(node.outs.size() > 0) {
         state.communicate(gid, std::move(access_result));
@@ -847,20 +851,22 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
 
 int taskgraph_t::insert_input(
   int loc,
-  vector<uint64_t> shape)
+  vector<uint64_t> shape,
+  bool is_save)
 {
   input_t input {
     .loc = loc,
     .size = product(shape)
   };
 
-  return insert(input);
+  return insert(input, is_save);
 }
 
 int taskgraph_t::insert_einsummable(
   int loc,
   einsummable_t e,
-  vector<int> inns)
+  vector<int> inns,
+  bool is_save)
 {
   apply_t apply {
     .loc = loc,
@@ -878,13 +884,14 @@ int taskgraph_t::insert_einsummable(
     }
   }
 
-  return insert(apply);
+  return insert(apply, is_save);
 }
 
 int taskgraph_t::insert_move(
   int src,
   int dst,
-  int inn)
+  int inn,
+  bool is_save)
 {
   move_t move {
     .src = src,
@@ -893,13 +900,14 @@ int taskgraph_t::insert_move(
     .size = nodes[inn].op.tensor_size()
   };
 
-  return insert(move);
+  return insert(move, is_save);
 }
 
 int taskgraph_t::insert_consumed_aggregate(
   int loc,
   castable_t castable,
-  vector<int> inns)
+  vector<int> inns,
+  bool is_save)
 {
   using inn_regiondim_t = partialize_t::inn_regiondim_t;
   using out_regiondim_t = partialize_t::out_regiondim_t;
@@ -929,16 +937,18 @@ int taskgraph_t::insert_consumed_aggregate(
   };
 
   return insert(partialize_t {
-    .loc = loc,
-    .write_shape = {sz},
-    .units = {unit}
-  });
+      .loc = loc,
+      .write_shape = {sz},
+      .units = {unit}
+    },
+    is_save);
 }
 
 int taskgraph_t::insert_select_subset(
   int loc,
   vector<regiondim_t> selection,
-  int inn)
+  int inn,
+  bool is_save)
 {
   using inn_regiondim_t = partialize_t::inn_regiondim_t;
   using out_regiondim_t = partialize_t::out_regiondim_t;
@@ -968,20 +978,22 @@ int taskgraph_t::insert_select_subset(
     .castable = optional<castable_t>()
   };
 
-  int ret = new_partial(loc, write_shape);
+  int ret = new_partial(loc, write_shape, is_save);
   add_to_partial(ret, inn, touch);
   return ret;
 }
 
 int taskgraph_t::new_partial(
   int loc,
-  vector<uint64_t> write_shape)
+  vector<uint64_t> write_shape,
+  bool is_save)
 {
   return insert(partialize_t {
-    .loc = loc,
-    .write_shape = write_shape,
-    .units = {}
-  });
+      .loc = loc,
+      .write_shape = write_shape,
+      .units = {}
+    },
+    is_save);
 }
 
 void taskgraph_t::add_to_partial(
@@ -1137,14 +1149,14 @@ uint64_t taskgraph_t::get_size_at(int id) const
   return nodes[id].op.tensor_size();
 }
 
-int taskgraph_t::insert(op_t op) {
+int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 
   for(auto inn: op.inputs()) {
     nodes[inn].outs.insert(ret);
   }
 
-  nodes.emplace_back(op);
+  nodes.emplace_back(op, is_save);
 
   return ret;
 };
@@ -1199,4 +1211,33 @@ set<int> taskgraph_t::op_t::inputs() const
     throw std::runtime_error("should not reach");
     return {};
   }
+}
+
+vector<vector<tuple<int, touch_t>>> taskgraph_t::partialize_t::as_touches_from() const {
+  vector<vector<tuple<int, touch_t>>> rets;
+  for(auto const& unit: units) {
+    rets.emplace_back();
+    auto& ret = rets.back();
+    for(auto const& input: unit.inputs) {
+      vector<touchdim_t> ts;
+      ts.reserve(write_shape.size());
+      for(int i = 0; i != write_shape.size(); ++i) {
+        ts.push_back(touchdim_t {
+          .d_inn = input.region[i].dim,
+          .d_out = write_shape[i],
+          .offset_inn = input.region[i].offset,
+          .offset_out = unit.out_region[i].offset,
+          .size = unit.out_region[i].size
+        });
+      }
+      ret.emplace_back(
+        input.id,
+        touch_t {
+          .selection = ts,
+          .castable = unit.castable
+        }
+      );
+    }
+  }
+  return rets;
 }

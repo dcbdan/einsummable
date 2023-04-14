@@ -4,16 +4,114 @@ map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
   map<int, buffer_t> const& inputs)
 {
-  // TODO
-  return {};
+  map<int, buffer_t> outs;
+  map<int, buffer_t> tensors;
+
+  for(int id = 0; id != graph.nodes.size(); ++id)
+  {
+    auto const& node = graph.nodes[id];
+
+    if(node.op.is_formation()) {
+      tensors[id] = tensors[node.inns[0]];
+    } else if(node.op.is_input()) {
+      tensors[id] = inputs.at(id);
+    } else if(node.op.is_einsummable()) {
+      vector<buffer_t> inns;
+      inns.reserve(node.inns.size());
+      for(auto const& id_inn: node.inns) {
+        inns.push_back(tensors[id_inn]);
+      }
+      tensors[id] = reference_einsummable(node.op.get_einsummable(), inns);
+    } else {
+      throw std::runtime_error("should not reach: reference compute graph");
+    }
+
+    if(node.op.is_save()) {
+      outs[id] = tensors[id];
+    }
+  }
+
+  return outs;
 }
 
 map<int, buffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
   map<int, buffer_t> const& inputs)
 {
-  // TODO
-  return {};
+  map<int, buffer_t> outs;
+
+  // id -> (location, buffer)
+  map<int, tuple<int, buffer_t> > tensors;
+  auto get_at = [&tensors](int id, int loc) {
+    auto const& [actual_loc, buffer] = tensors.at(id);
+    if(loc != actual_loc) {
+      throw std::runtime_error("incorrect locs in taskgraph");
+    }
+    return buffer;
+  };
+
+  for(int id = 0; id != taskgraph.nodes.size(); ++id)
+  {
+    auto const& node = taskgraph.nodes[id];
+
+    if(node.op.is_input()) {
+      tensors[id] = {node.op.output_loc(), inputs.at(id)};
+    } else if(node.op.is_apply()) {
+      auto const& apply = node.op.get_apply();
+
+      vector<buffer_t> inputs;
+      inputs.reserve(apply.inns.size());
+      for(auto const& inn: apply.inns) {
+        inputs.push_back(get_at(inn, apply.loc));
+      }
+
+      tensors[id] = {
+        apply.loc,
+        reference_einsummable(apply.einsummable,inputs)
+      };
+    } else if(node.op.is_move()) {
+      auto const& move = node.op.get_move();
+      tensors[id] = std::make_tuple(
+        move.dst,
+        get_at(move.inn, move.src));
+    } else if(node.op.is_partialize()) {
+      int loc = node.op.output_loc();
+
+      buffer_t write = std::make_shared<buffer_holder_t>(node.op.tensor_size());
+      tensors[id] = {loc, write};
+
+      // Note: ignoring consummables
+      for(vector<tuple<int, touch_t>> const& ts: node.op.get_touches()) {
+        if(ts.size() == 0) {
+          continue;
+        }
+
+        // The first touch is an initialize, not an update,
+        // so set the castable to none
+        auto const& [inn0, t0] = ts[0];
+        reference_touch(
+          touch_t {
+            .selection = t0.selection,
+            .castable = std::optional<castable_t>()
+          },
+          write,
+          get_at(inn0, loc));
+
+        for(int i = 1; i < ts.size(); ++i) {
+          auto const& [inn, t] = ts[i];
+          reference_touch(t, write, get_at(inn, loc));
+        }
+      }
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+
+    if(node.is_save) {
+      outs[id] = std::get<1>(tensors[id]);
+    }
+  }
+
+  return outs;
 }
 
 tensor_t<buffer_t> partition_buffer(

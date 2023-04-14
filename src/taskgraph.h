@@ -42,31 +42,37 @@ struct taskgraph_t {
 
   int insert_input(
     int loc,
-    vector<uint64_t> shape);
+    vector<uint64_t> shape,
+    bool is_save = false);
 
   int insert_einsummable(
     int loc,
     einsummable_t e,
-    vector<int> inns);
+    vector<int> inns,
+    bool is_save = false);
 
   int insert_move(
     int src,
     int dst,
-    int inn);
+    int inn,
+    bool is_save = false);
 
   int insert_consumed_aggregate(
     int loc,
     castable_t castable,
-    vector<int> inns);
+    vector<int> inns,
+    bool is_save = false);
 
   int insert_select_subset(
     int loc,
     vector<regiondim_t> selection,
-    int inn);
+    int inn,
+    bool is_save = false);
 
   int new_partial(
     int loc,
-    vector<uint64_t> write_shape);
+    vector<uint64_t> write_shape,
+    bool is_save = false);
 
   void add_to_partial(
     int id_out,
@@ -189,6 +195,8 @@ private:
       vector<input_op_t> inputs;
     };
 
+    vector<vector<tuple<int, touch_t> > > as_touches_from() const;
+
     int loc;
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
@@ -203,6 +211,7 @@ private:
     partialize_t::out_regiondim_t const& lhs,
     partialize_t::out_regiondim_t const& rhs);
 
+public:
   struct op_t {
   private:
     using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
@@ -221,17 +230,57 @@ private:
     set<int> inputs() const;
 
     partialize_t& get_partialize() { return std::get<partialize_t>(op); }
+
+    bool is_input() const {
+      return std::holds_alternative<input_t>(op);
+    }
+    bool is_apply() const {
+      return std::holds_alternative<apply_t>(op);
+    }
+    bool is_move() const {
+      return std::holds_alternative<move_t>(op);
+    }
+    bool is_partialize() const {
+      return std::holds_alternative<partialize_t>(op);
+    }
+    int output_loc() const {
+      if(is_input()) {
+        return std::get<input_t>(op).loc;
+      }
+      if(is_apply()) {
+        return std::get<apply_t>(op).loc;
+      }
+      if(is_move()) {
+        return std::get<move_t>(op).dst;
+      }
+      if(is_partialize()) {
+        return std::get<partialize_t>(op).loc;
+      }
+      throw std::runtime_error("should not reach: output_loc");
+    }
+    apply_t const& get_apply() const {
+      return std::get<apply_t>(op);
+    }
+    move_t const& get_move() const {
+      return std::get<move_t>(op);
+    }
+    vector<vector<tuple<int, touch_t>>> get_touches() const {
+      return std::get<partialize_t>(op).as_touches_from();
+    }
+
   };
 
   struct node_t {
-    node_t(op_t op): op(op) {}
+    node_t(op_t op, bool is_save): op(op), is_save(false) {}
 
     op_t op;
     set<int> outs;
+    bool is_save;
   };
   vector<node_t> nodes;
 
-  int insert(op_t op);
+private:
+  int insert(op_t op, bool is_save);
 };
 
 bool operator==(
