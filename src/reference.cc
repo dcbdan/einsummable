@@ -35,7 +35,7 @@ tensor_t<buffer_t> partition_buffer(
     vector<uint64_t> buffer_shape = shape_hrect(hrect);
     buffer = std::make_shared<buffer_holder_t>(product(buffer_shape));
 
-    vector<uint64_t> inn_index = vector_mapfst(hrect);
+    vector<uint64_t> inn_index = offset;
     do {
       vector<uint64_t> buffer_index = vector_sub(inn_index, offset);
       int out_idx = indexer_utils<uint64_t>::idxs_to_index(buffer_shape, buffer_index);
@@ -49,10 +49,32 @@ tensor_t<buffer_t> partition_buffer(
 
 buffer_t unpartition_buffer(
   partition_t const& partition,
-  tensor_t<buffer_t> const& buffer)
+  tensor_t<buffer_t> const& inn)
 {
-  // TODO
-  return nullptr;
+  vector<int> block_shape = partition.block_shape();
+  vector<uint64_t> out_shape = partition.total_shape();
+
+  buffer_t out_buffer = std::make_shared<buffer_holder_t>(product(out_shape));
+
+  vector<int> block_index(block_shape.size(), 0);
+  do {
+    auto hrect = partition.get_hrect(block_index);
+    auto offset = vector_mapfst(hrect);
+
+    buffer_t const& inn_buffer = inn.at(block_index);
+    vector<uint64_t> inn_shape = shape_hrect(hrect);
+
+    vector<uint64_t> out_index = offset;
+    do {
+      vector<uint64_t> inn_index = vector_sub(out_index, offset);
+      int inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
+      int out_idx = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
+
+      out_buffer->data[out_idx] = inn_buffer->data[inn_idx];
+    } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, out_index));
+  } while(increment_idxs(block_shape, block_index));
+
+  return out_buffer;
 }
 
 std::function<float(vector<float> const&)> einsummable_eval(scalar_join_t op)

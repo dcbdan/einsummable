@@ -41,7 +41,28 @@ int main02() {
   for(auto const& buffer_t: ptensor.get()) {
     std::cout << buffer_t << std::endl;
   }
+  return 0;
 }
 
 int main() {
+  partition_t partition({
+    partdim_t::split(3, 1),
+    partdim_t::split(4, 2),
+    partdim_t::split(5, 3)
+  });
+
+  buffer_t tensor = std::make_shared<buffer_holder_t>(3*4*5);
+  tensor->iota(99);
+
+  tensor_t<buffer_t> ptensor = partition_buffer(partition, tensor);
+
+  buffer_t tensor_again = unpartition_buffer(partition, ptensor);
+
+  if(!vector_equal(tensor->as_vector(), tensor_again->as_vector())) {
+    std::cout << "Did not correctly undo the partition" << std::endl;
+  } else {
+    std::cout << "done." << std::endl;
+  }
+
+  return 0;
 }
