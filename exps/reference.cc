@@ -1,6 +1,6 @@
 #include "../src/reference.h"
 
-int main() {
+int main01() {
   uint64_t ni = 3;
   uint64_t nj = 4;
   uint64_t nk = 5;
@@ -24,4 +24,24 @@ int main() {
   buffer_t out = reference_einsummable(matmul, {lhs, rhs});
 
   std::cout << lhs << " " << rhs << " " << out << std::endl;
+
+  return 0;
+}
+
+int main02() {
+  partition_t partition({
+    partdim_t::split(4, 1),
+    partdim_t::split(4, 2)
+  });
+
+  buffer_t tensor = std::make_shared<buffer_holder_t>(4*4);
+  tensor->iota(0);
+
+  tensor_t<buffer_t> ptensor = partition_buffer(partition, tensor);
+  for(auto const& buffer_t: ptensor.get()) {
+    std::cout << buffer_t << std::endl;
+  }
+}
+
+int main() {
 }

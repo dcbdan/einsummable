@@ -141,6 +141,23 @@ void vector_add_into(vector<T>& out, vector<T> const& inn) {
 }
 
 template <typename T>
+vector<T> vector_sub(vector<T> const& lhs, vector<T> const& rhs) {
+  vector<T> ret;
+  ret.reserve(lhs.size());
+  for(int i = 0; i != lhs.size(); ++i) {
+    ret.push_back(lhs[i] - rhs[i]);
+  }
+  return ret;
+}
+
+template <typename T>
+void vector_sub_into(vector<T>& out, vector<T> const& inn) {
+  for(int i = 0; i != out.size(); ++i) {
+    out[i] -= inn[i];
+  }
+}
+
+template <typename T>
 bool vector_equal(vector<T> const& xs, vector<T> const& ys) {
   if(xs.size() != ys.size()) {
     return false;
@@ -223,5 +240,3 @@ center_hrect(
 
 vector<uint64_t> shape_hrect(
   vector<tuple<uint64_t, uint64_t>> const& hrect);
-
-

@@ -18,10 +18,33 @@ map<int, buffer_t> reference_compute_taskgraph(
 
 tensor_t<buffer_t> partition_buffer(
   partition_t const& partition,
-  buffer_t const& buffer)
+  buffer_t const& inn)
 {
-  // TODO
-  return {};
+  vector<int> block_shape = partition.block_shape();
+  vector<uint64_t> inn_shape = partition.total_shape();
+
+  tensor_t<buffer_t> ret(block_shape);
+
+  vector<int> block_index(block_shape.size(), 0);
+
+  do {
+    auto hrect = partition.get_hrect(block_index);
+    auto offset = vector_mapfst(hrect);
+
+    buffer_t& buffer = ret.at(block_index);
+    vector<uint64_t> buffer_shape = shape_hrect(hrect);
+    buffer = std::make_shared<buffer_holder_t>(product(buffer_shape));
+
+    vector<uint64_t> inn_index = vector_mapfst(hrect);
+    do {
+      vector<uint64_t> buffer_index = vector_sub(inn_index, offset);
+      int out_idx = indexer_utils<uint64_t>::idxs_to_index(buffer_shape, buffer_index);
+      int inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
+      buffer->data[out_idx] = inn->data[inn_idx];
+    } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, inn_index));
+  } while(increment_idxs(block_shape, block_index));
+
+  return ret;
 }
 
 buffer_t unpartition_buffer(
