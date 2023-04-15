@@ -76,9 +76,7 @@ int main04() {
   return 0;
 }
 
-// TODO: assert they are correct
-// TODO: rename repartition_test
-void exp_process01(
+void reblock_test(
   placement_t placement_start,
   placement_t placement_finish)
 {
@@ -121,45 +119,51 @@ void exp_process01(
 
   std::cout << "-- taskgraph " << std::endl;
   std::cout << t_out_buffer << std::endl;
+
+  if(t_out_buffer != out_buffer) {
+    throw std::runtime_error("reblock test failed");
+  }
 }
 
 void main05() {
-  placement_t placement_start(
-    partition_t({ partdim_t::split(20, 5) }),
-    tensor_t<int>({5}, {0,0,0,0,0})
-  );
-  placement_t placement_finish(
-    partition_t({ partdim_t::split(20, 3) }),
-    tensor_t<int>({3}, {0,0,0})
-  );
+  {
+    placement_t placement_start(
+      partition_t({ partdim_t::split(20, 5) }),
+      tensor_t<int>({5}, {0,0,0,0,0})
+    );
+    placement_t placement_finish(
+      partition_t({ partdim_t::split(20, 3) }),
+      tensor_t<int>({3}, {0,0,0})
+    );
 
-  exp_process01(placement_start, placement_finish);
-}
+    reblock_test(placement_start, placement_finish);
+  }
 
-void main06() {
-  placement_t placement_start(
-    partition_t({ partdim_t::split(20, 1) }),
-    tensor_t<int>({1}, {0})
-  );
-  placement_t placement_finish(
-    partition_t({ partdim_t::split(20, 2) }),
-    tensor_t<int>({2}, {0,0})
-  );
+  {
+    placement_t placement_start(
+      partition_t({ partdim_t::split(20, 1) }),
+      tensor_t<int>({1}, {0})
+    );
+    placement_t placement_finish(
+      partition_t({ partdim_t::split(20, 2) }),
+      tensor_t<int>({2}, {0,0})
+    );
 
-  exp_process01(placement_start, placement_finish);
-}
+    reblock_test(placement_start, placement_finish);
+  }
 
-void main07() {
-  placement_t placement_start(
-    partition_t({ partdim_t::split(20, 2) }),
-    tensor_t<int>({2}, {0,0})
-  );
-  placement_t placement_finish(
-    partition_t({ partdim_t::split(20, 1) }),
-    tensor_t<int>({1}, {0})
-  );
+  {
+    placement_t placement_start(
+      partition_t({ partdim_t::split(20, 2) }),
+      tensor_t<int>({2}, {0,0})
+    );
+    placement_t placement_finish(
+      partition_t({ partdim_t::split(20, 1) }),
+      tensor_t<int>({1}, {0})
+    );
 
-  exp_process01(placement_start, placement_finish);
+    reblock_test(placement_start, placement_finish);
+  }
 }
 
 int main() {

@@ -28,6 +28,15 @@ struct buffer_holder_t {
 
 using buffer_t = std::shared_ptr<buffer_holder_t>;
 
+bool operator==(buffer_t const& lhs, buffer_t const& rhs);
+bool operator!=(buffer_t const& lhs, buffer_t const& rhs);
+bool operator==(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
+bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
+
+bool is_close(buffer_t const& lhs, buffer_t const& rhs);
+bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
+bool is_close(float lhs, float rhs);
+
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
   map<int, buffer_t> const& inputs);
