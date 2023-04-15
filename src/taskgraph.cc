@@ -195,6 +195,7 @@ taskgraph_t::make(graph_t const& graph)
 multiple_tensor_t
 state_t::access(int join_gid, int which_input)
 {
+  DOUT("ACCESS " << join_gid);
   graph_t::node_t const& join_node = graph.nodes[join_gid];
 
   // get the multiple placement of the input necessary for the join
@@ -299,6 +300,7 @@ state_t::access(int join_gid, int which_input)
 tensor_t<int>
 state_t::compute(int gid)
 {
+  DOUT("COMPUTE " << gid);
   graph_t::node_t const& node = graph.nodes[gid];
 
   if(node.op.is_input()) {
@@ -317,7 +319,7 @@ state_t::compute(int gid)
   // Get the inputs
   vector<multiple_tensor_t> inputs;
   inputs.reserve(node.inns.size());
-  for(int i = 0; i != inputs.size(); ++i) {
+  for(int i = 0; i != node.inns.size(); ++i) {
     inputs.push_back(this->access(gid, i));
   }
 
@@ -352,6 +354,7 @@ state_t::compute(int gid)
 void
 state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
+  DOUT("COMMUNICATE " << join_gid);
   using locid_t = multiple_tensor_t::locid_t;
 
   auto const& join_node = graph.nodes[join_gid];

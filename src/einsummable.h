@@ -49,8 +49,8 @@ struct einsummable_t {
       throw std::runtime_error("einsummable_t::input_idxs");
     }
 
-    vector<vector<T>> ret(join_ts.size());
-    for(int i = 0; i != ret.size(); ++i) {
+    vector<vector<T>> ret(inns.size());
+    for(int i = 0; i != inns.size(); ++i) {
       ret[i].reserve(inns.size());
       for(auto const& j: inns[i]) {
         ret[i].push_back(join_ts[j]);
