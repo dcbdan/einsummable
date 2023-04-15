@@ -364,7 +364,6 @@ void fill_buffer_map(
   tensor_t<buffer_t> values)
 {
   if(!vector_equal(keys.get_shape(), values.get_shape())) {
-    std::cout << keys.get_shape() << ", " << values.get_shape() << std::endl;
     throw std::runtime_error("invalid fill_buffer_map");
   }
   auto const& ks = keys.get();

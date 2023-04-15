@@ -111,6 +111,13 @@ struct multiple_tensor_t {
   tensor_t<int> to_tensor(placement_t const& placement);
 };
 
+std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
+{
+  auto const& [loc,id] = x;
+  out << "loc" << loc << "id" << id;
+  return out;
+}
+
 struct state_t {
   state_t(graph_t const& graph)
     : graph(graph)
@@ -487,6 +494,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       vector<uint64_t> refinement_shape =
         refinement.partition.tensor_shape_at(r_index);
 
+      // {{{
+      // Initializing lambdas:
+      //   insert_out_to_selection
+      //   add_selection_to_refinement
+      //   add_out_to_refinement
+      //
       vector<regiondim_t> _out_to_selection_rs;
       {
         _out_to_selection_rs.reserve(subset_info.size());
@@ -501,6 +514,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       auto insert_out_to_selection = [&](int partial_loc, int partial_id) {
         return taskgraph.insert_select_subset(
           partial_loc, _out_to_selection_rs, partial_id);
+      };
+
+      auto maybe_init_ref_id = [&](int& ref_id, int loc) {
+        if(ref_id == -1) {
+          ref_id = taskgraph.new_partial(loc, refinement_shape);
+        }
       };
 
       vector<touchdim_t> _selection_to_refinement_ts;
@@ -520,13 +539,9 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         .selection = _selection_to_refinement_ts,
         .castable = optional<castable_t>(castable)
       };
-      auto insert_selection_to_refinement = [&](int loc, int subset_id) {
-        int ret = taskgraph.new_partial(loc, refinement_shape);
-        taskgraph.add_to_partial(ret, subset_id, _selection_to_refinement_touch, false);
-        return ret;
-      };
-      auto add_selection_to_refinement = [&](int loc, int ref_id, int sel_id) {
-        // (could check loc is correct here)
+      // ref_id by reference!
+      auto add_selection_to_refinement = [&](int loc, int& ref_id, int sel_id) {
+        maybe_init_ref_id(ref_id, loc);
         taskgraph.add_to_partial(ref_id, sel_id, _selection_to_refinement_touch, false);
       };
 
@@ -547,15 +562,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         .selection = _out_to_refinement_ts,
         .castable = optional<castable_t>(castable)
       };
-      auto insert_out_to_refinement = [&](int partial_loc, int partial_id) {
-        int ret = taskgraph.new_partial(partial_loc, refinement_shape);
-        taskgraph.add_to_partial(ret, partial_id, _out_to_refinement_touch, false);
-        return ret;
-      };
-      auto add_out_to_refinement = [&](int loc, int ref_id, int partial_id) {
-        // (could check loc is correct here)
+      // ref_id by reference!
+      auto add_out_to_refinement = [&](int loc, int& ref_id, int partial_id) {
+        maybe_init_ref_id(ref_id, loc);
         taskgraph.add_to_partial(ref_id, partial_id, _out_to_refinement_touch, false);
       };
+      // }}}
 
       // case 1: out_tensor_shape == selection_shape == refinement_shape
       // case 2: out_tensor_shape >> (selection_shape == refinement_shape)
@@ -594,19 +606,20 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
           //      partial_loc
           if(required_locs.size() == 1 && *required_locs.begin() == partial_loc)
           {
-            refined_tensor.at(r_index, partial_loc) =
-              insert_out_to_refinement(partial_loc, partial_id);
+            // ref_id by reference!
+            int& ref_id = refined_tensor.at(r_index, partial_loc);
+            add_out_to_refinement(partial_loc, ref_id, partial_id);
           } else {
             int subset_id = insert_out_to_selection(partial_loc, partial_id);
             for(int loc: required_locs) {
               if(loc == partial_loc) {
-                refined_tensor.at(r_index, partial_loc) =
-                  insert_selection_to_refinement(partial_loc, subset_id);
+                int& ref_id = refined_tensor.at(r_index, partial_loc);
+                add_selection_to_refinement(partial_loc, ref_id, subset_id);
               } else {
                 int moved_subset_id =
                   taskgraph.insert_move(partial_loc, loc, subset_id);
-                refined_tensor.at(r_index, loc) =
-                  insert_selection_to_refinement(loc, moved_subset_id);
+                int& ref_id = refined_tensor.at(r_index, loc);
+                add_selection_to_refinement(loc, ref_id, moved_subset_id);
               }
             }
           }
@@ -1279,3 +1292,11 @@ void taskgraph_t::print() const {
     std::cout << std::endl;
   }
 }
+
+std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {
+  out << "td[d_inn" << td.d_inn << ",d_out" << td.d_out;
+  out << ",o_inn" << td.offset_inn << ",o_out" << td.offset_out;
+  out << ",size" << td.size << "]";
+  return out;
+}
+

@@ -293,3 +293,7 @@ bool operator==(
 bool operator!=(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);
+
+std::ostream& operator<<(std::ostream& out, touchdim_t const&);
+
+

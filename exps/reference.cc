@@ -67,16 +67,21 @@ int main03() {
   return 0;
 }
 
-int main() {
-  placement_t placement_start(
-    partition_t({ partdim_t::split(20, 5) }),
-    tensor_t<int>({5}, {0,0,0,0,0})
-  );
-  placement_t placement_finish(
-    partition_t({ partdim_t::split(20, 5) }),
-    tensor_t<int>({5}, {0,0,0,0,1})
-  );
+int main04() {
+  buffer_t b1 = std::make_shared<buffer_holder_t>(10);
+  buffer_t b2 = b1;
+  b2->iota();
+  std::cout << b2 << std::endl;
+  std::cout << b1 << std::endl;
+  return 0;
+}
 
+// TODO: assert they are correct
+// TODO: rename repartition_test
+void exp_process01(
+  placement_t placement_start,
+  placement_t placement_finish)
+{
   buffer_t inn_buffer = std::make_shared<buffer_holder_t>(20);
   inn_buffer->iota(0);
 
@@ -100,8 +105,8 @@ int main() {
   tensor_t<buffer_t> out_pbuffer = partition_buffer(
     placement_finish.partition, out_buffer);
 
-  std::cout << inn_pbuffer << std::endl;
-  std::cout << out_pbuffer << std::endl;
+  std::cout << "inn_pbuffer " << inn_pbuffer << std::endl;
+  std::cout << "out_pbuffer " << out_pbuffer << std::endl;
 
   map<int, buffer_t> t_input_map = init_buffer_map(
     input_gid_to_tids.at(gid_inn),
@@ -117,3 +122,48 @@ int main() {
   std::cout << "-- taskgraph " << std::endl;
   std::cout << t_out_buffer << std::endl;
 }
+
+void main05() {
+  placement_t placement_start(
+    partition_t({ partdim_t::split(20, 5) }),
+    tensor_t<int>({5}, {0,0,0,0,0})
+  );
+  placement_t placement_finish(
+    partition_t({ partdim_t::split(20, 3) }),
+    tensor_t<int>({3}, {0,0,0})
+  );
+
+  exp_process01(placement_start, placement_finish);
+}
+
+void main06() {
+  placement_t placement_start(
+    partition_t({ partdim_t::split(20, 1) }),
+    tensor_t<int>({1}, {0})
+  );
+  placement_t placement_finish(
+    partition_t({ partdim_t::split(20, 2) }),
+    tensor_t<int>({2}, {0,0})
+  );
+
+  exp_process01(placement_start, placement_finish);
+}
+
+void main07() {
+  placement_t placement_start(
+    partition_t({ partdim_t::split(20, 2) }),
+    tensor_t<int>({2}, {0,0})
+  );
+  placement_t placement_finish(
+    partition_t({ partdim_t::split(20, 1) }),
+    tensor_t<int>({1}, {0})
+  );
+
+  exp_process01(placement_start, placement_finish);
+}
+
+int main() {
+  main05();
+}
+
+
