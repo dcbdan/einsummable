@@ -1179,6 +1179,45 @@ uint64_t taskgraph_t::get_size_at(int id) const
   return nodes[id].op.tensor_size();
 }
 
+vector<int> taskgraph_t::get_order() const {
+  vector<int> ready;
+  ready.reserve(nodes.size() / 4);
+
+  vector<int> counts(nodes.size(), -1);
+
+  for(int i = 0; i != nodes.size(); ++i) {
+    auto const& node = nodes[i];
+    counts[i] = node.op.inputs().size();
+    if(counts[i] == 0) {
+      ready.push_back(i);
+    }
+  }
+
+  vector<int> ret;
+  ret.reserve(nodes.size());
+  while(ready.size() > 0) {
+    ret.push_back(ready.back());
+    ready.pop_back();
+
+    int const& id = ret.back();
+    auto const& node = nodes[id];
+    for(auto const& out: node.outs) {
+      counts[out] -= 1;
+      if(counts[out] == 0) {
+        ready.push_back(out);
+      }
+    }
+  }
+
+  for(auto const& cnt: counts) {
+    if(cnt != 0) {
+      throw std::runtime_error("all counts should be zero");
+    }
+  }
+
+  return ret;
+}
+
 int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 

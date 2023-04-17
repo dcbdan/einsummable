@@ -91,7 +91,7 @@ map<int, buffer_t> reference_compute_taskgraph(
     return buffer;
   };
 
-  for(int id = 0; id != taskgraph.nodes.size(); ++id)
+  for(auto const& id: taskgraph.get_order())
   {
     auto const& node = taskgraph.nodes[id];
 

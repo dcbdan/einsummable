@@ -45,3 +45,21 @@ vector<uint64_t> shape_hrect(
   }
   return ret;
 }
+
+void set_seed(int seed) {
+  random_gen() = std::mt19937(seed);
+}
+
+std::mt19937& random_gen() {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  return gen;
+}
+
+// random number in [beg,end)
+int runif(int beg, int end) {
+  return std::uniform_int_distribution<>(beg, end-1)(random_gen());
+}
+int runif(int n) {
+  return runif(0, n);
+}

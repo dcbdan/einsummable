@@ -10,6 +10,7 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <random>
 
 #define DOUT(x) std::cout << x << std::endl;
 #define DLINEOUT(x) std::cout << __LINE__ << " " << x << std::endl;
@@ -250,4 +251,11 @@ T parse_with_ss(Str const& s)
   return out;
 }
 
+void set_seed(int seed);
+
+std::mt19937& random_gen();
+
+int runif(int beg, int end);
+
+int runif(int n);
 

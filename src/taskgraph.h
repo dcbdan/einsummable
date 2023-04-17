@@ -102,6 +102,11 @@ struct taskgraph_t {
   // for debugging
   void print() const;
 
+  // Get a compute order for the graph.
+  // (It is not neccesarily the case that get_order = 0,1,2,...
+  //  because things can get added to partialize ops)
+  vector<int> get_order() const;
+
 private:
   struct input_t {
     int loc;

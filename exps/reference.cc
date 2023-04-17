@@ -279,6 +279,45 @@ void test_obvious_same_input_matmul(int pi, int pj, int pk) {
   test_make_taskgraph(graph, inns);
 }
 
+void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
+  graph_t graph;
+
+  uint64_t ni = 10;
+  uint64_t nj = 10;
+  uint64_t nk = 10;
+
+  partdim_t pdi = partdim_t::split(ni, pi);
+  partdim_t pdj = partdim_t::split(nj, pj);
+  partdim_t pdk = partdim_t::split(nk, pk);
+
+  int id_lhs = graph.insert_input(placement_t::random(partition_t({pdi,pdj}), nloc));
+  int id_rhs = graph.insert_input(placement_t::random(partition_t({pdj,pdk}), nloc));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    placement_t::random(partition_t({pdi, pdk, pdj}), nloc),
+    matmul,
+    {id_lhs, id_rhs});
+
+  int id_save = graph.insert_formation(
+    placement_t::random(partition_t({pdi, pdk}), nloc),
+    id_join,
+    true);
+
+  graph.print();
+
+  buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
+  buffer_lhs->iota(-10);
+
+  buffer_t buffer_rhs = std::make_shared<buffer_holder_t>(nj*nk);
+  buffer_rhs->iota(-20);
+
+  map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
+  test_make_taskgraph(graph, inns);
+}
+
 void main06(int argc, char** argv) {
   if(argc != 4) {
     throw std::runtime_error("usage: pi pj pk");
@@ -289,7 +328,7 @@ void main06(int argc, char** argv) {
   test_obvious_matmul(pi, pj, pk);
 }
 
-int main(int argc, char** argv) {
+void main07(int argc, char** argv) {
   if(argc != 4) {
     throw std::runtime_error("usage: pi pj pk");
   }
@@ -299,4 +338,21 @@ int main(int argc, char** argv) {
   test_obvious_same_input_matmul(pi, pj, pk);
 }
 
+void main08(int argc, char** argv) {
+  if(argc != 6) {
+    throw std::runtime_error("usage: pi pj pk loc seed");
+  }
+  int pi   = parse_with_ss<int>(argv[1]);
+  int pj   = parse_with_ss<int>(argv[2]);
+  int pk   = parse_with_ss<int>(argv[3]);
+  int nloc = parse_with_ss<int>(argv[4]);
+  int seed = parse_with_ss<int>(argv[5]);
 
+  set_seed(seed);
+
+  test_obvious_random_loc_matmul(pi, pj, pk, nloc);
+}
+
+int main(int argc, char** argv) {
+  main08(argc, argv);
+}

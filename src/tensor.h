@@ -69,6 +69,9 @@ struct tensor_t {
   // compiles without any warning..
   // There you go.
 
+  vector<T>& get() {
+    return vec;
+  }
   vector<T> const& get() const {
     return vec;
   }

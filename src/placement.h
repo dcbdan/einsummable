@@ -60,6 +60,14 @@ struct placement_t {
     return ret;
   }
 
+  static placement_t random(partition_t const& partition, int nloc) {
+    placement_t ret(partition);
+    for(int& loc: ret.locations.get()) {
+      loc = runif(nloc);
+    }
+    return ret;
+  }
+
   // Args must be all ints or this won't compile
   template <typename... Args>
   int& operator()(Args... args) {
