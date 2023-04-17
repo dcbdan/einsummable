@@ -62,13 +62,13 @@ struct placement_t {
 
   // Args must be all ints or this won't compile
   template <typename... Args>
-  int& operator[](Args... args) {
-    return locations.operator[](args...);
+  int& operator()(Args... args) {
+    return locations.operator()(args...);
   }
 
   template <typename... Args>
-  int const& operator[](Args... args) const {
-    return locations.operator[](args...);
+  int const& operator()(Args... args) const {
+    return locations.operator()(args...);
   }
 
   int& at(vector<int> idxs) {

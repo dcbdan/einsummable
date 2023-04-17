@@ -101,4 +101,5 @@ struct partition_t {
 bool operator==(partition_t const& lhs, partition_t const& rhs);
 bool operator!=(partition_t const& lhs, partition_t const& rhs);
 
+std::ostream& operator<<(std::ostream& out, partition_t const& p);
 

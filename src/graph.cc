@@ -126,6 +126,15 @@ vector<int> graph_t::get_order() const {
   return ret;
 }
 
+int graph_t::num_locs() const {
+  int ret = 1;
+  for(auto const& node: nodes) {
+    ret = std::max(ret, node.num_locs());
+  }
+
+  return ret;
+}
+
 int graph_t::insert(
   op_t const& op,
   vector<int> inns,
@@ -147,13 +156,16 @@ int graph_t::insert(
 }
 
 void graph_t::print() const {
-  std::cout << "graph[num nodes = " << nodes.size() << "]" << std::endl;
+  std::cout <<
+    "graph[num nodes = " << nodes.size() << ", " <<
+          "num locs = " << num_locs() << "]" << std::endl;
   std::cout << std::endl;
 
   for(int id = 0; id != nodes.size(); ++id) {
     auto const& node = nodes[id];
 
     std::cout << "inputs: " << node.inns << std::endl;
+    std::cout << "partition: " << node.placement.partition << std::endl;
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;
     } else if(node.op.is_einsummable()) {

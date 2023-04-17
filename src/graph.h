@@ -52,6 +52,12 @@ struct graph_t {
 
   vector<int> get_order() const;
 
+  // Assumption: if location i is used in a placement,
+  // then all locations 0, ..., i-1 are also used.
+  // Put another way, location i is the ith plus 1 processor.
+  // As such, return the maximum location value used plus 1.
+  int num_locs() const;
+
   // TODO: implement a fuse:
   //   void optimize_fuse();
   //
@@ -169,11 +175,15 @@ public:
     set<int> outs;
     placement_t placement;
 
-    set<int> get_inns_set() {
+    set<int> get_inns_set() const {
       return set<int>(inns.begin(), inns.end());
     }
-    int num_distinct_inputs() {
+    int num_distinct_inputs() const {
       return get_inns_set().size();
+    }
+    int num_locs() const {
+      auto const& locs = placement.locations.get();
+      return 1 + *std::max_element(locs.begin(), locs.end());
     }
   };
 

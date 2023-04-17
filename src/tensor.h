@@ -55,13 +55,19 @@ struct tensor_t {
 
   // Args must be all ints or this won't compile
   template <typename... Args>
-  T& operator[](Args... args) {
+  T& operator()(Args... args) {
     return at(variadic_to_vec<int>(args...));
   }
   template <typename... Args>
-  T const& operator[](Args... args) const {
+  T const& operator()(Args... args) const {
     return at(variadic_to_vec<int>(args...));
   }
+  // I'd prefer to use operator[], but C++ only allows
+  // 1 input to operator[]. AND
+  //   template <typename... Args>
+  //   T& operator[](Args... args) {
+  // compiles without any warning..
+  // There you go.
 
   vector<T> const& get() const {
     return vec;

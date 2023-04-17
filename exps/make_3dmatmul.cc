@@ -100,8 +100,8 @@ graph_t three_dimensional_matrix_multiplication(
     int i;
     int j;
     int k;
-    for(int r = 0; i != nr;      ++r) {
-    for(int c = 0; c != nc;      ++c) {
+    for(int r = 0; r != nr; ++r) {
+    for(int c = 0; c != nc; ++c) {
     for(int p = 0; p != np; ++p) {
       if(which == rcp_t::ijk) {
         i = r;
@@ -119,7 +119,7 @@ graph_t three_dimensional_matrix_multiplication(
         throw std::runtime_error("should not reach");
       }
 
-      locs[r*np + p, c] = to_processor(i,j,k);
+      locs(r*np + p, c) = to_processor(i,j,k);
     }}}
 
     return locs;
@@ -153,7 +153,7 @@ graph_t three_dimensional_matrix_multiplication(
     for(int i = 0; i != pi; ++i) {
     for(int j = 0; j != pj; ++j) {
     for(int k = 0; k != pk; ++k) {
-      locs[i,k,j] = to_processor(i,j,k);
+      locs(i,k,j) = to_processor(i,j,k);
     }}}
 
     placement_t placement(part, locs);
