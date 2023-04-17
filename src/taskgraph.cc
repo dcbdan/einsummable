@@ -195,7 +195,7 @@ taskgraph_t::make(graph_t const& graph)
 multiple_tensor_t
 state_t::access(int join_gid, int which_input)
 {
-  DOUT("ACCESS " << join_gid);
+  DOUT("ACCESS " << join_gid << " WITH INPUT " << which_input);
   graph_t::node_t const& join_node = graph.nodes[join_gid];
 
   // get the multiple placement of the input necessary for the join
@@ -231,9 +231,9 @@ state_t::access(int join_gid, int which_input)
   //
   // For each sub-tensor in refine_tensor, write it into the locations it'll
   // be used at for inn_placement.
-  tensor_t<vector<multiple_tensor_t::locid_t>> ret;
-
   auto out_shape = inn_placement.partition.block_shape();
+  tensor_t<vector<multiple_tensor_t::locid_t>> ret(out_shape);
+
   vector<int> out_index(out_shape.size(), 0);
   do {
     // At this index and all locations it'll be used at, we need
@@ -242,16 +242,20 @@ state_t::access(int join_gid, int which_input)
     auto const& locs = inn_placement.locations.at(out_index);
     auto write_shape = inn_placement.partition.tensor_shape_at(out_index);
 
-    auto& ret_at = ret.at(out_index);
-    ret_at.reserve(locs.size());
+    // initialize the partials to be written
+    auto& _ret_at = ret.at(out_index);
+    _ret_at.reserve(locs.size());
     for(auto const& loc: locs) {
       int builder_id = taskgraph.new_partial(loc, write_shape);
-      ret_at.push_back(
+      _ret_at.push_back(
         multiple_tensor_t::locid_t {
           .loc = loc,
           .id  = builder_id
         });
     }
+
+    // now ret_at is filled out with uninitialized partials
+    auto const& ret_at = _ret_at;
 
     // Now iterate through all the refined subtensors writing
     // into the output
@@ -278,7 +282,7 @@ state_t::access(int join_gid, int which_input)
     // --------------
     //
     // A := hrect_wrt_full             (the hrect of this output)
-    // B := refined_hrect_wrt_full     (one of the refined hrects)
+    // B := refine_hrect_wrt_full      (one of the refined hrects)
     // C := output region for op       (from the perspective of the partialize op)
     // D := one input to output region (from the perspective of the partialize op)
 
@@ -287,7 +291,7 @@ state_t::access(int join_gid, int which_input)
       auto centered_hrect = center_hrect(hrect_wrt_full, refine_hrect_wrt_full);
 
       for(auto const& [loc, builder_id]: ret_at) {
-        int refine_tensor_id = refine_tensor.at(refine_index, builder_id);
+        int refine_tensor_id = refine_tensor.at(refine_index, loc);
         taskgraph.add_to_partial_the_full_input(
           builder_id, refine_tensor_id, centered_hrect);
       }
