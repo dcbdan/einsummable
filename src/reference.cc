@@ -21,25 +21,24 @@ bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs) {
   return !(lhs == rhs);
 }
 
-bool is_close(buffer_t const& lhs, buffer_t const& rhs) {
+bool is_close(buffer_t const& lhs, buffer_t const& rhs, float eps) {
   buffer_holder_t const& l = *lhs;
   buffer_holder_t const& r = *rhs;
-  return is_close(l, r);
+  return is_close(l, r, eps);
 }
-bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs) {
+bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps) {
   if(lhs.size != rhs.size) {
     return false;
   }
   for(int i = 0; i != lhs.size; ++i) {
-    if(!is_close(lhs.data[i], rhs.data[i])) {
+    if(!is_close(lhs.data[i], rhs.data[i], eps)) {
       return false;
     }
   }
   return true;
 }
-bool is_close(float lhs, float rhs) {
-  static float eps = 1e-6;
-  return lhs < rhs + eps && lhs > rhs - eps;
+bool is_close(float lhs, float rhs, float eps) {
+  return (lhs <= rhs + eps) && (lhs >= rhs - eps);
 }
 
 map<int, buffer_t> reference_compute_graph(

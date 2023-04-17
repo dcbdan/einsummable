@@ -177,6 +177,8 @@ void test_make_taskgraph(
     _info = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
+  taskgraph.print();
+
   map<int, buffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
     tensor_t<buffer_t> pbuffer = partition_buffer(
@@ -199,12 +201,16 @@ void test_make_taskgraph(
   }
 }
 
+// Here, obvious matmul means
+// 1. block the i,j,k dimensions,
+// 2. join i,j,k and do matmul at each block
+// 3. agg out j to i,k
 void test_obvious_matmul(int pi, int pj, int pk) {
   graph_t graph;
 
-  uint64_t ni = 20;
-  uint64_t nj = 20;
-  uint64_t nk = 20;
+  uint64_t ni = 10;
+  uint64_t nj = 10;
+  uint64_t nk = 10;
 
   partdim_t pdi = partdim_t::split(ni, pi);
   partdim_t pdj = partdim_t::split(nj, pj);
@@ -227,12 +233,10 @@ void test_obvious_matmul(int pi, int pj, int pk) {
     true);
 
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
-  buffer_lhs->iota(-1000);
+  buffer_lhs->iota(-10);
 
   buffer_t buffer_rhs = std::make_shared<buffer_holder_t>(nj*nk);
-  buffer_rhs->iota(-200);
-
-  DOUT("INPUT ID LHS RHS " << id_lhs << " " << id_rhs << " | OP ID " << id_join << " | SAVE ID " << id_save);
+  buffer_rhs->iota(-20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
   test_make_taskgraph(graph, inns);

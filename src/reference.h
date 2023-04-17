@@ -33,9 +33,9 @@ bool operator!=(buffer_t const& lhs, buffer_t const& rhs);
 bool operator==(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
 bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
 
-bool is_close(buffer_t const& lhs, buffer_t const& rhs);
-bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
-bool is_close(float lhs, float rhs);
+bool is_close(buffer_t const& lhs, buffer_t const& rhs, float eps = 1e-3);
+bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps = 1e-3);
+bool is_close(float lhs, float rhs, float eps = 1e-3);
 
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
