@@ -232,6 +232,8 @@ void test_obvious_matmul(int pi, int pj, int pk) {
     id_join,
     true);
 
+  graph.print();
+
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
 
@@ -242,7 +244,6 @@ void test_obvious_matmul(int pi, int pj, int pk) {
   test_make_taskgraph(graph, inns);
 }
 
-// TODO run these tests
 void test_obvious_same_input_matmul(int pi, int pj, int pk) {
   graph_t graph;
 
@@ -269,11 +270,23 @@ void test_obvious_same_input_matmul(int pi, int pj, int pk) {
     id_join,
     true);
 
+  graph.print();
+
   buffer_t buffer_inn = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_inn->iota(-10);
 
   map<int, buffer_t> inns{ {id_inn, buffer_inn} };
   test_make_taskgraph(graph, inns);
+}
+
+void main06(int argc, char** argv) {
+  if(argc != 4) {
+    throw std::runtime_error("usage: pi pj pk");
+  }
+  int pi = parse_with_ss<int>(argv[1]);
+  int pj = parse_with_ss<int>(argv[2]);
+  int pk = parse_with_ss<int>(argv[3]);
+  test_obvious_matmul(pi, pj, pk);
 }
 
 int main(int argc, char** argv) {
@@ -283,7 +296,7 @@ int main(int argc, char** argv) {
   int pi = parse_with_ss<int>(argv[1]);
   int pj = parse_with_ss<int>(argv[2]);
   int pk = parse_with_ss<int>(argv[3]);
-  test_obvious_matmul(pi, pj, pk);
+  test_obvious_same_input_matmul(pi, pj, pk);
 }
 
 

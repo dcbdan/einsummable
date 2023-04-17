@@ -108,6 +108,14 @@ vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
 }
 
 template <typename T>
+[[nodiscard]] vector<T> vector_concatenate(vector<T> vs, vector<T> const& add_these) {
+  vs.reserve(vs.size() + add_these.size());
+  for(auto const& x: add_these) {
+    vs.push_back(x);
+  }
+  return vs;
+}
+template <typename T>
 void vector_concatenate_into(vector<T>& vs, vector<T> const& add_these) {
   vs.reserve(vs.size() + add_these.size());
   for(auto const& x: add_these) {
@@ -116,16 +124,7 @@ void vector_concatenate_into(vector<T>& vs, vector<T> const& add_these) {
 }
 
 template <typename T>
-vector<T> vector_concatenate(vector<T> vs, vector<T> const& add_these) {
-  vs.reserve(vs.size() + add_these.size());
-  for(auto const& x: add_these) {
-    vs.push_back(x);
-  }
-  return vs;
-}
-
-template <typename T>
-vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
+[[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());
   for(int i = 0; i != lhs.size(); ++i) {
@@ -142,7 +141,7 @@ void vector_add_into(vector<T>& out, vector<T> const& inn) {
 }
 
 template <typename T>
-vector<T> vector_sub(vector<T> const& lhs, vector<T> const& rhs) {
+[[nodiscard]] vector<T> vector_sub(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());
   for(int i = 0; i != lhs.size(); ++i) {
@@ -192,7 +191,7 @@ vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {
   // TODO: make this more efficient
   vector<T> ret;
   for(auto const& x: xs) {
-    vector_concatenate(ret, x);
+    vector_concatenate_into(ret, x);
   }
   std::sort(ret.begin(), ret.end());
   return ret;
