@@ -1,4 +1,5 @@
 #include "../src/graph.h"
+#include "../src/taskgraph.h"
 
 // Construct a 3D mamtul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj
@@ -204,7 +205,15 @@ int main(int argc, char** argv) {
 
   graph_t graph = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
+
   graph.print();
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+
+  vector<char> line(40, '/');
+  std::cout << std::string(line.begin(), line.end()) << std::endl;
+
+  taskgraph.print();
 }
 
 
