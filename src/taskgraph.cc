@@ -195,6 +195,7 @@ taskgraph_t::make(graph_t const& graph)
 multiple_tensor_t
 state_t::access(int join_gid, int which_input)
 {
+  DOUT("ACCESS " << join_gid);
   graph_t::node_t const& join_node = graph.nodes[join_gid];
 
   // get the multiple placement of the input necessary for the join
@@ -299,6 +300,7 @@ state_t::access(int join_gid, int which_input)
 tensor_t<int>
 state_t::compute(int gid)
 {
+  DOUT("COMPUTE " << gid);
   graph_t::node_t const& node = graph.nodes[gid];
 
   if(node.op.is_input()) {
@@ -352,6 +354,7 @@ state_t::compute(int gid)
 void
 state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
+  DOUT("COMMUNICATE " << join_gid);
   using locid_t = multiple_tensor_t::locid_t;
 
   auto const& join_node = graph.nodes[join_gid];
@@ -900,10 +903,12 @@ int taskgraph_t::insert_einsummable(
   }
   auto inn_shapes = e.inn_shapes();
   for(int i = 0; i != inns.size(); ++i) {
-    if(nodes[i].op.tensor_size() != product(inn_shapes[i])) {
+    int const& inn = inns[i];
+    auto const& inn_shape = inn_shapes[i];
+    if(nodes[inn].op.tensor_size() != product(inn_shape)) {
       throw std::runtime_error("insert_einsummable: input has wrong size");
     }
-  }
+ }
 
   return insert(apply, is_save);
 }
@@ -1278,6 +1283,7 @@ void taskgraph_t::print() const {
 
     auto inputs = node.op.inputs();
     std::cout << "inputs: " << vector<int>(inputs.begin(), inputs.end()) << std::endl;
+    std::cout << "tensor size: " << node.op.tensor_size() << std::endl;
 
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;

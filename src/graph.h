@@ -79,6 +79,8 @@ struct graph_t {
   // as the formation node will aggregate partials of X into a
   // single location
 
+  void print() const;
+
 public:
 
   struct input_t {

@@ -9,6 +9,7 @@
 #include <set>
 #include <map>
 #include <optional>
+#include <sstream>
 
 #define DOUT(x) std::cout << x << std::endl;
 #define DLINEOUT(x) std::cout << __LINE__ << " " << x << std::endl;
@@ -240,3 +241,14 @@ center_hrect(
 
 vector<uint64_t> shape_hrect(
   vector<tuple<uint64_t, uint64_t>> const& hrect);
+
+template <typename T, typename Str>
+T parse_with_ss(Str const& s)
+{
+  T out;
+  std::stringstream ss(s);
+  ss >> out;
+  return out;
+}
+
+

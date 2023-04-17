@@ -242,8 +242,48 @@ void test_obvious_matmul(int pi, int pj, int pk) {
   test_make_taskgraph(graph, inns);
 }
 
-int main() {
-  test_obvious_matmul(1,1,1);
+// TODO run these tests
+void test_obvious_same_input_matmul(int pi, int pj, int pk) {
+  graph_t graph;
+
+  uint64_t ni = 10;
+  uint64_t nj = ni;
+  uint64_t nk = nj;
+
+  partdim_t pdi = partdim_t::split(ni, pi);
+  partdim_t pdj = partdim_t::split(nj, pj);
+  partdim_t pdk = partdim_t::split(nk, pk);
+
+  int id_inn = graph.insert_input(partition_t({pdi,pdj}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    partition_t({pdi, pdk, pdj}),
+    matmul,
+    {id_inn, id_inn});
+
+  int id_save = graph.insert_formation(
+    partition_t({pdi, pdk}),
+    id_join,
+    true);
+
+  buffer_t buffer_inn = std::make_shared<buffer_holder_t>(ni*nj);
+  buffer_inn->iota(-10);
+
+  map<int, buffer_t> inns{ {id_inn, buffer_inn} };
+  test_make_taskgraph(graph, inns);
+}
+
+int main(int argc, char** argv) {
+  if(argc != 4) {
+    throw std::runtime_error("usage: pi pj pk");
+  }
+  int pi = parse_with_ss<int>(argv[1]);
+  int pj = parse_with_ss<int>(argv[2]);
+  int pk = parse_with_ss<int>(argv[3]);
+  test_obvious_matmul(pi, pj, pk);
 }
 
 

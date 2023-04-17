@@ -146,3 +146,23 @@ int graph_t::insert(
   return ret;
 }
 
+void graph_t::print() const {
+  std::cout << "graph[num nodes = " << nodes.size() << "]" << std::endl;
+  std::cout << std::endl;
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    auto const& node = nodes[id];
+
+    std::cout << "inputs: " << node.inns << std::endl;
+    if(node.op.is_input()) {
+      std::cout << "input" << std::endl;
+    } else if(node.op.is_einsummable()) {
+      std::cout << "einsummable" << std::endl;
+    } else if(node.op.is_formation()) {
+      std::cout << "formation (is save = " << std::boolalpha << node.op.is_save() << ")" << std::endl;
+    }
+
+    std::cout << std::endl;
+  }
+}
+

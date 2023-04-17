@@ -51,4 +51,40 @@ einsummable_t::input_idxs(vector<int> const& join_idx) const
   return get_inputs_from_join(join_idx);
 }
 
+std::string einsummable_t::str() const {
+  if(join_shape.size() > 26) {
+    throw std::runtime_error("not enough letters; what are you doing");
+  }
+
+  vector<char> letters(join_shape.size());
+  std::iota(letters.begin(), letters.end(), 'a');
+
+
+  auto words = get_inputs_from_join(letters);
+
+  std::stringstream ss;
+  ss << std::string(words[0].begin(), words[0].end());
+  for(int i = 1; i != words.size(); ++i) {
+    auto const& word = words[i];
+    ss << "," << std::string(word.begin(), word.end());
+  }
+
+  vector<char> outword(letters.begin(), letters.begin() + out_rank);
+  ss << "->" << std::string(outword.begin(), outword.end());
+
+  return ss.str();
+}
+
+std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
+  out << "es[";
+  out << e.join_shape[0];
+  for(int i = 1; i < e.join_shape.size(); ++i) {
+    out << "," << e.join_shape[i];
+  }
+  out << "]";
+
+  out << "\"" << e.str() << "\"";
+
+  return out;
+}
 
