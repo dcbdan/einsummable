@@ -100,7 +100,6 @@ private:
 
   vector<node_t> nodes;
 
-  // TODO
   int insert_compute(int loc, uint64_t flops, int capacity, vector<int> const& deps);
   int insert_move(int src, int dst, uint64_t bytes, vector<int> const& deps);
   int insert(std::variant<compute_t, move_t> op, vector<int> const& deps);

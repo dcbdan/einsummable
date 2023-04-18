@@ -42,6 +42,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
   twolayergraph_t ret(graph);
 
   for(auto const& graph_id: graph.get_order()) {
+    // TODO
     // for every out block,
     //   set up a join_t object
 
@@ -55,6 +56,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
 
 costgraph_t costgraph_t::make(twolayergraph_t const& twolayer) {
 
+  // TODO
   // maintain a map from (rid_t, loc) to costgraph id (as a tensor)
   // maintain a map from jid_t to costgraph id        (as a vector)
   // for every twolayergraph id in order,
@@ -71,6 +73,51 @@ costgraph_t costgraph_t::make(twolayergraph_t const& twolayer) {
   return costgraph_t();
 }
 
+int costgraph_t::insert_compute(
+  int loc, uint64_t flops, int capacity,
+  vector<int> const& deps)
+{
+  return insert(
+    compute_t {
+      .loc = loc,
+      .flops = flops,
+      .capacity = capacity
+    },
+    deps);
+}
+
+int costgraph_t::insert_move(
+  int src, int dst, uint64_t bytes,
+  vector<int> const& deps)
+{
+  return insert(
+    move_t {
+      .src = src,
+      .dst = dst,
+      .bytes = bytes
+    },
+    deps);
+}
+
+int costgraph_t::insert(
+  std::variant<compute_t, move_t> op,
+  vector<int> const& deps)
+{
+  int ret = nodes.size();
+
+  nodes.push_back(node_t {
+    .inns = std::set(deps.begin(), deps.end()),
+    .outs = {},
+    .op = op
+  });
+
+  for(auto const& inn: nodes.back().inns) {
+    nodes[inn].outs.insert(ret);
+  }
+
+  return ret;
+}
+
 //template <typename T>
 //using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 // For priority_queue_least, the top most element is the smallest,
@@ -79,6 +126,7 @@ costgraph_t costgraph_t::make(twolayergraph_t const& twolayer) {
 
 float costgraph_t::operator()(cluster_t const& cluster) const {
 
+  // TODO
   // maintain a priority queue of in progress operations
   // maintain a worker to set of pending ops
   // maintain available worker resources
