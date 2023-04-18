@@ -594,7 +594,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
       if(partials.size() == 1) {
         auto const& [partial_loc, partial_id] = *partials.begin();
-        if(vector_equal(selection_shape, out_tensor_shape)) {
+        if(vector_equal(selection_shape, refinement_shape)) {
           if(vector_equal(out_tensor_shape, selection_shape)) {
             // case 1: copy right into the refined_tensor
             for(int loc: required_locs) {

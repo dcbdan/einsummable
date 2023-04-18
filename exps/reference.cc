@@ -204,6 +204,7 @@ void test_make_taskgraph(
       auto const& t   = t_vec[i];
       auto const& u   = vec[i];
       if(!is_close(t, u)) {
+        std::cout << tid << std::endl << t << std::endl << u << std::endl;
         throw std::runtime_error("make_taskgraph_test fail");
       }
     }
@@ -428,6 +429,14 @@ void main09(int argc, char** argv) {
   test_random_matmul();
 }
 
+void main10() {
+  for(int seed = 0; seed != 1000; ++seed) {
+    std::cout << "seed: " << seed << std::endl;
+    set_seed(seed);
+    test_random_matmul();
+  }
+}
+
 int main(int argc, char** argv) {
-  main09(argc, argv);
+  main10();
 }
