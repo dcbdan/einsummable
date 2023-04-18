@@ -64,4 +64,6 @@ struct einsummable_t {
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
+std::ostream& operator<<(std::ostream& out, castable_t const& c);
+std::ostream& operator<<(std::ostream& out, std::optional<castable_t> const& maybe_c);
 

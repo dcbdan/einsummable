@@ -88,3 +88,28 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   return out;
 }
 
+std::ostream& operator<<(std::ostream& out, castable_t const& c) {
+  if(c == castable_t::add) {
+    out << "+";
+  } else if(c == castable_t::mul) {
+    out << "x";
+  } else if(c == castable_t::min) {
+    out << "v";
+  } else if(c == castable_t::max) {
+    out << "^";
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  return out;
+}
+
+std::ostream& operator<<(std::ostream& out, std::optional<castable_t> const& maybe_c) {
+  if(maybe_c) {
+    out << maybe_c.value();
+  } else {
+    out << ":";
+  }
+  return out;
+}
+

@@ -2,11 +2,12 @@
 #include "setup.h"
 
 struct partdim_t {
-  static partdim_t from_sizes(vector<uint64_t> sizes);
+  static partdim_t from_spans(vector<uint64_t> const& spans);
+  static partdim_t from_sizes(vector<uint64_t> const& sizes);
   static partdim_t repeat(int n_repeat, uint64_t sz);
   static partdim_t singleton(uint64_t sz);
   static partdim_t split(uint64_t total_size, int n_split);
-  static partdim_t unions(vector<partdim_t> ps);
+  static partdim_t unions(vector<partdim_t> const& ps);
 
   uint64_t total() const { return spans.back(); }
 

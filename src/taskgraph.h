@@ -107,6 +107,12 @@ struct taskgraph_t {
   //  because things can get added to partialize ops)
   vector<int> get_order() const;
 
+  // If a taskgraph node has zero outputs, it better be a save.
+  // Return whether or not this holds for all nodes
+  bool all_zero_outs_is_save() const;
+
+  bool all_valid_partialize() const;
+
 private:
   struct input_t {
     int loc;
@@ -205,6 +211,10 @@ private:
 
     vector<vector<tuple<int, touch_t> > > as_touches_from() const;
 
+    // determine if the entire write shape has been touched
+    // by exactly one unit
+    bool valid() const;
+
     int loc;
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
@@ -251,6 +261,9 @@ public:
     }
     bool is_partialize() const {
       return std::holds_alternative<partialize_t>(op);
+    }
+    bool is_valid_if_partialize() const {
+      return !is_partialize() || get_partialize().valid();
     }
     int output_loc() const {
       if(is_input()) {
@@ -300,5 +313,4 @@ bool operator!=(
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
-
 

@@ -1,6 +1,10 @@
 #include "partdim.h"
 
-partdim_t partdim_t::from_sizes(vector<uint64_t> sizes) {
+partdim_t partdim_t::from_spans(vector<uint64_t> const& spans) {
+  return partdim_t { .spans = spans };
+}
+
+partdim_t partdim_t::from_sizes(vector<uint64_t> const& sizes) {
   vector<uint64_t> spans = sizes;
   uint64_t total = spans[0];
   for(int i = 1; i < spans.size(); ++i) {
@@ -22,7 +26,7 @@ partdim_t partdim_t::split(uint64_t total_size, int n_split) {
   return from_sizes(divide_evenly(n_split, total_size));
 }
 
-partdim_t partdim_t::unions(vector<partdim_t> ps) {
+partdim_t partdim_t::unions(vector<partdim_t> const& ps) {
   if(ps.size() == 0) {
     throw std::runtime_error("partdim_t::unions: must have nonempty input");
   }
@@ -36,7 +40,7 @@ partdim_t partdim_t::unions(vector<partdim_t> ps) {
 
   // merge sort and remove the duplicates
   vector<vector<uint64_t>> _ps;
-  ps.reserve(ps.size());
+  _ps.reserve(ps.size());
   for(auto const& p: ps) {
     _ps.push_back(p.spans);
   }

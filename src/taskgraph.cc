@@ -141,7 +141,8 @@ struct state_t {
   // (this will call access)
   tensor_t<int> compute(int gid);
 
-  // create the refined_tensor object from the compute result
+  // create the refined_tensor object from the compute result;
+  // save into refined_tensors
   void communicate(int gid, tensor_t<int> compute_result);
 
 };
@@ -181,6 +182,10 @@ taskgraph_t::make(graph_t const& graph)
       }
       state.communicate(gid, std::move(compute_result));
     }
+  }
+
+  if(!state.taskgraph.all_zero_outs_is_save()) {
+    throw std::runtime_error("In taskgraph_t::make: non-saved outputs");
   }
 
   return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
@@ -445,7 +450,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   // Since all moved data is only used once, it is always consumed
   // when aggregated into a partial. Unless the selection shape
   // does not equal the refinement shape, in which case the
-  // mvoed data can't be consumed.
+  // moved data can't be consumed.
   //
   // Moreover, this all occurs on an output index basis.
 
@@ -707,6 +712,17 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       }
     } while(get_regions.increment());
   } while(increment_idxs(out_shape, out_index));
+
+  // for every id in the refined tensor, if it is a partial,
+  // verify it is valid
+  for(auto const& locids: refined_tensor.tensor.get()) {
+    for(auto const& [loc,id]: locids) {
+      auto const& node = taskgraph.nodes[id];
+      if(!node.op.is_valid_if_partialize()) {
+        throw std::runtime_error("invalid partialize in communicate");
+      }
+    }
+  }
 
   refined_tensors.insert({join_gid, refined_tensor});
 }
@@ -1218,6 +1234,28 @@ vector<int> taskgraph_t::get_order() const {
   return ret;
 }
 
+bool taskgraph_t::all_zero_outs_is_save() const {
+  for(auto const& node: nodes) {
+    if(node.outs.size() == 0) {
+      if(!node.is_save) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+bool taskgraph_t::all_valid_partialize() const {
+  for(auto const& node: nodes) {
+    if(!node.op.is_valid_if_partialize()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 
@@ -1311,6 +1349,74 @@ vector<vector<tuple<int, touch_t>>> taskgraph_t::partialize_t::as_touches_from()
   return rets;
 }
 
+bool taskgraph_t::partialize_t::valid() const
+{
+  int rank = write_shape.size();
+
+  // Cut the write_shape hrect into a refined set of blocks
+  // based on the partial units
+  partition_t refinement = [&] {
+    vector<partdim_t> partdims;
+    partdims.reserve(rank);
+    {
+      vector<vector<uint64_t>> spans(rank);
+      for(int i = 0; i != rank; ++i) {
+        spans[i].push_back(write_shape[i]);
+      }
+      for(auto const& unit: units) {
+        for(int i = 0; i != rank; ++i) {
+          auto const& [offset, size] = unit.out_region[i];
+          auto& ss = spans[i];
+          if(offset != 0) {
+            ss.push_back(offset);
+          }
+          ss.push_back(offset + size);
+        }
+      }
+      for(vector<uint64_t>& ss: spans) {
+        std::sort(ss.begin(), ss.end());
+        vector_remove_duplicates(ss);
+        partdims.push_back(partdim_t::from_spans(ss));
+      }
+    }
+    return partition_t(partdims);
+  }();
+
+  // for each touch, increment the relevant write regions
+  auto refinement_shape = refinement.block_shape();
+  tensor_t<int> counts(
+    refinement_shape,
+    vector<int>(product(refinement_shape), 0));
+
+  for(auto const& unit: units) {
+    vector<tuple<uint64_t, uint64_t>> hrect;
+    hrect.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      auto const& [offset, size] = unit.out_region[i];
+      hrect.emplace_back(offset, offset + size);
+    }
+
+    vector<tuple<int,int>> region = refinement.get_exact_region(hrect);
+    vector<int> index = vector_mapfst(region);
+    do {
+      counts.at(index) += 1;
+    } while(increment_idxs_region(region, index));
+  }
+
+  // Check that the entire write shape is partitioned.
+  //
+  // If the out regions are not disjoint, then
+  //   some num_touch will be bigger than one.
+  // If some of the write_shape is not written to,
+  //   then some nume_touch will be zero.
+  for(auto const& num_touch: counts.get()) {
+    if(num_touch != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void taskgraph_t::print() const {
   std::cout << "taskgraph[num nodes = " << nodes.size() << "]" << std::endl;
   std::cout << std::endl;
@@ -1343,9 +1449,9 @@ void taskgraph_t::print() const {
 }
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {
-  out << "td[d_inn" << td.d_inn << ",d_out" << td.d_out;
-  out << ",o_inn" << td.offset_inn << ",o_out" << td.offset_out;
-  out << ",size" << td.size << "]";
+  out << "td[d_inn:" << td.d_inn << ",d_out:" << td.d_out;
+  out << ",o_inn:" << td.offset_inn << ",o_out:" << td.offset_out;
+  out << ",size:" << td.size << "]";
   return out;
 }
 

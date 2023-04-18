@@ -8,7 +8,7 @@
 // 1. an output partition
 // 2. an input partition of the same overall shape
 // 3. an input index,
-// Iterate through all "ops" that will write the
+// Iterate through all "ops" that will write
 // the input subtensor at index into the output.
 //
 // Here, an op is the specification that would write
