@@ -528,6 +528,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
           partial_loc, _out_to_selection_rs, partial_id);
       };
 
+      // A constructor to modify ids of refined_tensor
       auto maybe_init_ref_id_as_partial = [&](int& ref_id, int loc) {
         if(ref_id == -1) {
           ref_id = taskgraph.new_partial(loc, refinement_shape);
@@ -593,25 +594,27 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
       if(partials.size() == 1) {
         auto const& [partial_loc, partial_id] = *partials.begin();
-        if(vector_equal(out_tensor_shape, refinement_shape)) {
-          // case 1: copy right into the refined_tensor
-          for(int loc: required_locs) {
-            if(loc == partial_loc) {
-              refined_tensor.at(r_index, loc) = partial_id;
-            } else {
-              refined_tensor.at(r_index, loc) =
-                taskgraph.insert_move(partial_loc, loc, partial_id);
+        if(vector_equal(selection_shape, out_tensor_shape)) {
+          if(vector_equal(out_tensor_shape, selection_shape)) {
+            // case 1: copy right into the refined_tensor
+            for(int loc: required_locs) {
+              if(loc == partial_loc) {
+                refined_tensor.at(r_index, loc) = partial_id;
+              } else {
+                refined_tensor.at(r_index, loc) =
+                  taskgraph.insert_move(partial_loc, loc, partial_id);
+              }
             }
-          }
-        } else if(vector_equal(selection_shape, refinement_shape)) {
-          // case 2: subset then copy right into the refined tensor
-          int subset_id = insert_out_to_selection(partial_loc, partial_id);
-          for(int loc: required_locs) {
-            if(loc == partial_loc) {
-              refined_tensor.at(r_index, loc) = subset_id;
-            } else {
-              refined_tensor.at(r_index, loc) =
-                taskgraph.insert_move(partial_loc, loc, subset_id);
+          } else {
+            // case 2: subset then copy right into the refined tensor
+            int subset_id = insert_out_to_selection(partial_loc, partial_id);
+            for(int loc: required_locs) {
+              if(loc == partial_loc) {
+                refined_tensor.at(r_index, loc) = subset_id;
+              } else {
+                refined_tensor.at(r_index, loc) =
+                  taskgraph.insert_move(partial_loc, loc, subset_id);
+              }
             }
           }
         } else {
@@ -651,42 +654,44 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
           maybe_init_ref_id_as_partial(ref_id, loc);
         }
 
-        if(vector_equal(out_tensor_shape, refinement_shape)) {
-          // case 1: aggregate the full input
-          for(auto const& [partial_loc, partial_id]: partials) {
-            for(int loc: required_locs) {
-              int builder = refined_tensor.at(r_index, loc);
-              if(loc == partial_loc) {
-                // partial_id will also be moved since required_locs.size() > 1.
-                // So don't consume the output!
-                taskgraph.add_to_partial_the_full_aggregate(
-                  builder, partial_id, castable, false);
-              } else {
-                // Here, the moved data can be consumed
-                int moved_partial_id =
-                  taskgraph.insert_move(partial_loc, loc, partial_id);
-                taskgraph.add_to_partial_the_full_aggregate(
-                  builder, moved_partial_id, castable, true);
+        if(vector_equal(selection_shape, refinement_shape)) {
+          if(vector_equal(out_tensor_shape, selection_shape)) {
+            // case 1: aggregate the full input
+            for(auto const& [partial_loc, partial_id]: partials) {
+              for(int loc: required_locs) {
+                int builder = refined_tensor.at(r_index, loc);
+                if(loc == partial_loc) {
+                  // partial_id will also be moved since required_locs.size() > 1.
+                  // So don't consume the output!
+                  taskgraph.add_to_partial_the_full_aggregate(
+                    builder, partial_id, castable, false);
+                } else {
+                  // Here, the moved data can be consumed
+                  int moved_partial_id =
+                    taskgraph.insert_move(partial_loc, loc, partial_id);
+                  taskgraph.add_to_partial_the_full_aggregate(
+                    builder, moved_partial_id, castable, true);
+                }
               }
             }
-          }
-        } else if(vector_equal(selection_shape, refinement_shape)) {
-          // case 2: subset then aggregate into the refined tensor
-          for(auto const& [partial_loc, partial_id]: partials) {
-            int subset_id = insert_out_to_selection(partial_loc, partial_id);
-            for(int loc: required_locs) {
-              int builder = refined_tensor.at(r_index, loc);
-              if(loc == partial_loc) {
-                // subset_id will also be moved since required_locs.size() > 1.
-                // So don't consume the output!
-                taskgraph.add_to_partial_the_full_aggregate(
-                  builder, subset_id, castable, false);
-              } else {
-                // Here, the moved data can be consumed
-                int moved_subset_id =
-                  taskgraph.insert_move(partial_loc, loc, subset_id);
-                taskgraph.add_to_partial_the_full_aggregate(
-                  builder, moved_subset_id, castable, true);
+          } else {
+            // case 2: subset then aggregate into the refined tensor
+            for(auto const& [partial_loc, partial_id]: partials) {
+              int subset_id = insert_out_to_selection(partial_loc, partial_id);
+              for(int loc: required_locs) {
+                int builder = refined_tensor.at(r_index, loc);
+                if(loc == partial_loc) {
+                  // subset_id will also be moved since required_locs.size() > 1.
+                  // So don't consume the output!
+                  taskgraph.add_to_partial_the_full_aggregate(
+                    builder, subset_id, castable, false);
+                } else {
+                  // Here, the moved data can be consumed
+                  int moved_subset_id =
+                    taskgraph.insert_move(partial_loc, loc, subset_id);
+                  taskgraph.add_to_partial_the_full_aggregate(
+                    builder, moved_subset_id, castable, true);
+                }
               }
             }
           }
@@ -1420,6 +1425,7 @@ bool taskgraph_t::partialize_t::valid() const
   //   some num_touch will be bigger than one.
   // If some of the write_shape is not written to,
   //   then some nume_touch will be zero.
+
   for(auto const& num_touch: counts.get()) {
     if(num_touch != 1) {
       return false;
@@ -1463,6 +1469,11 @@ std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {
   out << "td[d_inn:" << td.d_inn << ",d_out:" << td.d_out;
   out << ",o_inn:" << td.offset_inn << ",o_out:" << td.offset_out;
   out << ",size:" << td.size << "]";
+  return out;
+}
+
+std::ostream& operator<<(std::ostream& out, touch_t const& t) {
+  out << t.castable << " " << t.selection;
   return out;
 }
 

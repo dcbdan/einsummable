@@ -13,9 +13,9 @@
 #include <random>
 
 #define DOUT(x) std::cout << x << std::endl;
-#define DLINEOUT(x) std::cout << __LINE__ << " " << x << std::endl;
+#define DLINEOUT(x) std::cout << "Line " << __LINE__ << " | " << x << std::endl;
 #define DLINE DLINEOUT(' ')
-#define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << ": " << x << std::endl;
+#define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << " | " << x << std::endl;
 #define DLINEFILE DLINEFILEOUT(' ')
 
 #define vector_from_each_member(items, member_type, member_name) [](auto const& xs) { \
