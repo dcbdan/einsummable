@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.2)
 project(einsummable)
 
 add_library(graph_compilation STATIC
+  src/coster.cc
   src/einsummable.cc
   src/graph.cc
   src/indexer.cc
