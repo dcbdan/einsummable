@@ -528,9 +528,14 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
           partial_loc, _out_to_selection_rs, partial_id);
       };
 
-      auto maybe_init_ref_id = [&](int& ref_id, int loc) {
+      auto maybe_init_ref_id_as_partial = [&](int& ref_id, int loc) {
         if(ref_id == -1) {
           ref_id = taskgraph.new_partial(loc, refinement_shape);
+        } else {
+          auto const& node = taskgraph.nodes[ref_id];
+          if(!node.op.is_partialize()) {
+            throw std::runtime_error("got a ref id that isn't a partial");
+          }
         }
       };
 
@@ -553,7 +558,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       };
       // ref_id by reference!
       auto add_selection_to_refinement = [&](int loc, int& ref_id, int sel_id) {
-        maybe_init_ref_id(ref_id, loc);
+        maybe_init_ref_id_as_partial(ref_id, loc);
         taskgraph.add_to_partial(ref_id, sel_id, _selection_to_refinement_touch, false);
       };
 
@@ -576,7 +581,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       };
       // ref_id by reference!
       auto add_out_to_refinement = [&](int loc, int& ref_id, int partial_id) {
-        maybe_init_ref_id(ref_id, loc);
+        maybe_init_ref_id_as_partial(ref_id, loc);
         taskgraph.add_to_partial(ref_id, partial_id, _out_to_refinement_touch, false);
       };
       // }}}
@@ -638,11 +643,12 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         }
       } else {
         // Here there are multiple partials which means partialize_t
-        // objects need to be created, but the same cases holds
+        // objects may need to be created, but the same cases holds
 
         for(int loc: required_locs) {
-          refined_tensor.at(r_index, loc) =
-            taskgraph.new_partial(loc, refinement_shape);
+          // intialize as partials if still uninitialized
+          int& ref_id = refined_tensor.at(r_index, loc);
+          maybe_init_ref_id_as_partial(ref_id, loc);
         }
 
         if(vector_equal(out_tensor_shape, refinement_shape)) {
@@ -713,10 +719,15 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     } while(get_regions.increment());
   } while(increment_idxs(out_shape, out_index));
 
-  // for every id in the refined tensor, if it is a partial,
-  // verify it is valid
+  // for every id in the refined tensor,
+  //   1. make sure it is initialized
+  //   2. if it is a partial, verify it is valid
   for(auto const& locids: refined_tensor.tensor.get()) {
     for(auto const& [loc,id]: locids) {
+      if(id == -1) {
+        throw std::runtime_error("uninitialized id in refined tensor");
+      }
+
       auto const& node = taskgraph.nodes[id];
       if(!node.op.is_valid_if_partialize()) {
         throw std::runtime_error("invalid partialize in communicate");

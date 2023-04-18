@@ -191,13 +191,28 @@ void test_make_taskgraph(
   map<int, buffer_t> task_outs = reference_compute_taskgraph(taskgraph, task_inns);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
-    tensor_t<buffer_t> part_buffer =
+    tensor_t<buffer_t> t_part_buffer =
       get_partitioned_buffer(task_outs, out_to_blocks.at(gid));
-    buffer_t full_buffer_via_taskgraph =
-      unpartition_buffer(graph.nodes[gid].placement.partition, part_buffer);
-    if(!is_close(full_buffer_via_graph, full_buffer_via_taskgraph)) {
-      throw std::runtime_error("make_taskgraph_test fail");
+    tensor_t<buffer_t> part_buffer =
+      partition_buffer(graph.nodes[gid].placement.partition, full_buffer_via_graph);
+
+    auto const& tids  = out_to_blocks.at(gid).get();
+    auto const& t_vec = t_part_buffer.get();
+    auto const& vec   = part_buffer.get();
+    for(int i = 0; i != vec.size(); ++i) {
+      auto const& tid = tids[i];
+      auto const& t   = t_vec[i];
+      auto const& u   = vec[i];
+      if(!is_close(t, u)) {
+        throw std::runtime_error("make_taskgraph_test fail");
+      }
     }
+    // Alternatively:
+    //   buffer_t full_buffer_via_taskgraph =
+    //     unpartition_buffer(graph.nodes[gid].placement.partition, part_buffer);
+    //   if(!is_close(full_buffer_via_graph, full_buffer_via_taskgraph)) {
+    //     throw std::runtime_error("make_taskgraph_test fail");
+    //   }
   }
 }
 
@@ -318,6 +333,53 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
   test_make_taskgraph(graph, inns);
 }
 
+void test_random_matmul() {
+  int nloc = 20;
+  auto random_placement = [&](vector<uint64_t> total_shape) {
+    vector<partdim_t> partdims;
+    for(uint64_t const& n: total_shape) {
+      int p = runif(1, 10);
+      partdims.push_back(partdim_t::split(n, p));
+    }
+    partition_t part(partdims);
+
+    return placement_t::random(part, nloc);
+  };
+
+  graph_t graph;
+
+  uint64_t ni = 10;
+  uint64_t nj = 10;
+  uint64_t nk = 10;
+
+  int id_lhs = graph.insert_input(random_placement({ni,nj}));
+  int id_rhs = graph.insert_input(random_placement({nj,nk}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    random_placement({ni,nk,nj}),
+    matmul,
+    {id_lhs, id_rhs});
+
+  int id_save = graph.insert_formation(
+    random_placement({ni,nk}),
+    id_join,
+    true);
+
+  graph.print();
+
+  buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
+  buffer_lhs->iota(-10);
+
+  buffer_t buffer_rhs = std::make_shared<buffer_holder_t>(nj*nk);
+  buffer_rhs->iota(-20);
+
+  map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
+  test_make_taskgraph(graph, inns);
+}
+
 void main06(int argc, char** argv) {
   if(argc != 4) {
     throw std::runtime_error("usage: pi pj pk");
@@ -353,6 +415,19 @@ void main08(int argc, char** argv) {
   test_obvious_random_loc_matmul(pi, pj, pk, nloc);
 }
 
+void main09(int argc, char** argv) {
+  if(argc == 1) {
+    // pass
+  } else if(argc == 2) {
+    int seed = parse_with_ss<int>(argv[1]);
+    set_seed(seed);
+  } else {
+    throw std::runtime_error("usage: [optional]seed");
+  }
+
+  test_random_matmul();
+}
+
 int main(int argc, char** argv) {
-  main08(argc, argv);
+  main09(argc, argv);
 }
