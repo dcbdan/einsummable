@@ -1,4 +1,5 @@
 #include "coster.h"
+#include "copyregion.h"
 
 cluster_t cluster_t::make(
   vector<cluster_t::device_t> const& devices,
@@ -38,17 +39,230 @@ float cluster_t::compute(int loc, uint64_t flops) const {
   return (1.0 / d.compute) * flops;
 }
 
+int twolayergraph_t::insert_join(uint64_t flops, gid_t gid, vector<rid_t> deps)
+{
+  int ret = joins.size();
+
+  joins.push_back(join_t {
+    .flops = flops,
+    .gid = gid,
+    .deps = deps,
+    .outs = {}
+  });
+
+  for(auto const& rid: deps) {
+    refinements[rid].outs.insert(ret);
+  }
+
+  return ret;
+}
+
+int twolayergraph_t::insert_empty_refinement()
+{
+  int ret = refinements.size();
+
+  refinements.push_back(refinement_t {
+    .units = {},
+    .outs = {}
+  });
+
+  return ret;
+}
+
+void twolayergraph_t::add_agg_unit(int rid, uint64_t bytes, vector<jid_t> deps)
+{
+  auto& refi = refinements[rid];
+
+  refi.units.push_back(agg_unit_t {
+    .bytes = bytes,
+    .deps = deps
+  });
+
+  for(auto const& jid: deps) {
+    joins[jid].outs.insert(rid);
+  }
+}
+
+// This function is a riff on state_t::communicate
+// in taskgraph.cc used in taskgraph_t::make.
 twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
   twolayergraph_t ret(graph);
 
-  for(auto const& graph_id: graph.get_order()) {
-    // TODO
-    // for every out block,
-    //   set up a join_t object
+  map<int, tensor_t<jid_t>> all_joins;
+  map<int, tensor_t<rid_t>> all_refis;
+  map<int, partition_t> all_usage_partitions;
 
-    // collect the usage objects and the refinemet multiple partition
+  // TODO: maybe put these things as twolayer members
+
+  // TODO: setup the usage partitions beforehand or as part of constructor
+
+  for(auto const& graph_id: graph.get_order()) {
+    auto const& node = graph.nodes[graph_id];
+
+    partition_t const& join_partition = node.placement.partition;
+    auto const& join_locations = node.placement.locations;
+
+    auto join_block_shape = join_partition.block_shape();
+
+    // initialize join_ids by inserting
+    // join ops into the graph for each block
+    all_joins.insert({graph_id, tensor_t<jid_t>(join_block_shape)});
+    tensor_t<jid_t>& join_ids = all_joins[graph_id];
+    {
+      vector<int> join_index(join_block_shape.size(), 0);
+
+      // flops
+      //   input nodes: 0
+      //   formation nodes: 0
+      //   join nodes: the tensor block size
+      std::function<uint64_t()> get_flops;
+      if(node.op.is_einsummable()) {
+        get_flops = [&] {
+          return product(join_partition.tensor_shape_at(join_index));
+        };
+      } else {
+        get_flops = []{ return 0; };
+      }
+
+      // deps
+      //   input nodes: {}
+      //   formation nodes: same as a straight einsummable op
+      //   einsummable nodes: reach into each input and grab figure it out
+      std::function<vector<int>()> get_deps;
+      if(node.op.is_input()) {
+        get_deps = []{ return vector<int>(); };
+      } else {
+        // We have
+        //   (1) an einsummable op over the graph node
+        //   (2) input refinement partitions
+        //   (3) an output hrect
+        einsummable_t einsummable;
+        if(node.op.is_formation()) {
+          auto op_shape = node.op.shape();
+          int rank = op_shape.size();
+
+          vector<vector<int>> inns(1);
+          inns[0] = vector<int>(rank);
+          std::iota(inns[0].begin(), inns[0].end(), 0);
+
+          einsummable = einsummable_t {
+            .join_shape = op_shape,
+            .inns = inns,
+            .out_rank = rank,
+            .join = scalar_join_t::mul,  // will not be used
+            .castable = castable_t::add, // will not be used
+          };
+        } else {
+          einsummable = node.op.get_einsummable();
+        }
+
+        get_deps = [&]{
+          vector<int> ret;
+          ret.reserve(4*node.inns.size()); // just a guess on the number of inputs
+
+          auto hrect = join_partition.get_hrect(join_index);
+
+          // for each input, get the inputs refinement ids that map
+          // onto the corresponding input hrect.
+          for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+            int const& inn = node.inns[which_inn];
+
+            partition_t const& inn_partition = all_usage_partitions.at(inn);
+
+            tensor_t<rid_t> const& inn_refis = all_refis.at(inn);
+
+            auto inn_hrect = einsummable.get_input_from_join(hrect, which_inn);
+
+            auto inn_region = inn_partition.get_region(inn_hrect);
+            vector<int> inn_index = vector_mapfst(inn_region);
+            do {
+              ret.push_back(inn_refis.at(inn_index));
+            } while(increment_idxs_region(inn_region, inn_index));
+          }
+
+          return ret;
+        };
+      }
+
+      do {
+        gid_t gid {
+          .id = graph_id,
+          .index = idxs_to_index(join_block_shape, join_index)
+        };
+        join_ids.at(join_index) = ret.insert_join(
+          get_flops(),
+          gid,
+          get_deps());
+      } while(increment_idxs(join_block_shape, join_index));
+    }
+
+    partition_t const& usage_partition = all_usage_partitions.at(graph_id);
+
+    int join_rank = node.op.rank();
+    int out_rank  = node.op.out_rank();
+    int agg_rank  = join_rank - out_rank;
+
+    auto const& _join_partdims = join_partition.partdims;
+
+    partition_t out_partition(vector<partdim_t>(
+      _join_partdims.begin(),
+      _join_partdims.begin() + out_rank));
+
+    std::optional<vector<int>> maybe_agg_shape;
+    if(agg_rank > 0) {
+      partition_t agg_partition(vector<partdim_t>(
+        _join_partdims.begin() + out_rank,
+        _join_partdims.end()));
+
+      maybe_agg_shape = agg_partition.block_shape();
+    }
 
     // set up the refinement nodes
+
+    auto usage_shape = usage_partition.block_shape();
+    all_refis.insert({graph_id, tensor_t<rid_t>(usage_shape)});
+    tensor_t<rid_t>& refi_ids = all_refis[graph_id];
+
+    // initialize empty refinements
+    {
+      vector<int> usage_index(usage_shape.size(), 0);
+      do {
+        refi_ids.at(usage_index) = ret.insert_empty_refinement();
+      } while(increment_idxs(usage_shape, usage_index));
+    }
+
+    vector<int> out_shape = out_partition.block_shape();
+    vector<int> out_index(out_shape.size(), 0);
+    do {
+      copyregion_t get_regions(usage_partition, out_partition, out_index);
+      do {
+        vector<int> usage_index = vector_from_each_member(
+          get_regions.info, int, idx);
+        vector<uint64_t> read_shape = vector_from_each_member(
+          get_regions.info, uint64_t, size);
+
+        vector<jid_t> deps;
+        if(maybe_agg_shape) {
+          vector<int> agg_index(agg_rank, 0);
+          auto const& agg_shape = maybe_agg_shape.value();
+          deps.reserve(product(agg_shape));
+          do {
+            vector<int> join_index = vector_concatenate(out_index, agg_index);
+            deps.push_back(join_ids.at(join_index));
+          } while(increment_idxs(agg_shape, agg_index));
+        } else {
+          // the join index is the out index if there is no agg
+          // and there is only one input
+          auto const& join_index = out_index;
+          deps.push_back(join_ids.at(join_index));
+        }
+
+        ret.add_agg_unit(
+          refi_ids.at(usage_index),
+          product(read_shape),
+          deps);
+      } while(get_regions.increment());
+    } while(increment_idxs(out_shape, out_index));
   }
 
   return ret;
@@ -251,7 +465,6 @@ struct cost_state_t {
         });
       possible.resize(it - possible.begin());
     }
-
   }
 
   void fill_with_work() {

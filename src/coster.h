@@ -49,14 +49,14 @@ struct twolayergraph_t {
 
   struct refinement_t {
     vector<agg_unit_t> units;
-    vector<jid_t> outs;
+    set<jid_t> outs;
   };
 
   struct join_t {
     uint64_t flops;
     gid_t gid;
     vector<rid_t> deps;
-    vector<rid_t> outs;
+    set<rid_t> outs;
   };
 
   int const& join_location(gid_t const& gid) const {
@@ -73,6 +73,10 @@ private:
   twolayergraph_t(graph_t const& graph)
     : graph(graph)
   {}
+
+  jid_t insert_join(uint64_t flops, gid_t gid, vector<rid_t> deps);
+  rid_t insert_empty_refinement();
+  void add_agg_unit(rid_t rid, uint64_t bytes, vector<jid_t> deps);
 };
 
 struct costgraph_t {
@@ -112,15 +116,15 @@ struct costgraph_t {
   int insert(std::variant<compute_t, move_t> op, vector<int> const& deps);
 };
 
-// This object takes a graph with a fixed partition
-// and efficiently recosts it. It tracks the graph object
-// by reference.
+// This object takes a graph with a fixed partition but
+// changing locations and costs it. It tracks the graph
+// object by reference.
 //
 // Example usage:
 //   graph_t graph = create graph with initial partition
 //   coster_t coster(graph, cluster);
 //   until stop:
-//     modify graph's placements
+//     modify graph's placements' locations
 //     current_cost = coster()
 struct coster_t {
   coster_t(graph_t const& g, cluster_t const& cluster)
