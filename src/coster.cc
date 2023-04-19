@@ -91,16 +91,13 @@ void twolayergraph_t::add_agg_unit(int rid, uint64_t bytes, vector<jid_t> deps)
 // Note: Almost a copy of union_partition_holders in src/taskgraph.cc
 partition_t union_partitions(vector<partition_t> const& ps)
 {
-  DLINE;
   if(ps.size() == 0) {
     throw std::runtime_error("union partitions: input is empty");
     return ps[0];
   }
   if(ps.size() == 1) {
-    DLINE;
     return ps[0];
   }
-  DLINE;
 
   vector<partdim_t> partdims;
   int rank = ps[0].block_shape().size();
@@ -119,7 +116,6 @@ partition_t union_partitions(vector<partition_t> const& ps)
 // This function is a riff on state_t::communicate
 // in taskgraph.cc used in taskgraph_t::make.
 twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
-  DLINE;
   twolayergraph_t ret(graph);
 
   vector<tensor_t<rid_t>> all_refis(graph.nodes.size());
@@ -155,7 +151,6 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
 
     all_refinement_partitions.insert({join_id, union_partitions(usage_partitions)});
   }
-  DLINE;
 
   for(auto const& graph_id: graph.get_order()) {
     auto const& node = graph.nodes[graph_id];
@@ -204,16 +199,12 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       // deps
       //   input nodes: {}
       //   formation nodes: same as a straight einsummable op
-      //   einsummable nodes: reach into each input and grab figure it out
+      //   einsummable nodes: reach into each input and grab it
       std::function<vector<int>()> get_deps;
+      einsummable_t einsummable;
       if(node.op.is_input()) {
         get_deps = []{ return vector<int>(); };
       } else {
-        // We have
-        //   (1) an einsummable op over the graph node
-        //   (2) input refinement partitions
-        //   (3) an output hrect
-        einsummable_t einsummable;
         if(node.op.is_formation()) {
           auto op_shape = node.op.shape();
           int rank = op_shape.size();
@@ -347,7 +338,6 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       } while(get_regions.increment());
     } while(increment_idxs(out_shape, out_index));
   }
-  DLINE;
 
   return ret;
 }
