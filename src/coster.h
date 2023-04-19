@@ -79,11 +79,10 @@ struct costgraph_t {
   static costgraph_t make(twolayergraph_t const& twolayer);
   float operator()(cluster_t const& cluster) const;
 
-private:
   struct compute_t {
     int loc;
     uint64_t flops;
-    int capacity;
+    int util; // worker utilization
   };
 
   struct move_t {
@@ -96,11 +95,19 @@ private:
     set<int> inns;
     set<int> outs;
     std::variant<compute_t, move_t> op;
+
+    int worker_utilization() const {
+      if(std::holds_alternative<compute_t>(op)) {
+        return std::get<compute_t>(op).util;
+      } else {
+        return 1;
+      }
+    }
   };
 
   vector<node_t> nodes;
 
-  int insert_compute(int loc, uint64_t flops, int capacity, vector<int> const& deps);
+  int insert_compute(int loc, uint64_t flops, int util, vector<int> const& deps);
   int insert_move(int src, int dst, uint64_t bytes, vector<int> const& deps);
   int insert(std::variant<compute_t, move_t> op, vector<int> const& deps);
 };

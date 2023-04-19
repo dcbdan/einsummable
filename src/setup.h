@@ -11,6 +11,7 @@
 #include <optional>
 #include <sstream>
 #include <random>
+#include <queue>
 
 #define DOUT(x) std::cout << x << std::endl;
 #define DLINEOUT(x) std::cout << "Line " << __LINE__ << " | " << x << std::endl;
@@ -258,4 +259,20 @@ std::mt19937& random_gen();
 int runif(int beg, int end);
 
 int runif(int n);
+
+template <typename T>
+T vector_random_pop(vector<T>& xs) {
+  int idx = runif(xs.size());
+  auto iter = xs.begin() + idx;
+  T ret = *iter;
+  xs.erase(iter);
+  return ret;
+}
+
+template <typename T>
+using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
+// For priority_queue_least, the top most element is the smallest,
+// which is the opposite behaviour of priority_queue which puts the
+// largest element at the top.
+
 
