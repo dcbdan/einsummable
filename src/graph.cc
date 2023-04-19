@@ -345,4 +345,31 @@ graph_t three_dimensional_matrix_multiplication(
   return ret;
 }
 
+graph_t straight_matrix_multiplication(
+  int pi, int pj, int pk,
+  uint64_t di, uint64_t dj, uint64_t dk)
+{
+  graph_t graph;
 
+  partdim_t pdi = partdim_t::repeat(pi, di);
+  partdim_t pdj = partdim_t::repeat(pj, dj);
+  partdim_t pdk = partdim_t::repeat(pk, dk);
+
+  int id_lhs = graph.insert_input(partition_t({pdi,pdj}));
+  int id_rhs = graph.insert_input(partition_t({pdj,pdk}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(pi*di, pj*dj, pk*dk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    partition_t({pdi, pdk, pdj}),
+    matmul,
+    {id_lhs, id_rhs});
+
+  graph.insert_formation(
+    partition_t({pdi, pdk}),
+    id_join,
+    true);
+
+  return graph;
+}

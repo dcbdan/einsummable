@@ -202,3 +202,8 @@ graph_t three_dimensional_matrix_multiplication(
   uint64_t di, uint64_t dj, uint64_t dk,
   int num_processors);
 
+// Same tensor dimensions as 3d matmul
+// Does not explicitly set locations
+graph_t straight_matrix_multiplication(
+  int pi, int pj, int pk,
+  uint64_t di, uint64_t dj, uint64_t dk);

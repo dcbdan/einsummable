@@ -243,15 +243,14 @@ void main_random_changes() {
   }
 }
 
-void main_while_better(int seed) {
+void main_while_better(int pi, int pj, int pk, int nloc, int seed,
+  int nrep = 1,
+  uint64_t di = 10000, uint64_t dj = 10000, uint64_t dk = 10000)
+{
   set_seed(seed);
 
-  int pi = 2;
-  int pj = 2;
-  int pk = 2;
-  int nloc = 10;
   graph_t matmul3d = three_dimensional_matrix_multiplication(
-    2, 2, 2, 5000, 5000, 5000, nloc);
+    pi, pj, pk, di / pi, dj / pj, dk / pk, nloc);
   coster_t coster(matmul3d, make_cluster(nloc));
 
   std::cout << "3d matmul cost: " << coster() << std::endl;
@@ -276,10 +275,72 @@ void main_while_better(int seed) {
       }
     }
   }
+
+  //float cost_min = coster();
+  //float cost_max = coster();
+  //for(int i = 0; i != 1000; ++i) {
+  //  float cc = coster();
+  //  cost_min = std::min(cost_min, cc);
+  //  cost_max = std::max(cost_max, cc);
+
+  //}
+  //std::cout << "? " << cost_min << ", " << cost_max << std::endl;
+}
+
+void main_while_better_straight(int pi, int pj, int pk, int nloc, int seed,
+  int nrep = 1,
+  uint64_t di = 10000, uint64_t dj = 10000, uint64_t dk = 10000)
+{
+  set_seed(seed);
+
+  {
+    graph_t matmul3d = three_dimensional_matrix_multiplication(
+      pi, pj, pk, di / pi, dj / pj, dk / pk, nloc);
+    coster_t coster(matmul3d, make_cluster(nloc));
+
+    std::cout << "3d matmul cost: " << coster() << std::endl;
+  }
+
+  graph_t matmul = straight_matrix_multiplication(
+    pi, pj, pk, di / pi, dj / pj, dk / pk);
+
+  random_change_t random_change(matmul, nloc);
+  random_change.reset();
+
+  coster_t coster(matmul, make_cluster(nloc));
+  float cost = coster();
+  std::cout << "cost: " << cost << " (after init)" << std::endl;
+  for(int i = 0; i != 1000; ++i) {
+    random_change();
+    float new_cost = coster();
+    if(new_cost > cost) {
+      random_change.undo();
+    } else {
+      if(new_cost < cost) {
+        cost = new_cost;
+        std::cout << "cost: " << cost << std::endl;
+      } else {
+        // they're equal
+      }
+    }
+  }
+}
+
+void main_exp02() {
+  int pi = 2;
+  int pj = 2;
+  int pk = 2;
+  uint64_t di = 10000;
+  uint64_t dj = 10000;
+  uint64_t dk = 10000;
+  int seed = 777;
+  int nloc = 8;
+  int nrep = 1; // TODO not used
+  main_while_better_straight(pi, pj, pk, nloc, seed, nrep, di, dj, dk);
+  std::cout << "---------------" << std::endl;
+  main_while_better(pi, pj, pk, nloc, seed, nrep, di, dj, dk);
 }
 
 int main() {
-  for(int i = 0; i != 10; ++i) {
-    main_while_better(i);
-  }
+  main_exp02();
 }
