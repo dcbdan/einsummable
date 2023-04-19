@@ -91,6 +91,17 @@ void twolayergraph_t::add_agg_unit(int rid, uint64_t bytes, vector<jid_t> deps)
 // Note: Almost a copy of union_partition_holders in src/taskgraph.cc
 partition_t union_partitions(vector<partition_t> const& ps)
 {
+  DLINE;
+  if(ps.size() == 0) {
+    throw std::runtime_error("union partitions: input is empty");
+    return ps[0];
+  }
+  if(ps.size() == 1) {
+    DLINE;
+    return ps[0];
+  }
+  DLINE;
+
   vector<partdim_t> partdims;
   int rank = ps[0].block_shape().size();
   partdims.reserve(rank);
@@ -108,16 +119,20 @@ partition_t union_partitions(vector<partition_t> const& ps)
 // This function is a riff on state_t::communicate
 // in taskgraph.cc used in taskgraph_t::make.
 twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
+  DLINE;
   twolayergraph_t ret(graph);
 
   vector<tensor_t<rid_t>> all_refis(graph.nodes.size());
-  vector<partition_t> all_refinement_partitions;
+  map<int, partition_t> all_refinement_partitions;
 
   // set up all the refinement partitions, which for a given node is
   // the refinement of the usage partitions
-  all_refinement_partitions.reserve(graph.nodes.size());
   for(int join_id = 0; join_id != graph.nodes.size(); ++join_id) {
     auto const& join_node = graph.nodes[join_id];
+    if(join_node.outs.size() == 0) {
+      // Note: nodes that have no outs do not have a usage
+      continue;
+    }
     vector<partition_t> usage_partitions;
     usage_partitions.reserve(2*join_node.outs.size());
     for(auto const& out_id: join_node.outs) {
@@ -127,7 +142,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       } else {
         // Note that an einsummable node can use an input multiple times
         // and therefore there may be multiple usage partitions to collect
-        auto const& einsummable = join_node.op.get_einsummable();
+        auto const& einsummable = out_node.op.get_einsummable();
         for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
           if(out_node.inns[which_input] == join_id) {
             usage_partitions.emplace_back(einsummable.get_input_from_join(
@@ -138,8 +153,9 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       }
     }
 
-    all_refinement_partitions.push_back(union_partitions(usage_partitions));
+    all_refinement_partitions.insert({join_id, union_partitions(usage_partitions)});
   }
+  DLINE;
 
   for(auto const& graph_id: graph.get_order()) {
     auto const& node = graph.nodes[graph_id];
@@ -228,7 +244,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
           for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
             int const& inn = node.inns[which_inn];
 
-            partition_t const& inn_partition = all_refinement_partitions[inn];
+            partition_t const& inn_partition = all_refinement_partitions.at(inn);
 
             tensor_t<rid_t> const& inn_refis = all_refis[inn];
 
@@ -258,7 +274,12 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       } while(increment_idxs(join_block_shape, join_index));
     }
 
-    partition_t const& refi_partition = all_refinement_partitions[graph_id];
+    if(node.outs.size() == 0) {
+      // output graph nodes do not need to be refined
+      continue;
+    }
+
+    partition_t const& refi_partition = all_refinement_partitions.at(graph_id);
 
     int join_rank = node.op.rank();
     int out_rank  = node.op.out_rank();
@@ -326,6 +347,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       } while(get_regions.increment());
     } while(increment_idxs(out_shape, out_index));
   }
+  DLINE;
 
   return ret;
 }
