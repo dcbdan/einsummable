@@ -39,16 +39,19 @@ float cluster_t::compute(int loc, uint64_t flops) const {
   return (1.0 / d.compute) * flops;
 }
 
-int twolayergraph_t::insert_join(uint64_t flops, gid_t gid, vector<rid_t> deps)
+int twolayergraph_t::insert_join(uint64_t flops, int util, gid_t gid, vector<rid_t> deps)
 {
   int ret = joins.size();
 
   joins.push_back(join_t {
     .flops = flops,
+    .util = util,
     .gid = gid,
     .deps = deps,
     .outs = {}
   });
+
+  order.push_back(twolayerid_t { .id = ret, .is_join = true });
 
   for(auto const& rid: deps) {
     refinements[rid].outs.insert(ret);
@@ -65,6 +68,8 @@ int twolayergraph_t::insert_empty_refinement()
     .units = {},
     .outs = {}
   });
+
+  order.push_back(twolayerid_t { .id = ret, .is_join = false });
 
   return ret;
 }
@@ -163,6 +168,23 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
         get_flops = []{ return 0; };
       }
 
+      // TODO: Implement get_util somehow..
+      //
+      // The actual worker utilization depends on what the device is,
+      // which this function should remain agnostic to.
+      //
+      // A gpu may have 1000 workers whereas a cpu may have 10.
+      // A matmul will have a full utilization whereas an elementwise
+      // op may have a utilization of 1 on a cpu if it is single threaded.
+      //
+      // Perhaps have every op either get a full utilization or
+      // singleton utilization.
+      //
+      // In any case, a utilization of 1 and a worker capacity of 1
+      // is equivalent to not having worker capacities anyway, which
+      // is what should be implemented in the meantime.
+      std::function<int()> get_util = []{ return 1; };
+
       // deps
       //   input nodes: {}
       //   formation nodes: same as a straight einsummable op
@@ -230,6 +252,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
         };
         join_ids.at(join_index) = ret.insert_join(
           get_flops(),
+          get_util(),
           gid,
           get_deps());
       } while(increment_idxs(join_block_shape, join_index));
@@ -308,22 +331,58 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
 }
 
 costgraph_t costgraph_t::make(twolayergraph_t const& twolayer) {
+  costgraph_t ret;
 
-  // TODO
-  // maintain a map from (rid_t, loc) to costgraph id (as a tensor)
-  // maintain a map from jid_t to costgraph id        (as a vector)
-  // for every twolayergraph id in order,
-  //   if it is a refinement:
-  //     collect the usage locations
-  //     do the moves
-  //     save into the map
-  //   if it is a join:
-  //     get the location
-  //     get the costgraph dependencies
-  //     add a costgraph comptue ndoe
-  //     save into map
+  map<tuple<int, int>, int> ridloc_to_costid;
+  map<int, tuple<int, int>> jid_to_costidloc;
 
-  return costgraph_t();
+  for(auto const& [id, is_join]: twolayer.order) {
+    if(is_join) {
+      auto const& jid = id;
+      auto const& join = twolayer.joins[jid];
+
+      auto const& loc = twolayer.join_location(join);
+
+      vector<int> deps;
+      deps.reserve(join.deps.size());
+      for(auto const& rid: join.deps) {
+        deps.push_back(ridloc_to_costid.at({rid, loc}));
+      }
+
+      jid_to_costidloc[jid] = {
+        ret.insert_compute(loc, join.flops, join.util, deps),
+        loc
+      };
+    } else {
+      auto const& rid = id;
+      auto refi = twolayer.refinements[rid];
+
+      // deduce where this refi will be used
+      std::set<int> usage_locs;
+      for(auto const& out_jid: refi.outs) {
+        usage_locs.insert(twolayer.join_location(out_jid));
+      }
+
+      // insert moves as necc and fill out ridloc_to_costid
+      for(auto const& dst: usage_locs) {
+        vector<int> deps;
+        for(auto const& [bytes, jids]: refi.units) {
+          for(auto const& jid: jids) {
+            auto const& [inn_costid, src] = jid_to_costidloc.at(jid);
+            if(src == dst) {
+              deps.push_back(inn_costid);
+            } else {
+              deps.push_back(ret.insert_move(src, dst, bytes, inn_costid));
+            }
+          }
+        }
+        int costid = ret.insert_barrier(deps);
+        ridloc_to_costid.insert({ {rid, dst}, costid });
+      }
+    }
+  }
+
+  return ret;
 }
 
 int costgraph_t::insert_compute(
@@ -339,9 +398,7 @@ int costgraph_t::insert_compute(
     deps);
 }
 
-int costgraph_t::insert_move(
-  int src, int dst, uint64_t bytes,
-  vector<int> const& deps)
+int costgraph_t::insert_move(int src, int dst, uint64_t bytes, int id)
 {
   return insert(
     move_t {
@@ -349,11 +406,17 @@ int costgraph_t::insert_move(
       .dst = dst,
       .bytes = bytes
     },
-    deps);
+    {id}
+  );
+}
+
+int costgraph_t::insert_barrier(vector<int> const& deps)
+{
+  return insert(barrier_t(), deps);
 }
 
 int costgraph_t::insert(
-  std::variant<compute_t, move_t> op,
+  op_t op,
   vector<int> const& deps)
 {
   int ret = nodes.size();
@@ -384,15 +447,14 @@ struct worker_map_t {
   T& operator()(int src, int dst) {
     return info[cluster.devices.size() + cluster.to_connection.at({src,dst})];
   }
-  T& operator()(
-    std::variant<
-      costgraph_t::compute_t,
-      costgraph_t::move_t> const& x)
+  T& operator()(costgraph_t::op_t const& x)
   {
     if(std::holds_alternative<costgraph_t::compute_t>(x)) {
       return this->operator()(std::get<costgraph_t::compute_t>(x));
-    } else {
+    } else if(std::holds_alternative<costgraph_t::move_t>(x)) {
       return this->operator()(std::get<costgraph_t::move_t>(x));
+    } else {
+      throw std::runtime_error("invalid alternative in worker_map");
     }
   }
   T& operator()(costgraph_t::compute_t const& c) {
@@ -426,13 +488,42 @@ struct cost_state_t {
     // initialize pending and num_remaining
     num_remaining.reserve(costgraph.nodes.size());
     for(int id = 0; id != costgraph.nodes.size(); ++id) {
-      auto const& [inns, outs, op] = costgraph.nodes[id];
+      auto const& node = costgraph.nodes[id];
+      auto const& [inns, outs, op] = node;
       num_remaining.push_back(inns.size());
 
       if(inns.size() == 0) {
-        pending(op).insert(id);
+        if(node.is_barrier()) {
+          throw std::runtime_error("a barrier must have dependencies");
+        } else {
+          pending(op).insert(id);
+        }
       }
     }
+  }
+
+  void decrement_nodes(set<int> outs) {
+    // this function is recursive; if outs is empty,
+    // this is the base case
+    if(outs.size() == 0) {
+      return;
+    }
+
+    set<int> barrier_outs;
+    for(auto const& out_id: outs) {
+      num_remaining[out_id] -= 1;
+      if(num_remaining[out_id] == 0) {
+        auto const& out_node = costgraph.nodes[out_id];
+        if(out_node.is_barrier()) {
+          barrier_outs.insert(out_node.outs.begin(), out_node.outs.end());
+        } else {
+          pending(out_node.op).insert(out_id);
+        }
+      }
+    }
+
+    // now tail recurse on the collected barrier outs
+    decrement_nodes(std::move(barrier_outs));
   }
 
   // returns true if something was taken from in_progress
@@ -455,14 +546,8 @@ struct cost_state_t {
     capacity(node.op) += node.worker_utilization();
 
     // tell the out nodes there is one less dependency
-    // and possibly add to ready
-    for(auto const& out_id: node.outs) {
-      num_remaining[out_id] -= 1;
-      if(num_remaining[out_id] == 0) {
-        auto const& out_node = costgraph.nodes[out_id];
-        pending(out_node.op).insert(out_id);
-      }
-    }
+    // and possibly add to pending
+    decrement_nodes(node.outs);
 
     return true;
   }
@@ -513,17 +598,16 @@ struct cost_state_t {
     }
   }
 
-  float compute_cost(
-    std::variant<
-      costgraph_t::compute_t,
-      costgraph_t::move_t> const& x)
+  float compute_cost(costgraph_t::op_t const& x)
   {
     if(std::holds_alternative<costgraph_t::compute_t>(x)){
       auto const& compute = std::get<costgraph_t::compute_t>(x);
       return cluster.compute(compute.loc, compute.flops);
-    } else {
+    } else if(std::holds_alternative<costgraph_t::move_t>(x)) {
       auto const& move = std::get<costgraph_t::move_t>(x);
       return cluster.move(move.src, move.dst, move.bytes);
+    } else {
+      throw std::runtime_error("invalid alternative in compute_cost");
     }
   }
 
