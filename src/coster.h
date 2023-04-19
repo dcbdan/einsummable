@@ -30,6 +30,8 @@ struct cluster_t {
   vector<device_t> const devices;
   vector<connection_t> const connections;
   map<tuple<int, int>, int> const to_connection;
+
+  int num_device() const { return devices.size(); }
 };
 
 struct twolayergraph_t {
@@ -94,6 +96,8 @@ private:
 
 struct costgraph_t {
   static costgraph_t make(twolayergraph_t const& twolayer);
+
+  // compute the cost of this graph over this cluster
   float operator()(cluster_t const& cluster) const;
 
   struct compute_t {
@@ -113,6 +117,7 @@ struct costgraph_t {
   using op_t = std::variant<compute_t, move_t, barrier_t>;
 
   struct node_t {
+    int id;
     set<int> inns;
     set<int> outs;
     op_t op;
@@ -130,6 +135,22 @@ struct costgraph_t {
     bool is_barrier() const {
       return std::holds_alternative<barrier_t>(op);
     }
+    bool is_move() const {
+      return std::holds_alternative<move_t>(op);
+    }
+    bool is_compute() const {
+      return std::holds_alternative<compute_t>(op);
+    }
+
+    int const& move_src() const {
+      return std::get<move_t>(op).src;
+    }
+    int const& move_dst() const {
+      return std::get<move_t>(op).dst;
+    }
+    int const& compute_loc() const {
+      return std::get<compute_t>(op).loc;
+    }
   };
 
   vector<node_t> nodes;
@@ -139,6 +160,8 @@ struct costgraph_t {
   int insert_barrier(vector<int> const& deps);
   int insert(op_t op, vector<int> const& deps);
 };
+
+std::ostream& operator<<(std::ostream& out, costgraph_t::node_t const& node);
 
 // This object takes a graph with a fixed partition but
 // changing locations and costs it. It tracks the graph

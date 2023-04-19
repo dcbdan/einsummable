@@ -63,3 +63,7 @@ int runif(int beg, int end) {
 int runif(int n) {
   return runif(0, n);
 }
+
+bool in_range(int val, int beg, int end) {
+  return val >= beg && val < end;
+}

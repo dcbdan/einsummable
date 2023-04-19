@@ -275,4 +275,5 @@ using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 // which is the opposite behaviour of priority_queue which puts the
 // largest element at the top.
 
+bool in_range(int val, int beg, int end);
 

@@ -67,6 +67,9 @@ struct placement_t {
     }
     return ret;
   }
+  static placement_t random(vector<partdim_t> const& partdims, int nloc) {
+    return random(partition_t(partdims), nloc);
+  }
 
   // Args must be all ints or this won't compile
   template <typename... Args>

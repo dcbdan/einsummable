@@ -193,3 +193,12 @@ private:
   int insert(op_t const& op, vector<int> inns, placement_t placement);
 };
 
+// Construct a 3D matmul graph, (ij,jk->ik)
+//   shape lhs: di*pi x dj*pj
+//   shape rhs: dj*pj x dk*pk
+//   shape out: di*pi x dk*pk
+graph_t three_dimensional_matrix_multiplication(
+  int pi, int pj, int pk,
+  uint64_t di, uint64_t dj, uint64_t dk,
+  int num_processors);
+

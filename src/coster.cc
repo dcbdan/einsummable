@@ -434,6 +434,7 @@ int costgraph_t::insert(
   int ret = nodes.size();
 
   nodes.push_back(node_t {
+    .id = ret,
     .inns = std::set(deps.begin(), deps.end()),
     .outs = {},
     .op = op
@@ -501,7 +502,21 @@ struct cost_state_t {
     num_remaining.reserve(costgraph.nodes.size());
     for(int id = 0; id != costgraph.nodes.size(); ++id) {
       auto const& node = costgraph.nodes[id];
-      auto const& [inns, outs, op] = node;
+      auto const& [_, inns, outs, op] = node;
+
+      if(node.is_move()) {
+        if(!in_range(node.move_src(), 0, cluster.num_device())) {
+          throw std::runtime_error("invalid src");
+        }
+        if(!in_range(node.move_dst(), 0, cluster.num_device())) {
+          throw std::runtime_error("invalid dst");
+        }
+      } else if(node.is_compute()) {
+        if(!in_range(node.compute_loc(), 0, cluster.num_device())) {
+          throw std::runtime_error("invalid compute loc");
+        }
+      }
+
       num_remaining.push_back(inns.size());
 
       if(inns.size() == 0) {
@@ -665,5 +680,28 @@ float costgraph_t::operator()(cluster_t const& cluster) const {
   }
 
   return state.time;
+}
+
+std::ostream& operator<<(std::ostream& out, costgraph_t::node_t const& node) {
+  using compute_t = costgraph_t::compute_t;
+  using move_t    = costgraph_t::move_t;
+  using barrier_t = costgraph_t::barrier_t;
+
+  out << "costgraph" << node.id << "|inns:" <<
+    vector(node.inns.begin(), node.inns.end()) <<
+    "|outs:" <<
+    vector(node.outs.begin(), node.outs.end()) <<
+    "|";
+  if(std::holds_alternative<compute_t>(node.op)) {
+    auto const& compute = std::get<compute_t>(node.op);
+    out << "compute[" << compute.flops << "]@" << compute.loc;
+  } else if(std::holds_alternative<move_t>(node.op)) {
+    auto const& move = std::get<move_t>(node.op);
+    out << "move[" << move.bytes << "]" << move.src << "->" << move.dst;
+  } else if(std::holds_alternative<barrier_t>(node.op)) {
+    out << "barrier";
+  }
+
+  return out;
 }
 
