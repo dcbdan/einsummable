@@ -166,6 +166,10 @@ struct costgraph_t {
 
 std::ostream& operator<<(std::ostream& out, costgraph_t::node_t const& node);
 
+// TODO:
+// 1. may just want to cost taskgraph directly
+// 2. may want to incorporate touches into the cost
+//
 // This object takes a graph with a fixed partition but
 // changing locations and costs it. It tracks the graph
 // object by reference.

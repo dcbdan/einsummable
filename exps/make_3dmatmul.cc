@@ -1,5 +1,5 @@
-#include "../src/graph.h"
-#include "../src/taskgraph.h"
+#include "../src/einsummable/graph.h"
+#include "../src/einsummable/taskgraph.h"
 
 void usage() {
   std::cout << "Usage: pi pj pk di dj dk num_processors\n"

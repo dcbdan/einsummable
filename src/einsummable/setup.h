@@ -283,14 +283,19 @@ bool in_range(int val, int beg, int end);
 using timestamp_t = decltype(clock_now());
 
 struct raii_print_time_elapsed_t {
-  raii_print_time_elapsed_t(std::string msg): msg(msg), start(clock_now()), out(std::cout) {}
-  raii_print_time_elapsed_t(): msg(), start(clock_now()), out(std::cout) {}
+  raii_print_time_elapsed_t(std::string msg):
+    msg(msg), start(clock_now()), out(std::cout)
+  {}
+
+  raii_print_time_elapsed_t():
+    msg(), start(clock_now()), out(std::cout)
+  {}
+
   ~raii_print_time_elapsed_t() {
     auto end = clock_now();
     using namespace std::chrono;
     auto duration = (double) duration_cast<microseconds>(end - start).count()
                   / (double) duration_cast<microseconds>(1s         ).count();
-
 
     if(msg.size() > 0) {
       out << msg << " | ";

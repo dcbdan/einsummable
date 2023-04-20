@@ -1,4 +1,4 @@
-#include "../src/reference.h"
+#include "../src/einsummable/reference.h"
 
 int main01() {
   uint64_t ni = 3;

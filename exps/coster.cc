@@ -1,4 +1,4 @@
-#include "../src/coster.h"
+#include "../src/einsummable/coster.h"
 
 cluster_t make_cluster(int nlocs) {
   using device_t = cluster_t::device_t;
@@ -381,13 +381,13 @@ void main_compute_two_ways() {
 }
 
 void main_compute_two_ways_time() {
-  int pi = 12;
-  int pj = 12;
-  int pk = 12;
+  int pi = 4;
+  int pj = 4;
+  int pk = 4;
   uint64_t di = 10000;
   uint64_t dj = 10000;
   uint64_t dk = 10000;
-  int nloc = 24;
+  int nloc = 64;
 
   cluster_t cluster = make_cluster(nloc);
 
