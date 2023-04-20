@@ -280,6 +280,9 @@ public:
       }
       throw std::runtime_error("should not reach: output_loc");
     }
+    input_t const& get_input() const {
+      return std::get<input_t>(op);
+    }
     apply_t const& get_apply() const {
       return std::get<apply_t>(op);
     }

@@ -341,6 +341,97 @@ void main_exp02() {
   main_while_better(pi, pj, pk, nloc, seed, nrep, di, dj, dk);
 }
 
-int main() {
-  main_exp02();
+// Note: the costs should be the same whether or not
+//   route 1:  graph -> taskgraph -> costgraph -> the cost
+//   route 2:  graph -> twolayer -> costgraph -> the cost
+// is taken. The benefit of route two is that locations can be
+// changed without having to rematerializing twolayer. That is,
+// if the locations are changed, if sufficies to use the existing
+// taskgraph to go (-> costgraph -> the cost).
+void main_compute_two_ways() {
+  int pi = 4;
+  int pj = 4;
+  int pk = 4;
+  uint64_t di = 10000;
+  uint64_t dj = 10000;
+  uint64_t dk = 10000;
+  int nloc = 16;
+
+  cluster_t cluster = make_cluster(nloc);
+
+  graph_t graph = three_dimensional_matrix_multiplication(
+    pi, pj, pk, di, dj, dk, nloc);
+
+  auto [_0, _1, task] = taskgraph_t::make(graph);
+
+  costgraph_t cost_from_task =
+    costgraph_t::make_from_taskgraph(task);
+
+  twolayergraph_t twolayer =
+    twolayergraph_t::make(graph);
+
+  costgraph_t cost_from_twolayer = costgraph_t::make(twolayer);
+
+  float from_task, from_twolayer;
+  from_task     = cost_from_task(cluster);
+  from_twolayer = cost_from_twolayer(cluster);
+
+  std::cout << "from task:     " << from_task     << std::endl;
+  std::cout << "from twolayer: " << from_twolayer << std::endl;
 }
+
+void main_compute_two_ways_time() {
+  int pi = 12;
+  int pj = 12;
+  int pk = 12;
+  uint64_t di = 10000;
+  uint64_t dj = 10000;
+  uint64_t dk = 10000;
+  int nloc = 24;
+
+  cluster_t cluster = make_cluster(nloc);
+
+  graph_t graph = three_dimensional_matrix_multiplication(
+    pi, pj, pk, di, dj, dk, nloc);
+
+  auto route_task = [&] {
+    auto [_0, _1, task] = taskgraph_t::make(graph);
+    costgraph_t cost_from_task =
+      costgraph_t::make_from_taskgraph(task);
+    return cost_from_task(cluster);
+  };
+
+  auto route_twolayer_full = [&] {
+    twolayergraph_t twolayer =
+      twolayergraph_t::make(graph);
+    costgraph_t cost_from_twolayer = costgraph_t::make(twolayer);
+    return cost_from_twolayer(cluster);
+  };
+
+  twolayergraph_t twolayer =
+    twolayergraph_t::make(graph);
+  auto route_twolayer_part = [&] {
+    costgraph_t cost_from_twolayer = costgraph_t::make(twolayer);
+    return cost_from_twolayer(cluster);
+  };
+
+  {
+    raii_print_time_elapsed_t t("route_twolayer_full");
+    std::cout << route_twolayer_full() << std::endl;
+  }
+
+  {
+    raii_print_time_elapsed_t t("route_twolayer_part");
+    std::cout << route_twolayer_part() << std::endl;
+  }
+
+  {
+    raii_print_time_elapsed_t t("route_task         ");
+    std::cout << route_task() << std::endl;
+  }
+}
+
+int main() {
+  main_compute_two_ways_time();
+}
+

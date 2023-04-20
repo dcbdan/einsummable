@@ -397,6 +397,59 @@ costgraph_t costgraph_t::make(twolayergraph_t const& twolayer) {
   return ret;
 }
 
+costgraph_t costgraph_t::make_from_taskgraph(taskgraph_t const& taskgraph)
+{
+  costgraph_t costgraph;
+
+  map<int, int> taskid_to_costid;
+
+  for(auto const& taskid: taskgraph.get_order()) {
+    auto const& node = taskgraph.nodes[taskid].op;
+
+    if(node.is_input()) {
+      auto const& input = node.get_input();
+      int costid = costgraph.insert_compute(input.loc, 0, 1, {});
+      taskid_to_costid.insert({taskid, costid});
+    } else if(node.is_apply()) {
+      auto const& apply = node.get_apply();
+
+      vector<int> inns;
+      inns.reserve(apply.inns.size());
+      for(auto const& task_inn: apply.inns) {
+        inns.push_back(taskid_to_costid.at(task_inn));
+      }
+
+      int costid = costgraph.insert_compute(
+        apply.loc,
+        product(apply.einsummable.join_shape),
+        1,
+        inns);
+      taskid_to_costid.insert({taskid, costid});
+    } else if(node.is_move()) {
+      auto const& move = node.get_move();
+      int costid = costgraph.insert_move(
+        move.src, move.dst, move.size, taskid_to_costid.at(move.inn));
+      taskid_to_costid.insert({taskid, costid});
+    } else if(node.is_partialize()) {
+      auto touches = node.get_touches();
+
+      vector<int> inns;
+      for(auto const& ts: touches) {
+        for(auto const& [task_inn, touch]: ts) {
+          inns.push_back(taskid_to_costid.at(task_inn));
+        }
+      }
+
+      int costid = costgraph.insert_barrier(inns);
+      taskid_to_costid.insert({taskid, costid});
+    } else {
+      throw std::runtime_error("should not reach: make_from_taskgraph");
+    }
+  }
+
+  return costgraph;
+}
+
 int costgraph_t::insert_compute(
   int loc, uint64_t flops, int util,
   vector<int> const& deps)

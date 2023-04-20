@@ -12,6 +12,7 @@
 #include <sstream>
 #include <random>
 #include <queue>
+#include <chrono>
 
 #define DOUT(x) std::cout << x << std::endl;
 #define DLINEOUT(x) std::cout << "Line " << __LINE__ << " | " << x << std::endl;
@@ -277,3 +278,27 @@ using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 
 bool in_range(int val, int beg, int end);
 
+#define clock_now std::chrono::high_resolution_clock::now
+
+using timestamp_t = decltype(clock_now());
+
+struct raii_print_time_elapsed_t {
+  raii_print_time_elapsed_t(std::string msg): msg(msg), start(clock_now()), out(std::cout) {}
+  raii_print_time_elapsed_t(): msg(), start(clock_now()), out(std::cout) {}
+  ~raii_print_time_elapsed_t() {
+    auto end = clock_now();
+    using namespace std::chrono;
+    auto duration = (double) duration_cast<microseconds>(end - start).count()
+                  / (double) duration_cast<microseconds>(1s         ).count();
+
+
+    if(msg.size() > 0) {
+      out << msg << " | ";
+    }
+    out << "Total Time (seconds): " << duration << std::endl;
+  }
+
+  std::string const msg;
+  timestamp_t const start;
+  std::ostream& out;
+};

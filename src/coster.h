@@ -2,6 +2,7 @@
 #include "setup.h"
 
 #include "graph.h"
+#include "taskgraph.h"
 
 struct cluster_t {
   struct device_t {
@@ -96,6 +97,8 @@ private:
 
 struct costgraph_t {
   static costgraph_t make(twolayergraph_t const& twolayer);
+
+  static costgraph_t make_from_taskgraph(taskgraph_t const& taskgraph);
 
   // compute the cost of this graph over this cluster
   float operator()(cluster_t const& cluster) const;
