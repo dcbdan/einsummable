@@ -152,7 +152,9 @@ struct state_t {
 void execute(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
 {
   state_t state(taskgraph, tensors);
-  state.run(1, 4, 2);
+
+  // TODO: set n_comm runner > 0
+  state.run(1, 4, 0);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");

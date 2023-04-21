@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.2)
 
 project(einsummable)
 
-add_library(einsummable STATIC
+add_library(einsummable
+  STATIC
   src/einsummable/copyregion.cc
   src/einsummable/coster.cc
   src/einsummable/einsummable.cc
@@ -14,9 +15,10 @@ add_library(einsummable STATIC
   src/einsummable/setup.cc
   src/einsummable/taskgraph.cc
 )
-target_include_directories(einsummable
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/src/einsummable
+
+add_library(cpu_execution_engine
+  STATIC
+  src/execution/cpu/execute.cc
 )
 
 add_executable(make_3dmatmul exps/make_3dmatmul.cc)
@@ -31,5 +33,6 @@ target_link_libraries(copyregion einsummable)
 add_executable(coster exps/coster.cc)
 target_link_libraries(coster einsummable)
 
-add_executable(cpuexec exps/cpuexec.cc src/execution/cpu/execute.cc)
+add_executable(cpuexec exps/cpuexec.cc)
 target_link_libraries(cpuexec einsummable)
+target_link_libraries(cpuexec cpu_execution_engine)
