@@ -235,7 +235,19 @@ void state_t::apply_runner(int runner_id)
 
     // Do the command execution of which
     {
-      // TODO
+      // TODO: use kernels other than the reference implementation
+      auto const& [_, inns, einsummable] = taskgraph.nodes[which].op.get_apply();
+      vector<buffer_t> inputs;
+      inputs.reserve(inns.size());
+      for(auto const& inn: inns) {
+        inputs.push_back(tensors.at(inn));
+      }
+      tensors.insert({
+        which,
+        reference_einsummable(
+          einsummable,
+          inputs)
+      });
     }
 
     this->completed_apply(which);
@@ -263,7 +275,28 @@ void state_t::touch_runner(int runner_id)
     auto const& [unit_id, inn_tensor, touch] = which;
 
     {
-      // TODO
+      // allocate the memory if necessary
+      int partialize_id = touches_progress.units[unit_id].partialize_id;
+      if(tensors.count(partialize_id) == 0) {
+        uint64_t size = product(
+          vector_from_each_member(touch.selection, uint64_t, d_out));
+        tensors.insert({
+          partialize_id,
+          std::make_shared<buffer_holder_t>(size)
+        });
+
+        // If the memory wasn't allocated, it certainly hasn't been
+        // written to. The first write must be a copy not a castable.
+        if(touch.castable) {
+          throw std::runtime_error(
+                  "has castable but can't increment newly allocated memory");
+        }
+      }
+
+      // TODO use touch kernel better than the reference kernel
+      buffer_t inn_buffer = tensors.at(inn_tensor);
+      buffer_t out_buffer = tensors.at(partialize_id);
+      reference_touch(touch, out_buffer, inn_buffer);
     }
 
     this->completed_touch(inn_tensor, unit_id);
