@@ -31,3 +31,5 @@ target_link_libraries(copyregion einsummable)
 add_executable(coster exps/coster.cc)
 target_link_libraries(coster einsummable)
 
+add_executable(cpuexec exps/cpuexec.cc src/execution/cpu/execute.cc)
+target_link_libraries(cpuexec einsummable)

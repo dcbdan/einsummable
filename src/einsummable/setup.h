@@ -201,6 +201,16 @@ vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {
 }
 
 template <typename T>
+void vector_erase_value(vector<T>& xs, T const& value)
+{
+  auto which = std::find(xs.begin(), xs.end(), value);
+  if(which == xs.end()) {
+    throw std::runtime_error("vector_erase_value: no value found");
+  }
+  xs.erase(which);
+}
+
+template <typename T>
 vector<T> _reverse_variadic_to_vec(T i) {
   vector<T> x(1, i);
   return x;
