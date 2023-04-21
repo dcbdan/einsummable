@@ -16,12 +16,12 @@ struct applys_progress_t {
 
   map<int, vector<int>> input_to_applys;
 
-  // Note: an apply node has a number of inputs
-  //       and a number of distinct inputs.
-  //       That is, z = f(x,x,y) has 3 inputs and
-  //       2 distinct inputs. Here, give the number
-  //       of distinct inputs.
-  void insert(int apply_id, int num_distinct_inns);
+  // Note that tensor_usage_cnts is passed in
+  // by reference.
+  void insert(
+    int apply_id,
+    set<int> const& inns,
+    map<int, int>& tensor_usage_cnts);
 
   void notify_tensor_ready(int tensor_id);
 };
@@ -95,9 +95,9 @@ struct touches_progress_t {
   std::optional<int> completed(int unit_id);
 };
 
-struct state_t {
+struct cpu_exec_state_t {
   // collect all the meta data and get this mpi rank ready for execution
-  state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
+  cpu_exec_state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
 
   // launch the threads and wait for the threads to finish
   void run(int n_apply, int n_touch, int n_comm);
@@ -122,7 +122,7 @@ struct state_t {
   void notify_tensor_ready(int tensor_id);
 
   // misc
-  bool check_complete();
+  bool check_complete() const;
 
   taskgraph_t const& taskgraph;
   map<int, buffer_t>& tensors;
@@ -151,17 +151,18 @@ struct state_t {
 
 void execute(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
 {
-  state_t state(taskgraph, tensors);
+  cpu_exec_state_t state(taskgraph, tensors);
 
   // TODO: set n_comm runner > 0
-  state.run(1, 4, 0);
+  //state.run(1, 4, 0);
+  state.run(1, 1, 0);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
   }
 }
 
-void state_t::run(int n_apply, int n_touch, int n_comm)
+void cpu_exec_state_t::run(int n_apply, int n_touch, int n_comm)
 {
   vector<thread> runners;
   runners.reserve(n_apply + n_touch + n_comm);
@@ -180,32 +181,41 @@ void state_t::run(int n_apply, int n_touch, int n_comm)
   }
 }
 
-state_t::state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
-  : taskgraph(taskgraph), tensors(tensors)
+cpu_exec_state_t::cpu_exec_state_t(taskgraph_t const& tg, map<int, buffer_t>& ts)
+  : taskgraph(tg), tensors(ts), num_remaining(0)
 {
   int this_loc = 0;
 
+  // 0. set num_remaining
   // 1. Set num_usages_remaining
   // 2. register every apply node at this location with applys_progress
   // 3. register every partialize node at this location with touches_progress
+
+  vector<int> input_ids;
 
   int num_nodes = taskgraph.nodes.size();
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
       throw std::runtime_error("execute.cc state t: moves not implemented");
+    } else if(node.op.is_input()) {
+      input_ids.push_back(id);
     } else {
       if(!node.op.output_loc() == this_loc) {
         continue;
       }
 
       if(node.op.is_apply()) {
-        set<int> distinct_inns = node.op.inputs();
-        applys_progress.insert(id, distinct_inns.size());
-        for(auto inn: distinct_inns) {
-          num_usages_remaining[inn] += 1;
-        }
+        num_remaining += 1;
+
+        applys_progress.insert(
+          id,
+          node.op.inputs(),
+          num_usages_remaining
+        );
       } else if(node.op.is_partialize()) {
+        num_remaining += 1;
+
         // pass in num_usages_remaining by reference
         touches_progress.insert_partialize(
           id,
@@ -217,9 +227,15 @@ state_t::state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
       }
     }
   }
+
+  // now that everything is setup, state
+  // what input tensors are ready initially
+  for(auto const& input_id: input_ids) {
+    notify_tensor_ready(input_id);
+  }
 }
 
-void state_t::apply_runner(int runner_id)
+void cpu_exec_state_t::apply_runner(int runner_id)
 {
   int which;
   while(true)
@@ -256,7 +272,7 @@ void state_t::apply_runner(int runner_id)
   }
 }
 
-void state_t::touch_runner(int runner_id)
+void cpu_exec_state_t::touch_runner(int runner_id)
 {
   using touch_info_t = touches_progress_t::touch_info_t;
   touch_info_t which;
@@ -305,20 +321,20 @@ void state_t::touch_runner(int runner_id)
   }
 }
 
-void state_t::communicate_runner(int runner_id)
+void cpu_exec_state_t::communicate_runner(int runner_id)
 {
   // TODO
   throw std::runtime_error("communicate runner not implemented");
 }
 
-void state_t::notify_tensor_ready(int tensor_id)
+void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
 {
   applys_progress.notify_tensor_ready(tensor_id);
   touches_progress.notify_tensor_ready(tensor_id);
   // TODO for communicate
 }
 
-void state_t::_completed(
+void cpu_exec_state_t::_completed(
   bool command_finished,
   vector<int> const& used_as_input,
   std::optional<int> created_tensor)
@@ -345,7 +361,7 @@ void state_t::_completed(
   }
 }
 
-void state_t::completed_send(int move_id)
+void cpu_exec_state_t::completed_send(int move_id)
 {
   auto const& node = taskgraph.nodes[move_id];
 
@@ -361,7 +377,7 @@ void state_t::completed_send(int move_id)
   cv.notify_all();
 }
 
-void state_t::completed_recv(int move_id)
+void cpu_exec_state_t::completed_recv(int move_id)
 {
   {
     std::unique_lock lk(m);
@@ -375,7 +391,7 @@ void state_t::completed_recv(int move_id)
   cv.notify_all();
 }
 
-void state_t::completed_touch(int inn, int unit_id)
+void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 {
   {
     std::unique_lock lk(m);
@@ -403,7 +419,7 @@ void state_t::completed_touch(int inn, int unit_id)
   cv.notify_all();
 }
 
-void state_t::completed_apply(int apply_id)
+void cpu_exec_state_t::completed_apply(int apply_id)
 {
   auto const& node = taskgraph.nodes[apply_id];
 
@@ -414,24 +430,34 @@ void state_t::completed_apply(int apply_id)
     _completed(
       true,
       vector<int>(inns.begin(), inns.end()),
-      std::optional<int>(apply_id));
+      std::optional<int>(apply_id)
+    );
   }
 
   cv.notify_all();
 }
 
-bool state_t::check_complete() {
+bool cpu_exec_state_t::check_complete() const {
   // TODO: update for communicate
   // TODO: add anything else to verify?
   return num_remaining == 0;
 }
 
-void applys_progress_t::insert(int apply_id, int num_distinct_inns)
+void applys_progress_t::insert(
+  int apply_id,
+  set<int> const& inns,
+  map<int, int>& tensor_usage_cnts)
 {
   if(num_remaining.count(apply_id) > 0) {
     throw std::runtime_error("how come applys progress num rem already has this?");
   }
-  num_remaining.insert({apply_id, num_distinct_inns});
+
+  num_remaining.insert({apply_id, inns.size()});
+
+  for(auto const& inn: inns) {
+    input_to_applys[inn].push_back(apply_id);
+    tensor_usage_cnts[inn] += 1;
+  }
 }
 
 void applys_progress_t::notify_tensor_ready(int input_id)
