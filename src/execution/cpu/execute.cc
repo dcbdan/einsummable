@@ -16,7 +16,12 @@ struct applys_progress_t {
 
   map<int, vector<int>> input_to_applys;
 
-  void insert(int apply_id, int num_inns);
+  // Note: an apply node has a number of inputs
+  //       and a number of distinct inputs.
+  //       That is, z = f(x,x,y) has 3 inputs and
+  //       2 distinct inputs. Here, give the number
+  //       of distinct inputs.
+  void insert(int apply_id, int num_distinct_inns);
 
   void notify_tensor_ready(int tensor_id);
 };
@@ -79,7 +84,7 @@ struct touches_progress_t {
   void insert_partialize(
     int partialize_id,
     vector<vector<tuple<int, touch_t>>> const& touches,
-    vector<int>& tensor_usage_cnts);
+    map<int, int>& tensor_usage_cnts);
 
   // notify that this tensor is ready to be used
   void notify_tensor_ready(int input_id);
@@ -125,10 +130,10 @@ struct state_t {
   // The total number of commands left to execute
   int num_remaining;
 
-  // once num_outs_remaining[idx] is zero,
+  // once num_usages_remaining[idx] is zero,
   // tensors[idx] can be deleted if idx is
   // not a save node
-  map<int, int> num_outs_remaining;
+  map<int, int> num_usages_remaining;
 
   // Concurrency management
   std::mutex m;
@@ -176,11 +181,40 @@ void state_t::run(int n_apply, int n_touch, int n_comm)
 state_t::state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
   : taskgraph(taskgraph), tensors(tensors)
 {
-  // TODO
+  int this_loc = 0;
 
-  // TODO:
-  //   Suppose a tensor is used as an input in a touch more than once.
-  //   Make sure to increment the usage account accordingly
+  // 1. Set num_usages_remaining
+  // 2. register every apply node at this location with applys_progress
+  // 3. register every partialize node at this location with touches_progress
+
+  int num_nodes = taskgraph.nodes.size();
+  for(int id = 0; id != num_nodes; ++id) {
+    auto const& node = taskgraph.nodes[id];
+    if(node.op.is_move()) {
+      throw std::runtime_error("execute.cc state t: moves not implemented");
+    } else {
+      if(!node.op.output_loc() == this_loc) {
+        continue;
+      }
+
+      if(node.op.is_apply()) {
+        set<int> distinct_inns = node.op.inputs();
+        applys_progress.insert(id, distinct_inns.size());
+        for(auto inn: distinct_inns) {
+          num_usages_remaining[inn] += 1;
+        }
+      } else if(node.op.is_partialize()) {
+        // pass in num_usages_remaining by reference
+        touches_progress.insert_partialize(
+          id,
+          node.op.get_touches(),
+          num_usages_remaining
+        );
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+    }
+  }
 }
 
 void state_t::apply_runner(int runner_id)
@@ -259,10 +293,10 @@ void state_t::_completed(
   }
 
   for(auto const& inn: used_as_input) {
-    int& cnt = num_outs_remaining.at(inn);
+    int& cnt = num_usages_remaining.at(inn);
     cnt -= 1;
     if(cnt == 0) {
-      num_outs_remaining.erase(inn);
+      num_usages_remaining.erase(inn);
       auto const& inn_node = taskgraph.nodes[inn];
       if(!inn_node.is_save) {
         tensors.erase(inn);
@@ -357,12 +391,12 @@ bool state_t::check_complete() {
   return num_remaining == 0;
 }
 
-void applys_progress_t::insert(int apply_id, int num_inns)
+void applys_progress_t::insert(int apply_id, int num_distinct_inns)
 {
   if(num_remaining.count(apply_id) > 0) {
     throw std::runtime_error("how come applys progress num rem already has this?");
   }
-  num_remaining.insert({apply_id, num_inns});
+  num_remaining.insert({apply_id, num_distinct_inns});
 }
 
 void applys_progress_t::notify_tensor_ready(int input_id)
@@ -382,7 +416,7 @@ void applys_progress_t::notify_tensor_ready(int input_id)
 void touches_progress_t::insert_partialize(
   int partialize_id,
   vector<vector<tuple<int, touch_t>>> const& touches,
-  vector<int>& tensor_usage_cnts)
+  map<int, int>& tensor_usage_cnts)
 {
   if(num_remaining.count(partialize_id) > 0) {
     throw std::runtime_error("how come touches progress num rem already has this?");
