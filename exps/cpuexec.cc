@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
 
   vector<char> _line(40, '/');
   std::string line(_line.begin(), _line.end());
-  std::cout << line << std::endl;
+  std::cout << line << std::endl << std::endl;
 
   auto [input_blocks, output_blocks, taskgraph] = taskgraph_t::make(graph);
 
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::cout << line << std::endl;
+  std::cout << line << std::endl << std::endl;
 
   execute(taskgraph, tensors);
 

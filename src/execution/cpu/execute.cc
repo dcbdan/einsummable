@@ -48,12 +48,20 @@ struct touches_progress_t {
     vector<int> ready;
     vector<int> waiting;
 
+    // if there is nothing left to compute for this unit
     bool done() const;
 
     // let this know the tensor id is ready
     std::optional<touch_info_t> notify_tensor_ready(int tensor_id);
 
-    // this unit did something so it should no longer be busy
+    // Tell the unit it did something so it is no longer be busy.
+    // In return, the unit either stays busy returning work to do,
+    // or returns nothing and is not busy.
+    //
+    // If the result is:
+    //   none:      the unit MAY be done
+    //   something: the unit needs this something to be computed
+    //              before it can be done
     std::optional<touch_info_t> completed();
 
     // return any op that is ready, if not busy
@@ -124,6 +132,14 @@ struct cpu_exec_state_t {
   // misc
   bool check_complete() const;
 
+  // grab tensors (and allocate if necc) under mutex
+  tuple<
+    vector<buffer_t>,
+    vector<buffer_t> >
+  get_buffers(
+    vector<tuple<uint64_t, int>> const& which_allocate,
+    vector<int> const& which_get);
+
   taskgraph_t const& taskgraph;
   map<int, buffer_t>& tensors;
 
@@ -136,6 +152,7 @@ struct cpu_exec_state_t {
   map<int, int> num_usages_remaining;
 
   // Concurrency management
+  std::mutex m_tensors;
   std::mutex m;
   std::condition_variable cv;
 
@@ -254,18 +271,13 @@ void cpu_exec_state_t::apply_runner(int runner_id)
     // Do the command execution of which
     {
       // TODO: use kernels other than the reference implementation
-      auto const& [_, inns, einsummable] = taskgraph.nodes[which].op.get_apply();
-      vector<buffer_t> inputs;
-      inputs.reserve(inns.size());
-      for(auto const& inn: inns) {
-        inputs.push_back(tensors.at(inn));
-      }
-      tensors.insert({
-        which,
-        reference_einsummable(
-          einsummable,
-          inputs)
-      });
+      auto const& [_0, inns, einsummable] = taskgraph.nodes[which].op.get_apply();
+
+      auto [_1, inputs] = get_buffers({}, inns);
+
+      auto out_buffer = reference_einsummable(einsummable, inputs);
+      std::unique_lock lk(m_tensors);
+      tensors.insert({which, out_buffer});
     }
 
     this->completed_apply(which);
@@ -293,27 +305,16 @@ void cpu_exec_state_t::touch_runner(int runner_id)
     auto const& [unit_id, inn_tensor, touch] = which;
 
     {
-      // allocate the memory if necessary
       int partialize_id = touches_progress.units[unit_id].partialize_id;
-      if(tensors.count(partialize_id) == 0) {
-        uint64_t size = product(
-          vector_from_each_member(touch.selection, uint64_t, d_out));
-        tensors.insert({
-          partialize_id,
-          std::make_shared<buffer_holder_t>(size)
-        });
+      uint64_t partialize_size = product(
+        vector_from_each_member(touch.selection, uint64_t, d_out));
+      auto [_ps, _is] = get_buffers(
+        { {partialize_size, partialize_id} },
+        { inn_tensor });
 
-        // If the memory wasn't allocated, it certainly hasn't been
-        // written to. The first write must be a copy not a castable.
-        if(touch.castable) {
-          throw std::runtime_error(
-                  "has castable but can't increment newly allocated memory");
-        }
-      }
+      buffer_t& out_buffer = _ps[0];
+      buffer_t& inn_buffer = _is[0];
 
-      // TODO use touch kernel better than the reference kernel
-      buffer_t inn_buffer = tensors.at(inn_tensor);
-      buffer_t out_buffer = tensors.at(partialize_id);
       reference_touch(touch, out_buffer, inn_buffer);
     }
 
@@ -343,14 +344,18 @@ void cpu_exec_state_t::_completed(
     num_remaining -= 1;
   }
 
-  for(auto const& inn: used_as_input) {
-    int& cnt = num_usages_remaining.at(inn);
-    cnt -= 1;
-    if(cnt == 0) {
-      num_usages_remaining.erase(inn);
-      auto const& inn_node = taskgraph.nodes[inn];
-      if(!inn_node.is_save) {
-        tensors.erase(inn);
+  {
+    std::unique_lock lk(m_tensors);
+
+    for(auto const& inn: used_as_input) {
+      int& cnt = num_usages_remaining.at(inn);
+      cnt -= 1;
+      if(cnt == 0) {
+        num_usages_remaining.erase(inn);
+        auto const& inn_node = taskgraph.nodes[inn];
+        if(!inn_node.is_save) {
+          tensors.erase(inn);
+        }
       }
     }
   }
@@ -396,16 +401,18 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
   {
     std::unique_lock lk(m);
 
-    std::optional<int> maybe_partial_id = touches_progress.completed(unit_id);
+    std::optional<int> maybe_completed_partial_id =
+      touches_progress.completed(unit_id);
 
-    if(maybe_partial_id) {
+    if(maybe_completed_partial_id) {
+      auto const& partial_id = maybe_completed_partial_id.value();
       // the partial id has been touched the requisite number of times
-      // and so this command is done and maybe_partial_id.value() is a completed
+      // and so this command is done and partial_id is a completed
       // tensor.
       _completed(
         true,
         {inn},
-        maybe_partial_id
+        std::optional<int>(partial_id)
       );
     } else {
       // More touches need to happen
@@ -441,6 +448,36 @@ bool cpu_exec_state_t::check_complete() const {
   // TODO: update for communicate
   // TODO: add anything else to verify?
   return num_remaining == 0;
+}
+
+tuple<
+  vector<buffer_t>,
+  vector<buffer_t> >
+cpu_exec_state_t::get_buffers(
+  vector<tuple<uint64_t, int>> const& which_writes,
+  vector<int>                  const& which_reads)
+{
+  std::unique_lock lk(m_tensors);
+
+  vector<buffer_t> writes;
+  writes.reserve(which_writes.size());
+  for(auto const& [sz, id]: which_writes) {
+    if(tensors.count(id) == 0) {
+      tensors.insert({
+        id,
+        std::make_shared<buffer_holder_t>(sz)
+      });
+    }
+    writes.push_back(tensors.at(id));
+  }
+
+  vector<buffer_t> reads;
+  reads.reserve(which_reads.size());
+  for(auto const& id: which_reads) {
+    reads.push_back(tensors.at(id));
+  }
+
+  return {writes, reads};
 }
 
 void applys_progress_t::insert(
@@ -508,22 +545,33 @@ void touches_progress_t::notify_tensor_ready(int input_id) {
   }
 }
 
+// Return the partial id that just completed, if applicable
 std::optional<int> touches_progress_t::completed(int unit_id) {
   unit_t& unit = units[unit_id];
   auto maybe_op = unit.completed();
   if(maybe_op) {
     ready.push(maybe_op.value());
-    // This partial is not complete as it needs to
+    // This partial is not complete as this unit needs to
     // wait for the given op
     return std::optional<int>();
-  } else {
-    if(unit.done()) {
+  } else if(unit.done()) {
+    // Each partial has multiple units it needs to complete,
+    // so decrement and see if this unit is the last one
+    int& cnt = num_remaining.at(unit.partialize_id);
+    cnt -= 1;
+    if(cnt == 0) {
+      num_remaining.erase(unit.partialize_id);
       return std::optional<int>(unit.partialize_id);
     } else {
       return std::optional<int>();
     }
+  } else {
+    // This partial is not complete as this unit is not
+    // done.
+    return std::optional<int>();
   }
-};
+
+}
 
 touches_progress_t::unit_t::unit_t(
   int unit_id,
@@ -534,7 +582,12 @@ touches_progress_t::unit_t::unit_t(
     ops(ops),
     init(true),
     busy(false)
-{}
+{
+  // in waiting, store all 0,1, ... ops.size()-1,
+  // the op idxs still to do
+  waiting = vector<int>(ops.size());
+  std::iota(waiting.begin(), waiting.end(), 0);
+}
 
 bool touches_progress_t::unit_t::done() const {
   return ready.size() == 0 && waiting.size() == 0;
