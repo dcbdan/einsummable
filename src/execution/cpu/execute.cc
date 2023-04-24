@@ -7,7 +7,10 @@
 using std::thread;
 using std::queue;
 
-#define RLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
+#define RLINEOUT(x) // if(mpi.this_rank == 2) { DLINEOUT(x); }
+#define TLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
+#define ULINEOUT(x) // if(mpi.this_rank == 1) { DLINEOUT(x); }
+
 #define SLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(std::this_thread::get_id() << " | " << x); }
 
 struct applys_progress_t {
@@ -188,7 +191,7 @@ void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tenso
   cpu_exec_state_t state(mpi, taskgraph, tensors);
 
   // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
-  state.run(1, 1, 1, 2);
+  state.run(1, 1, 1, 1);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -234,25 +237,30 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
       auto const& [src,dst,inn,size] = node.op.get_move();
+
       if(src == dst) {
         throw std::runtime_error("Moves to self are not allowed");
       }
+
       if(src == mpi.this_rank) {
+        // This is a send
         num_remaining += 1;
         num_usages_remaining[inn] += 1;
         sends_progress.insert(id, inn);
       } else if(dst == mpi.this_rank) {
+        // This is a recv
         num_remaining += 1;
         num_recv_post_remaining += 1;
       }
-    } else if(node.op.is_input()) {
-      input_ids.push_back(id);
     } else {
-      if(!node.op.output_loc() == mpi.this_rank) {
+      // Only do stuff on this location!
+      if(node.op.output_loc() != mpi.this_rank) {
         continue;
       }
 
-      if(node.op.is_apply()) {
+      if(node.op.is_input()) {
+        input_ids.push_back(id);
+      } else if(node.op.is_apply()) {
         num_remaining += 1;
 
         applys_progress.insert(
@@ -261,9 +269,6 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
           num_usages_remaining
         );
       } else if(node.op.is_partialize()) {
-        if(!node.op.output_loc() == mpi.this_rank) {
-          continue;
-        }
         num_remaining += 1;
 
         // pass in num_usages_remaining by reference
@@ -276,6 +281,11 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
         throw std::runtime_error("should not reach");
       }
     }
+  }
+
+  ULINEOUT(applys_progress.num_remaining.size());
+  for(auto const& [apply_id, num_rem]: applys_progress.num_remaining) {
+    ULINEOUT("  sssssssssssssssssssss " << apply_id << " " << num_rem);
   }
 
   // now that everything is setup, state
@@ -293,12 +303,17 @@ void cpu_exec_state_t::apply_runner(int runner_id)
     // Get a command that needs to be executed, or return
     {
       std::unique_lock lk(m);
-      cv.wait(lk, [this](){return num_remaining == 0 || applys_progress.ready.size() > 0;});
-      if(num_remaining == 0) {
+      cv.wait(lk, [this](){
+        return applys_progress.num_remaining.size() == 0 ||
+               applys_progress.ready.size() > 0;
+      });
+      if(applys_progress.ready.size() > 0) {
+        which = applys_progress.ready.front();
+        applys_progress.ready.pop();
+      } else {
+        ULINEOUT("exit apply runner");
         return;
       }
-      which = applys_progress.ready.front();
-      applys_progress.ready.pop();
     }
 
     // Do the command execution of which
@@ -325,13 +340,16 @@ void cpu_exec_state_t::touch_runner(int runner_id)
     {
       std::unique_lock lk(m);
       cv.wait(lk, [this](){
-        return num_remaining == 0 || touches_progress.ready.size() > 0;
+        return touches_progress.num_remaining.size() == 0 ||
+               touches_progress.ready.size() > 0;
       });
-      if(num_remaining == 0) {
+      if(touches_progress.ready.size() > 0) {
+        which = touches_progress.ready.front();
+        touches_progress.ready.pop();
+      } else {
+        ULINEOUT("exit touch runner");
         return;
       }
-      which = touches_progress.ready.front();
-      touches_progress.ready.pop();
     }
 
     // Do the touch of this operation
@@ -364,15 +382,16 @@ void cpu_exec_state_t::send_runner(int runner_id)
     {
       std::unique_lock lk(m);
       cv.wait(lk, [this](){
-        return num_remaining == 0 || sends_progress.ready.size() > 0;
+        return sends_progress.waiting.size() == 0 ||
+               sends_progress.ready.size() > 0;
       });
-
-      if(num_remaining == 0) {
+      if(sends_progress.ready.size() > 0) {
+        send_id = sends_progress.ready.front();
+        sends_progress.ready.pop();
+      } else {
+        ULINEOUT("exit send runner");
         return;
       }
-
-      send_id = sends_progress.ready.front();
-      sends_progress.ready.pop();
     }
 
     auto const& node = taskgraph.nodes[send_id];
@@ -393,20 +412,17 @@ void cpu_exec_state_t::recv_runner(int runner_id)
 {
   while(true)
   {
-    SLINEOUT("recv runner at top");
     {
       std::unique_lock lk(m);
 
       if(num_recv_post_remaining == 0) {
-        SLINEOUT("recv runner EXITING");
+        ULINEOUT("exit recv runner");
         return;
       }
       num_recv_post_remaining -= 1;
       // (don't do this after here because if there are two
       //  recv runners for one post remaining, then mpi recv could be
       //  called twice waiting for the same data and would would hang)
-
-      SLINEOUT("recv runner: num recv post rem " << num_recv_post_remaining + 1);
     }
 
     int recv_id = mpi.recv_int_from_anywhere(mpi.max_tag);
@@ -428,6 +444,7 @@ void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
   applys_progress.notify_tensor_ready(tensor_id);
   touches_progress.notify_tensor_ready(tensor_id);
   sends_progress.notify_tensor_ready(tensor_id);
+  TLINEOUT("notify tensor ready | send progress waiting size " << sends_progress.waiting.size());
 }
 
 void cpu_exec_state_t::_completed(
@@ -459,6 +476,10 @@ void cpu_exec_state_t::_completed(
     int const& id = created_tensor.value();
     notify_tensor_ready(id);
   }
+
+  ULINEOUT("apply num rem, ready, just completed "
+      << applys_progress.num_remaining.size()
+      << ", " << applys_progress.ready.size())
 }
 
 void cpu_exec_state_t::completed_send(int move_id)

@@ -1443,7 +1443,7 @@ void taskgraph_t::print() const {
 
     std::cout << "node " << id;
     if(node.is_save) {
-      std::cout << " (save)";
+      std::cout << " (save to loc " << node.op.output_loc() << ")";
     }
     std::cout << std::endl;
 
@@ -1452,13 +1452,17 @@ void taskgraph_t::print() const {
     std::cout << "tensor size: " << node.op.tensor_size() << std::endl;
 
     if(node.op.is_input()) {
-      std::cout << "input" << std::endl;
+      auto const& [loc, _0] = node.op.get_input();
+      std::cout << "input | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_apply()) {
-      std::cout << "apply" << std::endl;
+      auto const& [loc, _0, _1] = node.op.get_apply();
+      std::cout << "apply | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_move()) {
-      std::cout << "move" << std::endl;
+      auto const& [src, dst, _0, _1] = node.op.get_move();
+      std::cout << "move | loc[" << src << "] -> loc[" << dst << "]" << std::endl;
     } else if(node.op.is_partialize()) {
-      std::cout << "partialize" << std::endl;
+      int loc = node.op.output_loc();
+      std::cout << "partialize | loc[" << loc << "]" << std::endl;
     }
 
     std::cout << std::endl;
