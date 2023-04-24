@@ -7,7 +7,8 @@
 using std::thread;
 using std::queue;
 
-#define RLINEOUT(x) if(mpi.this_rank == 1) { DLINEOUT(x); }
+#define RLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
+#define SLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(std::this_thread::get_id() << " | " << x); }
 
 struct applys_progress_t {
   queue<int> ready;
@@ -187,7 +188,7 @@ void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tenso
   cpu_exec_state_t state(mpi, taskgraph, tensors);
 
   // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
-  state.run(1, 1, 1, 1);
+  state.run(1, 1, 1, 2);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -377,6 +378,8 @@ void cpu_exec_state_t::send_runner(int runner_id)
     auto const& node = taskgraph.nodes[send_id];
     auto const& [_0, dst, inn_id, _2] = node.op.get_move();
 
+    mpi.send_int(send_id, dst, mpi.max_tag);
+
     auto [_, read_buffers] = get_buffers({}, {inn_id});
     auto& buffer = read_buffers[0];
 
@@ -390,27 +393,26 @@ void cpu_exec_state_t::recv_runner(int runner_id)
 {
   while(true)
   {
+    SLINEOUT("recv runner at top");
     {
       std::unique_lock lk(m);
-      cv.wait(lk, [this](){
-        return num_remaining == 0 || num_recv_post_remaining != 0;
-      });
 
-      if(num_remaining == 0) {
+      if(num_recv_post_remaining == 0) {
+        SLINEOUT("recv runner EXITING");
         return;
       }
-
-      // about to do the post
       num_recv_post_remaining -= 1;
       // (don't do this after here because if there are two
-      //  recv runners for one post remaining, then mpi probe could be
-      //  called twice and one of the probes would hang)
+      //  recv runners for one post remaining, then mpi recv could be
+      //  called twice waiting for the same data and would would hang)
+
+      SLINEOUT("recv runner: num recv post rem " << num_recv_post_remaining + 1);
     }
 
-    auto [src, recv_id] = mpi.probe();
+    int recv_id = mpi.recv_int_from_anywhere(mpi.max_tag);
 
     auto const& node = taskgraph.nodes[recv_id];
-    auto const& [_0, _1, _2, recv_size] = node.op.get_move();
+    auto const& [src, _0, _1, recv_size] = node.op.get_move();
 
     auto [should_be_new_buffers, _] = get_buffers({ {recv_size, recv_id} }, {});
     auto& recv_buffer = should_be_new_buffers[0];
@@ -466,6 +468,7 @@ void cpu_exec_state_t::completed_send(int move_id)
   {
     std::unique_lock lk(m);
 
+    RLINEOUT("send " << move_id);
     _completed(
       true,
       {node.op.get_move().inn},
@@ -480,6 +483,7 @@ void cpu_exec_state_t::completed_recv(int move_id)
   {
     std::unique_lock lk(m);
 
+    RLINEOUT("recv " << move_id);
     _completed(
       true,
       {},
@@ -499,6 +503,7 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 
     if(maybe_completed_partial_id) {
       auto const& partial_id = maybe_completed_partial_id.value();
+      RLINEOUT("touch " << partial_id);
       // the partial id has been touched the requisite number of times
       // and so this command is done and partial_id is a completed
       // tensor.
@@ -526,6 +531,7 @@ void cpu_exec_state_t::completed_apply(int apply_id)
   {
     std::unique_lock lk(m);
 
+    RLINEOUT("apply " << apply_id);
     set<int> inns = node.op.inputs();
     _completed(
       true,

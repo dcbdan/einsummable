@@ -2,13 +2,23 @@
 
 mpi_t::mpi_t(int argc, char** argv)
 {
-  int provided;
+  int tmp;
+
+  int& provided = tmp;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
   if(provided != MPI_THREAD_MULTIPLE) {
     throw std::runtime_error("MPI_Init_thread");
   }
   MPI_Comm_rank(MPI_COMM_WORLD, &this_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  int& flag = tmp;
+  void* data;
+  MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &data, &flag);
+  if(!flag) {
+    throw std::runtime_error("Could not set max tag");
+  }
+  max_tag = *(int*)data;
 
   // Note: We could set MPI to throw errors C++ style
   //   MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI::ERRORS_THROW_EXCEPTIONS);
@@ -63,22 +73,6 @@ void mpi_t::_send_recv(
   }
 }
 
-mpi_t::loctag_t mpi_t::probe()
-{
-  int result = MPI_Probe(
-    MPI_ANY_SOURCE,
-    MPI_ANY_TAG,
-    MPI_COMM_WORLD,
-    &status_for_probe);
-  if(result != MPI_SUCCESS) {
-    throw std::runtime_error("MPI_Probe fail");
-  }
-  return loctag_t {
-    .loc = status_for_probe.MPI_SOURCE,
-    .tag = status_for_probe.MPI_TAG
-  };
-}
-
 void mpi_t::send_str(std::string const& x, int dst)
 {
   int n = x.size();
@@ -99,3 +93,14 @@ std::string mpi_t::recv_str(int src)
   return std::string(ret.begin(), ret.end());
 }
 
+void mpi_t::send_int(int val, int dst, int tag)
+{
+  MPI_Send((void*)(&val), 1, MPI_INT, dst, tag, MPI_COMM_WORLD);
+}
+
+int mpi_t::recv_int_from_anywhere(int tag)
+{
+  int ret;
+  MPI_Recv((void*)(&ret), 1, MPI_INT, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  return ret;
+}
