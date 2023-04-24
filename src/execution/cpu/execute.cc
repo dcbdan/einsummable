@@ -8,10 +8,6 @@ using std::thread;
 using std::queue;
 
 #define RLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
-#define TLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
-#define ULINEOUT(x) // if(mpi.this_rank == 1) { DLINEOUT(x); }
-
-#define SLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(std::this_thread::get_id() << " | " << x); }
 
 struct applys_progress_t {
   queue<int> ready;
@@ -191,7 +187,7 @@ void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tenso
   cpu_exec_state_t state(mpi, taskgraph, tensors);
 
   // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
-  state.run(1, 1, 1, 1);
+  state.run(2, 2, 2, 2);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -283,11 +279,6 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
     }
   }
 
-  ULINEOUT(applys_progress.num_remaining.size());
-  for(auto const& [apply_id, num_rem]: applys_progress.num_remaining) {
-    ULINEOUT("  sssssssssssssssssssss " << apply_id << " " << num_rem);
-  }
-
   // now that everything is setup, state
   // what input tensors are ready initially
   for(auto const& input_id: input_ids) {
@@ -311,7 +302,6 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         which = applys_progress.ready.front();
         applys_progress.ready.pop();
       } else {
-        ULINEOUT("exit apply runner");
         return;
       }
     }
@@ -347,7 +337,6 @@ void cpu_exec_state_t::touch_runner(int runner_id)
         which = touches_progress.ready.front();
         touches_progress.ready.pop();
       } else {
-        ULINEOUT("exit touch runner");
         return;
       }
     }
@@ -389,7 +378,6 @@ void cpu_exec_state_t::send_runner(int runner_id)
         send_id = sends_progress.ready.front();
         sends_progress.ready.pop();
       } else {
-        ULINEOUT("exit send runner");
         return;
       }
     }
@@ -416,7 +404,6 @@ void cpu_exec_state_t::recv_runner(int runner_id)
       std::unique_lock lk(m);
 
       if(num_recv_post_remaining == 0) {
-        ULINEOUT("exit recv runner");
         return;
       }
       num_recv_post_remaining -= 1;
@@ -444,7 +431,6 @@ void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
   applys_progress.notify_tensor_ready(tensor_id);
   touches_progress.notify_tensor_ready(tensor_id);
   sends_progress.notify_tensor_ready(tensor_id);
-  TLINEOUT("notify tensor ready | send progress waiting size " << sends_progress.waiting.size());
 }
 
 void cpu_exec_state_t::_completed(
@@ -476,10 +462,6 @@ void cpu_exec_state_t::_completed(
     int const& id = created_tensor.value();
     notify_tensor_ready(id);
   }
-
-  ULINEOUT("apply num rem, ready, just completed "
-      << applys_progress.num_remaining.size()
-      << ", " << applys_progress.ready.size())
 }
 
 void cpu_exec_state_t::completed_send(int move_id)
@@ -489,7 +471,6 @@ void cpu_exec_state_t::completed_send(int move_id)
   {
     std::unique_lock lk(m);
 
-    RLINEOUT("send " << move_id);
     _completed(
       true,
       {node.op.get_move().inn},
@@ -504,7 +485,6 @@ void cpu_exec_state_t::completed_recv(int move_id)
   {
     std::unique_lock lk(m);
 
-    RLINEOUT("recv " << move_id);
     _completed(
       true,
       {},
@@ -524,7 +504,6 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 
     if(maybe_completed_partial_id) {
       auto const& partial_id = maybe_completed_partial_id.value();
-      RLINEOUT("touch " << partial_id);
       // the partial id has been touched the requisite number of times
       // and so this command is done and partial_id is a completed
       // tensor.
@@ -552,7 +531,6 @@ void cpu_exec_state_t::completed_apply(int apply_id)
   {
     std::unique_lock lk(m);
 
-    RLINEOUT("apply " << apply_id);
     set<int> inns = node.op.inputs();
     _completed(
       true,
