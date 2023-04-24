@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   }
 
   mpi.barrier();
-  execute(taskgraph, tensors);
+  execute(mpi, taskgraph, tensors);
 
   for(int rank = 0; rank != mpi.world_size; ++rank) {
     mpi.barrier();

@@ -103,17 +103,29 @@ struct touches_progress_t {
   std::optional<int> completed(int unit_id);
 };
 
+struct sends_progress_t {
+  // move ids that are pending
+  queue<int> ready;
+
+  // inn id to move id
+  map<int, int> waiting;
+
+  void insert(int move_id, int inn_id);
+  void notify_tensor_ready(int inn_id);
+};
+
 struct cpu_exec_state_t {
   // collect all the meta data and get this mpi rank ready for execution
-  cpu_exec_state_t(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
+  cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
 
   // launch the threads and wait for the threads to finish
-  void run(int n_apply, int n_touch, int n_comm);
+  void run(int n_apply, int n_touch, int n_send, int n_recv);
 
   // the threads
   void apply_runner(int runner_id);
   void touch_runner(int runner_id);
-  void communicate_runner(int runner_id);
+  void send_runner(int runner_id);
+  void recv_runner(int runner_id);
 
   // update state helper methods
   void _completed(
@@ -140,6 +152,7 @@ struct cpu_exec_state_t {
     vector<tuple<uint64_t, int>> const& which_allocate,
     vector<int> const& which_get);
 
+  mpi_t& mpi;
   taskgraph_t const& taskgraph;
   map<int, buffer_t>& tensors;
 
@@ -163,33 +176,37 @@ struct cpu_exec_state_t {
   touches_progress_t touches_progress;
 
   // Work for communicate runners
-  // TODO
+  sends_progress_t sends_progress;
+  int num_recv_remaining;
 };
 
-void execute(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
+void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
 {
-  cpu_exec_state_t state(taskgraph, tensors);
+  cpu_exec_state_t state(mpi, taskgraph, tensors);
 
-  // TODO: set n_comm runner > 0
-  state.run(8, 8, 0);
+  // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
+  state.run(1, 1, 1, 1);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
   }
 }
 
-void cpu_exec_state_t::run(int n_apply, int n_touch, int n_comm)
+void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 {
   vector<thread> runners;
-  runners.reserve(n_apply + n_touch + n_comm);
+  runners.reserve(n_apply + n_touch + n_send + n_recv);
   for(int i = 0; i != n_apply; ++i) {
     runners.emplace_back([this, i](){ return this->apply_runner(i); });
   }
   for(int i = 0; i != n_touch; ++i) {
     runners.emplace_back([this, i](){ return this->touch_runner(i); });
   }
-  for(int i = 0; i != n_comm; ++i) {
-    runners.emplace_back([this, i](){ return this->communicate_runner(i); });
+  for(int i = 0; i != n_send; ++i) {
+    runners.emplace_back([this, i](){ return this->send_runner(i); });
+  }
+  for(int i = 0; i != n_recv; ++i) {
+    runners.emplace_back([this, i](){ return this->recv_runner(i); });
   }
 
   for(auto& t: runners) {
@@ -197,15 +214,15 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_comm)
   }
 }
 
-cpu_exec_state_t::cpu_exec_state_t(taskgraph_t const& tg, map<int, buffer_t>& ts)
-  : taskgraph(tg), tensors(ts), num_remaining(0)
+cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, buffer_t>& ts)
+  : mpi(mpi), taskgraph(tg), tensors(ts), num_remaining(0), num_recv_remaining(0)
 {
-  int this_loc = 0;
-
   // 0. set num_remaining
   // 1. Set num_usages_remaining
   // 2. register every apply node at this location with applys_progress
   // 3. register every partialize node at this location with touches_progress
+  // 4. register every send from here
+  // 5. register every recv to   here
 
   vector<int> input_ids;
 
@@ -213,11 +230,21 @@ cpu_exec_state_t::cpu_exec_state_t(taskgraph_t const& tg, map<int, buffer_t>& ts
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
-      throw std::runtime_error("execute.cc state t: moves not implemented");
+      auto const& [src,dst,inn,size] = node.op.get_move();
+      if(src == dst) {
+        throw std::runtime_error("Moves to self are not allowed");
+      }
+      if(src == mpi.this_rank) {
+        num_remaining += 1;
+        sends_progress.insert(id, inn);
+      } else if(dst == mpi.this_rank) {
+        num_remaining += 1;
+        num_recv_remaining += 1;
+      }
     } else if(node.op.is_input()) {
       input_ids.push_back(id);
     } else {
-      if(!node.op.output_loc() == this_loc) {
+      if(!node.op.output_loc() == mpi.this_rank) {
         continue;
       }
 
@@ -230,6 +257,9 @@ cpu_exec_state_t::cpu_exec_state_t(taskgraph_t const& tg, map<int, buffer_t>& ts
           num_usages_remaining
         );
       } else if(node.op.is_partialize()) {
+        if(!node.op.output_loc() == mpi.this_rank) {
+          continue;
+        }
         num_remaining += 1;
 
         // pass in num_usages_remaining by reference
@@ -321,17 +351,21 @@ void cpu_exec_state_t::touch_runner(int runner_id)
   }
 }
 
-void cpu_exec_state_t::communicate_runner(int runner_id)
+void cpu_exec_state_t::send_runner(int runner_id)
 {
   // TODO
-  throw std::runtime_error("communicate runner not implemented");
+}
+
+void cpu_exec_state_t::recv_runner(int runner_id)
+{
+  // TODO
 }
 
 void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
 {
   applys_progress.notify_tensor_ready(tensor_id);
   touches_progress.notify_tensor_ready(tensor_id);
-  // TODO for communicate
+  sends_progress.notify_tensor_ready(tensor_id);
 }
 
 void cpu_exec_state_t::_completed(
@@ -639,6 +673,19 @@ touches_progress_t::unit_t::completed() {
   }
   busy = false;
   return try_to_pop();
+}
+
+void sends_progress_t::insert(int move_id, int inn_id) {
+  waiting.insert({inn_id, move_id});
+}
+
+void sends_progress_t::notify_tensor_ready(int inn_id) {
+  if(waiting.count(inn_id) > 0) {
+    // push the move id onto ready
+    ready.push(waiting.at(inn_id));
+
+    waiting.erase(inn_id);
+  }
 }
 
 

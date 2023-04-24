@@ -4,7 +4,9 @@
 #include "../../einsummable/taskgraph.h"
 #include "../../einsummable/reference.h" // buffer_t
 
+#include "mpi_class.h"
+
 // Every input node in taskgraph should be in tensors.
 // After execution, only every save taskgraph node should be in tensors
-void execute(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
+void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
 
