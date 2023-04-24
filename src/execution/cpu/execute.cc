@@ -7,7 +7,7 @@
 using std::thread;
 using std::queue;
 
-#define RLINEOUT(x) // if(mpi.this_rank == 2) { DLINEOUT(x); }
+#define RLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
 #define TLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
 #define ULINEOUT(x) // if(mpi.this_rank == 1) { DLINEOUT(x); }
 
@@ -113,8 +113,8 @@ struct sends_progress_t {
   // move ids that are pending
   queue<int> ready;
 
-  // inn id to move id
-  map<int, int> waiting;
+  // inn id to moves id
+  map<int, vector<int>> waiting;
 
   void insert(int move_id, int inn_id);
   void notify_tensor_ready(int inn_id);
@@ -565,8 +565,6 @@ void cpu_exec_state_t::completed_apply(int apply_id)
 }
 
 bool cpu_exec_state_t::check_complete() const {
-  // TODO: update for communicate
-  // TODO: add anything else to verify?
   return num_remaining == 0;
 }
 
@@ -763,13 +761,15 @@ touches_progress_t::unit_t::completed() {
 }
 
 void sends_progress_t::insert(int move_id, int inn_id) {
-  waiting.insert({inn_id, move_id});
+  waiting[inn_id].push_back(move_id);
 }
 
 void sends_progress_t::notify_tensor_ready(int inn_id) {
   if(waiting.count(inn_id) > 0) {
-    // push the move id onto ready
-    ready.push(waiting.at(inn_id));
+    // push the move id(s) onto ready
+    for(auto const& move_id: waiting.at(inn_id)) {
+      ready.push(move_id);
+    }
 
     waiting.erase(inn_id);
   }
