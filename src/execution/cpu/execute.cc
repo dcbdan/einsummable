@@ -171,8 +171,7 @@ void execute(taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
   cpu_exec_state_t state(taskgraph, tensors);
 
   // TODO: set n_comm runner > 0
-  //state.run(1, 4, 0);
-  state.run(1, 1, 0);
+  state.run(8, 8, 0);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");

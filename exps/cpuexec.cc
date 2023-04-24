@@ -3,6 +3,7 @@
 #include "../src/einsummable/reference.h"
 
 #include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/mpi_class.h"
 
 void usage() {
   std::cout << "Usage: pi pj pk di dj dk\n"
@@ -38,18 +39,27 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  mpi_t mpi(argc, argv);
+
   graph_t graph = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
 
-  graph.print();
+  if(mpi.this_rank == 0) {
+    graph.print();
+  }
 
   vector<char> _line(40, '/');
   std::string line(_line.begin(), _line.end());
-  std::cout << line << std::endl << std::endl;
+
+  if(mpi.this_rank == 0) {
+    std::cout << line << std::endl << std::endl;
+  }
 
   auto [input_blocks, output_blocks, taskgraph] = taskgraph_t::make(graph);
 
-  taskgraph.print();
+  if(mpi.this_rank == 0) {
+    taskgraph.print();
+  }
 
   // Initialize the input tensors to all ones
   map<int, buffer_t> tensors;
@@ -63,13 +73,21 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::cout << line << std::endl << std::endl;
+  if(mpi.this_rank == 0) {
+    std::cout << line << std::endl << std::endl;
+  }
 
+  mpi.barrier();
   execute(taskgraph, tensors);
 
-  for(auto const& [gid, out_blocks]: output_blocks) {
-    for(auto const& out: out_blocks.get()) {
-      std::cout << out << " " << tensors.at(out) << std::endl;
+  for(int rank = 0; rank != mpi.world_size; ++rank) {
+    mpi.barrier();
+    if(rank == mpi.this_rank) {
+      for(auto const& [gid, out_blocks]: output_blocks) {
+        for(auto const& out: out_blocks.get()) {
+          std::cout << "rank " << rank << " | " << out << " " << tensors.at(out) << std::endl;
+        }
+      }
     }
   }
 
