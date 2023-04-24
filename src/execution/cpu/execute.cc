@@ -7,6 +7,8 @@
 using std::thread;
 using std::queue;
 
+#define RLINEOUT(x) if(mpi.this_rank == 1) { DLINEOUT(x); }
+
 struct applys_progress_t {
   queue<int> ready;
 
@@ -236,6 +238,7 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
       }
       if(src == mpi.this_rank) {
         num_remaining += 1;
+        num_usages_remaining[inn] += 1;
         sends_progress.insert(id, inn);
       } else if(dst == mpi.this_rank) {
         num_remaining += 1;
@@ -371,11 +374,11 @@ void cpu_exec_state_t::send_runner(int runner_id)
       sends_progress.ready.pop();
     }
 
-    auto [_, read_buffers] = get_buffers({}, {send_id});
-    auto& buffer = read_buffers[0];
-
     auto const& node = taskgraph.nodes[send_id];
-    auto const& [_0, dst, _1, _2] = node.op.get_move();
+    auto const& [_0, dst, inn_id, _2] = node.op.get_move();
+
+    auto [_, read_buffers] = get_buffers({}, {inn_id});
+    auto& buffer = read_buffers[0];
 
     mpi.send(buffer, dst, send_id);
 
@@ -409,8 +412,8 @@ void cpu_exec_state_t::recv_runner(int runner_id)
     auto const& node = taskgraph.nodes[recv_id];
     auto const& [_0, _1, _2, recv_size] = node.op.get_move();
 
-    auto [new_buffers, _] = get_buffers({ {recv_size, recv_id} }, {});
-    auto& recv_buffer = new_buffers[0];
+    auto [should_be_new_buffers, _] = get_buffers({ {recv_size, recv_id} }, {});
+    auto& recv_buffer = should_be_new_buffers[0];
 
     mpi.recv(recv_buffer, src, recv_id);
 

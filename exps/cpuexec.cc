@@ -5,6 +5,8 @@
 #include "../src/execution/cpu/execute.h"
 #include "../src/execution/cpu/mpi_class.h"
 
+#define ROUT(x) if(mpi.this_rank == 0) { std::cout << "(in cpu exec) " << x << std::endl; }
+
 void usage() {
   std::cout << "Usage: pi pj pk di dj dk\n"
             << "\n"
@@ -25,7 +27,6 @@ int main(int argc, char** argv) {
 
   int pi, pj, pk;
   uint64_t di, dj, dk;
-  int num_processors = 1; // TODO: set with mpi world size
   try {
     pi             = parse_with_ss<int>(     argv[1]);
     pj             = parse_with_ss<int>(     argv[2]);
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
   }
 
   mpi_t mpi(argc, argv);
+
+  int num_processors = mpi.world_size;
 
   graph_t graph = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
@@ -79,13 +82,17 @@ int main(int argc, char** argv) {
 
   mpi.barrier();
   execute(mpi, taskgraph, tensors);
+  mpi.barrier();
 
   for(int rank = 0; rank != mpi.world_size; ++rank) {
     mpi.barrier();
     if(rank == mpi.this_rank) {
       for(auto const& [gid, out_blocks]: output_blocks) {
         for(auto const& out: out_blocks.get()) {
-          std::cout << "rank " << rank << " | " << out << " " << tensors.at(out) << std::endl;
+          auto out_loc = taskgraph.nodes[out].op.output_loc();
+          if(out_loc == mpi.this_rank) {
+            std::cout << "rank " << rank << " | " << out << " " << tensors.at(out) << std::endl;
+          }
         }
       }
     }
