@@ -175,9 +175,9 @@ struct cpu_exec_state_t {
   // Work for touch runners
   touches_progress_t touches_progress;
 
-  // Work for communicate runners
+  // Work for send and recv runners
   sends_progress_t sends_progress;
-  int num_recv_remaining;
+  int num_recv_post_remaining;
 };
 
 void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
@@ -215,7 +215,7 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 }
 
 cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, buffer_t>& ts)
-  : mpi(mpi), taskgraph(tg), tensors(ts), num_remaining(0), num_recv_remaining(0)
+  : mpi(mpi), taskgraph(tg), tensors(ts), num_remaining(0), num_recv_post_remaining(0)
 {
   // 0. set num_remaining
   // 1. Set num_usages_remaining
@@ -239,7 +239,7 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
         sends_progress.insert(id, inn);
       } else if(dst == mpi.this_rank) {
         num_remaining += 1;
-        num_recv_remaining += 1;
+        num_recv_post_remaining += 1;
       }
     } else if(node.op.is_input()) {
       input_ids.push_back(id);
@@ -353,12 +353,69 @@ void cpu_exec_state_t::touch_runner(int runner_id)
 
 void cpu_exec_state_t::send_runner(int runner_id)
 {
-  // TODO
+  int send_id;
+
+  while(true)
+  {
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [this](){
+        return num_remaining == 0 || sends_progress.ready.size() > 0;
+      });
+
+      if(num_remaining == 0) {
+        return;
+      }
+
+      send_id = sends_progress.ready.front();
+      sends_progress.ready.pop();
+    }
+
+    auto [_, read_buffers] = get_buffers({}, {send_id});
+    auto& buffer = read_buffers[0];
+
+    auto const& node = taskgraph.nodes[send_id];
+    auto const& [_0, dst, _1, _2] = node.op.get_move();
+
+    mpi.send(buffer, dst, send_id);
+
+    completed_send(send_id);
+  }
 }
 
 void cpu_exec_state_t::recv_runner(int runner_id)
 {
-  // TODO
+  while(true)
+  {
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [this](){
+        return num_remaining == 0 || num_recv_post_remaining != 0;
+      });
+
+      if(num_remaining == 0) {
+        return;
+      }
+
+      // about to do the post
+      num_recv_post_remaining -= 1;
+      // (don't do this after here because if there are two
+      //  recv runners for one post remaining, then mpi probe could be
+      //  called twice and one of the probes would hang)
+    }
+
+    auto [src, recv_id] = mpi.probe();
+
+    auto const& node = taskgraph.nodes[recv_id];
+    auto const& [_0, _1, _2, recv_size] = node.op.get_move();
+
+    auto [new_buffers, _] = get_buffers({ {recv_size, recv_id} }, {});
+    auto& recv_buffer = new_buffers[0];
+
+    mpi.recv(recv_buffer, src, recv_id);
+
+    completed_recv(recv_id);
+  }
 }
 
 void cpu_exec_state_t::notify_tensor_ready(int tensor_id)

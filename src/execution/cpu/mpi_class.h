@@ -14,6 +14,14 @@ struct mpi_t {
   void recv(buffer_t buffer, int src, int tag);
   void send(buffer_t buffer, int dst, int tag);
 
+  // Return the src, tag of an uncoming communication.
+  // This will wait until such a communication exists.
+  struct loctag_t {
+    int loc;
+    int tag;
+  };
+  loctag_t probe();
+
   void send_str(std::string const& x, int dst);
   std::string recv_str(int src);
 
@@ -26,6 +34,8 @@ private:
     buffer_t buffer,
     int loc,
     int tag);
+
+  MPI_Status status_for_probe;
 public:
   template <typename T>
   void send_vector(vector<T> const& xs, int dst) {

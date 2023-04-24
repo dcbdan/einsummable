@@ -63,6 +63,22 @@ void mpi_t::_send_recv(
   }
 }
 
+mpi_t::loctag_t mpi_t::probe()
+{
+  int result = MPI_Probe(
+    MPI_ANY_SOURCE,
+    MPI_ANY_TAG,
+    MPI_COMM_WORLD,
+    &status_for_probe);
+  if(result != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Probe fail");
+  }
+  return loctag_t {
+    .loc = status_for_probe.MPI_SOURCE,
+    .tag = status_for_probe.MPI_TAG
+  };
+}
+
 void mpi_t::send_str(std::string const& x, int dst)
 {
   int n = x.size();
