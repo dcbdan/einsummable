@@ -21,6 +21,11 @@ struct matgraph_t {
   int insert_input(uint64_t d0, uint64_t d1);
   int insert_ones(uint64_t d0, uint64_t d1);
 
+  // For a binary tree of additions. If zero or one inputs
+  // are given, throw an error: this method must create
+  // a new operation.
+  int insert_adds(vector<int> inns);
+
   // Compute the gradients of each identifier in weights
   // with respect to the sum of all elements in
   // the out matrix.
@@ -28,6 +33,11 @@ struct matgraph_t {
   // As output, return the identifier containing
   // each gradient.
   vector<int> backprop(int out, vector<int> weights);
+
+  // Build a graph object from the matgraph
+  graph_t compile() const;
+
+  void print() const;
 
 private:
   struct matmul_t {
@@ -65,14 +75,50 @@ private:
     std::optional<int> inn0() const;
     std::optional<int> inn1() const;
     vector<int> inns() const;
+    set<int> inns_set() const;
   };
   vector<node_t> nodes;
 
   int insert(op_t op, tuple<uint64_t, uint64_t> out_shape);
+
+  // Compute all nodes that exist on a path from some input to some output,
+  // For inn -> x0 -> x1 -> x2 -> out,
+  //   put x0, x1, x2 into the output.
+  // For inn0 -> inn1 -> x1 -> x2 -> out1 -> out0,
+  //   put inn1, x1, x2, out1 into the output.
+  set<int> compute_nodeset(vector<int> const& outs, vector<int> const& inns) const;
+
+  struct backprop_state_t {
+    // get the gradient of this id
+    int operator[](int id);
+
+    // Add the initial ones at out_id
+    void start(int out_id);
+
+    map<int, int> grads;
+    matgraph_t& self;
+    set<int> nodeset;
+
+    struct out_edge_t {
+      int out;
+      int which_inn;
+    };
+    vector<out_edge_t> get_out_edges(int id) const;
+
+  };
+
+  // Gets the gradient term of this node and edge
+  // (TODO: this is called something--jacobian? outer jacobian?)
+  //
+  // Note: this may insert a node into the graph, but it also may not
+  int build_grad_term(int node, int which_inn, int node_grad);
+  // node_grad has the shape of node,
+  // the output grad will have the shape of node's which_inn input
+
+  int build_grad_term_matmul_lhs(matmul_t const& matmul, int node_grad);
+  int build_grad_term_matmul_rhs(matmul_t const& matmul, int node_grad);
+  int build_grad_term_ewb_lhs(ewb_t const& ewb, int node_grad);
+  int build_grad_term_ewb_rhs(ewb_t const& ewb, int node_grad);
+  int build_grad_term_ew_inn(ew_t const& ew, int node_grad);
 };
-
-// Build a graph object from the matgraph
-graph_t compile(matgraph_t const& matgraph);
-
-
 
