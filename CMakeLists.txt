@@ -28,6 +28,15 @@ target_link_libraries(copyregion einsummable)
 add_executable(coster exps/coster.cc)
 target_link_libraries(coster einsummable)
 
+add_library(matgraph
+  STATIC
+  src/matgraph/matgraph.cc
+)
+
+add_executable(matgraphexp exps/matgraph.cc)
+target_link_libraries(matgraphexp einsummable)
+target_link_libraries(matgraphexp matgraph)
+
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
 
