@@ -28,6 +28,47 @@ struct matgraph_t {
   // As output, return the identifier containing
   // each gradient.
   vector<int> backprop(int out, vector<int> weights);
+
+private:
+  struct matmul_t {
+    bool t_lhs;
+    int lhs;
+    bool t_rhs;
+    int rhs;
+  };
+
+  struct ew_t {
+    scalar_join_t op;
+    int inn;
+  };
+
+  struct ewb_t {
+    scalar_join_t op;
+    int lhs;
+    int rhs;
+  };
+
+  struct input_t {
+  };
+
+  struct ones_t {
+  };
+
+
+  using op_t = std::variant<matmul_t, ew_t, ewb_t, input_t, ones_t>;
+
+  struct node_t {
+    tuple<uint64_t, uint64_t> out_shape;
+    op_t op;
+    set<int> outs;
+
+    std::optional<int> inn0() const;
+    std::optional<int> inn1() const;
+    vector<int> inns() const;
+  };
+  vector<node_t> nodes;
+
+  int insert(op_t op, tuple<uint64_t, uint64_t> out_shape);
 };
 
 // Build a graph object from the matgraph

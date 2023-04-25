@@ -5,6 +5,9 @@ enum class castable_t { add, mul, min, max };
 
 enum class scalar_join_t { add, sub, mul, relu, negate, min, max };
 
+bool is_unary_scalar_join(scalar_join_t const& op);
+bool is_binary_scalar_join(scalar_join_t const& op);
+
 struct einsummable_t {
   vector<uint64_t> join_shape;
 
