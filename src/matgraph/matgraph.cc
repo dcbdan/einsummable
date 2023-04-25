@@ -237,6 +237,7 @@ vector<int> matgraph_t::backprop(int out, vector<int> weights)
   for(auto const& weight: weights) {
     nodeset.insert(weight);
   }
+  nodeset.insert(out);
 
   backprop_state_t state {
     .grads = {},
@@ -281,7 +282,7 @@ int matgraph_t::backprop_state_t::operator[](int id) {
   vector<int> terms;
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn]: out_edges) {
-    auto const& out_grad = grads.at(out);
+    auto const& out_grad = (*this)[out]; // recurse
     terms.push_back(
       self.build_grad_term(out, which_inn, out_grad)
     );
@@ -303,9 +304,7 @@ int matgraph_t::backprop_state_t::operator[](int id) {
 
 void matgraph_t::backprop_state_t::start(int out_id)
 {
-  auto const& [d0, d1] = self.nodes[out_id].out_shape;
-  int ones_id = self.insert_ones(d0, d1);
-  grads.insert({out_id, ones_id});
+  grads.insert({out_id, out_id});
 }
 
 vector<matgraph_t::backprop_state_t::out_edge_t>
@@ -350,7 +349,7 @@ set<int> matgraph_t::compute_nodeset(
     set<int> pending = upp_dwn;
     while(pending.size() > 0) {
       set<int> next_up;
-      for(auto const& upp: upps) {
+      for(auto const& upp: pending) {
         for(auto const& inn: nodes[upp].inns_set()) {
           upp_dwn.insert(inn);
           next_up.insert(inn);
@@ -372,7 +371,7 @@ set<int> matgraph_t::compute_nodeset(
     set<int> pending = dwn_upp;
     while(pending.size() > 0) {
       set<int> next_up;
-      for(auto const& dwn: dwns) {
+      for(auto const& dwn: pending) {
         for(auto const& out: nodes[dwn].outs) {
           dwn_upp.insert(out);
           next_up.insert(out);
@@ -558,14 +557,66 @@ int matgraph_t::build_grad_term_ew_inn(
   }
 }
 
+void matgraph_t::node_t::print() const
+{
+  using std::holds_alternative;
+  using std::get;
+
+  auto const& [d0,d1] = out_shape;
+  std::cout << "shape: " << d0 << ", " << d1 << std::endl;
+
+  std::cout << "op: ";
+  if(holds_alternative<matmul_t>(op)) {
+    auto const& [t_lhs, _, t_rhs, _1] = get<matmul_t>(op);
+    std::cout << "matmul[";
+    if(t_lhs) {
+      std::cout << "ji";
+    } else {
+      std::cout << "ij";
+    }
+    std::cout << ",";
+    if(t_rhs) {
+      std::cout << "kj";
+    } else {
+      std::cout << "jk";
+    }
+    std::cout << "->ik]";
+  } else if(holds_alternative<ew_t>(op)) {
+    auto const& [scalar_op, _] = get<ew_t>(op);
+    std::cout << "ew ";
+    if(scalar_op == scalar_join_t::negate) {
+      std::cout << "negate";
+    }
+  } else if(holds_alternative<ewb_t>(op)) {
+    auto const& [scalar_op, _0, _1] = get<ewb_t>(op);
+    std::cout << "ewb";
+  } else if(holds_alternative<input_t>(op)) {
+    std::cout << "input";
+  } else if(holds_alternative<ones_t>(op)) {
+    std::cout << "ones";
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+  std::cout << std::endl;
+
+  std::cout << "inns:  " << inns() << std::endl;
+  std::cout << "outs:  " << vector<int>(outs.begin(), outs.end()) << std::endl;
+}
+
+void matgraph_t::print() const
+{
+  for(int id = 0; id != nodes.size(); ++id) {
+    std::cout << "id: " << id << std::endl;
+    nodes[id].print();
+    std::cout << std::endl;
+  }
+}
+
 // TODO
+// Should it take in the save nodes?
 graph_t matgraph_t::compile() const
 {
   return graph_t();
 }
 
-// TODO
-void matgraph_t::print() const
-{
 
-}

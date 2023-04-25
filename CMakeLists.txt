@@ -31,6 +31,8 @@ target_link_libraries(coster einsummable)
 add_library(matgraph
   STATIC
   src/matgraph/matgraph.cc
+  src/einsummable/einsummable.cc
+  # TODO: einsummable.cc here fixes linking error in matgraphexp; why?
 )
 
 add_executable(matgraphexp exps/matgraph.cc)

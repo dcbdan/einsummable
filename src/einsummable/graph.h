@@ -68,6 +68,8 @@ struct graph_t {
   // if the intermediate B is not used anywhere.
   //
   // Perhaps similarly for ops like (A+B)C
+  //
+  // TODO: perhaps implement fuse in taskgraph instead
 
   // TODO: Implement a way to intelligently insert formation nodes.
   // Why would you want a formation node that is not also an output node?
