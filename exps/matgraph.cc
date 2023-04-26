@@ -2,23 +2,23 @@
 
 void linear_regression()
 {
-  matgraph_t graph;
+  matgraph_t mgraph;
 
   uint64_t n = 100;
   uint64_t p = 20;
   uint64_t d = 1;
 
-  int x    = graph.insert_input(n, p);
-  int y    = graph.insert_input(n, d);
-  int w    = graph.insert_input(p, d);
-  int yhat = graph.insert_matmul_ss(x, w);
+  int x    = mgraph.insert_input(n, p);
+  int y    = mgraph.insert_input(n, d);
+  int w    = mgraph.insert_input(p, d);
+  int yhat = mgraph.insert_matmul_ss(x, w);
 
   // yhat - y
-  int diff    = graph.insert_ewb(scalar_join_t::sub, yhat, y);
+  int diff    = mgraph.insert_ewb(scalar_join_t::sub, yhat, y);
   // nd,nd->dd
-  int sq_diff = graph.insert_matmul_ts(diff, diff);
+  int sq_diff = mgraph.insert_matmul_ts(diff, diff);
 
-  int grad = graph.backprop(sq_diff, {w})[0];
+  int grad = mgraph.backprop(sq_diff, {w})[0];
 
   std::cout << "x:    " << x    << std::endl;
   std::cout << "y:    " << y    << std::endl;
@@ -27,6 +27,12 @@ void linear_regression()
   std::cout << "grad: " << grad << std::endl;
 
   std::cout << std::endl;
+
+  mgraph.print();
+
+  std::cout << "-------------------------------" << std::endl;
+  std::cout << std::endl;
+  auto [graph, m_to_g] = mgraph.compile({yhat, sq_diff, grad});
 
   graph.print();
 }

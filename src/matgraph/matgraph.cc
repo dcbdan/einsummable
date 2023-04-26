@@ -672,13 +672,20 @@ matgraph_t::compile(vector<int> const& saves) const
       }
     }
 
-    set<int> nodeset = compute_nodeset(saves, inns, true);
-    pending = std::move(inns);
 
+    set<int> nodeset = compute_nodeset(saves, inns, true);
+
+    // set remaining, but make sure not to add
+    // any input into remaining as it will be in pending
     for(auto const& id: nodeset) {
       auto const& node = nodes[id];
-      remaining.insert({id, node.inns_set().size()});
+      if(!vector_has(inns, id)) {
+        remaining.insert({id, node.inns_set().size()});
+      }
     }
+
+    pending = std::move(inns);
+    // now the inputs are in pending
   }
 
   graph_t ret;
