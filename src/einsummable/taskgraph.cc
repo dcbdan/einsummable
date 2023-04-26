@@ -413,7 +413,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     _join_partdims.begin(),
     _join_partdims.begin() + out_rank));
 
-  std::optional<partition_t> maybe_agg_partition;
+  optional<partition_t> maybe_agg_partition;
   if(agg_rank > 0) {
     maybe_agg_partition = vector<partdim_t>(
       _join_partdims.begin() + out_rank,

@@ -82,8 +82,8 @@ private:
     op_t op;
     set<int> outs;
 
-    std::optional<int> inn0() const;
-    std::optional<int> inn1() const;
+    optional<int> inn0() const;
+    optional<int> inn1() const;
     vector<int> inns() const;
     set<int> inns_set() const;
     void print() const;

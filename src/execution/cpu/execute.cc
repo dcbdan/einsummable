@@ -54,7 +54,7 @@ struct touches_progress_t {
     bool done() const;
 
     // let this know the tensor id is ready
-    std::optional<touch_info_t> notify_tensor_ready(int tensor_id);
+    optional<touch_info_t> notify_tensor_ready(int tensor_id);
 
     // Tell the unit it did something so it is no longer be busy.
     // In return, the unit either stays busy returning work to do,
@@ -64,10 +64,10 @@ struct touches_progress_t {
     //   none:      the unit MAY be done
     //   something: the unit needs this something to be computed
     //              before it can be done
-    std::optional<touch_info_t> completed();
+    optional<touch_info_t> completed();
 
     // return any op that is ready, if not busy
-    std::optional<touch_info_t> try_to_pop();
+    optional<touch_info_t> try_to_pop();
   };
 
   // the touches that can be done
@@ -102,7 +102,7 @@ struct touches_progress_t {
   // This unit just finished an op. Return
   // the corresponding partial if the partial just
   // completed.
-  std::optional<int> completed(int unit_id);
+  optional<int> completed(int unit_id);
 };
 
 struct sends_progress_t {
@@ -133,7 +133,7 @@ struct cpu_exec_state_t {
   void _completed(
     bool command_finished,
     vector<int> const& used_as_input,
-    std::optional<int> created_tensor);
+    optional<int> created_tensor);
   void completed_send(int move_id);
   void completed_recv(int move_id);
   void completed_touch(int inn, int unit_id);
@@ -436,7 +436,7 @@ void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
 void cpu_exec_state_t::_completed(
   bool command_finished,
   vector<int> const& used_as_input,
-  std::optional<int> created_tensor)
+  optional<int> created_tensor)
 {
   if(command_finished) {
     num_remaining -= 1;
@@ -474,7 +474,7 @@ void cpu_exec_state_t::completed_send(int move_id)
     _completed(
       true,
       {node.op.get_move().inn},
-      std::optional<int>()
+      optional<int>()
     );
   }
   cv.notify_all();
@@ -488,7 +488,7 @@ void cpu_exec_state_t::completed_recv(int move_id)
     _completed(
       true,
       {},
-      std::optional<int>(move_id)
+      optional<int>(move_id)
     );
   }
   cv.notify_all();
@@ -499,7 +499,7 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
   {
     std::unique_lock lk(m);
 
-    std::optional<int> maybe_completed_partial_id =
+    optional<int> maybe_completed_partial_id =
       touches_progress.completed(unit_id);
 
     if(maybe_completed_partial_id) {
@@ -510,14 +510,14 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
       _completed(
         true,
         {inn},
-        std::optional<int>(partial_id)
+        optional<int>(partial_id)
       );
     } else {
       // More touches need to happen
       _completed(
         false,
         {inn},
-        std::optional<int>()
+        optional<int>()
       );
     }
   }
@@ -535,7 +535,7 @@ void cpu_exec_state_t::completed_apply(int apply_id)
     _completed(
       true,
       vector<int>(inns.begin(), inns.end()),
-      std::optional<int>(apply_id)
+      optional<int>(apply_id)
     );
   }
 
@@ -642,14 +642,14 @@ void touches_progress_t::notify_tensor_ready(int input_id) {
 }
 
 // Return the partial id that just completed, if applicable
-std::optional<int> touches_progress_t::completed(int unit_id) {
+optional<int> touches_progress_t::completed(int unit_id) {
   unit_t& unit = units[unit_id];
   auto maybe_op = unit.completed();
   if(maybe_op) {
     ready.push(maybe_op.value());
     // This partial is not complete as this unit needs to
     // wait for the given op
-    return std::optional<int>();
+    return optional<int>();
   } else if(unit.done()) {
     // Each partial has multiple units it needs to complete,
     // so decrement and see if this unit is the last one
@@ -657,14 +657,14 @@ std::optional<int> touches_progress_t::completed(int unit_id) {
     cnt -= 1;
     if(cnt == 0) {
       num_remaining.erase(unit.partialize_id);
-      return std::optional<int>(unit.partialize_id);
+      return optional<int>(unit.partialize_id);
     } else {
-      return std::optional<int>();
+      return optional<int>();
     }
   } else {
     // This partial is not complete as this unit is not
     // done.
-    return std::optional<int>();
+    return optional<int>();
   }
 
 }
@@ -689,7 +689,7 @@ bool touches_progress_t::unit_t::done() const {
   return ready.size() == 0 && waiting.size() == 0;
 }
 
-std::optional<touches_progress_t::touch_info_t>
+optional<touches_progress_t::touch_info_t>
 touches_progress_t::unit_t::notify_tensor_ready(int tensor_id) {
   for(int i = 0; i != ops.size(); ++i) {
     auto const& inn_id = std::get<0>(ops[i]);
@@ -701,10 +701,10 @@ touches_progress_t::unit_t::notify_tensor_ready(int tensor_id) {
   return try_to_pop();
 }
 
-std::optional<touches_progress_t::touch_info_t>
+optional<touches_progress_t::touch_info_t>
 touches_progress_t::unit_t::try_to_pop() {
   if(busy || ready.size() == 0) {
-    return std::optional<touch_info_t>();
+    return optional<touch_info_t>();
   }
 
   busy = true;
@@ -720,7 +720,7 @@ touches_progress_t::unit_t::try_to_pop() {
     // incrementing. So set the castable
     // to none to specify this op.
     init = false;
-    touch.castable = std::optional<castable_t>();
+    touch.castable = optional<castable_t>();
   }
   return touch_info_t {
     .unit  = unit_id,
@@ -729,7 +729,7 @@ touches_progress_t::unit_t::try_to_pop() {
   };
 }
 
-std::optional<touches_progress_t::touch_info_t>
+optional<touches_progress_t::touch_info_t>
 touches_progress_t::unit_t::completed() {
   if(!busy) {
     throw std::runtime_error("should be busy!");

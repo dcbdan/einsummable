@@ -143,7 +143,7 @@ int matgraph_t::insert_adds(vector<int> items) {
   return items[0];
 }
 
-std::optional<int> matgraph_t::node_t::inn0() const
+optional<int> matgraph_t::node_t::inn0() const
 {
   using std::get;
 
@@ -165,7 +165,7 @@ std::optional<int> matgraph_t::node_t::inn0() const
   }
 }
 
-std::optional<int> matgraph_t::node_t::inn1() const
+optional<int> matgraph_t::node_t::inn1() const
 {
   using std::get;
 
