@@ -1,5 +1,18 @@
 #include "reference.h"
 
+void buffer_holder_t::random(float lower, float upper) {
+  std::uniform_real_distribution<float> dist(lower, upper);
+  auto gen = [&dist]{ return dist(random_gen()); };
+  std::generate(data, data+size, gen);
+}
+
+vector<float> buffer_holder_t::as_vector() const {
+  vector<float> ret;
+  ret.reserve(size);
+  std::copy(data, data + size, std::back_inserter(ret));
+  return ret;
+}
+
 bool operator==(buffer_t const& lhs, buffer_t const& rhs) {
   return *lhs == *rhs;
 }
@@ -296,6 +309,18 @@ buffer_t reference_einsummable(
 
   auto inn_shapes = einsummable.inn_shapes();
 
+  // check the inputs are as expected
+  if(inn_shapes.size() != inputs.size()) {
+    throw std::runtime_error("invalid input to reference einsummable");
+  }
+  for(int i = 0; i != inputs.size(); ++i) {
+    auto const& buffer = inputs[i];
+    auto const& shape  = inn_shapes[i];
+    if(buffer->size != product(shape)) {
+      throw std::runtime_error("incorrect input size to reference einsummable");
+    }
+  }
+
   auto get_inputs = [&](vector<uint64_t> const& join_index) {
     vector<float> inns;
     inns.reserve(inn_shapes.size());
@@ -319,13 +344,22 @@ buffer_t reference_einsummable(
     ret->data[out_i] = eval(get_inputs(join_index));
   } while(indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 
+  if(agg_shape.size() == 0) {
+    // nothing else to do
+    return ret;
+  }
+
   out_index = vector<uint64_t>(out_shape.size(), 0);
   do {
     int out_i = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
+    // At this point, agg_index should be all zeros.
+    // Increment it once since the zero case was done in the initialization.
+    // Then proceed.
     while(indexer_utils<uint64_t>::increment_idxs(agg_shape, agg_index)) {
       auto join_index = vector_concatenate(out_index, agg_index);
       update(ret->data[out_i], eval(get_inputs(join_index)));
     }
+    agg_index = vector<uint64_t>(agg_shape.size(), 0);
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 
   return ret;

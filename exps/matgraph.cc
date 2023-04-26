@@ -1,11 +1,12 @@
 #include "../src/matgraph/matgraph.h"
+#include "../src/einsummable/reference.h"
 
 void linear_regression()
 {
   matgraph_t mgraph;
 
-  uint64_t n = 100;
-  uint64_t p = 20;
+  uint64_t n = 10;
+  uint64_t p = 5;
   uint64_t d = 1;
 
   int x    = mgraph.insert_input(n, p);
@@ -32,9 +33,26 @@ void linear_regression()
 
   std::cout << "-------------------------------" << std::endl;
   std::cout << std::endl;
-  auto [graph, m_to_g] = mgraph.compile({yhat, sq_diff, grad});
 
+  auto [graph, m_to_g] = mgraph.compile({yhat, sq_diff, grad});
   graph.print();
+
+  map<int, buffer_t> input_buffers;
+  for(auto const& m_inn: {x, y, w}) {
+    auto const& inn = m_to_g.at(m_inn);
+    auto const& node = graph.nodes[inn];
+    uint64_t sz = product(node.op.out_shape());
+    buffer_t buffer = std::make_shared<buffer_holder_t>(sz);
+    buffer->random(-0.1, 0.1);
+    input_buffers.insert({inn, buffer});
+  }
+
+  map<int, buffer_t> output_buffers =
+    reference_compute_graph(graph, input_buffers);
+
+  for(auto const& [_, buffer]: output_buffers) {
+    std::cout << buffer << std::endl;
+  }
 }
 
 void ff()

@@ -14,13 +14,9 @@ struct buffer_holder_t {
   void zeros() { std::fill(data, data + size, 0.0); }
   void ones()  { std::fill(data, data + size, 1.0); }
   void iota(int start = 0) { std::iota(data, data + size, start); }
+  void random(float lower = 0.0, float upper = 1.0);
 
-  vector<float> as_vector() const {
-    vector<float> ret;
-    ret.reserve(size);
-    std::copy(data, data + size, std::back_inserter(ret));
-    return ret;
-  }
+  vector<float> as_vector() const;
 
   uint64_t size;
   float* data;
