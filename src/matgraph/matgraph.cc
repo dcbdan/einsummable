@@ -145,21 +145,20 @@ int matgraph_t::insert_adds(vector<int> items) {
 
 std::optional<int> matgraph_t::node_t::inn0() const
 {
-  using std::holds_alternative;
   using std::get;
 
-  if(holds_alternative<matmul_t>(op)) {
+  if(is_matmul()) {
     auto const& _op = get<matmul_t>(op);
     return optional<int>(_op.lhs);
-  } else if(holds_alternative<ew_t>(op)) {
+  } else if(is_ew()) {
     auto const& _op = get<ew_t>(op);
     return optional<int>(_op.inn);
-  } else if(holds_alternative<ewb_t>(op)) {
+  } else if(is_ewb()) {
     auto const& _op = get<ewb_t>(op);
     return optional<int>(_op.lhs);
-  } else if(holds_alternative<input_t>(op)) {
+  } else if(is_input()) {
     return optional<int>();
-  } else if(holds_alternative<ones_t>(op)) {
+  } else if(is_ones()) {
     return optional<int>();
   } else {
     throw std::runtime_error("should not reach");
@@ -168,20 +167,19 @@ std::optional<int> matgraph_t::node_t::inn0() const
 
 std::optional<int> matgraph_t::node_t::inn1() const
 {
-  using std::holds_alternative;
   using std::get;
 
-  if(holds_alternative<matmul_t>(op)) {
+  if(is_matmul()) {
     auto const& _op = get<matmul_t>(op);
     return optional<int>(_op.rhs);
-  } else if(holds_alternative<ew_t>(op)) {
+  } else if(is_ew()) {
     return optional<int>();
-  } else if(holds_alternative<ewb_t>(op)) {
+  } else if(is_ewb()) {
     auto const& _op = get<ewb_t>(op);
     return optional<int>(_op.rhs);
-  } else if(holds_alternative<input_t>(op)) {
+  } else if(is_input()) {
     return optional<int>();
-  } else if(holds_alternative<ones_t>(op)) {
+  } else if(is_ones()) {
     return optional<int>();
   } else {
     throw std::runtime_error("should not reach");
@@ -225,6 +223,35 @@ int matgraph_t::insert(matgraph_t::op_t op, tuple<uint64_t, uint64_t> out_shape)
   return ret;
 }
 
+bool matgraph_t::node_t::is_einsummable() const
+{
+  return is_matmul() || is_ew() || is_ewb();
+}
+
+bool matgraph_t::node_t::is_matmul() const
+{
+  return std::holds_alternative<matmul_t>(op);
+}
+bool matgraph_t::node_t::is_ew() const
+{
+  return std::holds_alternative<ew_t>(op);
+}
+bool matgraph_t::node_t::is_ewb() const
+{
+  return std::holds_alternative<ewb_t>(op);
+}
+bool matgraph_t::node_t::is_input() const
+{
+  return std::holds_alternative<input_t>(op);
+}
+bool matgraph_t::node_t::is_ones() const
+{
+  return std::holds_alternative<ones_t>(op);
+}
+
+
+// TODO: implement this without recursion, following the looping structure
+//       of compile.
 vector<int> matgraph_t::backprop(int out, vector<int> weights)
 {
   // It should be the case that every node in nodeset will have
@@ -233,11 +260,7 @@ vector<int> matgraph_t::backprop(int out, vector<int> weights)
   // then this will fail at some point, which is fine
   // because such cases refer to zerod gradients, which is
   // silly.
-  set<int> nodeset = compute_nodeset({out}, weights);
-  for(auto const& weight: weights) {
-    nodeset.insert(weight);
-  }
-  nodeset.insert(out);
+  set<int> nodeset = compute_nodeset({out}, weights, true);
 
   backprop_state_t state {
     .grads = {},
@@ -335,7 +358,8 @@ matgraph_t::backprop_state_t::get_out_edges(int id) const
 
 set<int> matgraph_t::compute_nodeset(
   vector<int> const& upps,
-  vector<int> const& dwns) const
+  vector<int> const& dwns,
+  bool include_upps_dwns) const
 {
   // Walk down the graph collecting all nodes
   // touched from the upps
@@ -388,6 +412,16 @@ set<int> matgraph_t::compute_nodeset(
       ret.insert(id);
     }
   }
+
+  if(include_upps_dwns) {
+    for(auto const& upp: upps) {
+      ret.insert(upp);
+    }
+    for(auto const& dwn: dwns) {
+      ret.insert(dwn);
+    }
+  }
+
   return ret;
 }
 
@@ -396,7 +430,6 @@ int matgraph_t::build_grad_term(
   int which_inn,
   int node_grad)
 {
-  using std::holds_alternative;
   using std::get;
 
   auto const& node = nodes[node_id];
@@ -406,19 +439,19 @@ int matgraph_t::build_grad_term(
     throw std::runtime_error("invalid inn in build graph term");
   }
 
-  if(holds_alternative<matmul_t>(op)) {
+  if(node.is_matmul()) {
     if(which_inn == 0) {
       return build_grad_term_matmul_lhs(get<matmul_t>(op), node_grad);
     } else {
       return build_grad_term_matmul_rhs(get<matmul_t>(op), node_grad);
     }
-  } else if(holds_alternative<ewb_t>(op)) {
+  } else if(node.is_ewb()) {
     if(which_inn == 0) {
       return build_grad_term_ewb_lhs(get<ewb_t>(op), node_grad);
     } else {
       return build_grad_term_ewb_rhs(get<ewb_t>(op), node_grad);
     }
-  } else if(holds_alternative<ew_t>(op)) {
+  } else if(node.is_ew()) {
     return build_grad_term_ew_inn(get<ew_t>(op), node_grad);
   } else {
     throw std::runtime_error("should not reach");
@@ -559,14 +592,13 @@ int matgraph_t::build_grad_term_ew_inn(
 
 void matgraph_t::node_t::print() const
 {
-  using std::holds_alternative;
   using std::get;
 
   auto const& [d0,d1] = out_shape;
   std::cout << "shape: " << d0 << ", " << d1 << std::endl;
 
   std::cout << "op: ";
-  if(holds_alternative<matmul_t>(op)) {
+  if(is_matmul()) {
     auto const& [t_lhs, _, t_rhs, _1] = get<matmul_t>(op);
     std::cout << "matmul[";
     if(t_lhs) {
@@ -581,18 +613,18 @@ void matgraph_t::node_t::print() const
       std::cout << "jk";
     }
     std::cout << "->ik]";
-  } else if(holds_alternative<ew_t>(op)) {
+  } else if(is_ew()) {
     auto const& [scalar_op, _] = get<ew_t>(op);
     std::cout << "ew ";
     if(scalar_op == scalar_join_t::negate) {
       std::cout << "negate";
     }
-  } else if(holds_alternative<ewb_t>(op)) {
+  } else if(is_ewb()) {
     auto const& [scalar_op, _0, _1] = get<ewb_t>(op);
     std::cout << "ewb";
-  } else if(holds_alternative<input_t>(op)) {
+  } else if(is_input()) {
     std::cout << "input";
-  } else if(holds_alternative<ones_t>(op)) {
+  } else if(is_ones()) {
     std::cout << "ones";
   } else {
     throw std::runtime_error("should not reach");
@@ -612,11 +644,91 @@ void matgraph_t::print() const
   }
 }
 
-// TODO
-// Should it take in the save nodes?
-graph_t matgraph_t::compile() const
+tuple<graph_t, map<int, int> >
+matgraph_t::compile() const
 {
-  return graph_t();
+  vector<int> outs;
+  for(int id = 0; id != nodes.size(); ++id) {
+    auto const& node = nodes[id];
+    if(node.outs.size() == 0) {
+      outs.push_back(id);
+    }
+  }
+
+  return compile(outs);
 }
 
+tuple<graph_t, map<int, int> >
+matgraph_t::compile(vector<int> const& saves) const
+{
+  vector<int> pending;
+  map<int, int> remaining;
+  {
+    vector<int> inns;
+    for(int id = 0; id != nodes.size(); ++id) {
+      auto const& node = nodes[id];
+      if(node.is_input()) {
+        inns.push_back(id);
+      }
+    }
 
+    set<int> nodeset = compute_nodeset(saves, inns, true);
+    pending = std::move(inns);
+
+    for(auto const& id: nodeset) {
+      auto const& node = nodes[id];
+      remaining.insert({id, node.inns_set().size()});
+    }
+  }
+
+  graph_t ret;
+  map<int, int> matgraph_to_graph;
+
+  while(pending.size() != 0) {
+    vector<int> next_up;
+    for(auto const& mid: pending) {
+      auto const& node = nodes[mid];
+
+      if(node.is_ones()) {
+        // ones nodes are not added to the return graph
+        // and instead should be absorbed directly
+        // into einsummable ops
+      } else {
+        int gid;
+        if(node.is_einsummable()) {
+          // translate_op will attempt to absorb ones
+          // into the einsummable expression.
+          einsummable_t e = translate_op(node);
+          // TODO
+        } else if(node.is_input()) {
+          // TODO
+        } else {
+          throw std::runtime_error("should not reach");
+        }
+        // gid should be set now
+        matgraph_to_graph.insert({mid, gid});
+      }
+
+      // Only add to next_up if it in the remaining set
+      // and therefore was part of nodeset and
+      // has all the inputs.
+      for(auto const& out: node.outs) {
+        if(remaining.count(out) > 0) {
+          int& cnt = remaining.at(out);
+          cnt -= 1;
+          if(cnt == 0) {
+            next_up.push_back(out);
+            remaining.erase(out);
+          }
+        }
+      }
+    }
+    pending = std::move(next_up);
+  }
+
+  if(remaining.size() != 0) {
+    throw std::runtime_error("Not all nodes in nodeset has been accounted for");
+  }
+
+  return {ret, matgraph_to_graph};
+}

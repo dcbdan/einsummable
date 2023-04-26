@@ -34,8 +34,18 @@ struct matgraph_t {
   // each gradient.
   vector<int> backprop(int out, vector<int> weights);
 
-  // Build a graph object from the matgraph
-  graph_t compile() const;
+  // Build a graph object from the matgraph.
+  // All output nodes are save nodes.
+  // Return 1. thre resulting graph and 2. a map
+  // from (included matgraph ids) to (graph ids).
+  tuple<graph_t, map<int, int>>
+  compile() const;
+  // Every id in save_ids is saved.
+  // This will automatically prune parts of the
+  // graph that doesn't live in a path from input
+  // to save_id.
+  tuple<graph_t, map<int, int>>
+  compile(vector<int> const& save_ids) const;
 
   void print() const;
 
@@ -77,6 +87,14 @@ private:
     vector<int> inns() const;
     set<int> inns_set() const;
     void print() const;
+
+    inline bool is_einsummable() const;
+
+    inline bool is_matmul()      const;
+    inline bool is_ew()          const;
+    inline bool is_ewb()         const;
+    inline bool is_input()       const;
+    inline bool is_ones()        const;
   };
   vector<node_t> nodes;
 
@@ -87,7 +105,11 @@ private:
   //   put x0, x1, x2 into the output.
   // For inn0 -> inn1 -> x1 -> x2 -> out1 -> out0,
   //   put inn1, x1, x2, out1 into the output.
-  set<int> compute_nodeset(vector<int> const& outs, vector<int> const& inns) const;
+  // If true, include all inns and outs
+  set<int> compute_nodeset(
+    vector<int> const& outs,
+    vector<int> const& inns,
+    bool include_inns_outs) const;
 
   struct backprop_state_t {
     // get the gradient of this id
@@ -121,5 +143,11 @@ private:
   int build_grad_term_ewb_lhs(ewb_t const& ewb, int node_grad);
   int build_grad_term_ewb_rhs(ewb_t const& ewb, int node_grad);
   int build_grad_term_ew_inn(ew_t const& ew, int node_grad);
+
+  einsummable_t translate_node(node_t const& node) const;
+
+  static einsummable_t translate_op(matmul_t const& op);
+  static einsummable_t translate_op(ew_t const& op);
+  static einsummable_t translate_op(ewb_t const& op);
 };
 
