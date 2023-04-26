@@ -124,7 +124,7 @@ einsummable_t::input_idxs(vector<int> const& join_idx) const
   return get_inputs_from_join(join_idx);
 }
 
-std::string einsummable_t::str() const {
+string einsummable_t::str() const {
   if(join_shape.size() > 26) {
     throw std::runtime_error("not enough letters; what are you doing");
   }
@@ -135,15 +135,15 @@ std::string einsummable_t::str() const {
 
   auto words = get_inputs_from_join(letters);
 
-  std::stringstream ss;
-  ss << std::string(words[0].begin(), words[0].end());
+  std::ostringstream ss;
+  ss << string(words[0].begin(), words[0].end());
   for(int i = 1; i != words.size(); ++i) {
     auto const& word = words[i];
-    ss << "," << std::string(word.begin(), word.end());
+    ss << "," << string(word.begin(), word.end());
   }
 
   vector<char> outword(letters.begin(), letters.begin() + out_rank);
-  ss << "->" << std::string(outword.begin(), outword.end());
+  ss << "->" << string(outword.begin(), outword.end());
 
   return ss.str();
 }
@@ -177,7 +177,7 @@ std::ostream& operator<<(std::ostream& out, castable_t const& c) {
   return out;
 }
 
-std::ostream& operator<<(std::ostream& out, std::optional<castable_t> const& maybe_c) {
+std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c) {
   if(maybe_c) {
     out << maybe_c.value();
   } else {

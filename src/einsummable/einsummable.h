@@ -35,7 +35,7 @@ struct einsummable_t {
 
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
-  std::string str() const;
+  string str() const;
 
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
@@ -74,5 +74,5 @@ struct einsummable_t {
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
 std::ostream& operator<<(std::ostream& out, castable_t const& c);
-std::ostream& operator<<(std::ostream& out, std::optional<castable_t> const& maybe_c);
+std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c);
 

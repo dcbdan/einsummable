@@ -14,8 +14,8 @@ struct mpi_t {
   void recv(buffer_t buffer, int src, int tag);
   void send(buffer_t buffer, int dst, int tag);
 
-  void send_str(std::string const& x, int dst);
-  std::string recv_str(int src);
+  void send_str(string const& x, int dst);
+  string recv_str(int src);
 
   void send_int(int val, int dst, int tag);
   int recv_int_from_anywhere(int tag);

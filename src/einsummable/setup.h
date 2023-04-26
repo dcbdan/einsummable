@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <stdexcept>
 #include <vector>
 #include <algorithm>
 #include <numeric>
@@ -15,11 +16,16 @@
 #include <queue>
 #include <chrono>
 
-#define DOUT(x) std::cout << x << std::endl;
-#define DLINEOUT(x) std::cout << "Line " << __LINE__ << " | " << x << std::endl;
-#define DLINE DLINEOUT(' ')
-#define DLINEFILEOUT(x) std::cout << __FILE__ << " @ " << __LINE__ << " | " << x << std::endl;
-#define DLINEFILE DLINEFILEOUT(' ')
+#define DOUT(x) \
+  std::cout << x << std::endl;
+#define DLINEOUT(x) \
+  std::cout << "Line " << __LINE__ << " | " << x << std::endl;
+#define DLINE \
+  DLINEOUT(' ')
+#define DLINEFILEOUT(x) \
+  std::cout << __FILE__ << " @ " << __LINE__ << " | " << x << std::endl;
+#define DLINEFILE \
+  DLINEFILEOUT(' ')
 
 #define vector_from_each_member(items, member_type, member_name) [](auto const& xs) { \
     std::vector<member_type> ret; \
@@ -59,6 +65,7 @@ using std::tuple;
 using std::set;
 using std::map;
 using std::optional;
+using std::string;
 
 template <typename T>
 T product(vector<T> const& xs)
@@ -261,13 +268,21 @@ center_hrect(
 vector<uint64_t> shape_hrect(
   vector<tuple<uint64_t, uint64_t>> const& hrect);
 
-template <typename T, typename Str>
-T parse_with_ss(Str const& s)
+template <typename T>
+T parse_with_ss(string const& s)
 {
   T out;
-  std::stringstream ss(s);
+  std::istringstream ss(s);
   ss >> out;
   return out;
+}
+
+template <typename T>
+string write_with_ss(T const& val)
+{
+  std::ostringstream ss;
+  ss << val;
+  return ss.str();
 }
 
 void set_seed(int seed);
@@ -300,7 +315,7 @@ bool in_range(int val, int beg, int end);
 using timestamp_t = decltype(clock_now());
 
 struct raii_print_time_elapsed_t {
-  raii_print_time_elapsed_t(std::string msg):
+  raii_print_time_elapsed_t(string msg):
     msg(msg), start(clock_now()), out(std::cout)
   {}
 
@@ -320,7 +335,7 @@ struct raii_print_time_elapsed_t {
     out << "Total Time (seconds): " << duration << std::endl;
   }
 
-  std::string const msg;
+  string const msg;
   timestamp_t const start;
   std::ostream& out;
 };

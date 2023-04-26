@@ -73,7 +73,7 @@ void mpi_t::_send_recv(
   }
 }
 
-void mpi_t::send_str(std::string const& x, int dst)
+void mpi_t::send_str(string const& x, int dst)
 {
   int n = x.size();
   MPI_Send(&n, 1, MPI_INT,
@@ -82,7 +82,7 @@ void mpi_t::send_str(std::string const& x, int dst)
     dst, -1, MPI_COMM_WORLD);
 }
 
-std::string mpi_t::recv_str(int src)
+string mpi_t::recv_str(int src)
 {
   int n;
   MPI_Recv(&n, 1, MPI_INT, src,
@@ -90,7 +90,7 @@ std::string mpi_t::recv_str(int src)
   vector<char> ret(n);
   MPI_Recv((void*)ret.data(), n, MPI_CHAR, src,
     -1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  return std::string(ret.begin(), ret.end());
+  return string(ret.begin(), ret.end());
 }
 
 void mpi_t::send_int(int val, int dst, int tag)
