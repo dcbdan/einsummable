@@ -15,11 +15,17 @@ struct einsummable_t {
   int out_rank;
 
   scalar_join_t join;
-  castable_t castable;
+  castable_t castable; // TODO: should be none when out_rank == join_rank
 
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);
+
+  static einsummable_t from_matmul_ss(uint64_t di, uint64_t dj, uint64_t dk); // ij,jk->ik
+  static einsummable_t from_matmul_ts(uint64_t di, uint64_t dj, uint64_t dk); // ji,jk->ik
+  static einsummable_t from_matmul_st(uint64_t di, uint64_t dj, uint64_t dk); // ij,kj->ik
+  static einsummable_t from_matmul_tt(uint64_t di, uint64_t dj, uint64_t dk); // ji,kj->ik
+
   static einsummable_t with_new_shape(
     einsummable_t const& e, vector<uint64_t> const& new_join_shape);
 

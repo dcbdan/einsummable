@@ -144,10 +144,10 @@ private:
   int build_grad_term_ewb_rhs(ewb_t const& ewb, int node_grad);
   int build_grad_term_ew_inn(ew_t const& ew, int node_grad);
 
-  einsummable_t translate_node(node_t const& node) const;
-
-  static einsummable_t translate_op(matmul_t const& op);
-  static einsummable_t translate_op(ew_t const& op);
-  static einsummable_t translate_op(ewb_t const& op);
+  // Return the einsummable and the inputs. Note that the inputs
+  // returned may be shorter than the node inputs if ones are absorbed.
+  //
+  // Node must be einsummable
+  tuple<einsummable_t, vector<int>> translate_node(node_t const& node) const;
 };
 

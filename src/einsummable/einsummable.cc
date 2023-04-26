@@ -42,17 +42,48 @@ bool is_binary_scalar_join(scalar_join_t const& op)
   }
 }
 
-einsummable_t einsummable_t::from_matmul(uint64_t di, uint64_t dj, uint64_t dk) {
-  // ij,jk->ik
-  // 02 21  01
+inline
+einsummable_t _einsummable_matmul_helper(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  vector<vector<int>> const& inns)
+{
   return einsummable_t {
     .join_shape = {di, dk, dj},
-    .inns = { {0, 2}, {2, 1} },
+    .inns = inns,
     .out_rank = 2,
     .join = scalar_join_t::mul,
     .castable = castable_t::add
   };
 }
+
+einsummable_t einsummable_t::from_matmul(uint64_t di, uint64_t dj, uint64_t dk) {
+  return from_matmul_ss(di, dj, dk);
+}
+
+einsummable_t einsummable_t::from_matmul_ss(uint64_t di, uint64_t dj, uint64_t dk) {
+  // ij,jk->ik
+  // 02 21  01
+  return _einsummable_matmul_helper(di, dj, dk, { {0, 2}, {2, 1} });
+}
+
+einsummable_t einsummable_t::from_matmul_ts(uint64_t di, uint64_t dj, uint64_t dk) {
+  // ji,jk->ik
+  // 20 21  01
+  return _einsummable_matmul_helper(di, dj, dk, { {2, 0}, {2, 1} });
+}
+
+einsummable_t einsummable_t::from_matmul_st(uint64_t di, uint64_t dj, uint64_t dk) {
+  // ij,kj->ik
+  // 02,12  01
+  return _einsummable_matmul_helper(di, dj, dk, { {0, 2}, {1, 2} });
+}
+
+einsummable_t einsummable_t::from_matmul_tt(uint64_t di, uint64_t dj, uint64_t dk) {
+  // ji,kj->ik
+  // 20 12  01
+  return _einsummable_matmul_helper(di, dj, dk, { {2, 0}, {1, 2} });
+}
+
 
 einsummable_t einsummable_t::with_new_shape(
   einsummable_t const& e,

@@ -212,6 +212,12 @@ void vector_erase_value(vector<T>& xs, T const& value)
 }
 
 template <typename T>
+bool vector_has(vector<T> const& xs, T const& value)
+{
+  return std::find(xs.begin(), xs.end(), value) != xs.end();
+}
+
+template <typename T>
 vector<T> _reverse_variadic_to_vec(T i) {
   vector<T> x(1, i);
   return x;

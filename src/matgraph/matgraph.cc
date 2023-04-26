@@ -687,7 +687,7 @@ matgraph_t::compile(vector<int> const& saves) const
   while(pending.size() != 0) {
     vector<int> next_up;
     for(auto const& mid: pending) {
-      auto const& node = nodes[mid];
+      node_t const& node = nodes[mid];
 
       if(node.is_ones()) {
         // ones nodes are not added to the return graph
@@ -698,15 +698,27 @@ matgraph_t::compile(vector<int> const& saves) const
         if(node.is_einsummable()) {
           // translate_op will attempt to absorb ones
           // into the einsummable expression.
-          einsummable_t e = translate_op(node);
-          // TODO
+          auto [einsummable, matgraph_inns] = translate_node(node);
+          vector<int> graph_inns;
+          graph_inns.reserve(matgraph_inns.size());
+          for(auto const& m_inn: matgraph_inns) {
+            int const& g_inn = matgraph_to_graph.at(m_inn);
+            graph_inns.push_back(g_inn);
+          }
+          gid = ret.insert_einsummable(einsummable, graph_inns);
         } else if(node.is_input()) {
-          // TODO
+          auto const& [d0,d1] = node.out_shape;
+          gid = ret.insert_input({d0,d1});
         } else {
           throw std::runtime_error("should not reach");
         }
-        // gid should be set now
-        matgraph_to_graph.insert({mid, gid});
+
+        if(vector_has(saves, mid)) {
+          int gsaveid = ret.insert_formation(gid, true);
+          matgraph_to_graph.insert({mid, gsaveid});
+        } else {
+          matgraph_to_graph.insert({mid, gid});
+        }
       }
 
       // Only add to next_up if it in the remaining set
@@ -726,9 +738,99 @@ matgraph_t::compile(vector<int> const& saves) const
     pending = std::move(next_up);
   }
 
+  // Make sure all nodes have been accounted for
   if(remaining.size() != 0) {
     throw std::runtime_error("Not all nodes in nodeset has been accounted for");
   }
 
+  // Make sure the save nodes are handled correctly.
+  // Note: including a ones as a save node will trigger an error here.
+  for(auto const& save_mid: saves) {
+    if(matgraph_to_graph.count(save_mid) == 0) {
+      throw std::runtime_error("A save node is not in the output graph");
+    }
+    int gid = matgraph_to_graph.at(save_mid);
+    auto const& gnode = ret.nodes[gid];
+    if(!gnode.op.is_save()) {
+      throw std::runtime_error("A save node was not properly saved");
+    }
+  }
+
   return {ret, matgraph_to_graph};
 }
+
+tuple<einsummable_t, vector<int>>
+matgraph_t::translate_node(node_t const& node) const
+{
+  if(!node.is_einsummable()) {
+    throw std::runtime_error("translate node input must be einsummable");
+  }
+
+  // TODO: Everything to get to this method is designed to allow for
+  //       absorbing ones. But this method doesn't bother implementing
+  //       that. Maybe it will be necessary later.
+  {
+    vector<int> inns = node.inns();
+    for(auto const& inn: inns) {
+      auto const& inn_node = nodes[inn];
+      if(inn_node.is_ones()) {
+        throw std::runtime_error("absorbing ones not implemented");
+      }
+    }
+  }
+
+  if(node.is_matmul()) {
+    auto const& [t_lhs, id_lhs, t_rhs, id_rhs] = std::get<matmul_t>(node.op);
+
+    auto const& [lhs_d0, lhs_d1] = nodes[id_lhs].out_shape;
+    auto const& [rhs_d0, rhs_d1] = nodes[id_rhs].out_shape;
+
+    if(t_lhs) {
+      uint64_t const& dj = lhs_d0;
+      uint64_t const& di = lhs_d1;
+      if(t_rhs) {
+        uint64_t const& dk = rhs_d0;
+        return {einsummable_t::from_matmul_tt(di, dj, dk), {id_lhs, id_rhs} };
+      } else {
+        uint64_t const& dk = rhs_d1;
+        return {einsummable_t::from_matmul_ts(di, dj, dk), {id_lhs, id_rhs} };
+      }
+    } else {
+      uint64_t const& di = lhs_d0;
+      uint64_t const& dj = lhs_d1;
+      if(t_rhs) {
+        uint64_t const& dk = rhs_d0;
+        return {einsummable_t::from_matmul_st(di, dj, dk), {id_lhs, id_rhs} };
+      } else {
+        uint64_t const& dk = rhs_d1;
+        return {einsummable_t::from_matmul_ss(di, dj, dk), {id_lhs, id_rhs} };
+      }
+    }
+  } else if(node.is_ewb()) {
+    auto const& [op, id_lhs, id_rhs] = std::get<ewb_t>(node.op);
+    auto const& [d0,d1] = node.out_shape;
+    einsummable_t e {
+      .join_shape = {d0, d1},
+      .inns = { {0, 1}, {0, 1} },
+      .out_rank = 2,
+      .join = op,
+      .castable = castable_t::add,
+    };
+    return {e, {id_lhs, id_rhs}};
+  } else if(node.is_ew()) {
+    auto const& [op, id_inn] = std::get<ew_t>(node.op);
+    auto const& [d0,d1] = node.out_shape;
+    einsummable_t e {
+      .join_shape = {d0, d1},
+      .inns = { {0, 1} },
+      .out_rank = 2,
+      .join = op,
+      .castable = castable_t::add,
+    };
+    return {e, {id_inn}};
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+

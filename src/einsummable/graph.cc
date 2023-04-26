@@ -88,10 +88,11 @@ int graph_t::insert_formation(
 }
 
 int graph_t::insert_formation(
-  vector<uint64_t> shape,
   int inn,
   bool is_save)
 {
+  auto const& inn_node = nodes[inn];
+  auto shape = inn_node.op.out_shape();
   return this->insert_formation(partition_t::singleton(shape), inn, is_save);
 }
 

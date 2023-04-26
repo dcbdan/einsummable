@@ -35,7 +35,6 @@ struct graph_t {
     int inn,
     bool is_save = true);
   int insert_formation(
-    vector<uint64_t> shape,
     int inn,
     bool is_save = true);
 
