@@ -437,6 +437,28 @@ void main10() {
   }
 }
 
+void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
+  buffer_t lhs = std::make_shared<buffer_holder_t>(di*dj);
+  lhs->random();
+
+  buffer_t rhs = std::make_shared<buffer_holder_t>(dj*dk);
+  rhs->random();
+
+  buffer_t rhs_true = std::make_shared<buffer_holder_t>(di*dk);
+  rhs_true->zeros();
+  for(int i = 0; i != di; ++i) {
+  for(int j = 0; j != dj; ++j) {
+  for(int k = 0; k != dk; ++k) {
+    rhs_true->data[i*dk + k] += lhs->data[i*dj + j] * rhs->data[j*dk + k];
+  }}}
+
+  einsummable_t matmul = einsummable_t::from_matmul(di, dj, dk);
+  buffer_t rhs_ref = reference_einsummable(matmul, {lhs, rhs});
+
+  std::cout << rhs_true << std::endl;
+  std::cout << rhs_ref  << std::endl;
+}
+
 int main(int argc, char** argv) {
   main10();
 }
