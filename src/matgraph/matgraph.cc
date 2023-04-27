@@ -1,9 +1,9 @@
 #include "matgraph.h"
 
-int matgraph_t::insert_ew(scalar_join_t op, int inn)
+int matgraph_t::insert_ew(scalarop_t op, int inn)
 {
   auto const& out_shape = nodes[inn].out_shape;
-  if(!is_unary_scalar_join(op)) {
+  if(!op.is_unary()) {
     throw std::runtime_error("exepects unary scalar join op");
   }
   return insert(
@@ -14,9 +14,9 @@ int matgraph_t::insert_ew(scalar_join_t op, int inn)
     out_shape);
 }
 
-int matgraph_t::insert_ewb(scalar_join_t op, int lhs, int rhs)
+int matgraph_t::insert_ewb(scalarop_t op, int lhs, int rhs)
 {
-  if(!is_binary_scalar_join(op)) {
+  if(!op.is_binary()) {
     throw std::runtime_error("exepects binary scalar join op");
   }
 
@@ -136,7 +136,7 @@ int matgraph_t::insert_adds(vector<int> items) {
       next_up.push_back(items.back());
     }
     for(int i = 0; i != n; ++i) {
-      next_up.push_back(insert_ewb(scalar_join_t::add, items[2*i], items[2*i+1]));
+      next_up.push_back(insert_ewb(scalarop_t::make_add(), items[2*i], items[2*i+1]));
     }
     items = next_up;
   }
@@ -531,63 +531,67 @@ int matgraph_t::build_grad_term_ewb_lhs(
   matgraph_t::ewb_t const& ewb,
   int node_grad)
 {
-  auto const& [op, lhs, rhs] = ewb;
-  if(op == scalar_join_t::add) {
-    // d(lhs + rhs) /d lhs .* node_grad
-    return node_grad;
-  } else if(op == scalar_join_t::sub) {
-    // d(lhs - rhs)/d lhs .* node_grad
-    return node_grad;
-  } else if(op == scalar_join_t::mul) {
-    // d(lhs * rhs) /d lhs .* node_grad
-    return insert_ewb(scalar_join_t::mul, rhs, node_grad);
-  } else if(op == scalar_join_t::min) {
-    throw std::runtime_error("build grad term ewb rhs: min");
-  } else if(op == scalar_join_t::max) {
-    throw std::runtime_error("build grad term ewb rhs: max");
-  } else {
-    throw std::runtime_error("build grad term ewb rhs: should not reach");
-  }
+  // TODO
+  return -1;
+  //auto const& [op, lhs, rhs] = ewb;
+  //if(op == scalarop_t::add) {
+  //  // d(lhs + rhs) /d lhs .* node_grad
+  //  return node_grad;
+  //} else if(op == scalarop_t::sub) {
+  //  // d(lhs - rhs)/d lhs .* node_grad
+  //  return node_grad;
+  //} else if(op == scalarop_t::mul) {
+  //  // d(lhs * rhs) /d lhs .* node_grad
+  //  return insert_ewb(scalarop_t::mul, rhs, node_grad);
+  //} else if(op == scalarop_t::min) {
+  //  throw std::runtime_error("build grad term ewb rhs: min");
+  //} else if(op == scalarop_t::max) {
+  //  throw std::runtime_error("build grad term ewb rhs: max");
+  //} else {
+  //  throw std::runtime_error("build grad term ewb rhs: should not reach");
+  //}
 }
-
-// enum class scalar_join_t { add, sub, mul, relu, negate, min, max };
 
 int matgraph_t::build_grad_term_ewb_rhs(
   matgraph_t::ewb_t const& ewb,
   int node_grad)
 {
-  auto const& [op, lhs, rhs] = ewb;
-  if(op == scalar_join_t::add) {
-    // d(lhs + rhs) /d rhs .* node_grad
-    return node_grad;
-  } else if(op == scalar_join_t::sub) {
-    // d(lhs - rhs)/d rhs .* node_grad
-    return insert_ew(scalar_join_t::negate, node_grad);
-  } else if(op == scalar_join_t::mul) {
-    // d(lhs * rhs) /d rhs .* node_grad
-    return insert_ewb(scalar_join_t::mul, lhs, node_grad);
-  } else if(op == scalar_join_t::min) {
-    throw std::runtime_error("build grad term ewb rhs: min");
-  } else if(op == scalar_join_t::max) {
-    throw std::runtime_error("build grad term ewb rhs: max");
-  } else {
-    throw std::runtime_error("build grad term ewb rhs: should not reach");
-  }
+  // TODO
+  return -1;
+//  auto const& [op, lhs, rhs] = ewb;
+//  if(op == scalarop_t::add) {
+//    // d(lhs + rhs) /d rhs .* node_grad
+//    return node_grad;
+//  } else if(op == scalarop_t::sub) {
+//    // d(lhs - rhs)/d rhs .* node_grad
+//    return insert_ew(scalarop_t::negate, node_grad);
+//  } else if(op == scalarop_t::mul) {
+//    // d(lhs * rhs) /d rhs .* node_grad
+//    return insert_ewb(scalarop_t::mul, lhs, node_grad);
+//  } else if(op == scalarop_t::min) {
+//    throw std::runtime_error("build grad term ewb rhs: min");
+//  } else if(op == scalarop_t::max) {
+//    throw std::runtime_error("build grad term ewb rhs: max");
+//  } else {
+//    throw std::runtime_error("build grad term ewb rhs: should not reach");
+//  }
 }
 
 int matgraph_t::build_grad_term_ew_inn(
   matgraph_t::ew_t const& ew,
   int node_grad)
 {
-  auto const& [op, _] = ew;
-
-  if(op == scalar_join_t::negate) {
-    return insert_ew(scalar_join_t::negate, node_grad);
-  } else if(op == scalar_join_t::relu) {
-    throw std::runtime_error("build grad term ew: no relu deriv scalar");
-  } else {
-    throw std::runtime_error("build grad term ew: should not reach");
-  }
+  // TODO
+  return -1;
+//  auto const& [op, _] = ew;
+//
+//  if(op == scalarop_t::negate) {
+//    return insert_ew(scalarop_t::negate, node_grad);
+//  } else if(op == scalarop_t::relu) {
+//    throw std::runtime_error("build grad term ew: no relu deriv scalar");
+//  } else {
+//    throw std::runtime_error("build grad term ew: should not reach");
+//  }
 }
 
 void matgraph_t::node_t::print() const
@@ -614,14 +618,11 @@ void matgraph_t::node_t::print() const
     }
     std::cout << "->ik]";
   } else if(is_ew()) {
-    auto const& [scalar_op, _] = get<ew_t>(op);
-    std::cout << "ew ";
-    if(scalar_op == scalar_join_t::negate) {
-      std::cout << "negate";
-    }
+    auto const& [scalarop, _] = get<ew_t>(op);
+    std::cout << "ew " << scalarop;
   } else if(is_ewb()) {
-    auto const& [scalar_op, _0, _1] = get<ewb_t>(op);
-    std::cout << "ewb";
+    auto const& [scalarop, _0, _1] = get<ewb_t>(op);
+    std::cout << "ewb " << scalarop;
   } else if(is_input()) {
     std::cout << "input";
   } else if(is_ones()) {

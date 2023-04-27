@@ -15,7 +15,7 @@ void linear_regression()
   int yhat = mgraph.insert_matmul_ss(x, w);
 
   // yhat - y
-  int diff    = mgraph.insert_ewb(scalar_join_t::sub, yhat, y);
+  int diff    = mgraph.insert_ewb(scalarop_t::make_sub(), yhat, y);
   // nd,nd->dd
   int sq_diff = mgraph.insert_matmul_ts(diff, diff);
 
@@ -72,11 +72,11 @@ void ff()
     weights.push_back(graph.insert_input(u, v));
 
     x = graph.insert_matmul_ss(x, weights.back());
-    x = graph.insert_ew(scalar_join_t::negate, x);
+    x = graph.insert_ew(scalarop_t::make_relu(), x);
   }
   int prediction = x;
 
-  int errors = graph.insert_ewb(scalar_join_t::mul, prediction, prediction);
+  int errors = graph.insert_ewb(scalarop_t::make_mul(), prediction, prediction);
 
   // This is a goofy neural network without any nonlinearities.
   // The errors is an elementwise square of the prediction matrix,

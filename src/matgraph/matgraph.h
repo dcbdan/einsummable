@@ -7,8 +7,8 @@
 // It supports backpropagation to compute gradients.
 struct matgraph_t {
   // insert elementwise and elementwise binary ops
-  int insert_ew(scalar_join_t op, int inn);
-  int insert_ewb(scalar_join_t op, int lhs, int rhs);
+  int insert_ew(scalarop_t op, int inn);
+  int insert_ewb(scalarop_t op, int lhs, int rhs);
 
   // insert matrixm multiply ops. Here,
   // t stands for transpose and s stands for not-transpose.
@@ -58,12 +58,12 @@ private:
   };
 
   struct ew_t {
-    scalar_join_t op;
+    scalarop_t op;
     int inn;
   };
 
   struct ewb_t {
-    scalar_join_t op;
+    scalarop_t op;
     int lhs;
     int rhs;
   };
