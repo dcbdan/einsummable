@@ -140,6 +140,8 @@ private:
 
   int build_grad_term_matmul_lhs(matmul_t const& matmul, int node_grad);
   int build_grad_term_matmul_rhs(matmul_t const& matmul, int node_grad);
+
+  int build_grad_term_ewb_arg(ewb_t const& ewb, int node_grad, int arg);
   int build_grad_term_ewb_lhs(ewb_t const& ewb, int node_grad);
   int build_grad_term_ewb_rhs(ewb_t const& ewb, int node_grad);
   int build_grad_term_ew_inn(ew_t const& ew, int node_grad);

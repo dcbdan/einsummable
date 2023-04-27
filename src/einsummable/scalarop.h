@@ -73,11 +73,16 @@ struct node_t {
 
   void which_inputs(set<int>& items) const;
 
+  // if there are no holes, return -1
   int max_hole() const;
+
+  int num_inputs() const;
 
   void increment_holes(int incr);
 
   void remap_holes(map<int, int> const& fmap);
+
+  void replace_at_holes(vector<node_t> const& replace_ops);
 private:
   node_t simplify_once() const;
 };
@@ -96,11 +101,15 @@ struct scalarop_t {
 
   scalarop_t derivative(int arg) const;
 
-  scalarop_t simplify();
+  scalarop_t simplify() const;
+
+  void remap_inputs(map<int, int> const& remap);
 
   set<int> which_inputs() const;
 
   int num_inputs() const;
+
+  bool is_constant() const;
 
   bool is_unary() const;
 
@@ -108,9 +117,13 @@ struct scalarop_t {
 
   bool is_castable() const;
 
-  // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
+  bool is_constant_of(float val) const;
+
+  // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)
-  static scalarop_t combine(op_t op, vector<scalarop_t> const& ops);
+  static scalarop_t combine(scalarop_t op, vector<scalarop_t> const& ops);
+
+  static scalarop_t from_string(string const& str);
 
   // x0 + x1
   static scalarop_t make_add();

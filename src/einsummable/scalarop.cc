@@ -367,6 +367,10 @@ int node_t::max_hole() const {
   return ret;
 }
 
+int node_t::num_inputs() const {
+  return max_hole() + 1;
+}
+
 void node_t::increment_holes(int incr) {
   if(op.is_hole()) {
     int& arg = std::get<op_t::hole>(op.op).arg;
@@ -389,6 +393,18 @@ void node_t::remap_holes(map<int, int> const& fmap) {
   }
 }
 
+void node_t::replace_at_holes(vector<node_t> const& replace_nodes)
+{
+  if(op.is_hole()) {
+    int arg = std::get<op_t::hole>(op.op).arg;
+    *this = replace_nodes[arg];
+  } else {
+    for(auto& child: children) {
+      child.replace_at_holes(replace_nodes);
+    }
+  }
+}
+
 } // scalar_ns
 
 scalarop_t::scalarop_t() {}
@@ -405,8 +421,12 @@ scalarop_t scalarop_t::derivative(int arg) const {
   return scalarop_t(node.derivative(arg));
 }
 
-scalarop_t scalarop_t::simplify() {
+scalarop_t scalarop_t::simplify() const {
   return scalarop_t(node.simplify());
+}
+
+void scalarop_t::remap_inputs(map<int, int> const& remap) {
+  node.remap_holes(remap);
 }
 
 set<int> scalarop_t::which_inputs() const {
@@ -416,13 +436,13 @@ set<int> scalarop_t::which_inputs() const {
 }
 
 int scalarop_t::num_inputs() const {
-  set<int> whiches = which_inputs();
-  if(whiches.size() == 0) {
-    return 0;
-  }
-  auto iter = std::max_element(whiches.begin(), whiches.end());
-  return 1 + (*iter);
+  return node.num_inputs();
 }
+
+bool scalarop_t::is_constant() const {
+  return num_inputs() == 0;
+}
+
 
 bool scalarop_t::is_unary() const {
   return num_inputs() == 1;
@@ -468,25 +488,48 @@ bool scalarop_t::is_castable() const {
   return false;
 }
 
-// Example: op = *, ops = (x0 + x1, x2 + x3), this returns
-//   (x0 + x1) * (x2 + x3)
-scalarop_t scalarop_t::combine(scalar_ns::op_t op, vector<scalarop_t> const& ops) {
-  if(op.num_inputs() != ops.size()) {
+bool scalarop_t::is_constant_of(float val) const {
+  return node.op.is_constant() && node.op.get_constant() == val;
+}
+
+// Example: combining_op = (y0 * y1) + y2, ops = (x0 + x1, x0 + x1, 7*x0), this replaces
+// y0 with x0 + x1 and
+// y1 with x2 + x3 and
+// y2 with 7*x4
+// to get
+//   ((x0 + x1) * (x2 + x3)) + (7*x4)
+// Note that each input op ends up having distinct inputs
+scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const& inn_ops) {
+  if(combining_op.num_inputs() != inn_ops.size()) {
     throw std::runtime_error("cannot combine");
   }
-  vector<node_t> children;
-  int offset = 0;
-  for(auto const& op: ops) {
-    children.push_back(op.node);
-    node_t& child = children.back();
-    child.increment_holes(offset);
-    offset = child.max_hole() + 1;
+
+  if(combining_op.num_inputs() == 0) {
+    return combining_op;
   }
 
-  return scalarop_t(node_t {
-    .op = op,
-    .children = std::move(children)
-  });
+  vector<node_t> inn_nodes = vector_from_each_member(inn_ops, node_t, node);
+
+  // TODO TODO give node_t a number of inputs and remove num_inputs code from
+  //           scalarop_t
+
+  int n = inn_nodes.size();
+  if(n > 1) {
+    int offset = inn_nodes[0].num_inputs();
+    for(int i = 1; i != n; ++i) {
+      auto& inn_node = inn_nodes[i];
+      int num_here = inn_node.num_inputs();
+      inn_node.increment_holes(offset);
+      offset += num_here;
+    }
+  }
+
+  combining_op.node.replace_at_holes(inn_nodes);
+  return combining_op;
+}
+
+scalarop_t scalarop_t::from_string(string const& str) {
+  return parse_with_ss<scalarop_t>(str);
 }
 
 // x0 + x1

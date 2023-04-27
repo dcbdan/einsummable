@@ -527,71 +527,112 @@ int matgraph_t::build_grad_term_matmul_rhs(
   }
 }
 
+int matgraph_t::build_grad_term_ewb_arg(
+  matgraph_t::ewb_t const& ewb,
+  int node_grad,
+  int arg)
+{
+  // compute if arg == 0
+  //   d [ f(A,B) ] / d A .* node_grad
+  // else if arg == 1
+  //   d [ f(A,B) ] / d B .* node_grad
+  auto const& [op, lhs, rhs] = ewb;
+
+  scalarop_t deri_op = op.derivative(arg);
+
+  if(deri_op.is_constant_of(1.0)) {
+    return node_grad;
+  }
+
+  // TODO: can simplifications be made if constant of zero?
+  if(deri_op.is_constant()) {
+    float val = deri_op.eval({});
+    return insert_ew(scalarop_t::make_scale(val), node_grad);
+  }
+
+  set<int> which_inputs = deri_op.which_inputs();
+
+  if(which_inputs.size() == 1) {
+    // deri_op is unary
+    int const& which_input = *(which_inputs.begin());
+
+    int inn;
+    scalarop_t deri_fixed = deri_op;
+    if(which_input == 0) {
+      inn = lhs;
+    } else if(which_input == 1) {
+      inn = rhs;
+
+      // deri_op is the form of
+      // f(_0,_1) = g(_1) which needs to be
+      // fixed so that f = g.
+      deri_fixed.remap_inputs({ { 1, 0 } });
+    } else {
+      throw std::runtime_error("should not happen");
+    }
+
+    // Create x0, x1 -> deri_fixed(x0) * x1 by combining
+    //   x0 -> deri_fixed(x0)   and
+    //   x0 -> x0
+    scalarop_t combined = scalarop_t::combine(
+      scalarop_t::make_mul(),
+      {deri_fixed, scalarop_t::from_string("hole@0")});
+
+    return insert_ewb(combined, inn, node_grad);
+  } else if(which_inputs.size() == 2) {
+    // deri_op is binary
+    int tmp = insert_ewb(deri_op, lhs, rhs);
+    return insert_ewb(scalarop_t::make_mul(), tmp, node_grad);
+  } else {
+    throw std::runtime_error("should not happen");
+  }
+}
+
+
 int matgraph_t::build_grad_term_ewb_lhs(
   matgraph_t::ewb_t const& ewb,
   int node_grad)
 {
-  // TODO
-  return -1;
-  //auto const& [op, lhs, rhs] = ewb;
-  //if(op == scalarop_t::add) {
-  //  // d(lhs + rhs) /d lhs .* node_grad
-  //  return node_grad;
-  //} else if(op == scalarop_t::sub) {
-  //  // d(lhs - rhs)/d lhs .* node_grad
-  //  return node_grad;
-  //} else if(op == scalarop_t::mul) {
-  //  // d(lhs * rhs) /d lhs .* node_grad
-  //  return insert_ewb(scalarop_t::mul, rhs, node_grad);
-  //} else if(op == scalarop_t::min) {
-  //  throw std::runtime_error("build grad term ewb rhs: min");
-  //} else if(op == scalarop_t::max) {
-  //  throw std::runtime_error("build grad term ewb rhs: max");
-  //} else {
-  //  throw std::runtime_error("build grad term ewb rhs: should not reach");
-  //}
+  return build_grad_term_ewb_arg(ewb, node_grad, 0);
 }
 
 int matgraph_t::build_grad_term_ewb_rhs(
   matgraph_t::ewb_t const& ewb,
   int node_grad)
 {
-  // TODO
-  return -1;
-//  auto const& [op, lhs, rhs] = ewb;
-//  if(op == scalarop_t::add) {
-//    // d(lhs + rhs) /d rhs .* node_grad
-//    return node_grad;
-//  } else if(op == scalarop_t::sub) {
-//    // d(lhs - rhs)/d rhs .* node_grad
-//    return insert_ew(scalarop_t::negate, node_grad);
-//  } else if(op == scalarop_t::mul) {
-//    // d(lhs * rhs) /d rhs .* node_grad
-//    return insert_ewb(scalarop_t::mul, lhs, node_grad);
-//  } else if(op == scalarop_t::min) {
-//    throw std::runtime_error("build grad term ewb rhs: min");
-//  } else if(op == scalarop_t::max) {
-//    throw std::runtime_error("build grad term ewb rhs: max");
-//  } else {
-//    throw std::runtime_error("build grad term ewb rhs: should not reach");
-//  }
+  return build_grad_term_ewb_arg(ewb, node_grad, 1);
 }
 
 int matgraph_t::build_grad_term_ew_inn(
   matgraph_t::ew_t const& ew,
   int node_grad)
 {
-  // TODO
-  return -1;
-//  auto const& [op, _] = ew;
-//
-//  if(op == scalarop_t::negate) {
-//    return insert_ew(scalarop_t::negate, node_grad);
-//  } else if(op == scalarop_t::relu) {
-//    throw std::runtime_error("build grad term ew: no relu deriv scalar");
-//  } else {
-//    throw std::runtime_error("build grad term ew: should not reach");
-//  }
+  auto const& [op, inn] = ew;
+
+  scalarop_t deri_op = op.derivative(0);
+
+  if(deri_op.is_constant_of(1.0)) {
+    return node_grad;
+  }
+
+  // TODO: can simplifications be made if constant of zero?
+  if(deri_op.is_constant()) {
+    float val = deri_op.eval({});
+    return insert_ew(scalarop_t::make_scale(val), node_grad);
+  }
+
+  if(!deri_op.is_unary()) {
+    throw std::runtime_error("build_Grad_term_ew_inn: deri has more than 1 input");
+  }
+
+  // Create x0, x1 -> deri_op(x0) * x1 by combining
+  //   x0 -> deri_op(x0)   and
+  //   x0 -> x0
+  scalarop_t combined = scalarop_t::combine(
+    scalarop_t::make_mul(),
+    {deri_op, scalarop_t::from_string("hole@0")});
+
+  return insert_ewb(combined, inn, node_grad);
 }
 
 void matgraph_t::node_t::print() const

@@ -1,8 +1,6 @@
 #include "../src/einsummable/scalarop.h"
 
 int main() {
-  using namespace scalar_ns;
-
   {
     std::cout << "ADD" << std::endl;
     scalarop_t op = scalarop_t::make_add();
@@ -55,13 +53,28 @@ int main() {
   {
     std::cout << "FF4 (x0 + x1) * (x2 + x3)" << std::endl;
     scalarop_t add = scalarop_t::make_add();
-    op_t __op = parse_with_ss<op_t>("*");
-    scalarop_t op = scalarop_t::combine(__op, {add, add});
+    scalarop_t op = scalarop_t::combine(
+      scalarop_t::make_mul(),
+      {add, add}
+    );
     std::cout << op << std::endl;
     std::cout << op.derivative(0) << std::endl;
     std::cout << op.derivative(1) << std::endl;
     std::cout << op.derivative(2) << std::endl;
     std::cout << op.derivative(3) << std::endl;
+  }
+  {
+    std::cout << "FF5 ((x0 + x1) * (x2 + x3)) + 7*x4" << std::endl;
+    scalarop_t add   = scalarop_t::make_add();
+    scalarop_t scale = scalarop_t::make_scale(7.0);
+    scalarop_t top   = scalarop_t::from_string("+[*[hole@0,hole@1],hole@2]");
+    scalarop_t op    = scalarop_t::combine(top, {add, add, scale});
+    std::cout << op << std::endl;
+    std::cout << op.derivative(0) << std::endl;
+    std::cout << op.derivative(1) << std::endl;
+    std::cout << op.derivative(2) << std::endl;
+    std::cout << op.derivative(3) << std::endl;
+    std::cout << op.derivative(4) << std::endl;
   }
   {
     std::cout << "RELU" << std::endl;
