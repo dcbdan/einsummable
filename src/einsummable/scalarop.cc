@@ -1,0 +1,725 @@
+#include "scalarop.h"
+
+void istream_expect(std::istream& inn, std::string const& xs) {
+  for(auto const& x: xs) {
+    if(x != inn.get()) {
+      throw std::runtime_error("expected " + xs);
+    }
+  }
+}
+
+bool compare(compare_t c, float lhs, float rhs) {
+  if(c == compare_t::lt) {
+    return lhs < rhs;
+  } else if(c == compare_t::gt) {
+    return lhs > rhs;
+  } else if(c == compare_t::eq) {
+    return lhs == rhs;
+  } else if(c == compare_t::le) {
+    return lhs <= rhs;
+  } else if(c == compare_t::ge) {
+    return lhs >= rhs;
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+bool op_t::is_constant() const { return std::holds_alternative< constant >(op); }
+bool op_t::is_hole()     const { return std::holds_alternative< hole     >(op); }
+bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
+bool op_t::is_mul()      const { return std::holds_alternative< mul      >(op); }
+bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); }
+bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
+bool op_t::is_sqrt()     const { return std::holds_alternative< sqrt     >(op); }
+bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
+
+float op_t::get_constant() const { return std::get<constant>(op).value; }
+
+int op_t::get_which_input() const { return std::get<hole>(op).arg; }
+
+int op_t::get_power() const { return std::get<power>(op).to_the; }
+
+compare_t op_t::get_ite_compare() const { return std::get<ite>(op).compare; }
+
+int op_t::num_inputs() const {
+  if(is_constant() || is_hole()) {
+    return 0;
+  }
+  if(is_power() || is_sqrt() || is_exp()) {
+    return 1;
+  }
+  if(is_add() || is_mul()) {
+    return 2;
+  }
+  if(is_ite()) {
+    return 4; // if (compare v0 v1) then v2 else v3
+  }
+  throw std::runtime_error("should not reach: num_inputs");
+}
+
+float op_t::eval(vector<float> const& xs) const {
+  if(xs.size() != num_inputs()) {
+    throw std::runtime_error("invalid op_t::eval");
+  }
+  if(is_constant()) {
+    return get_constant();
+  }
+  if(is_hole()) {
+    throw std::runtime_error("cannot eval inputs; no variable state here");
+  }
+  if(is_add()) {
+    return xs[0] + xs[1];
+  }
+  if(is_mul()) {
+    return xs[0] * xs[1];
+  }
+  if(is_exp()) {
+    return std::exp(xs[0]);
+  }
+  if(is_power()) {
+    return std::pow(xs[0], get_power());
+  }
+  if(is_sqrt()) {
+    return std::sqrt(xs[0]);
+  }
+  if(is_ite()) {
+    if(compare(get_ite_compare(), xs[0], xs[1])) {
+      return xs[2];
+    } else {
+      return xs[3];
+    }
+  }
+  throw std::runtime_error("should not reach");
+}
+
+float node_t::eval(vector<float> const& inputs) const {
+  if(op.is_hole()) {
+    return inputs[op.get_which_input()];
+  }
+
+  vector<float> cs;
+  cs.reserve(children.size());
+  for(auto const& child: children) {
+    cs.push_back(child->eval(inputs));
+  }
+
+  return op.eval(cs);
+}
+
+node_t node_t::gradient(int arg) const {
+  if(op.is_constant()) {
+    return node_t {
+      .op = parse_with_ss<op_t>("constant{0}"),
+      .children = {}
+    };
+  }
+
+  if(op.is_hole()) {
+    if(arg == op.get_which_input()) {
+      return node_t {
+        .op = parse_with_ss<op_t>("constant{1}"),
+        .children = {}
+      };
+    } else {
+      return node_t {
+        .op = parse_with_ss<op_t>("constant{0}"),
+        .children = {}
+      };
+    }
+  }
+
+  if(op.is_add()) {
+    node_ptr_t lhs = children[0];
+    node_ptr_t rhs = children[1];
+
+    node_ptr_t grad_lhs = std::make_shared<node_t>(lhs->gradient(arg));
+    node_ptr_t grad_rhs = std::make_shared<node_t>(rhs->gradient(arg));
+
+    return node_t {
+      .op = parse_with_ss<op_t>("+"),
+      .children = {grad_lhs, grad_rhs}
+    };
+  }
+
+  if(op.is_mul()) {
+    node_ptr_t lhs = children[0];
+    node_ptr_t rhs = children[1];
+
+    node_t grad_lhs = lhs->gradient(arg);
+    node_t grad_rhs = rhs->gradient(arg);
+
+    std::string s_lhs      = write_with_ss(*lhs);
+    std::string s_rhs      = write_with_ss(*rhs);
+
+    std::string s_grad_lhs = write_with_ss(grad_lhs);
+    std::string s_grad_rhs = write_with_ss(grad_rhs);
+
+    // Gradient of d(L(x)R(x))/dx = L' R  + L R'
+
+    std::string term_lhs = "*[" + s_grad_lhs + "," + s_rhs      + "]";
+    std::string term_rhs = "*[" + s_lhs      + "," + s_grad_rhs + "]";
+
+    return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
+  }
+
+  if(op.is_exp()) {
+    // e^{f(x)} => e^{f(x)} * f'(x)
+    node_ptr_t inn      = children[0];
+
+    node_t grad_inn = inn->gradient(arg);
+
+    std::string s_inn      = write_with_ss(*inn);
+
+    std::string s_grad_inn = write_with_ss(grad_inn);
+
+    return parse_with_ss<node_t>("*[" + s_inn + "," + s_grad_inn + "]");
+  }
+
+  if(op.is_power()) {
+    // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
+    //           A     B               C
+
+    int i = op.get_power();
+
+    if(i == 0) {
+      return parse_with_ss<node_t>("constant{0}");
+    }
+
+    node_ptr_t inn      = children[0];
+    node_t grad_inn = inn->gradient(arg);
+
+    if(i == 1) {
+      return grad_inn;
+    }
+
+    std::string s_inn      = write_with_ss(*inn);
+
+    std::string A = "constant{" + write_with_ss(i) + "}";
+    std::string B = "power{" + write_with_ss(i-1) + "}[" + s_inn + "]";
+    std::string C = write_with_ss(grad_inn);
+
+    std::string BC = "*[" + B + "," + C + "]";
+    std::string ABC = "*[" + A + "," + BC + "]";
+
+    return parse_with_ss<node_t>(ABC);
+  }
+
+  if(op.is_sqrt()) {
+    throw std::runtime_error("not implemented");
+  }
+
+  if(op.is_ite()) {
+    // compare(x0, x1) ? x2  : x3  has a derivative of
+    // compare(x0, x1) ? x2' : x3'
+    std::string s0 = write_with_ss(*children[0]);
+    std::string s1 = write_with_ss(*children[1]);
+    std::string grad_s2 = write_with_ss(children[2]->gradient(arg));
+    std::string grad_s3 = write_with_ss(children[3]->gradient(arg));
+
+    std::string compare = write_with_ss(op.get_ite_compare());
+
+    std::string ret = "ite_" + compare +
+      "[" + s0 + "," + s1 + "," + grad_s2 + "," + grad_s3 + "]";
+
+    return parse_with_ss<node_t>(ret);
+  }
+
+  throw std::runtime_error("should not reach");
+}
+
+node_t node_t::simplify() const {
+  node_t r0 = simplify_once();
+  if(r0 == *this) {
+    return r0;
+  }
+
+  node_t r1 = r0.simplify_once();
+  while(true) {
+    if(r0 == r1) {
+      return r1;
+    }
+    r0 = r1.simplify_once();
+    std::swap(r0, r1);
+  }
+}
+
+node_t node_t::simplify_once() const {
+  if(op.is_hole() || op.is_constant()) {
+    return copy();
+  }
+
+  // Case: Has no inputs (and therefore should be a constant)
+  {
+    set<int> holes; which_inputs(holes);
+    if(holes.size() == 0) {
+      float val = eval({});
+      std::string constant = ("constant{" + write_with_ss(val) + "}");
+      return parse_with_ss<node_t>(constant);
+    }
+  }
+
+  vector<node_ptr_t> new_children;
+  for(auto const& child_ptr: children) {
+    auto new_child = std::make_shared<node_t>(child_ptr->simplify());
+    new_children.push_back(new_child);
+  }
+
+  // Case: Add
+  if(op.is_add()) {
+    // Check for 0 + x or x + 0
+    node_t& lhs = *new_children[0];
+    node_t& rhs = *new_children[1];
+    if(lhs.op.is_constant() && lhs.op.get_constant() == 0.0) {
+      return rhs.copy();
+    }
+    if(rhs.op.is_constant() && rhs.op.get_constant() == 0.0) {
+      return lhs.copy();
+    }
+  }
+
+  // TODO: also cover x^i * x^j
+  //       and        x   * x
+  //       and        x   * x^i
+  //       and        x^i * x
+
+  // Case: Mul
+  if(op.is_mul()) {
+    // Check for 0*x or x*0
+    node_t& lhs = *new_children[0];
+    node_t& rhs = *new_children[1];
+    if(
+      (lhs.op.is_constant() && lhs.op.get_constant() == 0.0) ||
+      (rhs.op.is_constant() && rhs.op.get_constant() == 0.0))
+    {
+      return parse_with_ss<node_t>("constant{0}");
+    }
+
+    // Check for 1*x or x*1
+    if(lhs.op.is_constant() && lhs.op.get_constant() == 1.0) {
+      return rhs.copy();
+    }
+    if(rhs.op.is_constant() && rhs.op.get_constant() == 1.0) {
+      return lhs.copy();
+    }
+  }
+
+  // Case: Exp
+  // e^0 is already covered since there'd be no inputs
+
+  // Case: Power
+  if(op.is_power()) {
+    // check for x^0 or x^1
+    int i = op.get_power();
+    if(i == 0) {
+      return parse_with_ss<node_t>("constant{1}");
+    }
+    if(i == 1) {
+      node_t& inn = *new_children[0];
+      return inn;
+    }
+  }
+
+  // Case: Sqrt
+  // TODO: change power to be a float
+
+  // Case: Ite
+  if(op.is_ite()) {
+    // check for ite z z x y
+    // and       ite x y z z
+    node_t& s0 = *new_children[0];
+    node_t& s1 = *new_children[1];
+    node_t& s2 = *new_children[2];
+    node_t& s3 = *new_children[3];
+    if(s0 == s1) {
+      compare_t c = op.get_ite_compare();
+      if(c == compare_t::eq) {
+        return s2;
+      }
+    }
+    if(s2 == s3) {
+      return s2;
+    }
+  }
+
+  return node_t {
+    .op = op,
+    .children = new_children
+  };
+}
+
+void node_t::which_inputs(set<int>& items) const {
+  if(op.is_hole()) {
+    items.insert(op.get_which_input());
+  }
+  for(auto const& child: children) {
+    child->which_inputs(items);
+  }
+}
+
+node_t node_t::copy() const {
+  vector<node_ptr_t> new_children;
+  for(auto const& child_ptr: children) {
+    node_ptr_t new_child_ptr = std::make_shared<node_t>();
+    *new_child_ptr = child_ptr->copy();
+    new_children.push_back(new_child_ptr);
+  }
+  return node_t {
+    .op = op,
+    .children = new_children
+  };
+}
+
+int node_t::max_hole() const {
+  if(op.is_hole()) {
+    return op.get_which_input();
+  }
+
+  int ret = -1;
+  for(auto const& child: children) {
+    ret = std::max(ret, child->max_hole());
+  }
+  return ret;
+}
+
+void node_t::increment_holes(int incr) {
+  if(op.is_hole()) {
+    int& arg = std::get<op_t::hole>(op.op).arg;
+    arg += incr;
+  } else {
+    for(auto& child: children) {
+      child->increment_holes(incr);
+    }
+  }
+}
+
+void node_t::remap_holes(map<int, int> const& fmap) {
+  if(op.is_hole()) {
+    int& arg = std::get<op_t::hole>(op.op).arg;
+    arg += fmap.at(arg);
+  } else {
+    for(auto& child: children) {
+      child->remap_holes(fmap);
+    }
+  }
+}
+
+scalar_op_t::scalar_op_t():
+  node(nullptr)
+{}
+
+scalar_op_t::scalar_op_t(node_t const& other_node) {
+  node = std::make_shared<node_t>(other_node.simplify());
+}
+
+scalar_op_t::scalar_op_t(node_ptr_t other_node_ptr) {
+  if(other_node_ptr) {
+    node = std::make_shared<node_t>();
+    *node = other_node_ptr->simplify();
+  }
+}
+
+scalar_op_t::scalar_op_t(scalar_op_t const& other) {
+  if(other.node) {
+    if(!node) {
+      node = std::make_shared<node_t>();
+    }
+    *node = other.node->copy();
+  }
+}
+
+scalar_op_t& scalar_op_t::operator=(scalar_op_t const& other) {
+  if(other.node) {
+    if(!node) {
+      node = std::make_shared<node_t>();
+    }
+    *node = other.node->copy();
+  }
+  return *this;
+}
+
+float scalar_op_t::eval(vector<float> const& inputs) const {
+  return node->eval(inputs);
+}
+
+scalar_op_t scalar_op_t::gradient(int arg) const {
+  node_t g = node->gradient(arg);
+  node_t g_simplified = g.simplify();
+  return scalar_op_t(g_simplified);
+}
+
+scalar_op_t scalar_op_t::simplify() {
+  return scalar_op_t(node->simplify());
+}
+
+set<int> scalar_op_t::which_inputs() const {
+  set<int> ret;
+  node->which_inputs(ret);
+  return ret;
+}
+
+int scalar_op_t::num_inputs() const {
+  set<int> whiches = which_inputs();
+  if(whiches.size() == 0) {
+    return 0;
+  }
+  auto iter = std::max_element(whiches.begin(), whiches.end());
+  return 1 + (*iter);
+}
+
+// Example: op = *, ops = (x0 + x1, x2 + x3), this returns
+//   (x0 + x1) * (x2 + x3)
+scalar_op_t scalar_op_t::combine(op_t op, vector<scalar_op_t> const& ops) {
+  if(op.num_inputs() != ops.size()) {
+    throw std::runtime_error("cannot combine");
+  }
+  vector<node_ptr_t> children;
+  int offset = 0;
+  for(auto const& op: ops) {
+    node_ptr_t child = std::make_shared<node_t>();
+    *child = op.node->copy();
+    child->increment_holes(offset);
+    offset = child->max_hole() + 1;
+    children.push_back(child);
+  }
+
+  scalar_op_t ret;
+  ret.node = std::make_shared<node_t>();
+  ret.node->op = op;
+  ret.node->children = children;
+  return ret;
+}
+
+// x0 + x1
+scalar_op_t scalar_op_t::make_add() {
+  return parse_with_ss<scalar_op_t>("+[hole@0,hole@1]");
+}
+// x0 * x1
+scalar_op_t scalar_op_t::make_mul() {
+  return parse_with_ss<scalar_op_t>("*[hole@0,hole@1]");
+}
+// xn * val
+scalar_op_t scalar_op_t::make_scale_which(float val, int arg) {
+  std::string hole = "hole@" + write_with_ss(arg);
+  std::string constant = "constant{" + write_with_ss(val) + "}";
+  return parse_with_ss<scalar_op_t>("*[" + hole + "," + constant + "]");
+}
+// x0 * val
+scalar_op_t scalar_op_t::make_scale(float val) {
+  return make_scale_which(val, 0);
+}
+// x0 - x1
+scalar_op_t scalar_op_t::make_sub() {
+  std::string negate = write_with_ss(make_scale_which(-1.0, 1));
+  std::string op = "+[hole@0," + negate + "]";
+  return parse_with_ss<scalar_op_t>(op);
+}
+// x0 + val
+scalar_op_t scalar_op_t::make_increment(float val) {
+  std::string constant = "constant{" + write_with_ss(val) + "}";
+  return parse_with_ss<scalar_op_t>("+[hole@0," + constant + "]");
+}
+
+scalar_op_t scalar_op_t::make_relu() {
+  std::string arg0 = "hole@0";
+  std::string zero = "constant{0}";
+  std::string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
+  return parse_with_ss<scalar_op_t>(ite);
+}
+
+scalar_op_t scalar_op_t::make_relu_deriv() {
+  return make_relu().gradient(0);
+}
+
+bool operator==(node_t const& lhs, node_t const& rhs) {
+  return write_with_ss(lhs) == write_with_ss(rhs);
+}
+
+bool operator!=(node_t const& lhs, node_t const& rhs) {
+  return !(lhs == rhs);
+}
+
+bool operator==(scalar_op_t const& lhs, scalar_op_t const& rhs) {
+  return write_with_ss(lhs) == write_with_ss(rhs);
+}
+
+bool operator!=(scalar_op_t const& lhs, scalar_op_t const& rhs) {
+  return !(lhs == rhs);
+}
+
+std::ostream& operator<<(std::ostream& out, compare_t const& c) {
+  if(c == compare_t::lt) {
+    out << "<";
+  } else if(c == compare_t::gt) {
+    out << ">";
+  } else if(c == compare_t::eq) {
+    out << "==";
+  } else if(c == compare_t::le) {
+    out << "<=";
+  } else if(c == compare_t::ge) {
+    out << ">=";
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  return out;
+}
+
+std::istream& operator>>(std::istream& inn, compare_t& compare) {
+  char c0 = inn.get();
+  char c1 = inn.peek();
+
+  if(c0 == '<') {
+    if(c1 == '=') {
+      inn.get();
+      compare = compare_t::le;
+    } else {
+      compare = compare_t::lt;
+    }
+  } else if(c0 == '>') {
+    if(c1 == '=') {
+      inn.get();
+      compare = compare_t::ge;
+    } else {
+      compare = compare_t::gt;
+    }
+  } else if(c0 == '=') {
+    if(c1 == '=') {
+      inn.get();
+      compare = compare_t::eq;
+    } else {
+      throw std::runtime_error("invalid parse: compare_t");
+    }
+  } else {
+    throw std::runtime_error("should not reach: parsing compare_t");
+  }
+
+  return inn;
+}
+
+std::ostream& operator<<(std::ostream& out, op_t const& op) {
+  if(op.is_constant()) {
+    out << "constant{" << op.get_constant() << "}";
+  } else if(op.is_hole()) {
+    out << "hole@" << op.get_which_input();
+  } else if(op.is_add()) {
+    out << "+";
+  } else if(op.is_mul()) {
+    out << "*";
+  } else if(op.is_exp()) {
+    out << "exp";
+  } else if(op.is_power()) {
+    out << "power{" << op.get_power() << "}";
+  } else if(op.is_sqrt()) {
+    out << "sqrt";
+  } else if(op.is_ite()) {
+    out << "ite_" << op.get_ite_compare();
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  return out;
+}
+
+std::istream& operator>>(std::istream& inn, op_t& op) {
+  char c = inn.peek();
+  if(c == 'c') {
+    istream_expect(inn, "constant{");
+    float v;
+    inn >> v;
+    istream_expect(inn, "}");
+    op.op = op_t::constant{ .value = v };
+  } else if(c == 'h') {
+    istream_expect(inn, "hole@");
+    int i;
+    inn >> i;
+    op.op = op_t::hole { .arg = i };
+  } else if(c == '+') {
+    inn.get();
+    op.op = op_t::add{ };
+  } else if(c == '*') {
+    inn.get();
+    op.op = op_t::mul{ };
+  } else if(c == 'e') {
+    istream_expect(inn, "exp");
+    op.op = op_t::exp{ };
+  } else if(c == 'p') {
+    istream_expect(inn, "power{");
+    int i;
+    inn >> i;
+    op.op = op_t::power{ .to_the = i };
+    istream_expect(inn, "}");
+  } else if(c == 's') {
+    istream_expect(inn, "sqrt");
+    op.op = op_t::sqrt { };
+  } else if(c == 'i') {
+    istream_expect(inn, "ite_");
+    compare_t c;
+    inn >> c;
+    op.op = op_t::ite{ .compare = c };
+  } else {
+    throw std::runtime_error("should not happen");
+  }
+  return inn;
+}
+
+std::ostream& operator<<(std::ostream& out, node_t const& node) {
+  out << node.op;
+  if(node.children.size() == 0) {
+    return out;
+  }
+  out << "[";
+  out << (*node.children[0]);
+  if(node.children.size() > 1) {
+    for(int i = 1; i != node.children.size(); ++i) {
+      out << "," << (*node.children[i]);
+    }
+  }
+  out << "]";
+
+  return out;
+}
+
+std::istream& operator>>(std::istream& inn, node_t& node) {
+  node.children.resize(0);
+
+  inn >> node.op;
+
+  int n = node.op.num_inputs();
+  if(n == 0) {
+    return inn;
+  }
+
+  istream_expect(inn, "[");
+  {
+    node_ptr_t child = std::make_shared<node_t>();
+    inn >> (*child);
+    node.children.push_back(child);
+  }
+  if(n > 1) {
+    for(int i = 1; i != n; ++i) {
+      istream_expect(inn, ",");
+      node_ptr_t child = std::make_shared<node_t>();
+      inn >> (*child);
+      node.children.push_back(child);
+    }
+  }
+  istream_expect(inn, "]");
+  return inn;
+}
+
+std::ostream& operator<<(std::ostream& out, scalar_op_t const& op) {
+  if(op.node) {
+    out << (*op.node);
+  } else {
+    out << "scalar_op_t(nullptr)";
+  }
+  return out;
+}
+
+std::istream& operator>>(std::istream& inn, scalar_op_t& op) {
+  node_ptr_t node = std::make_shared<node_t>();
+  inn >> (*node);
+  op = scalar_op_t(node);
+  return inn;
+}
+

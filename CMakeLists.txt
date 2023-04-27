@@ -12,6 +12,7 @@ add_library(einsummable
   src/einsummable/partdim.cc
   src/einsummable/partition.cc
   src/einsummable/reference.cc
+  src/einsummable/scalarop.cc
   src/einsummable/setup.cc
   src/einsummable/taskgraph.cc
 )
@@ -27,6 +28,9 @@ target_link_libraries(copyregion einsummable)
 
 add_executable(coster exps/coster.cc)
 target_link_libraries(coster einsummable)
+
+add_executable(scalarop exps/scalarop.cc)
+target_link_libraries(scalarop einsummable)
 
 add_library(matgraph
   STATIC
