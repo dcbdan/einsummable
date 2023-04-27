@@ -61,13 +61,9 @@ struct op_t {
     power, sqrt, ite> op;
 };
 
-struct node_t;
-
-using node_ptr_t = std::shared_ptr<node_t>;
-
 struct node_t {
   op_t op;
-  vector<node_ptr_t> children;
+  vector<node_t> children;
 
   float eval(vector<float> const& inputs) const;
 
@@ -76,8 +72,6 @@ struct node_t {
   node_t simplify() const;
 
   void which_inputs(set<int>& items) const;
-
-  node_t copy() const;
 
   int max_hole() const;
 
@@ -93,17 +87,10 @@ private:
 struct scalarop_t {
   using op_t       = scalar_ns::op_t;
   using node_t     = scalar_ns::node_t;
-  using node_ptr_t = scalar_ns::node_ptr_t;
 
   scalarop_t();
 
-  scalarop_t(node_t const& other_node);
-
-  scalarop_t(node_ptr_t other_node_ptr);
-
-  scalarop_t(scalarop_t const& other);
-
-  scalarop_t& operator=(scalarop_t const& other);
+  scalarop_t(node_t const& node);
 
   float eval(vector<float> const& inputs) const;
 
@@ -158,7 +145,7 @@ struct scalarop_t {
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
 private:
-  node_ptr_t node;
+  node_t node;
 };
 
 bool operator==(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
@@ -178,5 +165,4 @@ std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node);
 
 std::ostream& operator<<(std::ostream& out, scalarop_t const& op);
 std::istream& operator>>(std::istream& inn, scalarop_t& op);
-
 

@@ -46,7 +46,7 @@ int main() {
     std::cout << op.gradient(1) << std::endl;
   }
   {
-    std::cout << "FF3 (x0 + 0) * (x0 * 0)" << std::endl;
+    std::cout << "FF3 (x0 + 0) * (x0 * 1)" << std::endl;
     std::string s = "*[+[hole@0,constant{0}],*[hole@0,constant{1}]]";
     scalarop_t op = parse_with_ss<scalarop_t>(s);
     std::cout << op << std::endl;

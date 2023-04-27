@@ -15,7 +15,6 @@
 #include <random>
 #include <queue>
 #include <chrono>
-#include <memory>
 
 #define DOUT(x) \
   std::cout << x << std::endl;

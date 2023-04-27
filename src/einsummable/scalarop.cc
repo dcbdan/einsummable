@@ -102,7 +102,7 @@ float node_t::eval(vector<float> const& inputs) const {
   vector<float> cs;
   cs.reserve(children.size());
   for(auto const& child: children) {
-    cs.push_back(child->eval(inputs));
+    cs.push_back(child.eval(inputs));
   }
 
   return op.eval(cs);
@@ -131,11 +131,11 @@ node_t node_t::gradient(int arg) const {
   }
 
   if(op.is_add()) {
-    node_ptr_t lhs = children[0];
-    node_ptr_t rhs = children[1];
+    node_t const& lhs = children[0];
+    node_t const& rhs = children[1];
 
-    node_ptr_t grad_lhs = std::make_shared<node_t>(lhs->gradient(arg));
-    node_ptr_t grad_rhs = std::make_shared<node_t>(rhs->gradient(arg));
+    node_t grad_lhs = lhs.gradient(arg);
+    node_t grad_rhs = rhs.gradient(arg);
 
     return node_t {
       .op = parse_with_ss<op_t>("+"),
@@ -144,14 +144,14 @@ node_t node_t::gradient(int arg) const {
   }
 
   if(op.is_mul()) {
-    node_ptr_t lhs = children[0];
-    node_ptr_t rhs = children[1];
+    node_t const& lhs = children[0];
+    node_t const& rhs = children[1];
 
-    node_t grad_lhs = lhs->gradient(arg);
-    node_t grad_rhs = rhs->gradient(arg);
+    node_t grad_lhs = lhs.gradient(arg);
+    node_t grad_rhs = rhs.gradient(arg);
 
-    string s_lhs      = write_with_ss(*lhs);
-    string s_rhs      = write_with_ss(*rhs);
+    string s_lhs      = write_with_ss(lhs);
+    string s_rhs      = write_with_ss(rhs);
 
     string s_grad_lhs = write_with_ss(grad_lhs);
     string s_grad_rhs = write_with_ss(grad_rhs);
@@ -166,11 +166,11 @@ node_t node_t::gradient(int arg) const {
 
   if(op.is_exp()) {
     // e^{f(x)} => e^{f(x)} * f'(x)
-    node_ptr_t inn      = children[0];
+    node_t const& inn = children[0];
 
-    node_t grad_inn = inn->gradient(arg);
+    node_t grad_inn = inn.gradient(arg);
 
-    string s_inn      = write_with_ss(*inn);
+    string s_inn      = write_with_ss(inn);
 
     string s_grad_inn = write_with_ss(grad_inn);
 
@@ -187,14 +187,14 @@ node_t node_t::gradient(int arg) const {
       return parse_with_ss<node_t>("constant{0}");
     }
 
-    node_ptr_t inn      = children[0];
-    node_t grad_inn = inn->gradient(arg);
+    node_t const& inn      = children[0];
+    node_t grad_inn = inn.gradient(arg);
 
     if(i == 1) {
       return grad_inn;
     }
 
-    string s_inn      = write_with_ss(*inn);
+    string s_inn      = write_with_ss(inn);
 
     string A = "constant{" + write_with_ss(i) + "}";
     string B = "power{" + write_with_ss(i-1) + "}[" + s_inn + "]";
@@ -213,10 +213,10 @@ node_t node_t::gradient(int arg) const {
   if(op.is_ite()) {
     // compare(x0, x1) ? x2  : x3  has a derivative of
     // compare(x0, x1) ? x2' : x3'
-    string s0 = write_with_ss(*children[0]);
-    string s1 = write_with_ss(*children[1]);
-    string grad_s2 = write_with_ss(children[2]->gradient(arg));
-    string grad_s3 = write_with_ss(children[3]->gradient(arg));
+    string s0 = write_with_ss(children[0]);
+    string s1 = write_with_ss(children[1]);
+    string grad_s2 = write_with_ss(children[2].gradient(arg));
+    string grad_s3 = write_with_ss(children[3].gradient(arg));
 
     string compare = write_with_ss(op.get_ite_compare());
 
@@ -247,7 +247,7 @@ node_t node_t::simplify() const {
 
 node_t node_t::simplify_once() const {
   if(op.is_hole() || op.is_constant()) {
-    return copy();
+    return *this;
   }
 
   // Case: Has no inputs (and therefore should be a constant)
@@ -260,22 +260,19 @@ node_t node_t::simplify_once() const {
     }
   }
 
-  vector<node_ptr_t> new_children;
-  for(auto const& child_ptr: children) {
-    auto new_child = std::make_shared<node_t>(child_ptr->simplify());
-    new_children.push_back(new_child);
-  }
+  vector<node_t> new_children =
+    vector_from_each_method(children, node_t, simplify);
 
   // Case: Add
   if(op.is_add()) {
     // Check for 0 + x or x + 0
-    node_t& lhs = *new_children[0];
-    node_t& rhs = *new_children[1];
+    node_t& lhs = new_children[0];
+    node_t& rhs = new_children[1];
     if(lhs.op.is_constant() && lhs.op.get_constant() == 0.0) {
-      return rhs.copy();
+      return rhs;
     }
     if(rhs.op.is_constant() && rhs.op.get_constant() == 0.0) {
-      return lhs.copy();
+      return lhs;
     }
   }
 
@@ -287,8 +284,8 @@ node_t node_t::simplify_once() const {
   // Case: Mul
   if(op.is_mul()) {
     // Check for 0*x or x*0
-    node_t& lhs = *new_children[0];
-    node_t& rhs = *new_children[1];
+    node_t& lhs = new_children[0];
+    node_t& rhs = new_children[1];
     if(
       (lhs.op.is_constant() && lhs.op.get_constant() == 0.0) ||
       (rhs.op.is_constant() && rhs.op.get_constant() == 0.0))
@@ -298,10 +295,10 @@ node_t node_t::simplify_once() const {
 
     // Check for 1*x or x*1
     if(lhs.op.is_constant() && lhs.op.get_constant() == 1.0) {
-      return rhs.copy();
+      return rhs;
     }
     if(rhs.op.is_constant() && rhs.op.get_constant() == 1.0) {
-      return lhs.copy();
+      return lhs;
     }
   }
 
@@ -316,7 +313,7 @@ node_t node_t::simplify_once() const {
       return parse_with_ss<node_t>("constant{1}");
     }
     if(i == 1) {
-      node_t& inn = *new_children[0];
+      node_t& inn = new_children[0];
       return inn;
     }
   }
@@ -328,10 +325,10 @@ node_t node_t::simplify_once() const {
   if(op.is_ite()) {
     // check for ite z z x y
     // and       ite x y z z
-    node_t& s0 = *new_children[0];
-    node_t& s1 = *new_children[1];
-    node_t& s2 = *new_children[2];
-    node_t& s3 = *new_children[3];
+    node_t& s0 = new_children[0];
+    node_t& s1 = new_children[1];
+    node_t& s2 = new_children[2];
+    node_t& s3 = new_children[3];
     if(s0 == s1) {
       compare_t c = op.get_ite_compare();
       if(c == compare_t::eq) {
@@ -354,21 +351,8 @@ void node_t::which_inputs(set<int>& items) const {
     items.insert(op.get_which_input());
   }
   for(auto const& child: children) {
-    child->which_inputs(items);
+    child.which_inputs(items);
   }
-}
-
-node_t node_t::copy() const {
-  vector<node_ptr_t> new_children;
-  for(auto const& child_ptr: children) {
-    node_ptr_t new_child_ptr = std::make_shared<node_t>();
-    *new_child_ptr = child_ptr->copy();
-    new_children.push_back(new_child_ptr);
-  }
-  return node_t {
-    .op = op,
-    .children = new_children
-  };
 }
 
 int node_t::max_hole() const {
@@ -378,7 +362,7 @@ int node_t::max_hole() const {
 
   int ret = -1;
   for(auto const& child: children) {
-    ret = std::max(ret, child->max_hole());
+    ret = std::max(ret, child.max_hole());
   }
   return ret;
 }
@@ -389,7 +373,7 @@ void node_t::increment_holes(int incr) {
     arg += incr;
   } else {
     for(auto& child: children) {
-      child->increment_holes(incr);
+      child.increment_holes(incr);
     }
   }
 }
@@ -400,64 +384,36 @@ void node_t::remap_holes(map<int, int> const& fmap) {
     arg += fmap.at(arg);
   } else {
     for(auto& child: children) {
-      child->remap_holes(fmap);
+      child.remap_holes(fmap);
     }
   }
 }
 
 } // scalar_ns
 
-scalarop_t::scalarop_t():
-  node(nullptr)
+scalarop_t::scalarop_t() {}
+
+scalarop_t::scalarop_t(scalar_ns::node_t const& node)
+  : node(node.simplify())
 {}
 
-scalarop_t::scalarop_t(scalar_ns::node_t const& other_node) {
-  node = std::make_shared<scalar_ns::node_t>(other_node.simplify());
-}
-
-scalarop_t::scalarop_t(node_ptr_t other_node_ptr) {
-  if(other_node_ptr) {
-    node = std::make_shared<scalar_ns::node_t>();
-    *node = other_node_ptr->simplify();
-  }
-}
-
-scalarop_t::scalarop_t(scalarop_t const& other) {
-  if(other.node) {
-    if(!node) {
-      node = std::make_shared<scalar_ns::node_t>();
-    }
-    *node = other.node->copy();
-  }
-}
-
-scalarop_t& scalarop_t::operator=(scalarop_t const& other) {
-  if(other.node) {
-    if(!node) {
-      node = std::make_shared<scalar_ns::node_t>();
-    }
-    *node = other.node->copy();
-  }
-  return *this;
-}
-
 float scalarop_t::eval(vector<float> const& inputs) const {
-  return node->eval(inputs);
+  return node.eval(inputs);
 }
 
 scalarop_t scalarop_t::gradient(int arg) const {
-  scalar_ns::node_t g = node->gradient(arg);
+  scalar_ns::node_t g = node.gradient(arg);
   scalar_ns::node_t g_simplified = g.simplify();
   return scalarop_t(g_simplified);
 }
 
 scalarop_t scalarop_t::simplify() {
-  return scalarop_t(node->simplify());
+  return scalarop_t(node.simplify());
 }
 
 set<int> scalarop_t::which_inputs() const {
   set<int> ret;
-  node->which_inputs(ret);
+  node.which_inputs(ret);
   return ret;
 }
 
@@ -520,21 +476,19 @@ scalarop_t scalarop_t::combine(scalar_ns::op_t op, vector<scalarop_t> const& ops
   if(op.num_inputs() != ops.size()) {
     throw std::runtime_error("cannot combine");
   }
-  vector<node_ptr_t> children;
+  vector<node_t> children;
   int offset = 0;
   for(auto const& op: ops) {
-    node_ptr_t child = std::make_shared<scalar_ns::node_t>();
-    *child = op.node->copy();
-    child->increment_holes(offset);
-    offset = child->max_hole() + 1;
-    children.push_back(child);
+    children.push_back(op.node);
+    node_t& child = children.back();
+    child.increment_holes(offset);
+    offset = child.max_hole() + 1;
   }
 
-  scalarop_t ret;
-  ret.node = std::make_shared<scalar_ns::node_t>();
-  ret.node->op = op;
-  ret.node->children = children;
-  return ret;
+  return scalarop_t(node_t {
+    .op = op,
+    .children = std::move(children)
+  });
 }
 
 // x0 + x1
@@ -738,10 +692,10 @@ std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node) {
     return out;
   }
   out << "[";
-  out << (*node.children[0]);
+  out << node.children[0];
   if(node.children.size() > 1) {
     for(int i = 1; i != node.children.size(); ++i) {
-      out << "," << (*node.children[i]);
+      out << "," << node.children[i];
     }
   }
   out << "]";
@@ -761,16 +715,14 @@ std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
 
   istream_expect(inn, "[");
   {
-    auto child = std::make_shared<scalar_ns::node_t>();
-    inn >> (*child);
-    node.children.push_back(child);
+    node.children.emplace_back();
+    inn >> node.children.back();
   }
   if(n > 1) {
     for(int i = 1; i != n; ++i) {
       istream_expect(inn, ",");
-      auto child = std::make_shared<scalar_ns::node_t>();
-      inn >> (*child);
-      node.children.push_back(child);
+      node.children.emplace_back();
+      inn >> node.children.back();
     }
   }
   istream_expect(inn, "]");
@@ -778,17 +730,13 @@ std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
 }
 
 std::ostream& operator<<(std::ostream& out, scalarop_t const& op) {
-  if(op.node) {
-    out << (*op.node);
-  } else {
-    out << "scalarop_t(nullptr)";
-  }
+  out << op.node;
   return out;
 }
 
 std::istream& operator>>(std::istream& inn, scalarop_t& op) {
-  auto node = std::make_shared<scalar_ns::node_t>();
-  inn >> (*node);
+  scalar_ns::node_t node;
+  inn >> node;
   op = scalarop_t(node);
   return inn;
 }
