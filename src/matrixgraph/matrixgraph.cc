@@ -1,4 +1,4 @@
-#include "matgraph.h"
+#include "matrixgraph.h"
 
 int matgraph_t::insert_ew(scalarop_t op, int inn)
 {
