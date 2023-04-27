@@ -108,7 +108,7 @@ float node_t::eval(vector<float> const& inputs) const {
   return op.eval(cs);
 }
 
-node_t node_t::gradient(int arg) const {
+node_t node_t::derivative(int arg) const {
   if(op.is_constant()) {
     return node_t {
       .op = parse_with_ss<op_t>("constant{0}"),
@@ -134,12 +134,12 @@ node_t node_t::gradient(int arg) const {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
-    node_t grad_lhs = lhs.gradient(arg);
-    node_t grad_rhs = rhs.gradient(arg);
+    node_t deri_lhs = lhs.derivative(arg);
+    node_t deri_rhs = rhs.derivative(arg);
 
     return node_t {
       .op = parse_with_ss<op_t>("+"),
-      .children = {grad_lhs, grad_rhs}
+      .children = {deri_lhs, deri_rhs}
     };
   }
 
@@ -147,19 +147,19 @@ node_t node_t::gradient(int arg) const {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
-    node_t grad_lhs = lhs.gradient(arg);
-    node_t grad_rhs = rhs.gradient(arg);
+    node_t deri_lhs = lhs.derivative(arg);
+    node_t deri_rhs = rhs.derivative(arg);
 
     string s_lhs      = write_with_ss(lhs);
     string s_rhs      = write_with_ss(rhs);
 
-    string s_grad_lhs = write_with_ss(grad_lhs);
-    string s_grad_rhs = write_with_ss(grad_rhs);
+    string s_deri_lhs = write_with_ss(deri_lhs);
+    string s_deri_rhs = write_with_ss(deri_rhs);
 
     // Gradient of d(L(x)R(x))/dx = L' R  + L R'
 
-    string term_lhs = "*[" + s_grad_lhs + "," + s_rhs      + "]";
-    string term_rhs = "*[" + s_lhs      + "," + s_grad_rhs + "]";
+    string term_lhs = "*[" + s_deri_lhs + "," + s_rhs      + "]";
+    string term_rhs = "*[" + s_lhs      + "," + s_deri_rhs + "]";
 
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
   }
@@ -168,13 +168,13 @@ node_t node_t::gradient(int arg) const {
     // e^{f(x)} => e^{f(x)} * f'(x)
     node_t const& inn = children[0];
 
-    node_t grad_inn = inn.gradient(arg);
+    node_t deri_inn = inn.derivative(arg);
 
     string s_inn      = write_with_ss(inn);
 
-    string s_grad_inn = write_with_ss(grad_inn);
+    string s_deri_inn = write_with_ss(deri_inn);
 
-    return parse_with_ss<node_t>("*[" + s_inn + "," + s_grad_inn + "]");
+    return parse_with_ss<node_t>("*[" + s_inn + "," + s_deri_inn + "]");
   }
 
   if(op.is_power()) {
@@ -188,17 +188,17 @@ node_t node_t::gradient(int arg) const {
     }
 
     node_t const& inn      = children[0];
-    node_t grad_inn = inn.gradient(arg);
+    node_t deri_inn = inn.derivative(arg);
 
     if(i == 1) {
-      return grad_inn;
+      return deri_inn;
     }
 
     string s_inn      = write_with_ss(inn);
 
     string A = "constant{" + write_with_ss(i) + "}";
     string B = "power{" + write_with_ss(i-1) + "}[" + s_inn + "]";
-    string C = write_with_ss(grad_inn);
+    string C = write_with_ss(deri_inn);
 
     string BC = "*[" + B + "," + C + "]";
     string ABC = "*[" + A + "," + BC + "]";
@@ -215,13 +215,13 @@ node_t node_t::gradient(int arg) const {
     // compare(x0, x1) ? x2' : x3'
     string s0 = write_with_ss(children[0]);
     string s1 = write_with_ss(children[1]);
-    string grad_s2 = write_with_ss(children[2].gradient(arg));
-    string grad_s3 = write_with_ss(children[3].gradient(arg));
+    string deri_s2 = write_with_ss(children[2].derivative(arg));
+    string deri_s3 = write_with_ss(children[3].derivative(arg));
 
     string compare = write_with_ss(op.get_ite_compare());
 
     string ret = "ite_" + compare +
-      "[" + s0 + "," + s1 + "," + grad_s2 + "," + grad_s3 + "]";
+      "[" + s0 + "," + s1 + "," + deri_s2 + "," + deri_s3 + "]";
 
     return parse_with_ss<node_t>(ret);
   }
@@ -401,10 +401,8 @@ float scalarop_t::eval(vector<float> const& inputs) const {
   return node.eval(inputs);
 }
 
-scalarop_t scalarop_t::gradient(int arg) const {
-  scalar_ns::node_t g = node.gradient(arg);
-  scalar_ns::node_t g_simplified = g.simplify();
-  return scalarop_t(g_simplified);
+scalarop_t scalarop_t::derivative(int arg) const {
+  return scalarop_t(node.derivative(arg));
 }
 
 scalarop_t scalarop_t::simplify() {
@@ -537,7 +535,7 @@ scalarop_t scalarop_t::make_relu() {
 }
 
 scalarop_t scalarop_t::make_relu_deriv() {
-  return make_relu().gradient(0);
+  return make_relu().derivative(0);
 }
 
 scalarop_t scalarop_t::make_from_castable(castable_t c) {

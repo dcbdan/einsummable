@@ -67,7 +67,7 @@ struct node_t {
 
   float eval(vector<float> const& inputs) const;
 
-  node_t gradient(int arg) const;
+  node_t derivative(int arg) const;
 
   node_t simplify() const;
 
@@ -94,7 +94,7 @@ struct scalarop_t {
 
   float eval(vector<float> const& inputs) const;
 
-  scalarop_t gradient(int arg) const;
+  scalarop_t derivative(int arg) const;
 
   scalarop_t simplify();
 
