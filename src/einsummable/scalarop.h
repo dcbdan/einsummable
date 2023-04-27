@@ -90,26 +90,26 @@ private:
 
 } // scalar_ns
 
-struct scalar_op_t {
+struct scalarop_t {
   using op_t       = scalar_ns::op_t;
   using node_t     = scalar_ns::node_t;
   using node_ptr_t = scalar_ns::node_ptr_t;
 
-  scalar_op_t();
+  scalarop_t();
 
-  scalar_op_t(node_t const& other_node);
+  scalarop_t(node_t const& other_node);
 
-  scalar_op_t(node_ptr_t other_node_ptr);
+  scalarop_t(node_ptr_t other_node_ptr);
 
-  scalar_op_t(scalar_op_t const& other);
+  scalarop_t(scalarop_t const& other);
 
-  scalar_op_t& operator=(scalar_op_t const& other);
+  scalarop_t& operator=(scalarop_t const& other);
 
   float eval(vector<float> const& inputs) const;
 
-  scalar_op_t gradient(int arg) const;
+  scalarop_t gradient(int arg) const;
 
-  scalar_op_t simplify();
+  scalarop_t simplify();
 
   set<int> which_inputs() const;
 
@@ -123,40 +123,40 @@ struct scalar_op_t {
 
   // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
   //   (x0 + x1) * (x2 + x3)
-  static scalar_op_t combine(op_t op, vector<scalar_op_t> const& ops);
+  static scalarop_t combine(op_t op, vector<scalarop_t> const& ops);
 
   // x0 + x1
-  static scalar_op_t make_add();
+  static scalarop_t make_add();
 
   // x0 * x1
-  static scalar_op_t make_mul();
+  static scalarop_t make_mul();
 
   // min(x0, x1);
-  static scalar_op_t make_min();
+  static scalarop_t make_min();
 
   // max(x0, x1);
-  static scalar_op_t make_max();
+  static scalarop_t make_max();
 
   // xn * val
-  static scalar_op_t make_scale_which(float val, int arg);
+  static scalarop_t make_scale_which(float val, int arg);
 
   // x0 * val
-  static scalar_op_t make_scale(float val);
+  static scalarop_t make_scale(float val);
 
   // x0 - x1
-  static scalar_op_t make_sub();
+  static scalarop_t make_sub();
 
   // x0 + val
-  static scalar_op_t make_increment(float val);
+  static scalarop_t make_increment(float val);
 
-  static scalar_op_t make_relu();
+  static scalarop_t make_relu();
 
-  static scalar_op_t make_relu_deriv();
+  static scalarop_t make_relu_deriv();
 
-  static scalar_op_t make_from_castable(castable_t castable);
+  static scalarop_t make_from_castable(castable_t castable);
 
   friend std::ostream& operator<<(
-    std::ostream& out, scalar_op_t const& op);
+    std::ostream& out, scalarop_t const& op);
 private:
   node_ptr_t node;
 };
@@ -164,8 +164,8 @@ private:
 bool operator==(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
 bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
 
-bool operator==(scalar_op_t const& lhs, scalar_op_t const& rhs);
-bool operator!=(scalar_op_t const& lhs, scalar_op_t const& rhs);
+bool operator==(scalarop_t const& lhs, scalarop_t const& rhs);
+bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, compare_t const& c);
 std::istream& operator>>(std::istream& inn, compare_t& c);
@@ -176,7 +176,7 @@ std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op);
 std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node);
 std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node);
 
-std::ostream& operator<<(std::ostream& out, scalar_op_t const& op);
-std::istream& operator>>(std::istream& inn, scalar_op_t& op);
+std::ostream& operator<<(std::ostream& out, scalarop_t const& op);
+std::istream& operator>>(std::istream& inn, scalarop_t& op);
 
 

@@ -407,22 +407,22 @@ void node_t::remap_holes(map<int, int> const& fmap) {
 
 } // scalar_ns
 
-scalar_op_t::scalar_op_t():
+scalarop_t::scalarop_t():
   node(nullptr)
 {}
 
-scalar_op_t::scalar_op_t(scalar_ns::node_t const& other_node) {
+scalarop_t::scalarop_t(scalar_ns::node_t const& other_node) {
   node = std::make_shared<scalar_ns::node_t>(other_node.simplify());
 }
 
-scalar_op_t::scalar_op_t(node_ptr_t other_node_ptr) {
+scalarop_t::scalarop_t(node_ptr_t other_node_ptr) {
   if(other_node_ptr) {
     node = std::make_shared<scalar_ns::node_t>();
     *node = other_node_ptr->simplify();
   }
 }
 
-scalar_op_t::scalar_op_t(scalar_op_t const& other) {
+scalarop_t::scalarop_t(scalarop_t const& other) {
   if(other.node) {
     if(!node) {
       node = std::make_shared<scalar_ns::node_t>();
@@ -431,7 +431,7 @@ scalar_op_t::scalar_op_t(scalar_op_t const& other) {
   }
 }
 
-scalar_op_t& scalar_op_t::operator=(scalar_op_t const& other) {
+scalarop_t& scalarop_t::operator=(scalarop_t const& other) {
   if(other.node) {
     if(!node) {
       node = std::make_shared<scalar_ns::node_t>();
@@ -441,27 +441,27 @@ scalar_op_t& scalar_op_t::operator=(scalar_op_t const& other) {
   return *this;
 }
 
-float scalar_op_t::eval(vector<float> const& inputs) const {
+float scalarop_t::eval(vector<float> const& inputs) const {
   return node->eval(inputs);
 }
 
-scalar_op_t scalar_op_t::gradient(int arg) const {
+scalarop_t scalarop_t::gradient(int arg) const {
   scalar_ns::node_t g = node->gradient(arg);
   scalar_ns::node_t g_simplified = g.simplify();
-  return scalar_op_t(g_simplified);
+  return scalarop_t(g_simplified);
 }
 
-scalar_op_t scalar_op_t::simplify() {
-  return scalar_op_t(node->simplify());
+scalarop_t scalarop_t::simplify() {
+  return scalarop_t(node->simplify());
 }
 
-set<int> scalar_op_t::which_inputs() const {
+set<int> scalarop_t::which_inputs() const {
   set<int> ret;
   node->which_inputs(ret);
   return ret;
 }
 
-int scalar_op_t::num_inputs() const {
+int scalarop_t::num_inputs() const {
   set<int> whiches = which_inputs();
   if(whiches.size() == 0) {
     return 0;
@@ -470,15 +470,15 @@ int scalar_op_t::num_inputs() const {
   return 1 + (*iter);
 }
 
-bool scalar_op_t::is_unary() const {
+bool scalarop_t::is_unary() const {
   return num_inputs() == 1;
 }
 
-bool scalar_op_t::is_binary() const {
+bool scalarop_t::is_binary() const {
   return num_inputs() == 2;
 }
 
-bool scalar_op_t::is_castable() const {
+bool scalarop_t::is_castable() const {
   string self = write_with_ss(*this);
 
   vector<string> xs {
@@ -516,7 +516,7 @@ bool scalar_op_t::is_castable() const {
 
 // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
 //   (x0 + x1) * (x2 + x3)
-scalar_op_t scalar_op_t::combine(scalar_ns::op_t op, vector<scalar_op_t> const& ops) {
+scalarop_t scalarop_t::combine(scalar_ns::op_t op, vector<scalarop_t> const& ops) {
   if(op.num_inputs() != ops.size()) {
     throw std::runtime_error("cannot combine");
   }
@@ -530,7 +530,7 @@ scalar_op_t scalar_op_t::combine(scalar_ns::op_t op, vector<scalar_op_t> const& 
     children.push_back(child);
   }
 
-  scalar_op_t ret;
+  scalarop_t ret;
   ret.node = std::make_shared<scalar_ns::node_t>();
   ret.node->op = op;
   ret.node->children = children;
@@ -538,55 +538,55 @@ scalar_op_t scalar_op_t::combine(scalar_ns::op_t op, vector<scalar_op_t> const& 
 }
 
 // x0 + x1
-scalar_op_t scalar_op_t::make_add() {
-  return parse_with_ss<scalar_op_t>("+[hole@0,hole@1]");
+scalarop_t scalarop_t::make_add() {
+  return parse_with_ss<scalarop_t>("+[hole@0,hole@1]");
 }
 // x0 * x1
-scalar_op_t scalar_op_t::make_mul() {
-  return parse_with_ss<scalar_op_t>("*[hole@0,hole@1]");
+scalarop_t scalarop_t::make_mul() {
+  return parse_with_ss<scalarop_t>("*[hole@0,hole@1]");
 }
 // min(x0, x1)
-scalar_op_t scalar_op_t::make_min() {
-  return parse_with_ss<scalar_op_t>("ite_<[hole@0,hole@1,hole@0,hole@1]");
+scalarop_t scalarop_t::make_min() {
+  return parse_with_ss<scalarop_t>("ite_<[hole@0,hole@1,hole@0,hole@1]");
 }
 // max(x0, x1)
-scalar_op_t scalar_op_t::make_max() {
-  return parse_with_ss<scalar_op_t>("ite_>[hole@0,hole@1,hole@0,hole@1]");
+scalarop_t scalarop_t::make_max() {
+  return parse_with_ss<scalarop_t>("ite_>[hole@0,hole@1,hole@0,hole@1]");
 }
 // xn * val
-scalar_op_t scalar_op_t::make_scale_which(float val, int arg) {
+scalarop_t scalarop_t::make_scale_which(float val, int arg) {
   string hole = "hole@" + write_with_ss(arg);
   string constant = "constant{" + write_with_ss(val) + "}";
-  return parse_with_ss<scalar_op_t>("*[" + hole + "," + constant + "]");
+  return parse_with_ss<scalarop_t>("*[" + hole + "," + constant + "]");
 }
 // x0 * val
-scalar_op_t scalar_op_t::make_scale(float val) {
+scalarop_t scalarop_t::make_scale(float val) {
   return make_scale_which(val, 0);
 }
 // x0 - x1
-scalar_op_t scalar_op_t::make_sub() {
+scalarop_t scalarop_t::make_sub() {
   string negate = write_with_ss(make_scale_which(-1.0, 1));
   string op = "+[hole@0," + negate + "]";
-  return parse_with_ss<scalar_op_t>(op);
+  return parse_with_ss<scalarop_t>(op);
 }
 // x0 + val
-scalar_op_t scalar_op_t::make_increment(float val) {
+scalarop_t scalarop_t::make_increment(float val) {
   string constant = "constant{" + write_with_ss(val) + "}";
-  return parse_with_ss<scalar_op_t>("+[hole@0," + constant + "]");
+  return parse_with_ss<scalarop_t>("+[hole@0," + constant + "]");
 }
 
-scalar_op_t scalar_op_t::make_relu() {
+scalarop_t scalarop_t::make_relu() {
   string arg0 = "hole@0";
   string zero = "constant{0}";
   string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
-  return parse_with_ss<scalar_op_t>(ite);
+  return parse_with_ss<scalarop_t>(ite);
 }
 
-scalar_op_t scalar_op_t::make_relu_deriv() {
+scalarop_t scalarop_t::make_relu_deriv() {
   return make_relu().gradient(0);
 }
 
-scalar_op_t scalar_op_t::make_from_castable(castable_t c) {
+scalarop_t scalarop_t::make_from_castable(castable_t c) {
   if(c == castable_t::add) {
     return make_add();
   }  else if(c == castable_t::mul) {
@@ -608,11 +608,11 @@ bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs) {
   return !(lhs == rhs);
 }
 
-bool operator==(scalar_op_t const& lhs, scalar_op_t const& rhs) {
+bool operator==(scalarop_t const& lhs, scalarop_t const& rhs) {
   return write_with_ss(lhs) == write_with_ss(rhs);
 }
 
-bool operator!=(scalar_op_t const& lhs, scalar_op_t const& rhs) {
+bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs) {
   return !(lhs == rhs);
 }
 
@@ -777,19 +777,19 @@ std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
   return inn;
 }
 
-std::ostream& operator<<(std::ostream& out, scalar_op_t const& op) {
+std::ostream& operator<<(std::ostream& out, scalarop_t const& op) {
   if(op.node) {
     out << (*op.node);
   } else {
-    out << "scalar_op_t(nullptr)";
+    out << "scalarop_t(nullptr)";
   }
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, scalar_op_t& op) {
+std::istream& operator>>(std::istream& inn, scalarop_t& op) {
   auto node = std::make_shared<scalar_ns::node_t>();
   inn >> (*node);
-  op = scalar_op_t(node);
+  op = scalarop_t(node);
   return inn;
 }
 

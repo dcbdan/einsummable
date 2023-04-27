@@ -1,12 +1,7 @@
 #pragma once
 #include "setup.h"
 
-enum class castable_t { add, mul, min, max };
-
-enum class scalar_join_t { add, sub, mul, relu, negate, min, max };
-
-bool is_unary_scalar_join(scalar_join_t const& op);
-bool is_binary_scalar_join(scalar_join_t const& op);
+#include "scalarop.h"
 
 struct einsummable_t {
   vector<uint64_t> join_shape;
@@ -14,8 +9,10 @@ struct einsummable_t {
   vector<vector<int>> inns;
   int out_rank;
 
-  scalar_join_t join;
-  castable_t castable; // TODO: should be none when out_rank == join_rank
+  scalar_op_t join;
+
+  // may be none when out_rank == join_rank
+  option<castable_t> castable;
 
   // ij,jk->ik
   // 02 21  01
