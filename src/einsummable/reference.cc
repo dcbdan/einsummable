@@ -235,41 +235,6 @@ buffer_t unpartition_buffer(
   return out_buffer;
 }
 
-std::function<float(vector<float> const&)> einsummable_eval(scalar_join_t op)
-{
-  if(op == scalar_join_t::add) {
-    return [](vector<float> const& inns) {
-      return inns[0] + inns[1];
-    };
-  } else if(op == scalar_join_t::sub)    {
-    return [](vector<float> const& inns) {
-      return inns[0] - inns[1];
-    };
-  } else if(op == scalar_join_t::mul)    {
-    return [](vector<float> const& inns) {
-      return inns[0] * inns[1];
-    };
-  } else if(op == scalar_join_t::relu)   {
-    return [](vector<float> const& inns) {
-      return inns[0] > 0 ? inns[0] : 0.0;
-    };
-  } else if(op == scalar_join_t::negate) {
-    return [](vector<float> const& inns) {
-      return -1*inns[0];
-    };
-  } else if(op == scalar_join_t::min)    {
-    return [](vector<float> const& inns) {
-      return std::min(inns[0], inns[1]);
-    };
-  } else if(op == scalar_join_t::max)    {
-    return [](vector<float> const& inns) {
-      return std::max(inns[0], inns[1]);
-    };
-  } else {
-    throw std::runtime_error("einsummable_eval not implemented");
-  }
-}
-
 std::function<void(float&, float)> einsummable_update(castable_t op)
 {
   if(op == castable_t::add) {
@@ -334,8 +299,10 @@ buffer_t reference_einsummable(
     return inns;
   };
 
-  auto eval = einsummable_eval(einsummable.join);
-  auto update = einsummable_update(einsummable.castable);
+  scalarop_t const& joinop = einsummable.join;
+  auto eval = [&joinop](vector<float> const& xs){
+    return joinop.eval(xs);
+  };
 
   // do the initialization
   do {
@@ -348,6 +315,8 @@ buffer_t reference_einsummable(
     // nothing else to do
     return ret;
   }
+
+  auto update = einsummable_update(einsummable.castable.value());
 
   out_index = vector<uint64_t>(out_shape.size(), 0);
   do {

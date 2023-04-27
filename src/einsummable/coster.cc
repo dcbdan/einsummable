@@ -217,8 +217,8 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
             .join_shape = op_shape,
             .inns = inns,
             .out_rank = rank,
-            .join = scalar_join_t::mul,  // will not be used
-            .castable = castable_t::add, // will not be used
+            .join = scalarop_t::make_mul(), // will not be used
+            .castable = castable_t::add,    // will not be used
           };
         } else {
           einsummable = node.op.get_einsummable();
