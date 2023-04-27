@@ -1,6 +1,6 @@
 #include "scalarop.h"
 
-void istream_expect(std::istream& inn, std::string const& xs) {
+void istream_expect(std::istream& inn, string const& xs) {
   for(auto const& x: xs) {
     if(x != inn.get()) {
       throw std::runtime_error("expected " + xs);
@@ -150,16 +150,16 @@ node_t node_t::gradient(int arg) const {
     node_t grad_lhs = lhs->gradient(arg);
     node_t grad_rhs = rhs->gradient(arg);
 
-    std::string s_lhs      = write_with_ss(*lhs);
-    std::string s_rhs      = write_with_ss(*rhs);
+    string s_lhs      = write_with_ss(*lhs);
+    string s_rhs      = write_with_ss(*rhs);
 
-    std::string s_grad_lhs = write_with_ss(grad_lhs);
-    std::string s_grad_rhs = write_with_ss(grad_rhs);
+    string s_grad_lhs = write_with_ss(grad_lhs);
+    string s_grad_rhs = write_with_ss(grad_rhs);
 
     // Gradient of d(L(x)R(x))/dx = L' R  + L R'
 
-    std::string term_lhs = "*[" + s_grad_lhs + "," + s_rhs      + "]";
-    std::string term_rhs = "*[" + s_lhs      + "," + s_grad_rhs + "]";
+    string term_lhs = "*[" + s_grad_lhs + "," + s_rhs      + "]";
+    string term_rhs = "*[" + s_lhs      + "," + s_grad_rhs + "]";
 
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
   }
@@ -170,9 +170,9 @@ node_t node_t::gradient(int arg) const {
 
     node_t grad_inn = inn->gradient(arg);
 
-    std::string s_inn      = write_with_ss(*inn);
+    string s_inn      = write_with_ss(*inn);
 
-    std::string s_grad_inn = write_with_ss(grad_inn);
+    string s_grad_inn = write_with_ss(grad_inn);
 
     return parse_with_ss<node_t>("*[" + s_inn + "," + s_grad_inn + "]");
   }
@@ -194,14 +194,14 @@ node_t node_t::gradient(int arg) const {
       return grad_inn;
     }
 
-    std::string s_inn      = write_with_ss(*inn);
+    string s_inn      = write_with_ss(*inn);
 
-    std::string A = "constant{" + write_with_ss(i) + "}";
-    std::string B = "power{" + write_with_ss(i-1) + "}[" + s_inn + "]";
-    std::string C = write_with_ss(grad_inn);
+    string A = "constant{" + write_with_ss(i) + "}";
+    string B = "power{" + write_with_ss(i-1) + "}[" + s_inn + "]";
+    string C = write_with_ss(grad_inn);
 
-    std::string BC = "*[" + B + "," + C + "]";
-    std::string ABC = "*[" + A + "," + BC + "]";
+    string BC = "*[" + B + "," + C + "]";
+    string ABC = "*[" + A + "," + BC + "]";
 
     return parse_with_ss<node_t>(ABC);
   }
@@ -213,14 +213,14 @@ node_t node_t::gradient(int arg) const {
   if(op.is_ite()) {
     // compare(x0, x1) ? x2  : x3  has a derivative of
     // compare(x0, x1) ? x2' : x3'
-    std::string s0 = write_with_ss(*children[0]);
-    std::string s1 = write_with_ss(*children[1]);
-    std::string grad_s2 = write_with_ss(children[2]->gradient(arg));
-    std::string grad_s3 = write_with_ss(children[3]->gradient(arg));
+    string s0 = write_with_ss(*children[0]);
+    string s1 = write_with_ss(*children[1]);
+    string grad_s2 = write_with_ss(children[2]->gradient(arg));
+    string grad_s3 = write_with_ss(children[3]->gradient(arg));
 
-    std::string compare = write_with_ss(op.get_ite_compare());
+    string compare = write_with_ss(op.get_ite_compare());
 
-    std::string ret = "ite_" + compare +
+    string ret = "ite_" + compare +
       "[" + s0 + "," + s1 + "," + grad_s2 + "," + grad_s3 + "]";
 
     return parse_with_ss<node_t>(ret);
@@ -255,7 +255,7 @@ node_t node_t::simplify_once() const {
     set<int> holes; which_inputs(holes);
     if(holes.size() == 0) {
       float val = eval({});
-      std::string constant = ("constant{" + write_with_ss(val) + "}");
+      string constant = ("constant{" + write_with_ss(val) + "}");
       return parse_with_ss<node_t>(constant);
     }
   }
@@ -470,6 +470,50 @@ int scalar_op_t::num_inputs() const {
   return 1 + (*iter);
 }
 
+bool scalar_op_t::is_unary() const {
+  return num_inputs() == 1;
+}
+
+bool scalar_op_t::is_binary() const {
+  return num_inputs() == 2;
+}
+
+bool scalar_op_t::is_castable() const {
+  string self = write_with_ss(*this);
+
+  vector<string> xs {
+    "*[hole@0,hole@1]",
+    "*[hole@1,hole@0]",
+    "+[hole@0,hole@1]",
+    "+[hole@1,hole@0]",
+    // A lot of ways to write min and max...
+    "ite_<[hole@0,hole@1,hole@0,hole@1]",
+    "ite_<=[hole@0,hole@1,hole@0,hole@1]",
+    "ite_>[hole@0,hole@1,hole@0,hole@1]",
+    "ite_>=[hole@0,hole@1,hole@0,hole@1]",
+    "ite_<[hole@0,hole@1,hole@1,hole@0]",
+    "ite_<=[hole@0,hole@1,hole@1,hole@0]",
+    "ite_>[hole@0,hole@1,hole@1,hole@0]",
+    "ite_>=[hole@0,hole@1,hole@1,hole@0]",
+    "ite_<[hole@1,hole@0,hole@0,hole@1]",
+    "ite_<=[hole@1,hole@0,hole@0,hole@1]",
+    "ite_>[hole@1,hole@0,hole@0,hole@1]",
+    "ite_>=[hole@1,hole@0,hole@0,hole@1]",
+    "ite_<[hole@1,hole@0,hole@1,hole@0]",
+    "ite_<=[hole@1,hole@0,hole@1,hole@0]",
+    "ite_>[hole@1,hole@0,hole@1,hole@0]",
+    "ite_>=[hole@1,hole@0,hole@1,hole@0]"
+  };
+
+  for(auto const& x: xs) {
+    if(self == x) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
 //   (x0 + x1) * (x2 + x3)
 scalar_op_t scalar_op_t::combine(scalar_ns::op_t op, vector<scalar_op_t> const& ops) {
@@ -501,10 +545,18 @@ scalar_op_t scalar_op_t::make_add() {
 scalar_op_t scalar_op_t::make_mul() {
   return parse_with_ss<scalar_op_t>("*[hole@0,hole@1]");
 }
+// min(x0, x1)
+scalar_op_t scalar_op_t::make_min() {
+  return parse_with_ss<scalar_op_t>("ite_<[hole@0,hole@1,hole@0,hole@1]");
+}
+// max(x0, x1)
+scalar_op_t scalar_op_t::make_max() {
+  return parse_with_ss<scalar_op_t>("ite_>[hole@0,hole@1,hole@0,hole@1]");
+}
 // xn * val
 scalar_op_t scalar_op_t::make_scale_which(float val, int arg) {
-  std::string hole = "hole@" + write_with_ss(arg);
-  std::string constant = "constant{" + write_with_ss(val) + "}";
+  string hole = "hole@" + write_with_ss(arg);
+  string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalar_op_t>("*[" + hole + "," + constant + "]");
 }
 // x0 * val
@@ -513,25 +565,39 @@ scalar_op_t scalar_op_t::make_scale(float val) {
 }
 // x0 - x1
 scalar_op_t scalar_op_t::make_sub() {
-  std::string negate = write_with_ss(make_scale_which(-1.0, 1));
-  std::string op = "+[hole@0," + negate + "]";
+  string negate = write_with_ss(make_scale_which(-1.0, 1));
+  string op = "+[hole@0," + negate + "]";
   return parse_with_ss<scalar_op_t>(op);
 }
 // x0 + val
 scalar_op_t scalar_op_t::make_increment(float val) {
-  std::string constant = "constant{" + write_with_ss(val) + "}";
+  string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalar_op_t>("+[hole@0," + constant + "]");
 }
 
 scalar_op_t scalar_op_t::make_relu() {
-  std::string arg0 = "hole@0";
-  std::string zero = "constant{0}";
-  std::string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
+  string arg0 = "hole@0";
+  string zero = "constant{0}";
+  string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
   return parse_with_ss<scalar_op_t>(ite);
 }
 
 scalar_op_t scalar_op_t::make_relu_deriv() {
   return make_relu().gradient(0);
+}
+
+scalar_op_t scalar_op_t::make_from_castable(castable_t c) {
+  if(c == castable_t::add) {
+    return make_add();
+  }  else if(c == castable_t::mul) {
+    return make_mul();
+  } else if(c == castable_t::min) {
+    return make_min();
+  } else if(c == castable_t::max) {
+    return make_max();
+  } else {
+    throw std::runtime_error("should not reach");
+  }
 }
 
 bool operator==(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs) {

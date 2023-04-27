@@ -1,6 +1,8 @@
 #pragma once
 #include "setup.h"
 
+enum class castable_t { add, mul, min, max };
+
 enum class compare_t { lt, gt, eq, le, ge };
 
 bool compare(compare_t c, float lhs, float rhs);
@@ -113,6 +115,12 @@ struct scalar_op_t {
 
   int num_inputs() const;
 
+  bool is_unary() const;
+
+  bool is_binary() const;
+
+  bool is_castable() const;
+
   // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
   //   (x0 + x1) * (x2 + x3)
   static scalar_op_t combine(op_t op, vector<scalar_op_t> const& ops);
@@ -122,6 +130,12 @@ struct scalar_op_t {
 
   // x0 * x1
   static scalar_op_t make_mul();
+
+  // min(x0, x1);
+  static scalar_op_t make_min();
+
+  // max(x0, x1);
+  static scalar_op_t make_max();
 
   // xn * val
   static scalar_op_t make_scale_which(float val, int arg);
@@ -138,6 +152,8 @@ struct scalar_op_t {
   static scalar_op_t make_relu();
 
   static scalar_op_t make_relu_deriv();
+
+  static scalar_op_t make_from_castable(castable_t castable);
 
   friend std::ostream& operator<<(
     std::ostream& out, scalar_op_t const& op);
