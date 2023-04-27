@@ -5,6 +5,8 @@ enum class compare_t { lt, gt, eq, le, ge };
 
 bool compare(compare_t c, float lhs, float rhs);
 
+namespace scalar_ns {
+
 struct op_t {
   struct constant {
     float value;
@@ -84,7 +86,13 @@ private:
   node_t simplify_once() const;
 };
 
+} // scalar_ns
+
 struct scalar_op_t {
+  using op_t       = scalar_ns::op_t;
+  using node_t     = scalar_ns::node_t;
+  using node_ptr_t = scalar_ns::node_ptr_t;
+
   scalar_op_t();
 
   scalar_op_t(node_t const& other_node);
@@ -137,8 +145,8 @@ private:
   node_ptr_t node;
 };
 
-bool operator==(node_t const& lhs, node_t const& rhs);
-bool operator!=(node_t const& lhs, node_t const& rhs);
+bool operator==(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
+bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
 
 bool operator==(scalar_op_t const& lhs, scalar_op_t const& rhs);
 bool operator!=(scalar_op_t const& lhs, scalar_op_t const& rhs);
@@ -146,11 +154,11 @@ bool operator!=(scalar_op_t const& lhs, scalar_op_t const& rhs);
 std::ostream& operator<<(std::ostream& out, compare_t const& c);
 std::istream& operator>>(std::istream& inn, compare_t& c);
 
-std::ostream& operator<<(std::ostream& out, op_t const& op);
-std::istream& operator>>(std::istream& inn, op_t& op);
+std::ostream& operator<<(std::ostream& out, scalar_ns::op_t const& op);
+std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op);
 
-std::ostream& operator<<(std::ostream& out, node_t const& node);
-std::istream& operator>>(std::istream& inn, node_t& node);
+std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node);
+std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node);
 
 std::ostream& operator<<(std::ostream& out, scalar_op_t const& op);
 std::istream& operator>>(std::istream& inn, scalar_op_t& op);

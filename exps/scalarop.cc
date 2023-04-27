@@ -1,6 +1,8 @@
 #include "../src/einsummable/scalarop.h"
 
 int main() {
+  using namespace scalar_ns;
+
   {
     std::cout << "ADD" << std::endl;
     scalar_op_t op = scalar_op_t::make_add();

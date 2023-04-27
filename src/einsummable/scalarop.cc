@@ -24,6 +24,8 @@ bool compare(compare_t c, float lhs, float rhs) {
   }
 }
 
+namespace scalar_ns {
+
 bool op_t::is_constant() const { return std::holds_alternative< constant >(op); }
 bool op_t::is_hole()     const { return std::holds_alternative< hole     >(op); }
 bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
@@ -403,17 +405,19 @@ void node_t::remap_holes(map<int, int> const& fmap) {
   }
 }
 
+} // scalar_ns
+
 scalar_op_t::scalar_op_t():
   node(nullptr)
 {}
 
-scalar_op_t::scalar_op_t(node_t const& other_node) {
-  node = std::make_shared<node_t>(other_node.simplify());
+scalar_op_t::scalar_op_t(scalar_ns::node_t const& other_node) {
+  node = std::make_shared<scalar_ns::node_t>(other_node.simplify());
 }
 
 scalar_op_t::scalar_op_t(node_ptr_t other_node_ptr) {
   if(other_node_ptr) {
-    node = std::make_shared<node_t>();
+    node = std::make_shared<scalar_ns::node_t>();
     *node = other_node_ptr->simplify();
   }
 }
@@ -421,7 +425,7 @@ scalar_op_t::scalar_op_t(node_ptr_t other_node_ptr) {
 scalar_op_t::scalar_op_t(scalar_op_t const& other) {
   if(other.node) {
     if(!node) {
-      node = std::make_shared<node_t>();
+      node = std::make_shared<scalar_ns::node_t>();
     }
     *node = other.node->copy();
   }
@@ -430,7 +434,7 @@ scalar_op_t::scalar_op_t(scalar_op_t const& other) {
 scalar_op_t& scalar_op_t::operator=(scalar_op_t const& other) {
   if(other.node) {
     if(!node) {
-      node = std::make_shared<node_t>();
+      node = std::make_shared<scalar_ns::node_t>();
     }
     *node = other.node->copy();
   }
@@ -442,8 +446,8 @@ float scalar_op_t::eval(vector<float> const& inputs) const {
 }
 
 scalar_op_t scalar_op_t::gradient(int arg) const {
-  node_t g = node->gradient(arg);
-  node_t g_simplified = g.simplify();
+  scalar_ns::node_t g = node->gradient(arg);
+  scalar_ns::node_t g_simplified = g.simplify();
   return scalar_op_t(g_simplified);
 }
 
@@ -468,14 +472,14 @@ int scalar_op_t::num_inputs() const {
 
 // Example: op = *, ops = (x0 + x1, x2 + x3), this returns
 //   (x0 + x1) * (x2 + x3)
-scalar_op_t scalar_op_t::combine(op_t op, vector<scalar_op_t> const& ops) {
+scalar_op_t scalar_op_t::combine(scalar_ns::op_t op, vector<scalar_op_t> const& ops) {
   if(op.num_inputs() != ops.size()) {
     throw std::runtime_error("cannot combine");
   }
   vector<node_ptr_t> children;
   int offset = 0;
   for(auto const& op: ops) {
-    node_ptr_t child = std::make_shared<node_t>();
+    node_ptr_t child = std::make_shared<scalar_ns::node_t>();
     *child = op.node->copy();
     child->increment_holes(offset);
     offset = child->max_hole() + 1;
@@ -483,7 +487,7 @@ scalar_op_t scalar_op_t::combine(op_t op, vector<scalar_op_t> const& ops) {
   }
 
   scalar_op_t ret;
-  ret.node = std::make_shared<node_t>();
+  ret.node = std::make_shared<scalar_ns::node_t>();
   ret.node->op = op;
   ret.node->children = children;
   return ret;
@@ -530,11 +534,11 @@ scalar_op_t scalar_op_t::make_relu_deriv() {
   return make_relu().gradient(0);
 }
 
-bool operator==(node_t const& lhs, node_t const& rhs) {
+bool operator==(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs) {
   return write_with_ss(lhs) == write_with_ss(rhs);
 }
 
-bool operator!=(node_t const& lhs, node_t const& rhs) {
+bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs) {
   return !(lhs == rhs);
 }
 
@@ -596,7 +600,7 @@ std::istream& operator>>(std::istream& inn, compare_t& compare) {
   return inn;
 }
 
-std::ostream& operator<<(std::ostream& out, op_t const& op) {
+std::ostream& operator<<(std::ostream& out, scalar_ns::op_t const& op) {
   if(op.is_constant()) {
     out << "constant{" << op.get_constant() << "}";
   } else if(op.is_hole()) {
@@ -620,49 +624,49 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, op_t& op) {
+std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op) {
   char c = inn.peek();
   if(c == 'c') {
     istream_expect(inn, "constant{");
     float v;
     inn >> v;
     istream_expect(inn, "}");
-    op.op = op_t::constant{ .value = v };
+    op.op = scalar_ns::op_t::constant{ .value = v };
   } else if(c == 'h') {
     istream_expect(inn, "hole@");
     int i;
     inn >> i;
-    op.op = op_t::hole { .arg = i };
+    op.op = scalar_ns::op_t::hole { .arg = i };
   } else if(c == '+') {
     inn.get();
-    op.op = op_t::add{ };
+    op.op = scalar_ns::op_t::add{ };
   } else if(c == '*') {
     inn.get();
-    op.op = op_t::mul{ };
+    op.op = scalar_ns::op_t::mul{ };
   } else if(c == 'e') {
     istream_expect(inn, "exp");
-    op.op = op_t::exp{ };
+    op.op = scalar_ns::op_t::exp{ };
   } else if(c == 'p') {
     istream_expect(inn, "power{");
     int i;
     inn >> i;
-    op.op = op_t::power{ .to_the = i };
+    op.op = scalar_ns::op_t::power{ .to_the = i };
     istream_expect(inn, "}");
   } else if(c == 's') {
     istream_expect(inn, "sqrt");
-    op.op = op_t::sqrt { };
+    op.op = scalar_ns::op_t::sqrt { };
   } else if(c == 'i') {
     istream_expect(inn, "ite_");
     compare_t c;
     inn >> c;
-    op.op = op_t::ite{ .compare = c };
+    op.op = scalar_ns::op_t::ite{ .compare = c };
   } else {
     throw std::runtime_error("should not happen");
   }
   return inn;
 }
 
-std::ostream& operator<<(std::ostream& out, node_t const& node) {
+std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node) {
   out << node.op;
   if(node.children.size() == 0) {
     return out;
@@ -679,7 +683,7 @@ std::ostream& operator<<(std::ostream& out, node_t const& node) {
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, node_t& node) {
+std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
   node.children.resize(0);
 
   inn >> node.op;
@@ -691,14 +695,14 @@ std::istream& operator>>(std::istream& inn, node_t& node) {
 
   istream_expect(inn, "[");
   {
-    node_ptr_t child = std::make_shared<node_t>();
+    auto child = std::make_shared<scalar_ns::node_t>();
     inn >> (*child);
     node.children.push_back(child);
   }
   if(n > 1) {
     for(int i = 1; i != n; ++i) {
       istream_expect(inn, ",");
-      node_ptr_t child = std::make_shared<node_t>();
+      auto child = std::make_shared<scalar_ns::node_t>();
       inn >> (*child);
       node.children.push_back(child);
     }
@@ -717,7 +721,7 @@ std::ostream& operator<<(std::ostream& out, scalar_op_t const& op) {
 }
 
 std::istream& operator>>(std::istream& inn, scalar_op_t& op) {
-  node_ptr_t node = std::make_shared<node_t>();
+  auto node = std::make_shared<scalar_ns::node_t>();
   inn >> (*node);
   op = scalar_op_t(node);
   return inn;
