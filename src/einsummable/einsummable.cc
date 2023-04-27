@@ -1,47 +1,5 @@
 #include "einsummable.h"
 
-bool is_unary_scalar_join(scalar_join_t const& op)
-{
-  if(op == scalar_join_t::add) {
-    return false;
-  } else if(op == scalar_join_t::sub)    {
-    return false;
-  } else if(op == scalar_join_t::mul)    {
-    return false;
-  } else if(op == scalar_join_t::relu)   {
-    return true;
-  } else if(op == scalar_join_t::negate) {
-    return true;
-  } else if(op == scalar_join_t::min)    {
-    return false;
-  } else if(op == scalar_join_t::max)    {
-    return false;
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-}
-
-bool is_binary_scalar_join(scalar_join_t const& op)
-{
-  if(op == scalar_join_t::add) {
-    return true;
-  } else if(op == scalar_join_t::sub)    {
-    return true;
-  } else if(op == scalar_join_t::mul)    {
-    return true;
-  } else if(op == scalar_join_t::relu)   {
-    return false;
-  } else if(op == scalar_join_t::negate) {
-    return false;
-  } else if(op == scalar_join_t::min)    {
-    return true;
-  } else if(op == scalar_join_t::max)    {
-    return true;
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-}
-
 inline
 einsummable_t _einsummable_matmul_helper(
   uint64_t di, uint64_t dj, uint64_t dk,
@@ -51,7 +9,7 @@ einsummable_t _einsummable_matmul_helper(
     .join_shape = {di, dk, dj},
     .inns = inns,
     .out_rank = 2,
-    .join = scalar_join_t::mul,
+    .join = scalarop_t::make_mul(),
     .castable = castable_t::add
   };
 }

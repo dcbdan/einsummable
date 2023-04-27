@@ -9,10 +9,10 @@ struct einsummable_t {
   vector<vector<int>> inns;
   int out_rank;
 
-  scalar_op_t join;
+  scalarop_t join;
 
   // may be none when out_rank == join_rank
-  option<castable_t> castable;
+  optional<castable_t> castable;
 
   // ij,jk->ik
   // 02 21  01

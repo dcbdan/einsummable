@@ -6,7 +6,7 @@ add_library(einsummable
   STATIC
   #src/einsummable/copyregion.cc
   #src/einsummable/coster.cc
-  #src/einsummable/einsummable.cc
+  src/einsummable/einsummable.cc
   #src/einsummable/graph.cc
   #src/einsummable/indexer.cc
   #src/einsummable/partdim.cc
