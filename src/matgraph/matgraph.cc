@@ -686,6 +686,11 @@ void matgraph_t::print() const
   }
 }
 
+tuple<uint64_t, uint64_t> const& matgraph_t::shape(int id) const
+{
+  return nodes[id].out_shape;
+}
+
 tuple<graph_t, map<int, int> >
 matgraph_t::compile() const
 {

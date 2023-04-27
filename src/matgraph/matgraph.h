@@ -49,6 +49,8 @@ struct matgraph_t {
 
   void print() const;
 
+  tuple<uint64_t, uint64_t> const& shape(int id) const;
+
 private:
   struct matmul_t {
     bool t_lhs;
