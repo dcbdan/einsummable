@@ -4,17 +4,17 @@ project(einsummable)
 
 add_library(einsummable
   STATIC
-  #src/einsummable/copyregion.cc
+  src/einsummable/copyregion.cc
   #src/einsummable/coster.cc
   src/einsummable/einsummable.cc
-  #src/einsummable/graph.cc
-  #src/einsummable/indexer.cc
-  #src/einsummable/partdim.cc
-  #src/einsummable/partition.cc
+  src/einsummable/graph.cc
+  src/einsummable/indexer.cc
+  src/einsummable/partdim.cc
+  src/einsummable/partition.cc
   #src/einsummable/reference.cc
   src/einsummable/scalarop.cc
   src/einsummable/setup.cc
-  #src/einsummable/taskgraph.cc
+  src/einsummable/taskgraph.cc
 )
 
 #add_executable(make_3dmatmul exps/make_3dmatmul.cc)

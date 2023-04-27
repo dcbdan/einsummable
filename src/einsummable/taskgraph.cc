@@ -407,7 +407,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
   int out_rank = join_node.op.out_rank();
   int agg_rank = join_rank - out_rank;
 
-  castable_t castable;
+  optional<castable_t> maybe_castable;
 
   partition_t out_partition(vector<partdim_t>(
     _join_partdims.begin(),
@@ -421,7 +421,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 
     // an agg will only happen if this is an einsummable node;
     // so set the castable value
-    castable = graph.nodes[join_gid].op.get_einsummable().castable;
+    maybe_castable = graph.nodes[join_gid].op.get_einsummable().castable.value();
   }
 
   // There are out index, agg index, join index
@@ -480,7 +480,9 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         if(ids.size() == 1) {
           partials[loc] = ids[0];
         } else {
-          int local_aggd_id = taskgraph.insert_consumed_aggregate(loc, castable, ids);
+          castable_t& castable = maybe_castable.value();
+          int local_aggd_id =
+            taskgraph.insert_consumed_aggregate(loc, castable, ids);
           partials[loc] = local_aggd_id;
         }
       }
@@ -555,7 +557,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       }
       touch_t _selection_to_refinement_touch {
         .selection = _selection_to_refinement_ts,
-        .castable = optional<castable_t>(castable)
+        .castable = maybe_castable
       };
       // ref_id by reference!
       auto add_selection_to_refinement = [&](int loc, int& ref_id, int sel_id) {
@@ -578,7 +580,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       }
       touch_t _out_to_refinement_touch {
         .selection = _out_to_refinement_ts,
-        .castable = optional<castable_t>(castable)
+        .castable = maybe_castable
       };
       // ref_id by reference!
       auto add_out_to_refinement = [&](int loc, int& ref_id, int partial_id) {
@@ -663,12 +665,14 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
                 if(loc == partial_loc) {
                   // partial_id will also be moved since required_locs.size() > 1.
                   // So don't consume the output!
+                  castable_t castable = maybe_castable.value();
                   taskgraph.add_to_partial_the_full_aggregate(
                     builder, partial_id, castable, false);
                 } else {
                   // Here, the moved data can be consumed
                   int moved_partial_id =
                     taskgraph.insert_move(partial_loc, loc, partial_id);
+                  castable_t castable = maybe_castable.value();
                   taskgraph.add_to_partial_the_full_aggregate(
                     builder, moved_partial_id, castable, true);
                 }
@@ -683,12 +687,14 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
                 if(loc == partial_loc) {
                   // subset_id will also be moved since required_locs.size() > 1.
                   // So don't consume the output!
+                  castable_t castable = maybe_castable.value();
                   taskgraph.add_to_partial_the_full_aggregate(
                     builder, subset_id, castable, false);
                 } else {
                   // Here, the moved data can be consumed
                   int moved_subset_id =
                     taskgraph.insert_move(partial_loc, loc, subset_id);
+                  castable_t castable = maybe_castable.value();
                   taskgraph.add_to_partial_the_full_aggregate(
                     builder, moved_subset_id, castable, true);
                 }
