@@ -1,5 +1,8 @@
 #include "kernels.h"
 
+#include <mkl_cblas.h>
+#include <mkl.h>
+
 #define _unary_ew_loop(name, op) \
   void name( \
     uint64_t n, \
@@ -364,4 +367,105 @@ build_touch(touch_t const& touch)
   }
 
   throw std::runtime_error("touch kernel not implemented");
+}
+
+// trans lhs   trans rhs
+// F           F          ij,jk->ik
+// T           F          ji,jk->ik
+// F           T          ji,jk->ik
+// T           T          ji,kj->ik
+void matrix_multiply_update(
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs,
+  float const& beta)
+{
+  cblas_sgemm(
+    CblasRowMajor,
+    trans_lhs ? CblasTrans : CblasNoTrans,
+    trans_rhs ? CblasTrans : CblasNoTrans,
+    ni,nk,nj,
+    1.0f,
+    lhs,
+    trans_lhs ? ni : nj,
+    rhs,
+    trans_rhs ? nj : nk,
+    beta,
+    out,
+    nk);
+}
+
+void matrix_multiply(
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs)
+{
+  matrix_multiply_update(ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, 0.0);
+}
+
+// b<ij> , b<jk> -> b<ik>
+//
+// This kernel includes things like
+//   bij,jk->ik
+//   ji,bjk->bik
+//   ij,jk->bik
+//   bij,bjk->ik
+// by just looping over the batched dimension
+void broadcast_matrix_multiply(
+  uint64_t const& nb,
+  bool const& batched_lhs,
+  bool const& batched_rhs,
+  bool const& batched_out,
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs)
+{
+  if(nb == 1) {
+    matrix_multiply(ni,nj,nk,trans_lhs, trans_rhs, out, lhs, rhs);
+  }
+
+  uint64_t offset_lhs = batched_lhs ? ni*nj : 0 ;
+  uint64_t offset_rhs = batched_rhs ? nj*nk : 0 ;
+  if(batched_out) {
+    uint64_t offset_out = ni*nk;
+    for(int b = 0; b != nb; ++b) {
+      matrix_multiply(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs);
+      lhs += offset_lhs;
+      rhs += offset_rhs;
+      out += offset_out;
+    }
+  } else {
+    matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 0.0);
+    lhs += offset_lhs;
+    rhs += offset_rhs;
+    for(int b = 1; b != nb; ++b) {
+      matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 1.0);
+      lhs += offset_lhs;
+      rhs += offset_rhs;
+    }
+  }
+}
+
+std::function<void(float*, float const*)>
+build_einsummable(
+  int num_threads,
+  einsummable_t const& einsummable)
+{
+  // TODO
+  return [](float*,float const*){};
 }

@@ -61,6 +61,10 @@ target_link_libraries(matrixgraphexp matrixgraph)
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
 
+  find_package(MKL REQUIRED)
+
+  include_directories(${MKL_INCLUDE})
+
   include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
 
   add_library(cpu_execution_engine
@@ -75,19 +79,29 @@ if(${CPU_EXECUTION_ENGINE})
   target_link_libraries(cpuexec einsummable)
   target_link_libraries(cpuexec cpu_execution_engine)
   target_link_libraries(cpuexec ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec MKL::MKL)
 
   add_executable(cpuexec_ew exps/cpuexec_ew.cc)
   target_link_libraries(cpuexec_ew einsummable)
   target_link_libraries(cpuexec_ew cpu_execution_engine)
   target_link_libraries(cpuexec_ew ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec_ew MKL::MKL)
 
   add_executable(cpuexec_touch exps/cpuexec_touch.cc)
   target_link_libraries(cpuexec_touch einsummable)
   target_link_libraries(cpuexec_touch cpu_execution_engine)
   target_link_libraries(cpuexec_touch ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec_touch MKL::MKL)
 
   add_executable(cpuexec_permute exps/cpuexec_permute.cc)
   target_link_libraries(cpuexec_permute einsummable)
   target_link_libraries(cpuexec_permute cpu_execution_engine)
   target_link_libraries(cpuexec_permute ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec_permute MKL::MKL)
+
+  add_executable(cpuexec_matmul exps/cpuexec_matmul.cc)
+  target_link_libraries(cpuexec_matmul einsummable)
+  target_link_libraries(cpuexec_matmul cpu_execution_engine)
+  target_link_libraries(cpuexec_matmul ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec_matmul MKL::MKL)
 endif()

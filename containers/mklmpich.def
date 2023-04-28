@@ -1,0 +1,13 @@
+Bootstrap: localimage
+From: mpich.sif
+
+%post
+  apt-get install -y gawk
+  cd /opt
+  bash mkl_install.sh -a -s --eula accept --components intel.oneapi.lin.mkl.devel
+  rm mkl_install.sh
+
+%files
+  ./l_BaseKit_p_2023.1.0.46401_offline.sh /opt/mkl_install.sh
+
+

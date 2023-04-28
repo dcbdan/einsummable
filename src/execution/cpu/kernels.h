@@ -23,3 +23,58 @@ build_binary_elementwise_kernel(
 
 std::function<void(float*, float const*)>
 build_touch(touch_t const& touch);
+
+std::function<void(float*, float const*)>
+build_einsummable(
+  int num_threads,
+  einsummable_t const& einsummable);
+
+// trans lhs   trans rhs
+// F           F          ij,jk->ik
+// T           F          ji,jk->ik
+// F           T          ji,jk->ik
+// T           T          ji,kj->ik
+void matrix_multiply_update(
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs,
+  float const& beta);
+
+void matrix_multiply(
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs);
+
+// b<ij> , b<jk> -> b<ik>
+//
+// This kernel includes things like
+//   bij,jk->ik
+//   ji,bjk->bik
+//   ij,jk->bik
+//   bij,bjk->ik
+// by just looping over the batched dimension
+void broadcast_matrix_multiply(
+  uint64_t const& nb,
+  bool const& batched_lhs,
+  bool const& batched_rhs,
+  bool const& batched_out,
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  float* out,
+  float const* lhs,
+  float const* rhs);
+
+
