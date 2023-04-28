@@ -67,7 +67,7 @@ if(${CPU_EXECUTION_ENGINE})
     STATIC
     src/execution/cpu/execute.cc
     src/execution/cpu/mpi_class.cc
-    src/execution/cpu/elementwise.cc
+    src/execution/cpu/kernels.cc
   )
 
   add_executable(cpuexec exps/cpuexec.cc)
@@ -79,4 +79,9 @@ if(${CPU_EXECUTION_ENGINE})
   target_link_libraries(cpuexec_ew einsummable)
   target_link_libraries(cpuexec_ew cpu_execution_engine)
   target_link_libraries(cpuexec_ew ${MPI_CXX_LIBRARIES})
+
+  add_executable(cpuexec_touch exps/cpuexec_touch.cc)
+  target_link_libraries(cpuexec_touch einsummable)
+  target_link_libraries(cpuexec_touch cpu_execution_engine)
+  target_link_libraries(cpuexec_touch ${MPI_CXX_LIBRARIES})
 endif()

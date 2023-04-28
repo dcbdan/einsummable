@@ -1,4 +1,4 @@
-#include "../src/execution/cpu/elementwise.h"
+#include "../src/execution/cpu/kernels.h"
 
 #include "../src/einsummable/reference.h"
 
@@ -11,8 +11,8 @@ void f(uint64_t n, float* out, vector<float*> const& inns) {
   auto const& lhs = inns[0];
   auto const& rhs = inns[1];
   for(uint64_t i = 0; i != n; ++i) {
-    //out[i] = lhs[i] + rhs[i];
-    out[i] = lhs[i] - 0.1 * rhs[i];
+    out[i] = lhs[i] + rhs[i];
+    //out[i] = lhs[i] - 0.1 * rhs[i];
   }
 }
 
@@ -25,13 +25,14 @@ void main01() {
     }
   );
 
-  int num_threads = 12;
+  int num_threads = 1;
   uint64_t dn = 10000*10000;
   //uint64_t dn = 1000;
   auto f_built = build_binary_elementwise_kernel(
     num_threads,
     dn,
-    gradupdate);
+    scalarop_t::make_add());
+    //gradupdate);
     //scalarop_t::make_sub());
 
   buffer_t lhs = std::make_shared<buffer_holder_t>(dn);
