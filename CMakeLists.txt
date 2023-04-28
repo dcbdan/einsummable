@@ -68,6 +68,7 @@ if(${CPU_EXECUTION_ENGINE})
     src/execution/cpu/execute.cc
     src/execution/cpu/mpi_class.cc
     src/execution/cpu/kernels.cc
+    src/execution/cpu/permute.cc
   )
 
   add_executable(cpuexec exps/cpuexec.cc)
@@ -84,4 +85,9 @@ if(${CPU_EXECUTION_ENGINE})
   target_link_libraries(cpuexec_touch einsummable)
   target_link_libraries(cpuexec_touch cpu_execution_engine)
   target_link_libraries(cpuexec_touch ${MPI_CXX_LIBRARIES})
+
+  add_executable(cpuexec_permute exps/cpuexec_permute.cc)
+  target_link_libraries(cpuexec_permute einsummable)
+  target_link_libraries(cpuexec_permute cpu_execution_engine)
+  target_link_libraries(cpuexec_permute ${MPI_CXX_LIBRARIES})
 endif()

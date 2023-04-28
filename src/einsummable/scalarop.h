@@ -129,6 +129,8 @@ struct scalarop_t {
 
   static scalarop_t from_string(string const& str);
 
+  static scalarop_t make_identity();
+
   // x0 + x1
   static scalarop_t make_add();
 

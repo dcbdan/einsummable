@@ -570,6 +570,10 @@ scalarop_t scalarop_t::from_string(string const& str) {
   return parse_with_ss<scalarop_t>(str);
 }
 
+scalarop_t scalarop_t::make_identity() {
+  return parse_with_ss<scalarop_t>("hole@0");
+}
+
 // x0 + x1
 scalarop_t scalarop_t::make_add() {
   return parse_with_ss<scalarop_t>("+[hole@0,hole@1]");

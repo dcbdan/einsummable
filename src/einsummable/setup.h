@@ -118,6 +118,11 @@ vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
   return vector_from_each_tuple(xys, T, 0);
 }
 
+template <typename T, typename U>
+vector<U> vector_mapsnd(vector<tuple<T, U>> const& xys) {
+  return vector_from_each_tuple(xys, T, 1);
+}
+
 template <typename T>
 [[nodiscard]] vector<T> vector_concatenate(vector<T> vs, vector<T> const& add_these) {
   vs.reserve(vs.size() + add_these.size());

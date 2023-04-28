@@ -264,6 +264,16 @@ buffer_t reference_einsummable(
 {
   buffer_t ret = std::make_shared<buffer_holder_t>(product(einsummable.out_shape()));
 
+  reference_einsummable_inplace(einsummable, ret, inputs);
+
+  return ret;
+}
+
+void reference_einsummable_inplace(
+  einsummable_t const& einsummable,
+  buffer_t& ret,
+  vector<buffer_t> const& inputs)
+{
   auto const& join_shape = einsummable.join_shape;
   auto mid = join_shape.begin() + einsummable.out_rank;
   vector<uint64_t> out_shape(join_shape.begin(), mid);
@@ -313,7 +323,7 @@ buffer_t reference_einsummable(
 
   if(agg_shape.size() == 0) {
     // nothing else to do
-    return ret;
+    return;
   }
 
   auto update = einsummable_update(einsummable.castable.value());
@@ -330,8 +340,6 @@ buffer_t reference_einsummable(
     }
     agg_index = vector<uint64_t>(agg_shape.size(), 0);
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
-
-  return ret;
 }
 
 std::function<void(float&, float const&)> reference_touch_update(
