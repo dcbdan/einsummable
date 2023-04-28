@@ -2,6 +2,16 @@ cmake_minimum_required(VERSION 3.2)
 
 project(einsummable)
 
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+#set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
+
 add_library(einsummable
   STATIC
   src/einsummable/copyregion.cc
@@ -57,10 +67,16 @@ if(${CPU_EXECUTION_ENGINE})
     STATIC
     src/execution/cpu/execute.cc
     src/execution/cpu/mpi_class.cc
+    src/execution/cpu/elementwise.cc
   )
 
   add_executable(cpuexec exps/cpuexec.cc)
   target_link_libraries(cpuexec einsummable)
   target_link_libraries(cpuexec cpu_execution_engine)
   target_link_libraries(cpuexec ${MPI_CXX_LIBRARIES})
+
+  add_executable(cpuexec_ew exps/cpuexec_ew.cc)
+  target_link_libraries(cpuexec_ew einsummable)
+  target_link_libraries(cpuexec_ew cpu_execution_engine)
+  target_link_libraries(cpuexec_ew ${MPI_CXX_LIBRARIES})
 endif()

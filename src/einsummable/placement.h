@@ -47,7 +47,7 @@ struct placement_t {
           best = score;
         }
       }
-      return best;
+      return ret;
     };
 
     // TODO set em here
