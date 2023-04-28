@@ -37,14 +37,34 @@ touchdim_t random_touchdim() {
   return ret;
 }
 
-touch_t random_touch(int sz, optional<castable_t> castable) {
+optional<castable_t> random_castable() {
+  int i = runif(-1, 4);
+  if(i == -1) {
+    return optional<castable_t>();
+  }
+  if(i == 0) {
+    return optional<castable_t>(castable_t::add);
+  }
+  if(i == 1) {
+    return optional<castable_t>(castable_t::mul);
+  }
+  if(i == 2) {
+    return optional<castable_t>(castable_t::min);
+  }
+  if(i == 3) {
+    return optional<castable_t>(castable_t::max);
+  }
+  throw std::runtime_error("should not reach");
+}
+
+touch_t random_touch(int sz) {
   vector<touchdim_t> selection;
   for(int i = 0; i != sz; ++i) {
     selection.push_back(random_touchdim());
   }
   return touch_t {
     .selection = selection,
-    .castable = castable
+    .castable = random_castable()
   };
 }
 
@@ -84,23 +104,23 @@ void test_touch(touch_t const& touch) {
 int main() {
   int n = 20;
 
-  std::cout << "dim 1, castable none" << std::endl;
+  std::cout << "dim 1" << std::endl;
   for(int i = 0; i != n; ++i) {
-    test_touch(random_touch(1, optional<castable_t>()));
+    test_touch(random_touch(1));
   }
 
-  std::cout << "dim 2, castable none" << std::endl;
+  std::cout << "dim 2" << std::endl;
   for(int i = 0; i != n; ++i) {
-    test_touch(random_touch(2, optional<castable_t>()));
+    test_touch(random_touch(2));
   }
 
-  std::cout << "dim 3, castable none" << std::endl;
+  std::cout << "dim 3" << std::endl;
   for(int i = 0; i != n; ++i) {
-    test_touch(random_touch(3, optional<castable_t>()));
+    test_touch(random_touch(3));
   }
 
-  std::cout << "dim 4, castable none" << std::endl;
+  std::cout << "dim 4" << std::endl;
   for(int i = 0; i != n; ++i) {
-    test_touch(random_touch(4, optional<castable_t>()));
+    test_touch(random_touch(4));
   }
 }
