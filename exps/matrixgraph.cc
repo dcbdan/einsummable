@@ -15,7 +15,7 @@ void ff(
   );
   scalarop_t relu = scalarop_t::make_relu();
 
-  matgraph_t mgraph;
+  matrixgraph_t mgraph;
 
   int x = mgraph.insert_input(dn, dp);
   int y = mgraph.insert_input(dn, dd);
@@ -114,7 +114,7 @@ int main() {
   uint64_t dn = 20;
   uint64_t dp = 10;
   uint64_t dd = 1;
-  int niter = 1000;
+  int niter = 8;
   vector<uint64_t> dws{20,20,20};
   float learning_rate = 0.3;
   ff(dn, dp, dd, dws, niter, learning_rate);

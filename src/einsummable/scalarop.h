@@ -71,7 +71,7 @@ struct node_t {
 
   node_t simplify() const;
 
-  string to_cppstr() const;
+  string to_cppstr(std::function<string(int)> write_hole) const;
 
   void which_inputs(set<int>& items) const;
 
@@ -121,13 +121,7 @@ struct scalarop_t {
 
   bool is_constant_of(float val) const;
 
-  string to_cppstr() const;
-
-  std::function<float(float const&)>
-  build_unary() const;
-
-  std::function<float(float const&, float const&)>
-  build_binary() const;
+  string to_cppstr(std::function<string(int)> write_hole) const;
 
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)

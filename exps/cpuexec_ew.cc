@@ -16,7 +16,7 @@ void f(uint64_t n, float* out, vector<float*> const& inns) {
   }
 }
 
-int main() {
+void main01() {
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
@@ -25,7 +25,7 @@ int main() {
     }
   );
 
-  int num_threads = 1;
+  int num_threads = 12;
   uint64_t dn = 10000*10000;
   //uint64_t dn = 1000;
   auto f_built = build_binary_elementwise_kernel(
@@ -54,5 +54,10 @@ int main() {
     //f(dn, out->data, lhs->data, rhs->data);
     f(dn, out->data, {lhs->data, rhs->data});
   }
+}
 
+int main() {
+  //scalarop_t s = scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]");
+  //print_elementwise_function(s);
+  main01();
 }

@@ -346,33 +346,33 @@ node_t node_t::simplify_once() const {
   };
 }
 
-string node_t::to_cppstr() const {
+string node_t::to_cppstr(std::function<string(int)> w) const {
   if(op.is_constant()) {
     return write_with_ss(op.get_constant());
   } else if(op.is_hole()) {
-    return "x" + write_with_ss(op.get_which_input());
+    return w(op.get_which_input());
   } else if(op.is_add()) {
-    auto lhs = children[0].to_cppstr();
-    auto rhs = children[1].to_cppstr();
+    auto lhs = children[0].to_cppstr(w);
+    auto rhs = children[1].to_cppstr(w);
     return "(" + lhs + "+" + rhs + ")";
   } else if(op.is_mul()) {
-    auto lhs = children[0].to_cppstr();
-    auto rhs = children[1].to_cppstr();
+    auto lhs = children[0].to_cppstr(w);
+    auto rhs = children[1].to_cppstr(w);
     return "(" + lhs + "*" + rhs + ")";
   } else if(op.is_exp()) {
-    auto inn = children[0].to_cppstr();
+    auto inn = children[0].to_cppstr(w);
     return "std::exp(" + inn + ")";
   } else if(op.is_power()) {
-    auto inn = children[0].to_cppstr();
+    auto inn = children[0].to_cppstr(w);
     return "std::pow(" + inn + "," + write_with_ss(op.get_power()) + ")";
   } else if(op.is_sqrt()) {
-    auto inn = children[0].to_cppstr();
+    auto inn = children[0].to_cppstr(w);
     return "std::sqrt(" + inn + ")";
   } else if(op.is_ite()) {
-    auto i0 = children[0].to_cppstr();
-    auto i1 = children[1].to_cppstr();
-    auto i2 = children[2].to_cppstr();
-    auto i3 = children[3].to_cppstr();
+    auto i0 = children[0].to_cppstr(w);
+    auto i1 = children[1].to_cppstr(w);
+    auto i2 = children[2].to_cppstr(w);
+    auto i3 = children[3].to_cppstr(w);
     auto c = write_with_ss(op.get_ite_compare());
     return "(" + i0 + c + i1 + "?" + i2 + ":" + i3 + ")";
   } else {
@@ -526,83 +526,9 @@ bool scalarop_t::is_constant_of(float val) const {
   return node.op.is_constant() && node.op.get_constant() == val;
 }
 
-string scalarop_t::to_cppstr() const {
-  return node.to_cppstr();
+string scalarop_t::to_cppstr(std::function<string(int)> w) const {
+  return node.to_cppstr(w);
 }
-
-inline float _binary_add(float const& lhs, float const& rhs) {
-  return lhs + rhs;
-}
-inline float _binary_mul(float const& lhs, float const& rhs) {
-  return lhs * rhs;
-}
-inline float _binary_sub(float const& lhs, float const& rhs) {
-  return lhs - rhs;
-}
-inline float _binary_min(float const& lhs, float const& rhs) {
-  return lhs < rhs ? lhs : rhs;
-}
-inline float _binary_max(float const& lhs, float const& rhs) {
-  return lhs < rhs ? rhs : lhs;
-}
-inline float _unary_relu(float const& inn) {
-  return inn < 0 ? 0.0 : inn;
-}
-inline float _unary_relu_deriv(float const& inn) {
-  return inn < 0 ? 0.0 : 1.0;
-}
-
-std::function<float(float const&)>
-scalarop_t::build_unary() const
-{
-  if(!is_unary()) {
-    throw std::runtime_error("cannot build unary op");
-  }
-
-  if(*this == make_relu()) {
-    return _unary_relu;
-  }
-  if(*this == make_relu_deriv()) {
-    return _unary_relu_deriv;
-  }
-
-  node_t nn = node;
-  return [nn](float const& inn) {
-    return nn.eval({inn});
-  };
-}
-
-std::function<float(float const&, float const&)>
-scalarop_t::build_binary() const
-{
-  if(!is_binary()) {
-    throw std::runtime_error("cannot build binary op");
-  }
-
-  if(*this == make_add()) {
-    return _binary_add;
-  }
-  if(*this == make_mul()) {
-    return _binary_mul;
-  }
-  if(*this == make_sub()) {
-    return _binary_sub;
-  }
-  if(*this == make_min()) {
-    return _binary_min;
-  }
-  if(*this == make_max()) {
-    return _binary_max;
-  }
-
-  node_t nn = node;
-  return [nn](float const& lhs, float const& rhs) {
-    return nn.eval({lhs,rhs});
-  };
-
-  return [](float const&, float const&){ return 1.0; };
-}
-
 
 // Example: combining_op = (y0 * y1) + y2, ops = (x0 + x1, x0 + x1, 7*x0), this replaces
 // y0 with x0 + x1 and

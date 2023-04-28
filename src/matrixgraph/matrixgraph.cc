@@ -1,6 +1,6 @@
 #include "matrixgraph.h"
 
-int matgraph_t::insert_ew(scalarop_t op, int inn)
+int matrixgraph_t::insert_ew(scalarop_t op, int inn)
 {
   auto const& out_shape = nodes[inn].out_shape;
   if(!op.is_unary()) {
@@ -14,7 +14,7 @@ int matgraph_t::insert_ew(scalarop_t op, int inn)
     out_shape);
 }
 
-int matgraph_t::insert_ewb(scalarop_t op, int lhs, int rhs)
+int matrixgraph_t::insert_ewb(scalarop_t op, int lhs, int rhs)
 {
   if(!op.is_binary()) {
     throw std::runtime_error("exepects binary scalar join op");
@@ -36,7 +36,7 @@ int matgraph_t::insert_ewb(scalarop_t op, int lhs, int rhs)
   );
 }
 
-int matgraph_t::insert_matmul_ss(int lhs, int rhs)
+int matrixgraph_t::insert_matmul_ss(int lhs, int rhs)
 {
   auto const& [i,j]  = nodes[lhs].out_shape;
   auto const& [j_,k] = nodes[rhs].out_shape;
@@ -54,7 +54,7 @@ int matgraph_t::insert_matmul_ss(int lhs, int rhs)
     {i,k});
 }
 
-int matgraph_t::insert_matmul_ts(int lhs, int rhs)
+int matrixgraph_t::insert_matmul_ts(int lhs, int rhs)
 {
   auto const& [j,i]  = nodes[lhs].out_shape;
   auto const& [j_,k] = nodes[rhs].out_shape;
@@ -72,7 +72,7 @@ int matgraph_t::insert_matmul_ts(int lhs, int rhs)
     {i,k});
 }
 
-int matgraph_t::insert_matmul_st(int lhs, int rhs)
+int matrixgraph_t::insert_matmul_st(int lhs, int rhs)
 {
   auto const& [i,j]  = nodes[lhs].out_shape;
   auto const& [k,j_] = nodes[rhs].out_shape;
@@ -90,7 +90,7 @@ int matgraph_t::insert_matmul_st(int lhs, int rhs)
     {i,k});
 }
 
-int matgraph_t::insert_matmul_tt(int lhs, int rhs)
+int matrixgraph_t::insert_matmul_tt(int lhs, int rhs)
 {
   auto const& [j,i]  = nodes[lhs].out_shape;
   auto const& [k,j_] = nodes[rhs].out_shape;
@@ -108,21 +108,21 @@ int matgraph_t::insert_matmul_tt(int lhs, int rhs)
     {i,k});
 }
 
-int matgraph_t::insert_input(uint64_t d0, uint64_t d1)
+int matrixgraph_t::insert_input(uint64_t d0, uint64_t d1)
 {
   return insert(
     op_t(input_t {}),
     {d0, d1});
 }
 
-int matgraph_t::insert_ones(uint64_t d0, uint64_t d1)
+int matrixgraph_t::insert_ones(uint64_t d0, uint64_t d1)
 {
   return insert(
     op_t(ones_t {}),
     {d0, d1});
 }
 
-int matgraph_t::insert_adds(vector<int> items) {
+int matrixgraph_t::insert_adds(vector<int> items) {
   if(items.size() < 2) {
     throw std::runtime_error("invalid insert_adds input");
   }
@@ -143,7 +143,7 @@ int matgraph_t::insert_adds(vector<int> items) {
   return items[0];
 }
 
-optional<int> matgraph_t::node_t::inn0() const
+optional<int> matrixgraph_t::node_t::inn0() const
 {
   using std::get;
 
@@ -165,7 +165,7 @@ optional<int> matgraph_t::node_t::inn0() const
   }
 }
 
-optional<int> matgraph_t::node_t::inn1() const
+optional<int> matrixgraph_t::node_t::inn1() const
 {
   using std::get;
 
@@ -186,7 +186,7 @@ optional<int> matgraph_t::node_t::inn1() const
   }
 }
 
-vector<int> matgraph_t::node_t::inns() const {
+vector<int> matrixgraph_t::node_t::inns() const {
   auto i0 = inn0();
   if(i0) {
     auto i1 = inn1();
@@ -199,12 +199,12 @@ vector<int> matgraph_t::node_t::inns() const {
     return {};
   }
 }
-set<int> matgraph_t::node_t::inns_set() const {
+set<int> matrixgraph_t::node_t::inns_set() const {
   auto is = inns();
   return set<int>(is.begin(), is.end());
 }
 
-int matgraph_t::insert(matgraph_t::op_t op, tuple<uint64_t, uint64_t> out_shape)
+int matrixgraph_t::insert(matrixgraph_t::op_t op, tuple<uint64_t, uint64_t> out_shape)
 {
   int ret = nodes.size();
 
@@ -223,28 +223,28 @@ int matgraph_t::insert(matgraph_t::op_t op, tuple<uint64_t, uint64_t> out_shape)
   return ret;
 }
 
-bool matgraph_t::node_t::is_einsummable() const
+bool matrixgraph_t::node_t::is_einsummable() const
 {
   return is_matmul() || is_ew() || is_ewb();
 }
 
-bool matgraph_t::node_t::is_matmul() const
+bool matrixgraph_t::node_t::is_matmul() const
 {
   return std::holds_alternative<matmul_t>(op);
 }
-bool matgraph_t::node_t::is_ew() const
+bool matrixgraph_t::node_t::is_ew() const
 {
   return std::holds_alternative<ew_t>(op);
 }
-bool matgraph_t::node_t::is_ewb() const
+bool matrixgraph_t::node_t::is_ewb() const
 {
   return std::holds_alternative<ewb_t>(op);
 }
-bool matgraph_t::node_t::is_input() const
+bool matrixgraph_t::node_t::is_input() const
 {
   return std::holds_alternative<input_t>(op);
 }
-bool matgraph_t::node_t::is_ones() const
+bool matrixgraph_t::node_t::is_ones() const
 {
   return std::holds_alternative<ones_t>(op);
 }
@@ -252,7 +252,7 @@ bool matgraph_t::node_t::is_ones() const
 
 // TODO: implement this without recursion, following the looping structure
 //       of compile.
-vector<int> matgraph_t::backprop(int out, vector<int> weights)
+vector<int> matrixgraph_t::backprop(int out, vector<int> weights)
 {
   // It should be the case that every node in nodeset will have
   // a gradient computed for it.
@@ -283,7 +283,7 @@ vector<int> matgraph_t::backprop(int out, vector<int> weights)
   return ret;
 }
 
-int matgraph_t::backprop_state_t::operator[](int id) {
+int matrixgraph_t::backprop_state_t::operator[](int id) {
   if(grads.count(id) > 0) {
     // This gradient has already been computed
     return grads.at(id);
@@ -325,13 +325,13 @@ int matgraph_t::backprop_state_t::operator[](int id) {
   return ret;
 };
 
-void matgraph_t::backprop_state_t::start(int out_id)
+void matrixgraph_t::backprop_state_t::start(int out_id)
 {
   grads.insert({out_id, out_id});
 }
 
-vector<matgraph_t::backprop_state_t::out_edge_t>
-matgraph_t::backprop_state_t::get_out_edges(int id) const
+vector<matrixgraph_t::backprop_state_t::out_edge_t>
+matrixgraph_t::backprop_state_t::get_out_edges(int id) const
 {
   auto const& outs = self.nodes[id].outs;
 
@@ -356,7 +356,7 @@ matgraph_t::backprop_state_t::get_out_edges(int id) const
   return ret;
 }
 
-set<int> matgraph_t::compute_nodeset(
+set<int> matrixgraph_t::compute_nodeset(
   vector<int> const& upps,
   vector<int> const& dwns,
   bool include_upps_dwns) const
@@ -425,7 +425,7 @@ set<int> matgraph_t::compute_nodeset(
   return ret;
 }
 
-int matgraph_t::build_grad_term(
+int matrixgraph_t::build_grad_term(
   int node_id,
   int which_inn,
   int node_grad)
@@ -458,8 +458,8 @@ int matgraph_t::build_grad_term(
   }
 }
 
-int matgraph_t::build_grad_term_matmul_lhs(
-  matgraph_t::matmul_t const& matmul,
+int matrixgraph_t::build_grad_term_matmul_lhs(
+  matrixgraph_t::matmul_t const& matmul,
   int node_grad)
 {
   auto const& [t_lhs, lhs, t_rhs, rhs] = matmul;
@@ -493,8 +493,8 @@ int matgraph_t::build_grad_term_matmul_lhs(
   }
 }
 
-int matgraph_t::build_grad_term_matmul_rhs(
-  matgraph_t::matmul_t const& matmul,
+int matrixgraph_t::build_grad_term_matmul_rhs(
+  matrixgraph_t::matmul_t const& matmul,
   int node_grad)
 {
   auto const& [t_lhs, lhs, t_rhs, rhs] = matmul;
@@ -527,8 +527,8 @@ int matgraph_t::build_grad_term_matmul_rhs(
   }
 }
 
-int matgraph_t::build_grad_term_ewb_arg(
-  matgraph_t::ewb_t const& ewb,
+int matrixgraph_t::build_grad_term_ewb_arg(
+  matrixgraph_t::ewb_t const& ewb,
   int node_grad,
   int arg)
 {
@@ -589,22 +589,22 @@ int matgraph_t::build_grad_term_ewb_arg(
 }
 
 
-int matgraph_t::build_grad_term_ewb_lhs(
-  matgraph_t::ewb_t const& ewb,
+int matrixgraph_t::build_grad_term_ewb_lhs(
+  matrixgraph_t::ewb_t const& ewb,
   int node_grad)
 {
   return build_grad_term_ewb_arg(ewb, node_grad, 0);
 }
 
-int matgraph_t::build_grad_term_ewb_rhs(
-  matgraph_t::ewb_t const& ewb,
+int matrixgraph_t::build_grad_term_ewb_rhs(
+  matrixgraph_t::ewb_t const& ewb,
   int node_grad)
 {
   return build_grad_term_ewb_arg(ewb, node_grad, 1);
 }
 
-int matgraph_t::build_grad_term_ew_inn(
-  matgraph_t::ew_t const& ew,
+int matrixgraph_t::build_grad_term_ew_inn(
+  matrixgraph_t::ew_t const& ew,
   int node_grad)
 {
   auto const& [op, inn] = ew;
@@ -635,7 +635,7 @@ int matgraph_t::build_grad_term_ew_inn(
   return insert_ewb(combined, inn, node_grad);
 }
 
-void matgraph_t::node_t::print() const
+void matrixgraph_t::node_t::print() const
 {
   using std::get;
 
@@ -677,7 +677,7 @@ void matgraph_t::node_t::print() const
   std::cout << "outs:  " << vector<int>(outs.begin(), outs.end()) << std::endl;
 }
 
-void matgraph_t::print() const
+void matrixgraph_t::print() const
 {
   for(int id = 0; id != nodes.size(); ++id) {
     std::cout << "id: " << id << std::endl;
@@ -686,13 +686,30 @@ void matgraph_t::print() const
   }
 }
 
-tuple<uint64_t, uint64_t> const& matgraph_t::shape(int id) const
+vector<scalarop_t> matrixgraph_t::get_scalarops() const {
+  using std::get;
+
+  vector<scalarop_t> ret;
+  for(auto const& node: nodes) {
+    if(node.is_ew()) {
+      auto const& [op, _] = get<ew_t>(node.op);
+      ret.push_back(op);
+    } else if(node.is_ewb()) {
+      auto const& [op, _0, _1] = get<ewb_t>(node.op);
+      ret.push_back(op);
+    }
+  }
+
+  return ret;
+}
+
+tuple<uint64_t, uint64_t> const& matrixgraph_t::shape(int id) const
 {
   return nodes[id].out_shape;
 }
 
 tuple<graph_t, map<int, int> >
-matgraph_t::compile() const
+matrixgraph_t::compile() const
 {
   vector<int> outs;
   for(int id = 0; id != nodes.size(); ++id) {
@@ -706,7 +723,7 @@ matgraph_t::compile() const
 }
 
 tuple<graph_t, map<int, int> >
-matgraph_t::compile(vector<int> const& saves) const
+matrixgraph_t::compile(vector<int> const& saves) const
 {
   vector<int> pending;
   map<int, int> remaining;
@@ -736,7 +753,7 @@ matgraph_t::compile(vector<int> const& saves) const
   }
 
   graph_t ret;
-  map<int, int> matgraph_to_graph;
+  map<int, int> matrixgraph_to_graph;
 
   while(pending.size() != 0) {
     vector<int> next_up;
@@ -752,11 +769,11 @@ matgraph_t::compile(vector<int> const& saves) const
         if(node.is_einsummable()) {
           // translate_op will attempt to absorb ones
           // into the einsummable expression.
-          auto [einsummable, matgraph_inns] = translate_node(node);
+          auto [einsummable, matrixgraph_inns] = translate_node(node);
           vector<int> graph_inns;
-          graph_inns.reserve(matgraph_inns.size());
-          for(auto const& m_inn: matgraph_inns) {
-            int const& g_inn = matgraph_to_graph.at(m_inn);
+          graph_inns.reserve(matrixgraph_inns.size());
+          for(auto const& m_inn: matrixgraph_inns) {
+            int const& g_inn = matrixgraph_to_graph.at(m_inn);
             graph_inns.push_back(g_inn);
           }
           gid = ret.insert_einsummable(einsummable, graph_inns);
@@ -769,9 +786,9 @@ matgraph_t::compile(vector<int> const& saves) const
 
         if(vector_has(saves, mid)) {
           int gsaveid = ret.insert_formation(gid, true);
-          matgraph_to_graph.insert({mid, gsaveid});
+          matrixgraph_to_graph.insert({mid, gsaveid});
         } else {
-          matgraph_to_graph.insert({mid, gid});
+          matrixgraph_to_graph.insert({mid, gid});
         }
       }
 
@@ -800,21 +817,21 @@ matgraph_t::compile(vector<int> const& saves) const
   // Make sure the save nodes are handled correctly.
   // Note: including a ones as a save node will trigger an error here.
   for(auto const& save_mid: saves) {
-    if(matgraph_to_graph.count(save_mid) == 0) {
+    if(matrixgraph_to_graph.count(save_mid) == 0) {
       throw std::runtime_error("A save node is not in the output graph");
     }
-    int gid = matgraph_to_graph.at(save_mid);
+    int gid = matrixgraph_to_graph.at(save_mid);
     auto const& gnode = ret.nodes[gid];
     if(!gnode.op.is_save()) {
       throw std::runtime_error("A save node was not properly saved");
     }
   }
 
-  return {ret, matgraph_to_graph};
+  return {ret, matrixgraph_to_graph};
 }
 
 tuple<einsummable_t, vector<int>>
-matgraph_t::translate_node(node_t const& node) const
+matrixgraph_t::translate_node(node_t const& node) const
 {
   if(!node.is_einsummable()) {
     throw std::runtime_error("translate node input must be einsummable");

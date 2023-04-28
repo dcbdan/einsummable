@@ -3,9 +3,9 @@
 
 #include "../einsummable/graph.h"
 
-// A matgraph is a graph where every tensor is a matrix.
+// A matrixgraph is a graph where every tensor is a matrix.
 // It supports backpropagation to compute gradients.
-struct matgraph_t {
+struct matrixgraph_t {
   // insert elementwise and elementwise binary ops
   int insert_ew(scalarop_t op, int inn);
   int insert_ewb(scalarop_t op, int lhs, int rhs);
@@ -34,10 +34,10 @@ struct matgraph_t {
   // each gradient.
   vector<int> backprop(int out, vector<int> weights);
 
-  // Build a graph object from the matgraph.
+  // Build a graph object from the matrixgraph.
   // All output nodes are save nodes.
   // Return 1. thre resulting graph and 2. a map
-  // from (included matgraph ids) to (graph ids).
+  // from (included matrixgraph ids) to (graph ids).
   tuple<graph_t, map<int, int>>
   compile() const;
   // Every id in save_ids is saved.
@@ -48,6 +48,8 @@ struct matgraph_t {
   compile(vector<int> const& save_ids) const;
 
   void print() const;
+
+  vector<scalarop_t> get_scalarops() const;
 
   tuple<uint64_t, uint64_t> const& shape(int id) const;
 
@@ -121,7 +123,7 @@ private:
     void start(int out_id);
 
     map<int, int> grads;
-    matgraph_t& self;
+    matrixgraph_t& self;
     set<int> nodeset;
 
     struct out_edge_t {
