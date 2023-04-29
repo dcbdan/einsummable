@@ -40,6 +40,8 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  auto settings = settings_t::default_settings();
+
   mpi_t mpi(argc, argv);
 
   int num_processors = mpi.world_size;
@@ -83,7 +85,7 @@ int main(int argc, char** argv) {
   {
     raii_print_time_elapsed_t gremlin("3D Matmul Time");
     mpi.barrier();
-    execute(mpi, taskgraph, tensors);
+    execute(taskgraph, settings, mpi, tensors);
     mpi.barrier();
   }
 

@@ -1,4 +1,5 @@
 #include "execute.h"
+#include "kernels.h"
 
 #include <thread>
 #include <mutex>
@@ -130,7 +131,11 @@ struct sends_progress_t {
 
 struct cpu_exec_state_t {
   // collect all the meta data and get this mpi rank ready for execution
-  cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors);
+  cpu_exec_state_t(
+    mpi_t& mpi,
+    taskgraph_t const& taskgraph,
+    map<int, buffer_t>& tensors,
+    int num_apply_kernel_threads);
 
   // launch the threads and wait for the threads to finish
   void run(int n_apply, int n_touch, int n_send, int n_recv);
@@ -172,6 +177,7 @@ struct cpu_exec_state_t {
   mpi_t& mpi;
   taskgraph_t const& taskgraph;
   map<int, buffer_t>& tensors;
+  int const num_apply_kernel_threads;
 
   // The total number of commands left to execute
   int num_remaining;
@@ -197,12 +203,20 @@ struct cpu_exec_state_t {
   int num_recv_post_remaining;
 };
 
-void execute(mpi_t& mpi, taskgraph_t const& taskgraph, map<int, buffer_t>& tensors)
+void execute(
+  taskgraph_t const& taskgraph,
+  settings_t const& settings,
+  mpi_t& mpi,
+  map<int, buffer_t>& tensors)
 {
-  cpu_exec_state_t state(mpi, taskgraph, tensors);
+  cpu_exec_state_t state(mpi, taskgraph, tensors, settings.num_apply_kernel_threads);
 
   // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
-  state.run(2, 2, 2, 2);
+  state.run(
+    settings.num_apply_runner,
+    settings.num_touch_runner,
+    settings.num_send_runner,
+    settings.num_recv_runner);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -231,8 +245,17 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
   }
 }
 
-cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, buffer_t>& ts)
-  : mpi(mpi), taskgraph(tg), tensors(ts), num_remaining(0), num_recv_post_remaining(0)
+cpu_exec_state_t::cpu_exec_state_t(
+  mpi_t& mpi,
+  taskgraph_t const& tg,
+  map<int, buffer_t>& ts,
+  int n_ts)
+  : mpi(mpi),
+    taskgraph(tg),
+    tensors(ts),
+    num_remaining(0),
+    num_recv_post_remaining(0),
+    num_apply_kernel_threads(n_ts)
 {
   // 0. set num_remaining
   // 1. Set num_usages_remaining
@@ -338,9 +361,9 @@ void cpu_exec_state_t::apply_runner(int runner_id)
 
     // Do the command execution of which
     {
-      // TODO: use kernels other than the reference implementation
       auto const& node = taskgraph.nodes[which];
       auto const& [_0, inns, einsummable] = node.op.get_apply();
+      auto kernel = build_einsummable(num_apply_kernel_threads, einsummable);
 
       auto [_1, inputs] = get_buffers({}, inns);
 
@@ -361,7 +384,13 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         out_buffer = std::make_shared<buffer_holder_t>(node.op.tensor_size());
       }
 
-      reference_einsummable_inplace(einsummable, out_buffer, inputs);
+      vector<float const*> raw_inputs;
+      raw_inputs.reserve(inputs.size());
+      for(auto& buffer: inputs) {
+        raw_inputs.push_back(buffer->data);
+      }
+
+      kernel(out_buffer->data, raw_inputs);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -397,6 +426,7 @@ void cpu_exec_state_t::touch_runner(int runner_id)
     auto const& [unit_id, inn_tensor, touch] = which;
 
     {
+      auto kernel = build_touch(touch);
       int partialize_id = touches_progress.units[unit_id].partialize_id;
       uint64_t partialize_size = product(
         vector_from_each_member(touch.selection, uint64_t, d_out));
@@ -407,7 +437,7 @@ void cpu_exec_state_t::touch_runner(int runner_id)
       buffer_t& out_buffer = _ps[0];
       buffer_t& inn_buffer = _is[0];
 
-      reference_touch(touch, out_buffer, inn_buffer);
+      kernel(out_buffer->data, inn_buffer->data);
     }
 
     this->completed_touch(inn_tensor, unit_id);
