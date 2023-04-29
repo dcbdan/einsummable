@@ -14,6 +14,18 @@ struct einsummable_t {
   // may be none when out_rank == join_rank
   optional<castable_t> castable;
 
+  // Consider batched matrix multiply into
+  // the same output:
+  //   bij,bjk->ik
+  // There are two possible einsummable representations:
+  //   203 231->01 and
+  //   302 321->01
+  // TODO: should this form of indeterminism be
+  //       allowed? should there be a simplification?
+  // Another simplification that could be made:
+  //   ijkl,klmn->ijmn is the same as
+  //   a b, b c ->a c
+
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);

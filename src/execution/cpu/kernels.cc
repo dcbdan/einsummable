@@ -423,9 +423,9 @@ void matrix_multiply(
 // by just looping over the batched dimension
 void broadcast_matrix_multiply(
   uint64_t const& nb,
+  bool const& batched_out,
   bool const& batched_lhs,
   bool const& batched_rhs,
-  bool const& batched_out,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
@@ -461,11 +461,246 @@ void broadcast_matrix_multiply(
   }
 }
 
-std::function<void(float*, float const*)>
+// Note: This test isn't perfect. It won't determine that
+//   (ijkl,jkmn->ijmn) is actually a matrix multiply.
+//   (TODO, perhaps as an einsummable.simplify method...)
+// Note: This test also won't determine that
+//   (jk,ij->ik) is actually a matrix multiply with the inputs flipped.
+//   (TODO...)
+optional<std::function<void(float*, vector<float const*>)>>
+_make_matrix_multiply(
+  einsummable_t const& einsummable)
+{
+  using kernel_t = std::function<void(float*, vector<float const*>)>;
+
+  if(einsummable.join_shape.size() != 3 ||
+     einsummable.out_rank          != 2)
+  {
+    return optional<kernel_t>();
+  }
+
+  int i = 0;
+  int j = 2;
+  int k = 1;
+
+  // 02,21->01  is the no transpose variant.
+  uint64_t const& ni = einsummable.join_shape[i];
+  uint64_t const& nj = einsummable.join_shape[j];
+  uint64_t const& nk = einsummable.join_shape[k];
+
+  bool trans_lhs, trans_rhs;
+
+  {
+    auto const& idxs_lhs = einsummable.inns[0];
+    if(idxs_lhs == vector<int>{i,j}) {
+      trans_lhs = false;
+    } else if(idxs_lhs == vector<int>({j,i})) {
+      trans_lhs = true;
+    } else {
+      return optional<kernel_t>();
+    }
+  }
+
+  {
+    auto const& idxs_rhs = einsummable.inns[1];
+    if(idxs_rhs == vector<int>{j,k}) {
+      trans_rhs = false;
+    } else if(idxs_rhs == vector<int>({k,j})) {
+      trans_rhs = true;
+    } else {
+      return optional<kernel_t>();
+    }
+  }
+
+  return optional<kernel_t>(
+    [ni,nj,nk,trans_lhs,trans_rhs](float* out, vector<float const*> inns) {
+      return matrix_multiply(
+        ni,nj,nk,
+        trans_lhs,trans_rhs,
+        out, inns[0], inns[1]);
+    }
+  );
+}
+
+// TODO: see _make_matrix_multiply todo.
+//       Also, this function is just too ugly
+optional<std::function<void(float*, vector<float const*>)>>
+_make_broadcast_matrix_multiply(
+  einsummable_t const& e)
+{
+  using kernel_t = std::function<void(float*, vector<float const*>)>;
+
+  if(e.join_shape.size() != 4 || e.inns.size() != 2) {
+    return optional<kernel_t>();
+  }
+
+  bool batched_lhs, batched_rhs, batched_out;
+
+  {
+    int rank_lhs = e.inns[0].size();
+    if(rank_lhs == 2) {
+      batched_lhs = false;
+    } else if(rank_lhs == 3) {
+      batched_lhs = true;
+    } else {
+      return optional<kernel_t>();
+    }
+  }
+
+  {
+    int rank_rhs = e.inns[1].size();
+    if(rank_rhs == 2) {
+      batched_rhs = false;
+    } else if(rank_rhs == 3) {
+      batched_rhs = true;
+    } else {
+      return optional<kernel_t>();
+    }
+  }
+
+  {
+    if(e.out_rank == 2) {
+      batched_out = false;
+    } else if(e.out_rank == 3) {
+      batched_out = true;
+    } else {
+      return optional<kernel_t>();
+    }
+  }
+
+  int b,i,j,k;
+
+  if(batched_out) {
+    batched_out = true;
+    // (maybe b) ij, (maybe b) jk, -> bik
+    //  0        13   0        32     012
+
+    b = 0;
+    i = 1;
+    j = 3;
+    k = 2;
+
+  } else {
+    // e.out_rank == 2
+    // (maybe b) ij, (maybe b) jk, -> ik
+    //  3        02   3        21     01
+    //  _OR_
+    //  2        03   2        31     01
+    // TODO: unless einsummable is modified to not
+    //       allow the indeterminism
+    if(batched_lhs) {
+      b = e.inns[0][0];
+    } else if(batched_rhs) {
+      b = e.inns[1][0];
+    } else {
+      // this is a matrix multiply, not a batched matrix multiply
+      return optional<kernel_t>();
+    }
+
+    if(b == 2 || b == 3) {
+      j = b == 3 ? 2 : 3;
+    } else {
+      return optional<kernel_t>();
+    }
+
+    i = 0;
+    k = 1;
+  }
+
+  uint64_t const& nb = e.join_shape[b];
+  uint64_t const& ni = e.join_shape[i];
+  uint64_t const& nj = e.join_shape[j];
+  uint64_t const& nk = e.join_shape[k];
+
+  bool trans_lhs, trans_rhs;
+
+  {
+    auto const& idxs_lhs = e.inns[0];
+    if(batched_lhs) {
+      if(idxs_lhs == vector<int>{b,i,j}) {
+        trans_lhs == false;
+      } else if(idxs_lhs == vector<int>{b,j,i}) {
+        trans_lhs == true;
+      } else {
+        return optional<kernel_t>();
+      }
+    } else {
+      if(idxs_lhs == vector<int>{i,j}) {
+        trans_lhs == false;
+      } else if(idxs_lhs == vector<int>{j,i}) {
+        trans_lhs == true;
+      } else {
+        return optional<kernel_t>();
+      }
+    }
+  }
+
+  {
+    auto const& idxs_rhs = e.inns[1];
+    if(batched_rhs) {
+      if(idxs_rhs == vector<int>{b,j,k}) {
+        trans_rhs == false;
+      } else if(idxs_rhs == vector<int>{b,k,j}) {
+        trans_rhs == true;
+      } else {
+        return optional<kernel_t>();
+      }
+    } else {
+      if(idxs_rhs == vector<int>{j,k}) {
+        trans_rhs == false;
+      } else if(idxs_rhs == vector<int>{k,j}) {
+        trans_rhs == true;
+      } else {
+        return optional<kernel_t>();
+      }
+    }
+  }
+
+  return optional<kernel_t>(
+    [nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
+    (float* out, vector<float const*> inns) {
+      return broadcast_matrix_multiply(
+        nb,batched_out,batched_lhs,batched_rhs,
+        ni,nj,nk,
+        trans_lhs,trans_rhs,
+        out, inns[0], inns[1]);
+    }
+  );
+}
+
+std::function<void(float*, vector<float const*>)>
 build_einsummable(
   int num_threads,
   einsummable_t const& einsummable)
 {
-  // TODO
-  return [](float*,float const*){};
+  if(einsummable.is_straight_elementwise()) {
+    int n = einsummable.inns.size();
+    if(n == 1) {
+      return build_unary_elementwise_kernel(
+        num_threads,
+        product(einsummable.join_shape),
+        einsummable.join);
+    } else if(n == 2) {
+      return build_binary_elementwise_kernel(
+        num_threads,
+        product(einsummable.join_shape),
+        einsummable.join);
+    } else {
+      throw std::runtime_error(
+              "straight elementwise kernel with " + std::to_string(n) +
+              " inputs not supported!");
+    }
+  }
+
+  auto matmul = _make_matrix_multiply(einsummable);
+  if(matmul) {
+    return matmul.value();
+  }
+
+  auto broadcast_matmul = _make_broadcast_matrix_multiply(einsummable);
+  if(broadcast_matmul) {
+    return broadcast_matmul.value();
+  }
+
+  throw std::runtime_error("could not acrquire kernel for " + write_with_ss(einsummable));
 }

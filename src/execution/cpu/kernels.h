@@ -24,9 +24,9 @@ build_binary_elementwise_kernel(
 std::function<void(float*, float const*)>
 build_touch(touch_t const& touch);
 
-std::function<void(float*, float const*)>
+std::function<void(float*, vector<float const*>)>
 build_einsummable(
-  int num_threads,
+  int num_threads, // passed to build_*_elementwise_kernel
   einsummable_t const& einsummable);
 
 // trans lhs   trans rhs
@@ -65,9 +65,9 @@ void matrix_multiply(
 // by just looping over the batched dimension
 void broadcast_matrix_multiply(
   uint64_t const& nb,
+  bool const& batched_out,
   bool const& batched_lhs,
   bool const& batched_rhs,
-  bool const& batched_out,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,

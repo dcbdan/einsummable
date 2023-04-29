@@ -73,6 +73,8 @@ if(${CPU_EXECUTION_ENGINE})
     src/execution/cpu/mpi_class.cc
     src/execution/cpu/kernels.cc
     src/execution/cpu/permute.cc
+    src/einsummable/reference.cc
+    # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
   )
 
   add_executable(cpuexec exps/cpuexec.cc)
