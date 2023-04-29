@@ -336,11 +336,33 @@ void cpu_exec_state_t::apply_runner(int runner_id)
     // Do the command execution of which
     {
       // TODO: use kernels other than the reference implementation
-      auto const& [_0, inns, einsummable] = taskgraph.nodes[which].op.get_apply();
+      auto const& node = taskgraph.nodes[which];
+      auto const& [_0, inns, einsummable] = node.op.get_apply();
 
       auto [_1, inputs] = get_buffers({}, inns);
 
-      auto out_buffer = reference_einsummable(einsummable, inputs);
+      buffer_t out_buffer;
+
+      // Can we donate one of the input buffers to
+      // this computation?
+      for(int i = 0; i != inns.size(); ++i) {
+        int const& inn = inns[i];
+        buffer_t& input = inputs[i];
+        if(applys_progress.is_donatable.count(inn)) {
+          out_buffer = input;
+          break;
+        }
+      }
+      // If not, allocate.
+      if(!out_buffer) {
+        out_buffer = std::make_shared<buffer_holder_t>(node.op.tensor_size());
+      }
+
+      reference_einsummable_inplace(einsummable, out_buffer, inputs);
+
+      // Note: Even if out_buffer was donated, this is fine. When
+      //       the donated input gets removed from tensors, the
+      //       buffer won't get deleted since its a shared pointer.
       std::unique_lock lk(m_tensors);
       tensors.insert({which, out_buffer});
     }
@@ -470,6 +492,8 @@ void cpu_exec_state_t::_completed(
   }
 
   {
+    // TODO: should this block happen outside of the
+    //       general mutex lock?
     std::unique_lock lk(m_tensors);
 
     for(auto const& inn: used_as_input) {
@@ -554,11 +578,11 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 void cpu_exec_state_t::completed_apply(int apply_id)
 {
   auto const& node = taskgraph.nodes[apply_id];
+  set<int> inns = node.op.inputs();
 
   {
     std::unique_lock lk(m);
 
-    set<int> inns = node.op.inputs();
     _completed(
       true,
       vector<int>(inns.begin(), inns.end()),
