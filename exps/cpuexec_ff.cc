@@ -118,7 +118,7 @@ void ff(
     int const& w_sz = ws_sizes[i];
 
     buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
-    buffer_w->random(-0.3, 0.3);
+    buffer_w->random(-0.6, 0.6);
     buffers.insert({w, buffer_w});
   }
 
@@ -163,5 +163,5 @@ int main(int argc, char** argv) {
     throw std::runtime_error("This program is not distributed");
   }
 
-  ff(mpi, dn, dp, dd, dws, niter, 0.1);
+  ff(mpi, dn, dp, dd, dws, niter, 0.3);
 }

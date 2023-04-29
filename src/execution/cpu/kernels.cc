@@ -49,6 +49,25 @@ _binary_ew_loop(b6, (2*(x0[i]+(x1[i]*-1))));
 // *[hole@0,hole@1]
 _binary_ew_loop(b7, (x0[i]*x1[i]));
 
+// +[hole@0,*[*[hole@1,constant{0.001}],constant{-1}]]
+_binary_ew_loop(b8, (x0[i]+((x1[i]*0.001)*-1)));
+
+// +[hole@0,*[*[hole@1,constant{0.01}],constant{-1}]]
+_binary_ew_loop(b9, (x0[i]+((x1[i]*0.01)*-1)));
+
+// +[hole@0,*[*[hole@1,constant{0.0001}],constant{-1}]]
+_binary_ew_loop(b10, (x0[i]+((x1[i]*0.0001)*-1)));
+
+// +[hole@0,*[*[hole@1,constant{1e-05}],constant{-1}]]
+_binary_ew_loop(b11, (x0[i]+((x1[i]*1e-05)*-1)));
+
+// +[hole@0,*[*[hole@1,constant{1e-06}],constant{-1}]]
+_binary_ew_loop(b12, (x0[i]+((x1[i]*1e-06)*-1)));
+
+// +[hole@0,*[*[hole@1,constant{1e-07}],constant{-1}]]
+_binary_ew_loop(b13, (x0[i]+((x1[i]*1e-07)*-1)));
+
+//
 // ite_<[hole@0,constant{0},constant{0},hole@0]
 _unary_ew_loop(u0, (x0[i]<0?0:x0[i]));
 
@@ -108,7 +127,32 @@ get_binary_kernel(scalarop_t const& op)
     {
       "*[hole@0,hole@1]",
       b7
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{0.001}],constant{-1}]]",
+      b8
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{0.01}],constant{-1}]]",
+      b9
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{0.0001}],constant{-1}]]",
+      b10
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{1e-05}],constant{-1}]]",
+      b11
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{1e-06}],constant{-1}]]",
+      b12
+    },
+    {
+      "+[hole@0,*[*[hole@1,constant{1e-07}],constant{-1}]]",
+      b13
     }
+
   };
 
   auto op_str = write_with_ss(op);
