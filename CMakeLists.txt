@@ -73,7 +73,24 @@ if(${CPU_EXECUTION_ENGINE})
     src/execution/cpu/mpi_class.cc
     src/execution/cpu/kernels.cc
     src/execution/cpu/permute.cc
+    src/einsummable/copyregion.cc
+    src/einsummable/coster.cc
+    src/einsummable/einsummable.cc
+    src/einsummable/graph.cc
+    src/einsummable/indexer.cc
+    src/einsummable/partdim.cc
+    src/einsummable/partition.cc
     src/einsummable/reference.cc
+    src/einsummable/scalarop.cc
+    src/einsummable/setup.cc
+    src/einsummable/taskgraph.cc
+    src/matrixgraph/matrixgraph.cc
+    src/einsummable/einsummable.cc
+    src/einsummable/graph.cc
+    src/einsummable/partdim.cc
+    src/einsummable/partition.cc
+    src/einsummable/setup.cc
+    src/einsummable/indexer.cc
     # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
   )
 
@@ -82,6 +99,12 @@ if(${CPU_EXECUTION_ENGINE})
   target_link_libraries(cpuexec cpu_execution_engine)
   target_link_libraries(cpuexec ${MPI_CXX_LIBRARIES})
   target_link_libraries(cpuexec MKL::MKL)
+
+  add_executable(cpuexec_ff exps/cpuexec_ff.cc)
+  target_link_libraries(cpuexec_ff einsummable)
+  target_link_libraries(cpuexec_ff cpu_execution_engine)
+  target_link_libraries(cpuexec_ff ${MPI_CXX_LIBRARIES})
+  target_link_libraries(cpuexec_ff MKL::MKL)
 
   add_executable(cpuexec_ew exps/cpuexec_ew.cc)
   target_link_libraries(cpuexec_ew einsummable)

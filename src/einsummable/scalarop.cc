@@ -526,6 +526,11 @@ bool scalarop_t::is_constant_of(float val) const {
   return node.op.is_constant() && node.op.get_constant() == val;
 }
 
+string scalarop_t::to_cppstr() const {
+  return to_cppstr([](int i){
+    return "x" + std::to_string(i);
+  });
+}
 string scalarop_t::to_cppstr(std::function<string(int)> w) const {
   return node.to_cppstr(w);
 }

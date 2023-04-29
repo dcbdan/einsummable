@@ -16,6 +16,8 @@ struct buffer_holder_t {
   void iota(int start = 0) { std::iota(data, data + size, start); }
   void random(float lower = 0.0, float upper = 1.0);
 
+  float sum() const { return std::accumulate(data, data + size, 0.0); }
+
   vector<float> as_vector() const;
 
   uint64_t size;

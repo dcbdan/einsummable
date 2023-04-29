@@ -1,5 +1,10 @@
 #include "../src/matrixgraph/matrixgraph.h"
+
+#include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
+
+#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/mpi_class.h"
 
 void usage() {
   std::cout << "Usage: niter dn dp dd {dws}\n"
@@ -12,14 +17,17 @@ void usage() {
             << "dn,dd: shape of output data matrix\n"
             << "dws:   list of hidden dimensions\n"
             << "\n"
-            << "This program is a reference implementation!\n";
+            << "This program is not distributed!\n";
 }
 
 void ff(
+  mpi_t& mpi,
   uint64_t dn, uint64_t dp, uint64_t dd,
   vector<uint64_t> dws,
   int niter, float learning_rate)
 {
+  auto settings = settings_t::default_settings();
+
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
@@ -38,15 +46,18 @@ void ff(
 
   int yhat = x;
   vector<int> ws;
+  vector<uint64_t> ws_sizes;
   {
     uint64_t dlast = dp;
     for(auto const& dw: dws) {
       ws.push_back(mgraph.insert_input(dlast, dw));
+      ws_sizes.push_back(dlast*dw);
       yhat = mgraph.insert_matmul_ss(yhat, ws.back());
       yhat = mgraph.insert_ew(relu, yhat);
       dlast = dw;
     }
     ws.push_back(mgraph.insert_input(dlast, dd));
+    ws_sizes.push_back(dlast*dd);
     yhat = mgraph.insert_matmul_ss(yhat, ws.back());
   }
 
@@ -64,63 +75,65 @@ void ff(
   vector<int> outs = wsnew;
   outs.push_back(sq_diff);
   auto [graph, m_to_g] = mgraph.compile(outs);
+  auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph);
 
-  map<int, buffer_t> input_buffers;
+  //////////
+  // REWRITE ALL IDS FROM MATRIX GRAPH TO TASKGRAPH
+  x = inputs_g_to_t.at(m_to_g.at(x))(0,0);
+  y = inputs_g_to_t.at(m_to_g.at(y))(0,0);
+  for(int& w: ws) {
+    w = inputs_g_to_t.at(m_to_g.at(w))(0,0);
+  }
+
+  for(int& w: wsnew) {
+    w = outputs_g_to_t.at(m_to_g.at(w))(0,0);
+  }
+  sq_diff = outputs_g_to_t.at(m_to_g.at(sq_diff))(0,0);
+
+  // NOW DON'T USE MATRIX GRAPH IDS
+  //////////
+
+  // explicitly save x and y so they don't
+  // get erased from bufffers
+  taskgraph.nodes[x].is_save = true;
+  taskgraph.nodes[y].is_save = true;
+
+  map<int, buffer_t> buffers;
 
   // Set x
   {
     buffer_t buffer_x = std::make_shared<buffer_holder_t>(dn*dp);
     buffer_x->random(-0.1, 0.1);
-    input_buffers.insert({m_to_g.at(x), buffer_x});
+    buffers.insert({x, buffer_x});
   }
   // Set y
   {
     buffer_t buffer_y = std::make_shared<buffer_holder_t>(dn*dd);
     buffer_y->random(-0.1, 0.1);
-    input_buffers.insert({m_to_g.at(y), buffer_y});
+    buffers.insert({y, buffer_y});
   }
   // Set init weights
-  for(auto const& w: ws) {
-    auto const& [d0,d1] = mgraph.shape(w);
-    buffer_t buffer_w = std::make_shared<buffer_holder_t>(d0*d1);
+  for(int i = 0; i != ws.size(); ++i) {
+    int const& w = ws[i];
+    int const& w_sz = ws_sizes[i];
+
+    buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
     buffer_w->random(-0.3, 0.3);
-    input_buffers.insert({m_to_g.at(w), buffer_w});
+    buffers.insert({w, buffer_w});
   }
 
   for(int i = 0; i != niter;  ++i) {
-    //std::cout << "Iteration " << (i+1) << " / " << niter << std::endl;
+    execute(taskgraph, settings, mpi, buffers);
 
-    map<int, buffer_t> output_buffers =
-      reference_compute_graph(graph, input_buffers);
-
-    float loss = output_buffers.at(m_to_g.at(sq_diff))->sum();
-    std::cout << loss << std::endl;
+    float loss = buffers.at(sq_diff)->sum();
+    std::cout << "loss: " << loss << std::endl;
 
     for(int i = 0; i != ws.size(); ++i) {
       int const& w    = ws[i];
       int const& wnew = wsnew[i];
-      input_buffers.at(m_to_g.at(w)) = output_buffers.at(m_to_g.at(wnew));
+      buffers[w] = buffers.at(wnew);
     }
   }
-}
-
-// X: n x p
-// Y: n x d
-void linear_regression(
-  uint64_t dn, uint64_t dp, uint64_t dd,
-  int niter,
-  float learning_rate)
-{
-  return ff(dn, dp, dd, {}, niter, learning_rate);
-}
-
-void main01() {
-  uint64_t dn = 100;
-  uint64_t dp = 10;
-  uint64_t dd = 1;
-  int niter = 1000;
-  float learning_rate = 0.3;
-  linear_regression(dn, dp, dd, niter, learning_rate);
 }
 
 int main(int argc, char** argv) {
@@ -145,7 +158,10 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  float learning_rate = 0.1;
-  ff(dn, dp, dd, dws, niter, learning_rate);
-  return 0;
+  mpi_t mpi(argc, argv);
+  if(mpi.world_size != 1) {
+    throw std::runtime_error("This program is not distributed");
+  }
+
+  ff(mpi, dn, dp, dd, dws, niter, 0.1);
 }

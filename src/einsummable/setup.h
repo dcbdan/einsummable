@@ -344,3 +344,5 @@ struct raii_print_time_elapsed_t {
   timestamp_t const start;
   std::ostream& out;
 };
+
+using gremlin_t = raii_print_time_elapsed_t;

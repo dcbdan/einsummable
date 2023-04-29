@@ -121,6 +121,7 @@ struct scalarop_t {
 
   bool is_constant_of(float val) const;
 
+  string to_cppstr() const;
   string to_cppstr(std::function<string(int)> write_hole) const;
 
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns

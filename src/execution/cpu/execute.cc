@@ -215,8 +215,8 @@ void execute(
   state.run(
     settings.num_apply_runner,
     settings.num_touch_runner,
-    settings.num_send_runner,
-    settings.num_recv_runner);
+    mpi.world_size > 1 ? settings.num_send_runner : 0,
+    mpi.world_size > 1 ? settings.num_recv_runner : 0);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -396,7 +396,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
       //       the donated input gets removed from tensors, the
       //       buffer won't get deleted since its a shared pointer.
       std::unique_lock lk(m_tensors);
-      tensors.insert({which, out_buffer});
+      tensors.insert_or_assign(which, out_buffer);
     }
 
     this->completed_apply(which);
@@ -648,10 +648,10 @@ cpu_exec_state_t::get_buffers(
   writes.reserve(which_writes.size());
   for(auto const& [sz, id]: which_writes) {
     if(tensors.count(id) == 0) {
-      tensors.insert({
+      tensors.insert_or_assign(
         id,
         std::make_shared<buffer_holder_t>(sz)
-      });
+      );
     }
     writes.push_back(tensors.at(id));
   }

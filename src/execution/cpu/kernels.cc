@@ -40,6 +40,15 @@ _binary_ew_loop(b3, (x0[i]+x1[i]));
 // +[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]
 _binary_ew_loop(b4, (x0[i]+((x1[i]*0.1)*-1)));
 
+// power{2}[+[hole@0,*[hole@1,constant{-1}]]]
+_binary_ew_loop(b5, (std::pow((x0[i]+(x1[i]*-1)),2)));
+
+// *[constant{2},+[hole@0,*[hole@1,constant{-1}]]]
+_binary_ew_loop(b6, (2*(x0[i]+(x1[i]*-1))));
+
+// *[hole@0,hole@1]
+_binary_ew_loop(b7, (x0[i]*x1[i]));
+
 // ite_<[hole@0,constant{0},constant{0},hole@0]
 _unary_ew_loop(u0, (x0[i]<0?0:x0[i]));
 
@@ -54,11 +63,10 @@ std::function<void(uint64_t, float*, float const*)> get_unary_kernel(scalarop_t 
     }
   };
 
-
   auto op_str = write_with_ss(op);
   auto iter = kernels.find(op_str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + op_str + "  ;  " + op.to_cppstr());
   }
   return iter->second;
 }
@@ -88,13 +96,25 @@ get_binary_kernel(scalarop_t const& op)
     {
       "+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]",
       b4
+    },
+    {
+      "power{2}[+[hole@0,*[hole@1,constant{-1}]]]",
+      b5
+    },
+    {
+      "*[constant{2},+[hole@0,*[hole@1,constant{-1}]]]",
+      b6
+    },
+    {
+      "*[hole@0,hole@1]",
+      b7
     }
   };
 
   auto op_str = write_with_ss(op);
   auto iter = kernels.find(op_str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + op_str + "  ;  " + op.to_cppstr());
   }
   return iter->second;
 }
@@ -125,7 +145,7 @@ build_unary_elementwise_kernel(
 
   auto f = get_unary_kernel(op);
 
-  if(num_threads == 0) {
+  if(num_threads == 0 || n < num_threads) {
     return [f,n](float* out, vector<float const*> inns) {
       return f(n, out, inns[0]);
     };
@@ -161,7 +181,7 @@ build_binary_elementwise_kernel(
 
   auto f = get_binary_kernel(op);
 
-  if(num_threads == 0) {
+  if(num_threads == 0 || n < num_threads) {
     return [f,n](float* out, vector<float const*> inns) {
       return f(n, out, inns[0], inns[1]);
     };
