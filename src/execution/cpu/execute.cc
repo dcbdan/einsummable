@@ -142,7 +142,10 @@ struct cpu_exec_state_t {
   void recv_runner(int runner_id);
 
   // update state helper methods
+  // must start with lk holding a lock on mutex m and
+  // finish with mutex m unlocked
   void _completed(
+    std::unique_lock<std::mutex>&& lk, // this must hold mutex m!
     bool command_finished,
     vector<int> const& used_as_input,
     optional<int> created_tensor);
@@ -483,6 +486,7 @@ void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
 }
 
 void cpu_exec_state_t::_completed(
+  std::unique_lock<std::mutex>&& lk, // this must hold mutex m!
   bool command_finished,
   vector<int> const& used_as_input,
   optional<int> created_tensor)
@@ -491,20 +495,15 @@ void cpu_exec_state_t::_completed(
     num_remaining -= 1;
   }
 
-  {
-    // TODO: should this block happen outside of the
-    //       general mutex lock?
-    std::unique_lock lk(m_tensors);
-
-    for(auto const& inn: used_as_input) {
-      int& cnt = num_usages_remaining.at(inn);
-      cnt -= 1;
-      if(cnt == 0) {
-        num_usages_remaining.erase(inn);
-        auto const& inn_node = taskgraph.nodes[inn];
-        if(!inn_node.is_save) {
-          tensors.erase(inn);
-        }
+  vector<int> will_erase;
+  for(auto const& inn: used_as_input) {
+    int& cnt = num_usages_remaining.at(inn);
+    cnt -= 1;
+    if(cnt == 0) {
+      num_usages_remaining.erase(inn);
+      auto const& inn_node = taskgraph.nodes[inn];
+      if(!inn_node.is_save) {
+        will_erase.push_back(inn);
       }
     }
   }
@@ -513,65 +512,75 @@ void cpu_exec_state_t::_completed(
     int const& id = created_tensor.value();
     notify_tensor_ready(id);
   }
+
+  // we don't need this lock to delete from tenors,
+  // so free it up
+  lk.unlock();
+
+  if(will_erase.size() > 0) {
+    // but we do need a lock over tensors
+    std::unique_lock lk_tensors(m_tensors);
+    for(auto const& inn: will_erase) {
+      tensors.erase(inn);
+    }
+  }
 }
 
 void cpu_exec_state_t::completed_send(int move_id)
 {
   auto const& node = taskgraph.nodes[move_id];
 
-  {
-    std::unique_lock lk(m);
+  _completed(
+    std::unique_lock(m),
+    true,
+    {node.op.get_move().inn},
+    optional<int>()
+  );
 
-    _completed(
-      true,
-      {node.op.get_move().inn},
-      optional<int>()
-    );
-  }
   cv.notify_all();
 }
 
 void cpu_exec_state_t::completed_recv(int move_id)
 {
-  {
-    std::unique_lock lk(m);
+  _completed(
+    std::unique_lock(m),
+    true,
+    {},
+    optional<int>(move_id)
+  );
 
-    _completed(
-      true,
-      {},
-      optional<int>(move_id)
-    );
-  }
   cv.notify_all();
 }
 
 void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 {
-  {
-    std::unique_lock lk(m);
+  std::unique_lock lk(m);
 
-    optional<int> maybe_completed_partial_id =
-      touches_progress.completed(unit_id);
+  optional<int> maybe_completed_partial_id =
+    touches_progress.completed(unit_id);
 
-    if(maybe_completed_partial_id) {
-      auto const& partial_id = maybe_completed_partial_id.value();
-      // the partial id has been touched the requisite number of times
-      // and so this command is done and partial_id is a completed
-      // tensor.
-      _completed(
-        true,
-        {inn},
-        optional<int>(partial_id)
-      );
-    } else {
-      // More touches need to happen
-      _completed(
-        false,
-        {inn},
-        optional<int>()
-      );
-    }
+  if(maybe_completed_partial_id) {
+    auto const& partial_id = maybe_completed_partial_id.value();
+    // the partial id has been touched the requisite number of times
+    // and so this command is done and partial_id is a completed
+    // tensor.
+    _completed(
+      std::move(lk),
+      true,
+      {inn},
+      optional<int>(partial_id)
+    );
+  } else {
+    // More touches need to happen
+    _completed(
+      std::move(lk),
+      false,
+      {inn},
+      optional<int>()
+    );
   }
+  // _completed has release the mutex
+
   cv.notify_all();
 }
 
@@ -580,15 +589,14 @@ void cpu_exec_state_t::completed_apply(int apply_id)
   auto const& node = taskgraph.nodes[apply_id];
   set<int> inns = node.op.inputs();
 
-  {
-    std::unique_lock lk(m);
 
-    _completed(
-      true,
-      vector<int>(inns.begin(), inns.end()),
-      optional<int>(apply_id)
-    );
-  }
+  _completed(
+    std::unique_lock(m),
+    true,
+    vector<int>(inns.begin(), inns.end()),
+    optional<int>(apply_id)
+  );
+
 
   cv.notify_all();
 }
