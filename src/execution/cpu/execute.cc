@@ -18,10 +18,22 @@ struct applys_progress_t {
 
   map<int, vector<int>> input_to_applys;
 
+  // The goal is for
+  //   1. relu(matmul(A,B)) to reuse the matmul(A,B) buffer in the relu
+  //   2. C=A+B where A is not used again to become C(:A) += B.
+  // In general, any tensor that (1) not a save tensor, (2) is only used once
+  // by an elementwise op should be "donatable"..
+  // If a tensor is donatable, it's buffer may be consumed by the subsequent
+  // elementwise op.
+  //
+  // This assumes elementwise kernels support donation in all arguments.
+  set<int> is_donatable;
+
   // Note that tensor_usage_cnts is passed in
   // by reference.
   void insert(
     int apply_id,
+    bool can_donate,
     set<int> const& inns,
     map<int, int>& tensor_usage_cnts);
 
@@ -259,8 +271,23 @@ cpu_exec_state_t::cpu_exec_state_t(mpi_t& mpi, taskgraph_t const& tg, map<int, b
       } else if(node.op.is_apply()) {
         num_remaining += 1;
 
+        // Can this be marked as donated?
+        // 1. not a save node
+        // 2. used only once
+        // 3. usage node is straight-elementwise
+        bool can_donate = false;
+        if(!node.is_save && node.outs.size() == 1) {
+          int const& node_out_id = *node.outs.begin();
+          auto const& node_out = taskgraph.nodes[node_out_id];
+          if(node_out.op.is_apply()) {
+            auto const& einsummable = node_out.op.get_apply().einsummable;
+            can_donate = einsummable.is_straight_elementwise();
+          }
+        }
+
         applys_progress.insert(
           id,
+          can_donate,
           node.op.inputs(),
           num_usages_remaining
         );
@@ -578,6 +605,7 @@ cpu_exec_state_t::get_buffers(
 
 void applys_progress_t::insert(
   int apply_id,
+  bool can_donate,
   set<int> const& inns,
   map<int, int>& tensor_usage_cnts)
 {
@@ -590,6 +618,10 @@ void applys_progress_t::insert(
   for(auto const& inn: inns) {
     input_to_applys[inn].push_back(apply_id);
     tensor_usage_cnts[inn] += 1;
+  }
+
+  if(can_donate) {
+    is_donatable.insert(apply_id);
   }
 }
 

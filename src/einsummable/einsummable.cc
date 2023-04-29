@@ -106,6 +106,17 @@ string einsummable_t::str() const {
   return ss.str();
 }
 
+bool einsummable_t::is_straight_elementwise() const {
+  vector<int> reference(join_shape.size());
+  std::iota(reference.begin(), reference.end(), 0);
+  for(auto const& inn: inns) {
+    if(reference != inn) {
+      return false;
+    }
+  }
+  return true;
+}
+
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   out << "es[";
   out << e.join_shape[0];

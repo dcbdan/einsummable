@@ -34,6 +34,14 @@ struct einsummable_t {
 
   string str() const;
 
+  // Note on straight-elementwise vs elementwise in this context:
+  // Here (ij->ij) and (ijk,ijk->ijk) are straight_elementwise,
+  // but               (ikj,ijk->ijk) is elementwise but not straight
+  // as a transposition happens and
+  //                   (ijk,ijk->ij) is not elementwise since an aggregation
+  //                   happens.
+  bool is_straight_elementwise() const;
+
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
   {

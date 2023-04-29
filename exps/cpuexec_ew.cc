@@ -16,6 +16,12 @@ void f(uint64_t n, float* out, vector<float*> const& inns) {
   }
 }
 
+void ff(uint64_t n, float* out, float* inn) {
+  for(uint64_t i = 0; i != n; ++i) {
+    out[i] += inn[i];
+  }
+}
+
 void main01() {
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
@@ -60,5 +66,31 @@ void main01() {
 int main() {
   //scalarop_t s = scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]");
   //print_elementwise_function(s);
-  main01();
+  //main01();
+
+  uint64_t dn = 10000*10000;
+
+  buffer_t lhs = std::make_shared<buffer_holder_t>(dn);
+  lhs->ones();
+
+  buffer_t rhs = std::make_shared<buffer_holder_t>(dn);
+  rhs->random(-0.9, -0.1);
+
+  buffer_t out = std::make_shared<buffer_holder_t>(dn);
+
+  int nrep = 5;
+
+  for(int i = 0; i != nrep; ++i) {
+    raii_print_time_elapsed_t gremlin("A ");
+    f(dn, out->data, {lhs->data, rhs->data});
+  }
+  for(int i = 0; i != nrep; ++i) {
+    raii_print_time_elapsed_t gremlin("B ");
+    ff(dn, out->data, lhs->data);
+  }
+  for(int i = 0; i != nrep; ++i) {
+    raii_print_time_elapsed_t gremlin("C ");
+    f(dn, out->data, {lhs->data,rhs->data});
+  }
+
 }
