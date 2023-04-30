@@ -380,6 +380,59 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
   }
 }
 
+template<typename T>
+uint64_t push_into_bytes(vector<uint8_t>& bytes, T const& val) {
+  auto offset = bytes.size();
+  bytes.resize(offset + sizeof(T));
+  T& value = *((T*)(bytes.data() + offset));
+  value = val;
+  return offset;
+}
+
+string access_data_str(string type, string data, uint64_t offset) {
+  // (*((float*)(data + offset)))
+  return "(*(("+type+"*)("+data+"+"+std::to_string(offset)+")))";
+}
+
+string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
+{
+  if(op.is_constant()) {
+    auto offset = push_into_bytes(bytes, op.get_constant());
+    return access_data_str("float", "d", offset);
+  } else if(op.is_hole()) {
+    return "x" + std::to_string(op.get_which_input()) + "[i]";
+  } else if(op.is_add()) {
+    auto lhs = children[0].to_cpp_bytes(bytes);
+    auto rhs = children[1].to_cpp_bytes(bytes);
+    return "(" + lhs + "+" + rhs + ")";
+  } else if(op.is_mul()) {
+    auto lhs = children[0].to_cpp_bytes(bytes);
+    auto rhs = children[1].to_cpp_bytes(bytes);
+    return "(" + lhs + "*" + rhs + ")";
+  } else if(op.is_exp()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    return "std::exp(" + inn + ")";
+  } else if(op.is_power()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    auto offset = push_into_bytes(bytes, op.get_power());
+    auto power = access_data_str("int", "d", offset);
+    return "std::pow(" + inn + "," + power + ")";
+  } else if(op.is_sqrt()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    return "std::sqrt(" + inn + ")";
+  } else if(op.is_ite()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    auto i1 = children[1].to_cpp_bytes(bytes);
+    auto i2 = children[2].to_cpp_bytes(bytes);
+    auto i3 = children[3].to_cpp_bytes(bytes);
+    auto c = write_with_ss(op.get_ite_compare());
+    return "(" + i0 + c + i1 + "?" + i2 + ":" + i3 + ")";
+  } else {
+    throw std::runtime_error("to_cpp_bytes: should not reach");
+  }
+}
+
+
 void node_t::which_inputs(set<int>& items) const {
   if(op.is_hole()) {
     items.insert(op.get_which_input());
@@ -533,6 +586,14 @@ string scalarop_t::to_cppstr() const {
 }
 string scalarop_t::to_cppstr(std::function<string(int)> w) const {
   return node.to_cppstr(w);
+}
+
+tuple<string, vector<uint8_t>>
+scalarop_t::to_cpp_bytes() const
+{
+  vector<uint8_t> bytes;
+  string str = node.to_cpp_bytes(bytes);
+  return {str, bytes};
 }
 
 // Example: combining_op = (y0 * y1) + y2, ops = (x0 + x1, x0 + x1, 7*x0), this replaces

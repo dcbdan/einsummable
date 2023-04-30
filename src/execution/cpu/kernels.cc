@@ -5,6 +5,7 @@
 
 #define _unary_ew_loop(name, op) \
   void name( \
+    uint8_t const* d, \
     uint64_t n, \
     float* out, \
     float const* x0) \
@@ -15,6 +16,7 @@
   }
 #define _binary_ew_loop(name, op) \
   void name( \
+    uint8_t const* d, \
     uint64_t n, \
     float* out, \
     float const* x0, \
@@ -25,140 +27,52 @@
     } \
   }
 
-// *[ite_<[hole@0,constant{0},constant{0},constant{1}],hole@1]
-_binary_ew_loop(b0, ((x0[i]<0?0:1)*x1[i]))
+_binary_ew_loop(b0,((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]));
+_binary_ew_loop(b1,(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4))))));
+_binary_ew_loop(b2,(x0[i]+(x1[i]*(*((float*)(d+0))))));
+_binary_ew_loop(b3,(x0[i]+x1[i]));
+_binary_ew_loop(b4,std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4)))));
+_binary_ew_loop(b5,((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4)))))));
+_binary_ew_loop(b6,(x0[i]*x1[i]));
 
-// +[hole@0,*[*[hole@1,constant{0.3}],constant{-1}]]
-_binary_ew_loop(b1, (x0[i]+((x1[i]*0.3)*-1)))
+_unary_ew_loop(u0,(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i]));
 
-// +[hole@0,*[hole@1,constant{-1}]]
-_binary_ew_loop(b2, (x0[i]+(x1[i]*-1)));
-
-// +[hole@0,hole@1]
-_binary_ew_loop(b3, (x0[i]+x1[i]));
-
-// +[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]
-_binary_ew_loop(b4, (x0[i]+((x1[i]*0.1)*-1)));
-
-// power{2}[+[hole@0,*[hole@1,constant{-1}]]]
-_binary_ew_loop(b5, (std::pow((x0[i]+(x1[i]*-1)),2)));
-
-// *[constant{2},+[hole@0,*[hole@1,constant{-1}]]]
-_binary_ew_loop(b6, (2*(x0[i]+(x1[i]*-1))));
-
-// *[hole@0,hole@1]
-_binary_ew_loop(b7, (x0[i]*x1[i]));
-
-// +[hole@0,*[*[hole@1,constant{0.001}],constant{-1}]]
-_binary_ew_loop(b8, (x0[i]+((x1[i]*0.001)*-1)));
-
-// +[hole@0,*[*[hole@1,constant{0.01}],constant{-1}]]
-_binary_ew_loop(b9, (x0[i]+((x1[i]*0.01)*-1)));
-
-// +[hole@0,*[*[hole@1,constant{0.0001}],constant{-1}]]
-_binary_ew_loop(b10, (x0[i]+((x1[i]*0.0001)*-1)));
-
-// +[hole@0,*[*[hole@1,constant{1e-05}],constant{-1}]]
-_binary_ew_loop(b11, (x0[i]+((x1[i]*1e-05)*-1)));
-
-// +[hole@0,*[*[hole@1,constant{1e-06}],constant{-1}]]
-_binary_ew_loop(b12, (x0[i]+((x1[i]*1e-06)*-1)));
-
-// +[hole@0,*[*[hole@1,constant{1e-07}],constant{-1}]]
-_binary_ew_loop(b13, (x0[i]+((x1[i]*1e-07)*-1)));
-
-//
-// ite_<[hole@0,constant{0},constant{0},hole@0]
-_unary_ew_loop(u0, (x0[i]<0?0:x0[i]));
-
-std::function<void(uint64_t, float*, float const*)> get_unary_kernel(scalarop_t const& op)
+std::function<void(uint8_t const*, uint64_t, float*, float const*)>
+get_unary_kernel(string const& op_str)
 {
-  using kernel_t = std::function<void(uint64_t, float*, float const*)>;
+  using kernel_t = std::function<
+    void(uint8_t const*, uint64_t, float*, float const*)>;
 
-  static map<string, kernel_t> kernels {
-    {
-      "ite_<[hole@0,constant{0},constant{0},hole@0]",
-      u0
-    }
+  static map<string, kernel_t> kernels = {
+    {"(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i])",u0}
   };
 
-  auto op_str = write_with_ss(op);
   auto iter = kernels.find(op_str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str + "  ;  " + op.to_cppstr());
+    throw std::runtime_error("kernel undefined for " + op_str);
   }
   return iter->second;
 }
 
-std::function<void(uint64_t, float*, float const*, float const*)>
-get_binary_kernel(scalarop_t const& op)
+std::function<void(uint8_t const*, uint64_t, float*, float const*, float const*)>
+get_binary_kernel(string const& op_str)
 {
-  using kernel_t = std::function<void(uint64_t, float*, float const*, float const*)>;
+  using kernel_t = std::function<
+    void(uint8_t const*, uint64_t, float*, float const*, float const*)>;
 
-  static map<string, kernel_t> kernels {
-    {
-      "*[ite_<[hole@0,constant{0},constant{0},constant{1}],hole@1]",
-      b0
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{0.3}],constant{-1}]]",
-      b1
-    },
-    {
-      "+[hole@0,*[hole@1,constant{-1}]]",
-      b2
-    },
-    {
-      "+[hole@0,hole@1]",
-      b3
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]",
-      b4
-    },
-    {
-      "power{2}[+[hole@0,*[hole@1,constant{-1}]]]",
-      b5
-    },
-    {
-      "*[constant{2},+[hole@0,*[hole@1,constant{-1}]]]",
-      b6
-    },
-    {
-      "*[hole@0,hole@1]",
-      b7
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{0.001}],constant{-1}]]",
-      b8
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{0.01}],constant{-1}]]",
-      b9
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{0.0001}],constant{-1}]]",
-      b10
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{1e-05}],constant{-1}]]",
-      b11
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{1e-06}],constant{-1}]]",
-      b12
-    },
-    {
-      "+[hole@0,*[*[hole@1,constant{1e-07}],constant{-1}]]",
-      b13
-    }
-
+  static map<string, kernel_t> kernels = {
+    {"((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])",b0},
+    {"(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4)))))",b1},
+    {"(x0[i]+(x1[i]*(*((float*)(d+0)))))",b2},
+    {"(x0[i]+x1[i])",b3},
+    {"std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4))))",b4},
+    {"((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4))))))",b5},
+    {"(x0[i]*x1[i])",b6}
   };
 
-  auto op_str = write_with_ss(op);
   auto iter = kernels.find(op_str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str + "  ;  " + op.to_cppstr());
+    throw std::runtime_error("kernel undefined for " + op_str);
   }
   return iter->second;
 }
@@ -187,22 +101,24 @@ build_unary_elementwise_kernel(
     throw std::runtime_error("elementwise: calling with zero");
   }
 
-  auto f = get_unary_kernel(op);
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  auto f = get_unary_kernel(op_str);
 
   if(num_threads == 0 || n < num_threads) {
-    return [f,n](float* out, vector<float const*> inns) {
-      return f(n, out, inns[0]);
+    return [f,n,bytes](float* out, vector<float const*> inns) {
+      return f(bytes.data(), n, out, inns[0]);
     };
   }
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges](float* out, vector<float const*> inns) {
+  return [f,n,ranges,bytes](float* out, vector<float const*> inns) {
     vector<std::thread> ts;
     float const* inn = inns[0];
     for(auto const& [lower,upper]: ranges) {
       ts.emplace_back(
         f,
+        bytes.data(),
         upper-lower,
         out + lower,
         inn + lower);
@@ -223,23 +139,25 @@ build_binary_elementwise_kernel(
     throw std::runtime_error("elementwise: calling with zero");
   }
 
-  auto f = get_binary_kernel(op);
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  auto f = get_binary_kernel(op_str);
 
   if(num_threads == 0 || n < num_threads) {
-    return [f,n](float* out, vector<float const*> inns) {
-      return f(n, out, inns[0], inns[1]);
+    return [f,n,bytes](float* out, vector<float const*> inns) {
+      return f(bytes.data(), n, out, inns[0], inns[1]);
     };
   }
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges](float* out, vector<float const*> inns) {
+  return [f,n,ranges,bytes](float* out, vector<float const*> inns) {
     vector<std::thread> ts;
     float const* lhs = inns[0];
     float const* rhs = inns[1];
     for(auto const& [lower,upper]: ranges) {
       ts.emplace_back(
         f,
+        bytes.data(),
         upper-lower,
         out + lower,
         lhs + lower,

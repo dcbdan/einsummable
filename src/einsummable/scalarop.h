@@ -73,6 +73,8 @@ struct node_t {
 
   string to_cppstr(std::function<string(int)> write_hole) const;
 
+  string to_cpp_bytes(vector<uint8_t>& bytes) const;
+
   void which_inputs(set<int>& items) const;
 
   // if there are no holes, return -1
@@ -123,6 +125,7 @@ struct scalarop_t {
 
   string to_cppstr() const;
   string to_cppstr(std::function<string(int)> write_hole) const;
+  tuple<string, vector<uint8_t>> to_cpp_bytes() const;
 
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)
