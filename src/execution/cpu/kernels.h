@@ -21,6 +21,11 @@ build_binary_elementwise_kernel(
   uint64_t n,
   scalarop_t binary_op);
 
+// TODO: Does this guy need to be multithreaded?
+//       That should be straightforward to do:
+//       Partition the touch operation into the
+//       number of threads and call each of
+//       those touches in parallel.
 std::function<void(float*, float const*)>
 build_touch(touch_t const& touch);
 
