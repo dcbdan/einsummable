@@ -103,13 +103,13 @@ void ff(
   // Set x
   {
     buffer_t buffer_x = std::make_shared<buffer_holder_t>(dn*dp);
-    buffer_x->random(-0.1, 0.1);
+    buffer_x->random(-0.05, 0.05);
     buffers.insert({x, buffer_x});
   }
   // Set y
   {
     buffer_t buffer_y = std::make_shared<buffer_holder_t>(dn*dd);
-    buffer_y->random(-0.1, 0.1);
+    buffer_y->random(-0.05, 0.05);
     buffers.insert({y, buffer_y});
   }
   // Set init weights
@@ -118,15 +118,18 @@ void ff(
     int const& w_sz = ws_sizes[i];
 
     buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
-    buffer_w->random(-0.6, 0.6);
+    buffer_w->random(-0.05, 0.05);
     buffers.insert({w, buffer_w});
   }
 
+  gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
     float loss = buffers.at(sq_diff)->sum();
-    std::cout << "loss: " << loss << std::endl;
+    if(i % 75 == 0) {
+      std::cout << "loss: " << loss << std::endl;
+    }
 
     for(int i = 0; i != ws.size(); ++i) {
       int const& w    = ws[i];
