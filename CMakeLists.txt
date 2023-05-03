@@ -45,6 +45,7 @@ target_link_libraries(scalarop einsummable)
 add_library(matrixgraph
   STATIC
   src/matrixgraph/matrixgraph.cc
+  src/matrixgraph/ff.cc
   src/einsummable/einsummable.cc
   src/einsummable/graph.cc
   src/einsummable/partdim.cc
@@ -53,10 +54,6 @@ add_library(matrixgraph
   src/einsummable/indexer.cc
   # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
 )
-
-add_executable(matrixgraphexp exps/matrixgraph.cc)
-target_link_libraries(matrixgraphexp einsummable)
-target_link_libraries(matrixgraphexp matrixgraph)
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
@@ -85,6 +82,7 @@ if(${CPU_EXECUTION_ENGINE})
     src/einsummable/setup.cc
     src/einsummable/taskgraph.cc
     src/matrixgraph/matrixgraph.cc
+    src/matrixgraph/ff.cc
     src/einsummable/einsummable.cc
     src/einsummable/graph.cc
     src/einsummable/partdim.cc

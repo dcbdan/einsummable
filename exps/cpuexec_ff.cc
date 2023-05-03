@@ -1,4 +1,5 @@
 #include "../src/matrixgraph/matrixgraph.h"
+#include "../src/matrixgraph/ff.h"
 
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
@@ -26,54 +27,20 @@ void ff(
   vector<uint64_t> dws,
   int niter, float learning_rate)
 {
+  ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate);
+  matrixgraph_t const& mgraph = ff_info.mgraph;
+
+  int x             = ff_info.x;
+  int y             = ff_info.y;
+  int yhat          = ff_info.yhat;
+  int sqdiff        = ff_info.sqdiff;
+  vector<int> ws    = ff_info.wsinn;
+  vector<int> wsnew = ff_info.wsout;
+
   auto settings = settings_t::default_settings();
 
-  scalarop_t gradupdate = scalarop_t::combine(
-    scalarop_t::make_sub(),
-    {
-      scalarop_t::from_string("hole@0"),
-      scalarop_t::make_scale(learning_rate)
-    }
-  );
-  scalarop_t relu = scalarop_t::make_relu();
-  scalarop_t squared_difference =
-    scalarop_t::from_string("power{2}[+[hole@0,*[hole@1,constant{-1}]]]");
-
-  matrixgraph_t mgraph;
-
-  int x = mgraph.insert_input(dn, dp);
-  int y = mgraph.insert_input(dn, dd);
-
-  int yhat = x;
-  vector<int> ws;
-  vector<uint64_t> ws_sizes;
-  {
-    uint64_t dlast = dp;
-    for(auto const& dw: dws) {
-      ws.push_back(mgraph.insert_input(dlast, dw));
-      ws_sizes.push_back(dlast*dw);
-      yhat = mgraph.insert_matmul_ss(yhat, ws.back());
-      yhat = mgraph.insert_ew(relu, yhat);
-      dlast = dw;
-    }
-    ws.push_back(mgraph.insert_input(dlast, dd));
-    ws_sizes.push_back(dlast*dd);
-    yhat = mgraph.insert_matmul_ss(yhat, ws.back());
-  }
-
-  int sq_diff = mgraph.insert_ewb(squared_difference, yhat, y);
-
-  vector<int> grads = mgraph.backprop(sq_diff, ws);
-
-  vector<int> wsnew;
-  for(int i = 0; i != ws.size(); ++i) {
-    int const& g = grads[i];
-    int const& w = ws[i];
-    wsnew.push_back(mgraph.insert_ewb(gradupdate, w, g));
-  }
-
   vector<int> outs = wsnew;
-  outs.push_back(sq_diff);
+  outs.push_back(sqdiff);
   auto [graph, m_to_g] = mgraph.compile(outs);
   auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph);
 
@@ -88,7 +55,7 @@ void ff(
   for(int& w: wsnew) {
     w = outputs_g_to_t.at(m_to_g.at(w))(0,0);
   }
-  sq_diff = outputs_g_to_t.at(m_to_g.at(sq_diff))(0,0);
+  sqdiff = outputs_g_to_t.at(m_to_g.at(sqdiff))(0,0);
 
   // NOW DON'T USE MATRIX GRAPH IDS
   //////////
@@ -115,7 +82,8 @@ void ff(
   // Set init weights
   for(int i = 0; i != ws.size(); ++i) {
     int const& w = ws[i];
-    int const& w_sz = ws_sizes[i];
+    auto [w_d0,w_d1] = ff_info.shape_wi(i);
+    uint64_t w_sz = w_d0*w_d1;
 
     buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
     buffer_w->random(-0.05, 0.05);
@@ -126,7 +94,7 @@ void ff(
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
-    float loss = buffers.at(sq_diff)->sum();
+    float loss = buffers.at(sqdiff)->sum();
     if(i % 75 == 0) {
       std::cout << "loss: " << loss << std::endl;
     }
