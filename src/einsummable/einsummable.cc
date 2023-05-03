@@ -117,6 +117,10 @@ bool einsummable_t::is_straight_elementwise() const {
   return true;
 }
 
+bool einsummable_t::has_aggregation() const {
+  return out_rank < join_shape.size();
+}
+
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   out << "es[";
   out << e.join_shape[0];

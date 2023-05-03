@@ -36,7 +36,7 @@ struct matrixgraph_t {
 
   // Build a graph object from the matrixgraph.
   // All output nodes are save nodes.
-  // Return 1. thre resulting graph and 2. a map
+  // Return 1. the resulting graph and 2. a map
   // from (included matrixgraph ids) to (graph ids).
   tuple<graph_t, map<int, int>>
   compile() const;
@@ -77,7 +77,6 @@ private:
 
   struct ones_t {
   };
-
 
   using op_t = std::variant<matmul_t, ew_t, ewb_t, input_t, ones_t>;
 

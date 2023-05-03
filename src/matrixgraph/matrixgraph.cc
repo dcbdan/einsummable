@@ -766,6 +766,7 @@ matrixgraph_t::compile(vector<int> const& saves) const
         // into einsummable ops
       } else {
         int gid;
+        bool form = false;
         if(node.is_einsummable()) {
           // translate_op will attempt to absorb ones
           // into the einsummable expression.
@@ -777,6 +778,7 @@ matrixgraph_t::compile(vector<int> const& saves) const
             graph_inns.push_back(g_inn);
           }
           gid = ret.insert_einsummable(einsummable, graph_inns);
+          form = einsummable.has_aggregation();
         } else if(node.is_input()) {
           auto const& [d0,d1] = node.out_shape;
           gid = ret.insert_input({d0,d1});
@@ -788,8 +790,16 @@ matrixgraph_t::compile(vector<int> const& saves) const
           int gsaveid = ret.insert_formation(gid, true);
           matrixgraph_to_graph.insert({mid, gsaveid});
         } else {
-          matrixgraph_to_graph.insert({mid, gid});
+          if(form) {
+            // if this is an einsummable node that has an aggregation,
+            // put in a formation node
+            int gformid = ret.insert_formation(gid, false);
+            matrixgraph_to_graph.insert({mid, gformid});
+          } else {
+            matrixgraph_to_graph.insert({mid, gid});
+          }
         }
+
       }
 
       // Only add to next_up if it in the remaining set

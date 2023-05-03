@@ -54,6 +54,8 @@ struct einsummable_t {
   //                   happens.
   bool is_straight_elementwise() const;
 
+  bool has_aggregation() const;
+
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
   {
