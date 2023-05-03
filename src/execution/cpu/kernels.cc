@@ -403,7 +403,7 @@ void matrix_multiply(
 //   ij,jk->bik
 //   bij,bjk->ik
 // by just looping over the batched dimension
-void broadcast_matrix_multiply(
+void batch_matrix_multiply(
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,
@@ -507,7 +507,7 @@ _make_matrix_multiply(
 // TODO: see _make_matrix_multiply todo.
 //       Also, this function is just too ugly
 optional<std::function<void(float*, vector<float const*>)>>
-_make_broadcast_matrix_multiply(
+_make_batch_matrix_multiply(
   einsummable_t const& e)
 {
   using kernel_t = std::function<void(float*, vector<float const*>)>;
@@ -641,7 +641,7 @@ _make_broadcast_matrix_multiply(
   return optional<kernel_t>(
     [nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
     (float* out, vector<float const*> inns) {
-      return broadcast_matrix_multiply(
+      return batch_matrix_multiply(
         nb,batched_out,batched_lhs,batched_rhs,
         ni,nj,nk,
         trans_lhs,trans_rhs,
@@ -679,9 +679,9 @@ build_einsummable(
     return matmul.value();
   }
 
-  auto broadcast_matmul = _make_broadcast_matrix_multiply(einsummable);
-  if(broadcast_matmul) {
-    return broadcast_matmul.value();
+  auto batch_matmul = _make_batch_matrix_multiply(einsummable);
+  if(batch_matmul) {
+    return batch_matmul.value();
   }
 
   throw std::runtime_error("could not acrquire kernel for " + write_with_ss(einsummable));

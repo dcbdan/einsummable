@@ -68,7 +68,7 @@ void matrix_multiply(
 //   ij,jk->bik
 //   bij,bjk->ik
 // by just looping over the batched dimension
-void broadcast_matrix_multiply(
+void batch_matrix_multiply(
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,

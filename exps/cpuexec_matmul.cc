@@ -21,7 +21,7 @@ int main() {
   {
     raii_print_time_elapsed_t gremlin("mm");
     matrix_multiply(ni,nj,nk,false,false,out->data, lhs->data, rhs->data);
-    //broadcast_matrix_multiply(
+    //batch_matrix_multiply(
     //  nb,true,false,false,ni,nj,nk,false,false,
     //  out->data,lhs->data,rhs->data);
   }
