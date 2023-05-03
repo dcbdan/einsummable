@@ -14,7 +14,7 @@ void main01() {
   uint64_t dn = 1000;
   uint64_t dp = 100;
   uint64_t dd = 100;
-  vector<uint64_t> dws = {};
+  vector<uint64_t> dws = {105, 110, 115, 120, 125};
   float learning_rate = 0.001;
 
   ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate);
@@ -31,12 +31,34 @@ void main01() {
   std::cout << line << std::endl;
 
   uint64_t mmlike_sizing = 75*75*75;
-  uint64_t min_sizing = 0;
+  uint64_t min_sizing = 25*25;
 
-  vector<partition_t> new_parts = autopartition(
-    graph, mmlike_sizing, min_sizing);
+  {
+    vector<partition_t> new_parts = autopartition(
+      graph, mmlike_sizing, min_sizing);
+    update_graph_partitions(graph, new_parts);
+  }
 
-  update_graph_partitions(graph, new_parts);
+  graph.print();
+  std::cout << line << std::endl;
+
+  {
+    set<tuple<int,int>> same_parts;
+    for(int i = 0; i != ff_info.wsinn.size(); ++i) {
+      int const& winn = m_to_g.at(ff_info.wsinn[i]);
+      int const& wout = m_to_g.at(ff_info.wsout[i]);
+      DOUT(winn << ", " << wout);
+      same_parts.insert({winn, wout});
+    }
+
+    vector<partition_t> new_parts = autopartition(
+      graph,
+      mmlike_sizing, min_sizing,
+      same_parts, {}
+    );
+
+    update_graph_partitions(graph, new_parts);
+  }
 
   graph.print();
 }
