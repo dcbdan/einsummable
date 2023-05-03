@@ -396,6 +396,26 @@ struct autopartition_state_t {
   // Decide the partition based on (1) the
   // usage partitions and (2) the input partitions,
   // if available.
+  //
+  // There is one caveat: formation
+  // nodes that do not have an ouput are not set.
+  // Consider
+  //   node 0: A/Input
+  //   node 1: C = A + B
+  //   node 2: Form(C)
+  // Where A does not have a partition.
+  // Then, with output-formation nodes considered,
+  // 1. set node 2 to singleton
+  // 2. set C to intersection of node 2 and node B
+  //    which is just node B
+  // 3. Set node 0 to the partition of node 1
+  //
+  // How it'd work now, not setting output-formation
+  // nodes:
+  // 1. set node 1 to partition of node B
+  // 2. set node 0 to partition of C
+  // Now node 2 does not have a partition, so go
+  // back and set it to the partition of C.
   void set_from_outputs_and_recurse(int id);
 
   void set_mmlike(int id);
@@ -403,6 +423,7 @@ struct autopartition_state_t {
   void set_partition(int id, partition_t const& p);
 
   bool is_mmlike(int id) const;
+  bool is_output_formation(int id) const;
 
   // If the partition has blocks finer
   // than min_sizing, then either return
@@ -443,6 +464,14 @@ vector<partition_t> autopartition(
     graph, mmlike_sizing, min_sizing,
     equal_constraints, fixed_constraints);
 
+  // 0. set mmlike nodes
+  // 1. Walk forwards from the nodes that have been
+  //    set and set remaining nodes from input partitions
+  // 2. Walk backwards setting a node from output partitions,
+  //    excluding output formation nodes
+  // 3. set output formation nodes
+
+  // Step 0.
   // Seed the subsequent computation by
   // setting all mmlike partitions directly
   int n_nodes = graph.nodes.size();
@@ -452,12 +481,7 @@ vector<partition_t> autopartition(
     }
   }
 
-  // Now walk forwards from the nodes that have been
-  // set and set remaining nodes from it's input partitions,
-  //
-  // Then walk backwards setting a node from it's output partitions.
-
-  // Set remaining nodes forward from inputs
+  // Step 1.
   {
     bool found;
     do {
@@ -470,15 +494,34 @@ vector<partition_t> autopartition(
     } while(found);
   }
 
-  // Set remaining nodes backwards from outputs
-  // This is guaranteed to finish because there must exist
-  // nodes that have no outputs.
-  while(state.remaining.size() > 0) {
+  // Step 2.
+  {
     set<int> rem = state.remaining;
     for(auto const& id: rem) {
-      // will not do any setting if outputs are not available.
-      state.set_from_outputs_and_recurse(id);
+      if(!state.is_output_formation(id)) {
+        // will not do any setting if outputs are not available.
+        state.set_from_outputs_and_recurse(id);
+      }
     }
+  }
+
+  // Step 3.
+  // Set any remaining output formation nodes from input partitions
+  {
+    set<int> rem = state.remaining;
+    for(auto const& id: rem) {
+      if(state.is_output_formation(id)) {
+        // there is no recursion to do
+        state.set_from_inputs_and_recurse(id);
+      } else {
+        throw std::runtime_error("this should have already been set");
+      }
+    }
+  }
+
+  // Just in case
+  if(state.remaining.size() != 0) {
+    throw std::runtime_error("autopartition did not get all partiitons");
   }
 
   return vector_from_each_method(state.ret, partition_t, value);
@@ -543,6 +586,11 @@ bool autopartition_state_t::is_mmlike(int id) const {
   }
 }
 
+bool autopartition_state_t::is_output_formation(int id) const {
+  auto const& node = graph.nodes[id];
+  return node.outs.size() == 0 && node.op.is_formation();
+}
+
 void _update_pds_and_choice_from_input_for_nonmmlike(
   vector<vector<partdim_t>>& pds,
   optional<partition_t>& choice,
@@ -576,6 +624,10 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
     throw std::runtime_error("should not happen");
   }
 
+  if(is_output_formation(id)) {
+    throw std::runtime_error("should not happen");
+  }
+
   auto const& node = graph.nodes[id];
   auto shape = node.op.shape();
 
@@ -605,6 +657,9 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
   // for each usage, make sure it is set (recurse)
   // and update choice and pds
   for(auto const& out_id: node.outs) {
+    if(is_output_formation(out_id)) {
+      continue;
+    }
     set_from_outputs_and_recurse(out_id);
 
     auto const& out_part = ret[out_id].value();

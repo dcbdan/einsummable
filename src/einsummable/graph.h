@@ -239,10 +239,8 @@ graph_t straight_matrix_multiplication(
 // that some nodes still aren't partitioned--i.e. all
 // input nodes not explictly partitioned.
 // Here, all remaining nodes are partitioned based on the
-// intersection of their output usages. If the node has no outputs,
-// then as a singleton partition. No aggregation dimensions get
-// partitioned in this setting.
-// If any resulting partition falls under min_sizing,
+// intersection of their output usages and any input partitions
+// if available. If any resulting partition falls under min_sizing,
 // a partitioned deduced from an output is chosen.
 //
 // The user may also set some nodes to have an explicit partition
