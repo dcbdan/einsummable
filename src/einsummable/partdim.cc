@@ -161,7 +161,7 @@ bool operator!=(partdim_t const& lhs, partdim_t const& rhs) {
 
 std::ostream& operator<<(std::ostream& out, partdim_t const& partdim) {
   if(partdim.num_parts() == 1) {
-    out << "pd::singleton";
+    out << "pd::singleton(" << partdim.total() << ")";
     return out;
   }
 

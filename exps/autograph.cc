@@ -30,7 +30,7 @@ void main01() {
   std::string line(_line.begin(), _line.end());
   std::cout << line << std::endl;
 
-  uint64_t mmlike_sizing = 100*100*100;
+  uint64_t mmlike_sizing = 75*75*75;
   uint64_t min_sizing = 0;
 
   vector<partition_t> new_parts = autopartition(

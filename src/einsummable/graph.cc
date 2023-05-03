@@ -393,8 +393,9 @@ struct autopartition_state_t {
   bool set_from_inputs_and_recurse(int id);
 
   // Set the partition of any non-mmlike node.
-  // Decide the partition based on the the usage
-  // partitions.
+  // Decide the partition based on (1) the
+  // usage partitions and (2) the input partitions,
+  // if available.
   void set_from_outputs_and_recurse(int id);
 
   void set_mmlike(int id);
@@ -404,15 +405,12 @@ struct autopartition_state_t {
   bool is_mmlike(int id) const;
 
   // If the partition has blocks finer
-  // than min_sizing, then return choice
+  // than min_sizing, then either return
+  // choice if not none, or make it coarser
+  // by iteratively making dimensions coarser
   partition_t construct_minsized_partition(
     partition_t const& maybe_too_fine_partition,
-    partition_t const& choice) const;
-  // If the partition has blocks finer
-  // than min_sizing, then iteratively
-  // add singleton dimensions.
-  partition_t construct_minsized_partition(
-    partition_t const& maybe_too_fine_partition) const;
+    optional<partition_t> const& choice) const;
 
   bool is_too_fine(partition_t const& p) const;
 
@@ -545,6 +543,30 @@ bool autopartition_state_t::is_mmlike(int id) const {
   }
 }
 
+void _update_pds_and_choice_from_input_for_nonmmlike(
+  vector<vector<partdim_t>>& pds,
+  optional<partition_t>& choice,
+  vector<int> const& is,
+  vector<partdim_t> const& inn_partdims)
+{
+  if(inn_partdims.size() == pds.size() && !choice) {
+    vector<partdim_t> choice_partdims(pds.size());
+    for(int inn_idx = 0; inn_idx != is.size(); ++inn_idx) {
+      int const& join_idx = is[inn_idx];
+      auto const& inn_partdim = inn_partdims[inn_idx];
+      choice_partdims[join_idx] = inn_partdim;
+    }
+    choice = partition_t(choice_partdims);
+  }
+
+  for(int inn_idx = 0; inn_idx != is.size(); ++inn_idx) {
+    int const& join_idx = is[inn_idx];
+    auto const& inn_partdim = inn_partdims[inn_idx];
+    pds[join_idx].push_back(inn_partdims[inn_idx]);
+  }
+}
+
+// Note: this may take into account input partitions, if available.
 void autopartition_state_t::set_from_outputs_and_recurse(int id) {
   if(ret[id]) {
     return;
@@ -555,33 +577,10 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
   }
 
   auto const& node = graph.nodes[id];
-
-  if(node.outs.size() == 0) {
-    set_partition(id, partition_t::singleton(node.op.shape()));
-    return;
-  }
-
-  // for each usage, make sure it is set and get the usage(s)
-  vector<partition_t> out_ps;
-  for(auto const& out_id: node.outs) {
-    set_from_outputs_and_recurse(out_id);
-
-    auto const& out_node = graph.nodes[out_id];
-    if(out_node.op.is_einsummable()) {
-      auto const& e = out_node.op.get_einsummable();
-      auto const& out_inns = out_node.inns;
-      for(int which_inn = 0; which_inn != out_inns.size(); ++which_inn) {
-        if(out_inns[which_inn] == id) {
-          auto const& pds = ret[out_id].value().partdims;
-          out_ps.push_back(partition_t(e.get_input_from_join(pds, which_inn)));
-        }
-      }
-    } else {
-      out_ps.push_back(ret[out_id].value());
-    }
-  }
-
   auto shape = node.op.shape();
+
+  bool has_agg = node.op.has_aggregation();
+
   vector<vector<partdim_t>> pds(shape.size());
   {
     // set pds after taking union equivalent to singleton
@@ -591,17 +590,60 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
     }
   }
 
-  for(auto const& partition: out_ps) {
-    // Note: if partdims.size() != shape.size(), then
-    //       this is an agg node
-    auto const& partdims = partition.partdims;
-    for(int rank = 0; rank != partdims.size(); ++rank) {
-      pds[rank].push_back(partdims[rank]);
+  optional<partition_t> choice;
+
+  auto update_with = [&](vector<partdim_t> const& partdims) {
+    if(!has_agg && !choice && partdims.size() == shape.size()) {
+      choice = partition_t(partdims);
+    }
+    for(int i = 0; i != partdims.size(); ++i) {
+      auto const& partdim = partdims[i];
+      pds[i].push_back(partdim);
+    }
+  };
+
+  // for each usage, make sure it is set (recurse)
+  // and update choice and pds
+  for(auto const& out_id: node.outs) {
+    set_from_outputs_and_recurse(out_id);
+
+    auto const& out_part = ret[out_id].value();
+    auto const& out_node = graph.nodes[out_id];
+
+    if(out_node.op.is_einsummable()) {
+      auto const& e = out_node.op.get_einsummable();
+      auto const& out_inns = out_node.inns;
+      for(int which_inn = 0; which_inn != out_inns.size(); ++which_inn) {
+        if(out_inns[which_inn] == id) {
+          vector<partdim_t> out_reordered_partdims =
+            e.get_input_from_join(out_part.partdims, which_inn);
+          update_with(out_reordered_partdims);
+        }
+      }
+    } else {
+      update_with(out_part.partdims);
     }
   }
 
-  // If this is an agg node, then the agg dimensions
-  // are singleton.
+  // now there may be input partitions available,
+  // so add them to pds
+  // (this will probably only be relevant nodes
+  //  with > 1 input where 1 input is not defined)
+  for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+    int inn_id = node.inns[which_inn];
+    if(!ret[inn_id]) {
+      continue;
+    }
+
+    auto const& inn_partdims = ret[inn_id].value().partdims;
+
+    if(node.op.is_einsummable()) {
+      vector<int> const& is = node.op.get_einsummable().inns[which_inn];
+      _update_pds_and_choice_from_input_for_nonmmlike(pds, choice, is, inn_partdims);
+    } else {
+      update_with(inn_partdims);
+    }
+  }
 
   vector<partdim_t> new_partdims;
   new_partdims.reserve(shape.size());
@@ -609,15 +651,18 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
     new_partdims.push_back(partdim_t::unions(pd));
   }
 
-  // account for the possible agg dims
-  vector<partdim_t> choice = out_ps[0].partdims;
-  for(int i = choice.size(); i != new_partdims.size(); ++i) {
-    choice.push_back(partdim_t::from_sizes({shape[i]}));
-  }
+  // ijk,ij->ij
+  // * has_agg is true,
+  // * if the rhs input has a partition, then that is the choice partition
+
+  // ijk->ij
+  // * if the input has a partition, that is the partition.
+  // * if the input does not have a partition (more likely),
+  //   choice is none, k is singleton in new_partdims
 
   partition_t new_part = construct_minsized_partition(
     partition_t(new_partdims),
-    partition_t(choice)
+    choice
   );
 
   set_partition(id, new_part);
@@ -660,21 +705,7 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       auto const& is = e.inns[which_inn];
       auto const& inn_partdims = inn_parts[which_inn].partdims;
 
-      if(inn_partdims.size() == shape.size() && !choice) {
-        vector<partdim_t> choice_partdims(shape.size());
-        for(int inn_idx = 0; inn_idx != is.size(); ++inn_idx) {
-          int const& join_idx = is[inn_idx];
-          auto const& inn_partdim = inn_partdims[inn_idx];
-          choice_partdims[join_idx] = inn_partdim;
-        }
-        choice = partition_t(choice_partdims);
-      }
-
-      for(int inn_idx = 0; inn_idx != is.size(); ++inn_idx) {
-        int const& join_idx = is[inn_idx];
-        auto const& inn_partdim = inn_partdims[inn_idx];
-        pds[join_idx].push_back(inn_partdims[inn_idx]);
-      }
+      _update_pds_and_choice_from_input_for_nonmmlike(pds, choice, is, inn_partdims);
     }
     vector<partdim_t> join_partdims;
     join_partdims.reserve(shape.size());
@@ -682,18 +713,13 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       join_partdims.push_back(partdim_t::unions(pd));
     }
 
-    if(choice) {
-      partition_t new_partition = construct_minsized_partition(
-        partition_t(join_partdims),
-        choice.value());
-      set_partition(id, new_partition);
-    } else {
-      // Note: this block will get it when ij,jk->ijk but not
-      //       when ijk,jk->ijk.
-      partition_t new_partition = construct_minsized_partition(
-        partition_t(join_partdims));
-      set_partition(id, new_partition);
-    }
+    // Note: When ij,jk->ijk choice is none but not
+    //       when ijk,jk->ijk
+    partition_t new_partition = construct_minsized_partition(
+      partition_t(join_partdims),
+      choice
+    );
+    set_partition(id, new_partition);
   } else {
     // This is a formation node.
 
@@ -702,11 +728,7 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
     auto const& inn_id       = node.inns[0];
     auto const& inn_node     = graph.nodes[inn_id];
 
-    bool has_agg = false;
-    if(inn_node.op.is_einsummable()) {
-      auto const& e = inn_node.op.get_einsummable();
-      has_agg = e.has_aggregation();
-    }
+    bool has_agg = inn_node.op.has_aggregation();
 
     if(has_agg) {
       auto const& e = inn_node.op.get_einsummable();
@@ -781,18 +803,25 @@ void autopartition_state_t::set_mmlike(int id) {
   for(uint64_t const& sz: shape) {
     items.emplace_back(sz, 1);
   }
-  // Note: this should result in slightly
+  // Note: this should err on slightly
   //       smaller blocks than mmlike_sizing
-  while(product(vector_mapfst(items)) >= mmlike_sizing) {
+  while(product(vector_mapfst(items)) > mmlike_sizing) {
     // find the item with the largest part size
     // and increment the number of parts
     int which = 0;
     uint64_t score = std::get<0>(items[0]);
     for(int i = 0; i != shape.size(); ++i) {
-      auto const& [s,_] = items[i];
+      auto const& [s,d_at_s] = items[i];
       if(s > score) {
         which = i;
         score = s;
+      } else if(s == score) {
+        // tie breaks go to the larger dimension
+        uint64_t d_at_which = std::get<1>(items[which]);
+        if(d_at_s > d_at_which) {
+          which = i;
+          score = s;
+        }
       }
     }
     auto& [partsize, npart] = items[which];
@@ -813,33 +842,42 @@ void autopartition_state_t::set_mmlike(int id) {
 
 partition_t autopartition_state_t::construct_minsized_partition(
   partition_t const& maybe_too_fine_partition,
-  partition_t const& choice) const
+  optional<partition_t> const& choice) const
 {
-  if(is_too_fine(maybe_too_fine_partition)) {
-    return choice;
-  } else {
-    return maybe_too_fine_partition;
+  if(choice) {
+    if(is_too_fine(maybe_too_fine_partition)) {
+      return choice.value();
+    } else {
+      return maybe_too_fine_partition;
+    }
   }
-}
 
-partition_t autopartition_state_t::construct_minsized_partition(
-  partition_t const& maybe_too_fine_partition) const
-{
+  // there is no choice, gotta do something else
+
   partition_t p = maybe_too_fine_partition;
   auto shape = p.total_shape();
   while(is_too_fine(p)) {
-    vector<uint64_t> ms;
-    for(auto const& partdim: p.partdims) {
-      auto sizes = partdim.sizes();
-      ms.push_back(*std::min_element(sizes.begin(), sizes.end()));
+    vector<tuple<uint64_t, int>> ms;
+    ms.reserve(p.partdims.size());
+    for(int i = 0; i != p.partdims.size(); ++i) {
+      auto const& partdim = p.partdims[i];
+      if(partdim.num_parts() > 1) {
+        auto sizes = partdim.sizes();
+        uint64_t const& sz = *std::min_element(sizes.begin(), sizes.end());
+        ms.emplace_back(sz, i);
+      }
     }
-    int argmin = std::min_element(ms.begin(), ms.end()) - ms.begin();
+
+    if(ms.size() == 0) {
+      throw std::runtime_error(
+        "minsized: should not happen, nothing to make coarser"
+      );
+    }
+
+    auto const& [_, argmin] = *std::min_element(ms.begin(), ms.end());
+
     vector<partdim_t> new_partdims = p.partdims;
     int arg_npart = new_partdims[argmin].num_parts();
-    if(arg_npart < 1) {
-      throw std::runtime_error(
-        "minsized partition construction: should not happen");
-    }
     new_partdims[argmin] = partdim_t::split(shape[argmin], arg_npart-1);
     p = partition_t(new_partdims);
   }
@@ -857,6 +895,6 @@ bool autopartition_state_t::is_too_fine(partition_t const& partition) const
     auto sizes = partdim.sizes();
     min_block_size *= (*std::min_element(sizes.begin(), sizes.end()));
   }
-  return min_block_size >= min_sizing;
+  return min_block_size < min_sizing;
 }
 

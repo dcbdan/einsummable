@@ -149,6 +149,9 @@ public:
     einsummable_t& get_einsummable() {
       return std::get<einsummable_t>(op);
     }
+    bool has_aggregation() const {
+      return is_einsummable() && get_einsummable().has_aggregation();
+    }
 
     formation_t const& get_formation() const {
       return std::get<formation_t>(op);
