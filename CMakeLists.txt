@@ -55,6 +55,10 @@ add_library(matrixgraph
   # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
 )
 
+add_executable(autograph exps/autograph.cc)
+target_link_libraries(autograph matrixgraph)
+target_link_libraries(autograph einsummable)
+
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
 

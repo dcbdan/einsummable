@@ -61,14 +61,17 @@ partdim_t partdim_t::split_each(partdim_t const& p, int n_split_each)
   vector<uint64_t> sizes;
   sizes.reserve(p.num_parts() * n_split_each);
   for(auto const& sz: p.sizes()) {
-    vector_concatenate_into(sizes, divide_evenly(n_split_each, sz));
+    vector_concatenate_into(
+      sizes,
+      divide_evenly(n_split_each, sz)
+    );
   }
   return from_sizes(sizes);
 }
 
 vector<uint64_t> partdim_t::sizes() const {
   vector<uint64_t> ret = spans;
-  for(int i = ret.size(); i > 0; --i) {
+  for(int i = ret.size()-1; i > 0; --i) {
     ret[i] -= ret[i-1];
   }
   // spans = [10,20,30,35]

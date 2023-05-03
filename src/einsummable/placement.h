@@ -102,7 +102,7 @@ struct placement_t {
     return partition.num_parts();
   }
 
-  partition_t const partition;
+  partition_t partition;
   tensor_t<int> locations;
 };
 

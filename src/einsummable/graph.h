@@ -245,7 +245,6 @@ graph_t straight_matrix_multiplication(
 // The user may also set some nodes to have an explicit partition
 // or to be equal to each other. For nodes that are equal to each other,
 // whenever one node gets set, the other gets that partition.
-// (TODO: min_sizing not actually implemented)
 vector<partition_t> autopartition(
   graph_t const& graph,
   uint64_t mmlike_sizing,
@@ -253,3 +252,10 @@ vector<partition_t> autopartition(
   // make sure each of these pair have the same partition
   set<tuple<int, int>> const& equal_constraints,
   map<int, partition_t> const& fixed_constraints);
+
+// The same thing with no constriants
+vector<partition_t> autopartition(
+  graph_t const& graph,
+  uint64_t mmlike_sizing,
+  uint64_t min_sizing);
+

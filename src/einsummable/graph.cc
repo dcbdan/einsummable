@@ -165,12 +165,14 @@ void graph_t::print() const {
   for(int id = 0; id != nodes.size(); ++id) {
     auto const& node = nodes[id];
 
+    std::cout << "node id: " << id
+      << " with out shape " << node.op.out_shape() << std::endl;
     std::cout << "inputs: " << node.inns << std::endl;
     std::cout << "partition: " << node.placement.partition << std::endl;
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;
     } else if(node.op.is_einsummable()) {
-      std::cout << "einsummable" << std::endl;
+      std::cout << "einsummable " << node.op.get_einsummable() << std::endl;
     } else if(node.op.is_formation()) {
       std::cout << "formation (is save = " << std::boolalpha << node.op.is_save() << ")" << std::endl;
     }
@@ -426,6 +428,14 @@ struct autopartition_state_t {
 vector<partition_t> autopartition(
   graph_t const& graph,
   uint64_t mmlike_sizing,
+  uint64_t min_sizing)
+{
+  return autopartition(graph, mmlike_sizing, min_sizing, {}, {});
+}
+
+vector<partition_t> autopartition(
+  graph_t const& graph,
+  uint64_t mmlike_sizing,
   uint64_t min_sizing,
   // make sure each of these pair have the same partition
   set<tuple<int, int>> const& equal_constraints,
@@ -572,8 +582,7 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
   }
 
   auto shape = node.op.shape();
-  vector<vector<partdim_t>> pds;
-  pds.reserve(shape.size());
+  vector<vector<partdim_t>> pds(shape.size());
   {
     // set pds after taking union equivalent to singleton
     partition_t singleton = partition_t::singleton(shape);
@@ -696,9 +705,7 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
     bool has_agg = false;
     if(inn_node.op.is_einsummable()) {
       auto const& e = inn_node.op.get_einsummable();
-      if(e.out_rank < e.join_shape.size()) {
-        has_agg = true;
-      }
+      has_agg = e.has_aggregation();
     }
 
     if(has_agg) {
@@ -725,24 +732,24 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       // since things are row-major ordered, and that
       // produces a beter touch operation.
       for(partdim_t& partdim: partdims) {
-        bool bigenough = true;
         for(uint64_t sz: partdim.sizes()) {
           if(sz < n_aggregates) {
-            bigenough = false;
             break;
           }
         }
-        if(bigenough) {
-          if(partdim.total() > n_aggregates) {
-            partdim = partdim_t::split_each(partdim, n_aggregates);
-            break;
-          }
-        }
+        // partdim is big enough
+        partdim = partdim_t::split_each(partdim, n_aggregates);
+        break;
       }
       // If none of the partdims are big enough, that is weird,
       // but none of them are split and that is fine.
 
-      set_partition(id, partition_t(partdims));
+      partition_t new_part = partition_t(partdims);
+      if(new_part.total_shape() != node.op.shape()) {
+        throw std::runtime_error("new part is incorrect");
+      }
+
+      set_partition(id, new_part);
     } else {
       set_partition(id, inn_parts[0]);
     }
