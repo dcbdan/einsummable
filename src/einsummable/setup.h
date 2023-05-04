@@ -346,3 +346,138 @@ struct raii_print_time_elapsed_t {
 };
 
 using gremlin_t = raii_print_time_elapsed_t;
+
+// Example:
+//   struct ab_t {
+//     int a;
+//     int b;
+//   }
+//   bool operator<(ab_t const& lhs, ab_t const& rhs) {
+//     return two_tuple_lt(lhs, rhs);
+//   }
+template <typename T>
+inline bool two_tuple_lt(T const& lhs, T const& rhs) {
+  auto const& [lhs_a, lhs_b] = lhs;
+  auto const& [rhs_a, rhs_b] = rhs;
+  if(lhs_a < rhs_a) {
+    return true;
+  }
+  if(lhs_a == rhs_a) {
+    return lhs_b < rhs_b;
+  }
+  return false;
+}
+
+template <typename T>
+struct equal_items_t {
+  equal_items_t(set<tuple<T,T>> const& eqs) {
+    for(auto const& [a,b]: eqs) {
+      insert(a,b);
+    }
+  }
+  equal_items_t(vector<tuple<T,T>> const& eqs) {
+    for(auto const& [a,b]: eqs) {
+      insert(a,b);
+    }
+  }
+
+  bool has(T const& a) const {
+    return to_sets.count(a) > 0;
+  }
+
+  // warning: a is in the return set
+  set<T> const& get_at(T const& a) const {
+    int const& idx = to_sets.at(a);
+    return sets[idx];
+  }
+
+  set<T> pop_at(T const& a) {
+    int idx = to_sets.at(a);
+
+    set<T> ret = sets[idx];
+
+    sets.erase(sets.begin() + idx);
+
+    for(auto const& x: ret) {
+      to_sets.erase(x);
+    }
+
+    for(auto& [_,i]: to_sets) {
+      if(i > idx) {
+        i -= 1;
+      }
+    }
+
+    return ret;
+  }
+
+  void erase_at(T const& a) const {
+    pop_at(a);
+  }
+
+  void insert(T const& a, T const& b) {
+    if(a == b) {
+      sets.push_back({a});
+      to_sets.insert({a, sets.size()-1});
+      return;
+    }
+
+    bool has_a = to_sets.count(a) > 0;
+    bool has_b = to_sets.count(b) > 0;
+    if(has_a && has_b) {
+      int which_a = to_sets[a];
+      int which_b = to_sets[b];
+      if(which_a == which_b) {
+        // nothing to do, they already belong to the same set
+      } else {
+        // the sets need to merged
+
+        set<int> set_a = sets[which_a];
+        set<int> set_b = sets[which_b];
+
+        int const& which_sml = which_a < which_b ? which_a : which_b;
+        int const& which_big = which_a < which_b ? which_b : which_a;
+
+        sets.erase(sets.begin() + which_big);
+        sets.erase(sets.begin() + which_sml);
+
+        set<int>& set_ab = set_b;
+        set_ab.insert(set_a.begin(), set_a.end());
+
+        sets.push_back(std::move(set_ab));
+
+        // fix the mapping
+        for(auto& [_, idx]: to_sets) {
+          if(idx == which_a || idx == which_b) {
+            idx = sets.size() - 1;
+          } else if(idx > which_big) {
+            idx -= 2;
+          } else if(idx > which_sml) {
+            idx -= 1;
+          }
+        }
+      }
+    } else if(has_a || has_b) {
+      // put the not-has into the yes-has
+      T const& y = has_a ? a : b;
+      T const& n = has_a ? b : a;
+
+      int id = to_sets[y];
+
+      sets[id].insert(n);
+      to_sets.insert({n, id});
+    } else {
+      // create a new set for both a and b
+      sets.push_back({a,b});
+      int new_id = sets.size() - 1;
+      to_sets.insert({a, new_id});
+      to_sets.insert({b, new_id});
+    }
+  }
+private:
+  vector<set<T>> sets;
+  map<T, int> to_sets;
+
+};
+
+

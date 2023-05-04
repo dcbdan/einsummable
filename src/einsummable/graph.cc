@@ -441,7 +441,8 @@ struct autopartition_state_t {
 
   set<int> remaining;
   vector<optional<partition_t>> ret;
-  map<int, int> equald;
+
+  equal_items_t<int> equal_items;
 };
 
 vector<partition_t> autopartition(
@@ -533,7 +534,8 @@ autopartition_state_t::autopartition_state_t(
   uint64_t const& ms,
   set<tuple<int, int>> const& eqd,
   map<int, partition_t> const& fixed_constraints)
-  : graph(g), mmlike_sizing(mms), min_sizing(ms)
+  : graph(g), mmlike_sizing(mms), min_sizing(ms),
+    equal_items(eqd)
 {
   int n_nodes = graph.nodes.size();
 
@@ -541,11 +543,6 @@ autopartition_state_t::autopartition_state_t(
 
   for(int i = 0; i != n_nodes; ++i) {
     remaining.insert(i);
-  }
-
-  for(auto const& [i,j]: eqd) {
-    equald.insert({i,j});
-    equald.insert({j,i});
   }
 
   for(auto const& [id, p]: fixed_constraints) {
@@ -564,15 +561,13 @@ void autopartition_state_t::set_partition(int id, partition_t const& p) {
   }
   ret[id] = p;
 
-  if(equald.count(id) > 0) {
-    int other = equald.at(id);
-
-    // first erase then recurse on other
-    // (the other way around won't work!)
-    equald.erase(id);
-    equald.erase(other);
-
-    set_partition(other, p);
+  if(equal_items.has(id)) {
+    set<int> equiv_ids = equal_items.pop_at(id);
+    for(int const& equiv_id: equiv_ids) {
+      if(equiv_id != id) {
+        set_partition(equiv_id, p);
+      }
+    }
   }
 }
 
@@ -678,6 +673,14 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
     } else {
       update_with(out_part.partdims);
     }
+  }
+
+  // This recursion is very dirty. Calling set_from_outputs_and_recurse(out_id)
+  // may have set this node because one of it's equivalences was hit.
+  if(ret[id]) {
+    // TODO: Is this the desired behavior for such cases? It seems unlikely
+    //       that this will be triggered.
+    return;
   }
 
   // now there may be input partitions available,
