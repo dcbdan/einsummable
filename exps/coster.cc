@@ -219,14 +219,14 @@ struct random_change_t {
 };
 
 void main_random_changes() {
-  set_seed(0);
+  //set_seed(0);
 
-  int pi = 2;
-  int pj = 2;
-  int pk = 2;
+  int pi = 4;
+  int pj = 4;
+  int pk = 4;
   int nloc = 8;
   graph_t matmul3d = three_dimensional_matrix_multiplication(
-    2, 2, 2, 5000, 5000, 5000, nloc);
+    pi, pj, pk, 5000, 5000, 5000, nloc);
   coster_t coster(matmul3d, make_cluster(nloc));
 
   std::cout << "3d matmul cost: " << coster() << std::endl;
@@ -432,6 +432,8 @@ void main_compute_two_ways_time() {
 }
 
 int main() {
-  main_compute_two_ways_time();
+  //main_compute_two_ways_time();
+  //main_random_changes();
+  main_exp02();
 }
 

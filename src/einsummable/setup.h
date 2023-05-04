@@ -367,9 +367,17 @@ inline bool two_tuple_lt(T const& lhs, T const& rhs) {
   }
   return false;
 }
+template <typename T>
+inline bool two_tuple_eq(T const& lhs, T const& rhs) {
+  auto const& [lhs_a, lhs_b] = lhs;
+  auto const& [rhs_a, rhs_b] = rhs;
+  return lhs_a == rhs_a && lhs_b == rhs_b;
+}
 
 template <typename T>
 struct equal_items_t {
+  equal_items_t() {}
+
   equal_items_t(set<tuple<T,T>> const& eqs) {
     for(auto const& [a,b]: eqs) {
       insert(a,b);
@@ -415,6 +423,15 @@ struct equal_items_t {
     pop_at(a);
   }
 
+  vector<T> candidates() const {
+    vector<T> ret;
+    ret.reserve(sets.size());
+    for(auto const& s: sets) {
+      ret.push_back(*s.begin());
+    }
+    return ret;
+  }
+
   void insert(T const& a, T const& b) {
     if(a == b) {
       sets.push_back({a});
@@ -432,8 +449,8 @@ struct equal_items_t {
       } else {
         // the sets need to merged
 
-        set<int> set_a = sets[which_a];
-        set<int> set_b = sets[which_b];
+        set<T> set_a = sets[which_a];
+        set<T> set_b = sets[which_b];
 
         int const& which_sml = which_a < which_b ? which_a : which_b;
         int const& which_big = which_a < which_b ? which_b : which_a;
@@ -441,7 +458,7 @@ struct equal_items_t {
         sets.erase(sets.begin() + which_big);
         sets.erase(sets.begin() + which_sml);
 
-        set<int>& set_ab = set_b;
+        set<T>& set_ab = set_b;
         set_ab.insert(set_a.begin(), set_a.end());
 
         sets.push_back(std::move(set_ab));
@@ -477,7 +494,6 @@ struct equal_items_t {
 private:
   vector<set<T>> sets;
   map<T, int> to_sets;
-
 };
 
 

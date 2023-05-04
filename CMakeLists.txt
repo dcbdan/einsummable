@@ -25,6 +25,7 @@ add_library(einsummable
   src/einsummable/scalarop.cc
   src/einsummable/setup.cc
   src/einsummable/taskgraph.cc
+  src/einsummable/twolayergraph.cc
 )
 
 add_executable(make_3dmatmul exps/make_3dmatmul.cc)
