@@ -5,6 +5,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <mkl.h> // for mkl_set_num_threads
+
 using std::thread;
 using std::queue;
 
@@ -257,12 +259,15 @@ cpu_exec_state_t::cpu_exec_state_t(
     num_recv_post_remaining(0),
     num_apply_kernel_threads(n_ts)
 {
+  // .. tell mkl how many threads to use
   // 0. set num_remaining
   // 1. Set num_usages_remaining
   // 2. register every apply node at this location with applys_progress
   // 3. register every partialize node at this location with touches_progress
   // 4. register every send from here
   // 5. register every recv to   here
+
+  mkl_set_num_threads(num_apply_kernel_threads);
 
   vector<int> input_ids;
 

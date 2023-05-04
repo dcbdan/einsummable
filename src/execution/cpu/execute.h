@@ -13,7 +13,7 @@ struct settings_t {
   int num_touch_runner;
   int num_send_runner;
   int num_recv_runner;
-  int num_apply_kernel_threads; // only used by elementwise ops
+  int num_apply_kernel_threads; // for mkl threads and ew threads
 
   static settings_t default_settings() {
     // standards says hardware_concurrency could return 0
