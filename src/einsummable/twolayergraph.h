@@ -42,12 +42,16 @@ struct twolayergraph_t {
     return join_location(joins[jid]);
   }
 
+  // count the number of bytes of data moved to
+  // compute gid if gid's location is loc
+  uint64_t count_bytes_to(jid_t jid, int loc) const;
+
   vector<join_t> joins;
   vector<refinement_t> refinements;
 
   struct twolayerid_t {
-    int id;
-    bool is_join;
+    int id;       // either join or refinemet id
+    bool is_join; // depending on is_join
   };
   vector<twolayerid_t> order;
 
@@ -62,4 +66,7 @@ private:
   rid_t insert_empty_refinement();
   void add_agg_unit(rid_t rid, uint64_t bytes, vector<jid_t> deps);
 };
+
+bool operator<( twolayergraph_t::gid_t const&, twolayergraph_t::gid_t const&);
+bool operator==(twolayergraph_t::gid_t const&, twolayergraph_t::gid_t const&);
 

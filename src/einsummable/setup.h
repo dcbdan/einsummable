@@ -375,6 +375,31 @@ inline bool two_tuple_eq(T const& lhs, T const& rhs) {
 }
 
 template <typename T>
+inline bool three_tuple_lt(T const& lhs, T const& rhs) {
+  auto const& [lhs_a, lhs_b, lhs_c] = lhs;
+  auto const& [rhs_a, rhs_b, rhs_c] = rhs;
+  if(lhs_a < rhs_a) {
+    return true;
+  }
+  if(lhs_a == rhs_a) {
+    if(lhs_b < rhs_b) {
+      return true;
+    }
+    if(lhs_b == rhs_b) {
+      return lhs_c < rhs_c;
+    }
+  }
+  return false;
+}
+
+template <typename T>
+inline bool three_tuple_eq(T const& lhs, T const& rhs) {
+  auto const& [lhs_a, lhs_b, lhs_c] = lhs;
+  auto const& [rhs_a, rhs_b, rhs_c] = rhs;
+  return lhs_a == rhs_a && lhs_b == rhs_b && lhs_c == rhs_c;
+}
+
+template <typename T>
 struct equal_items_t {
   equal_items_t() {}
 

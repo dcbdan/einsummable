@@ -304,3 +304,28 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
   return ret;
 }
 
+uint64_t twolayergraph_t::count_bytes_to(jid_t jid, int loc) const
+{
+  auto const& join = joins[jid];
+
+  uint64_t ret;
+  for(auto const& rid: join.deps) {
+    auto const& refinement = refinements[rid];
+    for(auto const& agg_unit: refinement.units) {
+      for(auto const& dep_jid: agg_unit.deps) {
+        if(join_location(dep_jid) != loc) {
+          ret += agg_unit.bytes;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool operator<(twolayergraph_t::gid_t const& lhs, twolayergraph_t::gid_t const& rhs) {
+  return two_tuple_lt(lhs, rhs);
+}
+bool operator==(twolayergraph_t::gid_t const& lhs, twolayergraph_t::gid_t const& rhs) {
+  return two_tuple_eq(lhs, rhs);
+}
+
