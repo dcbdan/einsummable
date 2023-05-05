@@ -113,6 +113,8 @@ struct taskgraph_t {
 
   bool all_valid_partialize() const;
 
+  int num_locs() const;
+
 private:
   struct input_t {
     int loc;
