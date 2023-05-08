@@ -4,59 +4,85 @@
 #include "taskgraph.h"
 
 struct mem_t {
-  int loc;
   uint64_t offset;
   uint64_t size;
 };
 
-// A memgraph is a taskgraph that has dependencies spanning
-// memory constraints. In addition, for every compute node,
-// there is a cache node. Cache nodes may not do computation
-// and have infinite space.
+struct memloc_t {
+  uint64_t offset;
+  uint64_t size;
+  int loc;
+};
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
     int num_cache_locs,
-    vector<int> const& cache_locs,
-    vector<uint64_t> const& memory_per_compute_loc);
+    vector<int> const& cache_locs);
 
-  // Besides the memgraph, return for each save node
-  // in the input taskgraph where the tensor is in memory
-  // after execution.
+  // Create a memgraph without any memory-size constraints.
+  // Return also mappings
+  //   input taskgraph node ids -> memory
+  //   save taskgraph node ids  -> memory.
+  //
+  // The algorithm is to
+  //   (1) place an ordering on all task group ops,
+  //   (2) walk throught the ordering one node at a time,
+  //       allocating memory as necessary, constructing the
+  //       op, and deleting memory as necessary
+  // Note that the ordering is important because the
+  // deletes will create a dependency between ops.
   static
   tuple<
-    map<int, mem_t>,
-    memgraph_t >
-  make(
+    map<int, mem_t>, // input -> mem
+    map<int, mem_t>, // save -> mem
+    memgraph_t>
+  make_without_cache(
     taskgraph_t const& graph,
-    vector<uint64_t> const& memory_per_compute_loc,
-    vector<int> const& cache_locs_for_each_compute_loc
-  );
+    vector<int> const& which_cache);
 
+  void print_graphviz(std::ostream& out); // TODO
+
+  // at time zero, this input is here with this memory
   struct input_t {
     int loc;
     uint64_t offset;
     uint64_t size;
   };
 
+  // An apply needs these memories to do the computation
+  // at hand. (for einsummable, output then inn memories)
+  // (for touch, write memory then read memories)
   struct apply_t {
     int loc;
-    uint64_t offset;
-    einsummable_t einsummable;
-    vector<tuple<int, uint64_t>> inns; // for each input the inn id and the offset
+    vector<mem_t> mems;
+    std::variant<einsummable_t, touch_t> op;
+    int group;
   };
-
-  // TODO: what does nvidia scheduling primitives
-  //       allow you to do to make partial expressible
-  struct partial_t {
-    int inn; // the start partial
-    int loc;
-    touch_t touch;
-    uint64_t inn_offset;
-    uint64_t out_offset;
-    int key; // ??????????!!!!!!!!!!
-             // There is a dependency
-  };
+  // Consider an aggregation Y = X1 + X2 + X3 + X4 + X5
+  // where the order that X1, ..., X5 comes available is
+  // unknown and may be very different. We don't want to
+  // constrain these opereations to happen in a particular
+  // order and we don't want multiple operations to be
+  // happening at the same time.
+  //
+  // To do this, touch(X1,Y), ..., touch(X5,Y) should
+  // all be given the same group parameter so the execution
+  // engine can tell that these ops require a lock before
+  // proceeding.
+  //
+  // If group < 0, there is no grouping.
+  //
+  // Straight elementwise ops may also have the same output
+  // and input memory.
+  // For example: in relu(matmul(A,B)),
+  //              the relu node may have the same input
+  //              and output memory
+  // Similarly for touch ops of the form
+  //   A min= B
+  //   A min= C
+  //   ...
+  //   Then A,B,C may have the same memory.
 
   struct move_t {
     tuple<int, uint64_t> src; // src loc, offset
@@ -64,43 +90,53 @@ struct memgraph_t {
     uint64_t size;
   };
 
+  // Note: every location has one cache, but a
+  //       cache may have multiple locations
+
+  // Move this memory off of location loc and into
+  // the corresponding cache
   struct evict_t {
-    int src;         // compute loc
-    int inn;         // the input id
-    uint64_t offset; // input offset
-    uint64_t size;   // input size
-  };
-
-  struct load_t {
-    int dst; // compute loc
-    int inn; // the input evict
-    uint64_t offset; // output offset
-    uint64_t size;   // output size
-  }
-
-  struct del_t {
-    int inn;
+    int loc;
+    int cache_id;
     uint64_t offset;
     uint64_t size;
   };
 
-  struct node_t {
-    variant<input_t, apply_t, partial_t, move_t, evict_t, load_t, del_t>;
-    set<int> memdeps; // all dependencies required for memory to work but
-                      // not for the actual computation
-    set<int> outs;    // where this node leads to a dependency
+  // Load from cache this id into loc
+  // with this offset and size
+  struct load_t {
+    int cache_id;
+    int loc;
+    uint64_t offset;
+    uint64_t size;
   };
 
-  // compute locs are 0,...num_locs-1
-  // cache locs are num_compute_locs, ... num_locs+num_cache_locs-1
+  struct del_t {
+    int loc;
+    uint64_t offset;
+    uint64_t size;
+  };
+
+  using op_t = std::variant<
+    input_t, apply_t, move_t,
+    evict_t, load_t, del_t>;
+
+  struct node_t {
+    op_t op;
+    set<int> inns; // This op can be started when these nodes
+                   // have completed
+    set<int> outs; // These nodes can't be started until this node
+                   // is completed
+  };
+  vector<node_t> nodes;
+
   int const num_compute_locs;
   int const num_cache_locs;
 
   // Example: Four gpu node, with ram as the cache, then
-  //          cache_locs = {4,4,4,4} and compute locs are 0,1,2,3.
+  //          cache_locs = {0,0,0,0} and compute locs are 0,1,2,3.
   vector<int> const cache_locs;
-  vector<uint64_t> const mem_sizes;
 
 private:
-  // int insert TODO
+  int insert(op_t op, set<int> const& deps);
 };
