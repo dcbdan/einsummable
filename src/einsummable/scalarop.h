@@ -180,11 +180,13 @@ bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs);
 std::ostream& operator<<(std::ostream& out, compare_t const& c);
 std::istream& operator>>(std::istream& inn, compare_t& c);
 
-std::ostream& operator<<(std::ostream& out, scalar_ns::op_t const& op);
-std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op);
+namespace scalar_ns {
+std::ostream& operator<<(std::ostream& out, op_t const& op);
+std::istream& operator>>(std::istream& inn, op_t& op);
 
-std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node);
-std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node);
+std::ostream& operator<<(std::ostream& out, node_t const& node);
+std::istream& operator>>(std::istream& inn, node_t& node);
+}
 
 std::ostream& operator<<(std::ostream& out, scalarop_t const& op);
 std::istream& operator>>(std::istream& inn, scalarop_t& op);

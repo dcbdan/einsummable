@@ -769,7 +769,9 @@ std::istream& operator>>(std::istream& inn, compare_t& compare) {
   return inn;
 }
 
-std::ostream& operator<<(std::ostream& out, scalar_ns::op_t const& op) {
+namespace scalar_ns {
+
+std::ostream& operator<<(std::ostream& out, op_t const& op) {
   if(op.is_constant()) {
     out << "constant{" << op.get_constant() << "}";
   } else if(op.is_hole()) {
@@ -793,7 +795,7 @@ std::ostream& operator<<(std::ostream& out, scalar_ns::op_t const& op) {
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op) {
+std::istream& operator>>(std::istream& inn, op_t& op) {
   char c = inn.peek();
   if(c == 'c') {
     istream_expect(inn, "constant{");
@@ -835,7 +837,7 @@ std::istream& operator>>(std::istream& inn, scalar_ns::op_t& op) {
   return inn;
 }
 
-std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node) {
+std::ostream& operator<<(std::ostream& out, node_t const& node) {
   out << node.op;
   if(node.children.size() == 0) {
     return out;
@@ -852,7 +854,7 @@ std::ostream& operator<<(std::ostream& out, scalar_ns::node_t const& node) {
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
+std::istream& operator>>(std::istream& inn, node_t& node) {
   node.children.resize(0);
 
   inn >> node.op;
@@ -877,6 +879,8 @@ std::istream& operator>>(std::istream& inn, scalar_ns::node_t& node) {
   istream_expect(inn, "]");
   return inn;
 }
+
+} // scalar_ns
 
 std::ostream& operator<<(std::ostream& out, scalarop_t const& op) {
   out << op.node;
