@@ -212,6 +212,7 @@ private:
     };
 
     vector<vector<tuple<int, touch_t> > > as_touches_from() const;
+    tuple<int, touch_t> get_touch(int which_unit, int which_touch_in_unit) const;
 
     // determine if the entire write shape has been touched
     // by exactly one unit

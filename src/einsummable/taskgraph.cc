@@ -1352,33 +1352,42 @@ set<int> taskgraph_t::op_t::inputs() const
   }
 }
 
-vector<vector<tuple<int, touch_t>>> taskgraph_t::partialize_t::as_touches_from() const {
+vector<vector<tuple<int, touch_t>>>
+taskgraph_t::partialize_t::as_touches_from() const {
   vector<vector<tuple<int, touch_t>>> rets;
-  for(auto const& unit: units) {
+  for(int u = 0; u != units.size(); ++u) {
+    auto const& unit = units[u];
+
     rets.emplace_back();
     auto& ret = rets.back();
-    for(auto const& input: unit.inputs) {
-      vector<touchdim_t> ts;
-      ts.reserve(write_shape.size());
-      for(int i = 0; i != write_shape.size(); ++i) {
-        ts.push_back(touchdim_t {
-          .d_inn = input.region[i].dim,
-          .d_out = write_shape[i],
-          .offset_inn = input.region[i].offset,
-          .offset_out = unit.out_region[i].offset,
-          .size = unit.out_region[i].size
-        });
-      }
-      ret.emplace_back(
-        input.id,
-        touch_t {
-          .selection = ts,
-          .castable = unit.castable
-        }
-      );
+
+    for(int i = 0; i != unit.inputs.size(); ++i) {
+      ret.push_back(get_touch(u, i));
     }
   }
   return rets;
+}
+
+tuple<int, touch_t>
+taskgraph_t::partialize_t::get_touch(int which_unit, int which_touch) const
+{
+  auto const& unit = units[which_unit];
+  auto const& input = unit.inputs[which_touch];
+  vector<touchdim_t> ts;
+  ts.reserve(write_shape.size());
+  for(int i = 0; i != write_shape.size(); ++i) {
+    ts.push_back(touchdim_t {
+      .d_inn = input.region[i].dim,
+      .d_out = write_shape[i],
+      .offset_inn = input.region[i].offset,
+      .offset_out = unit.out_region[i].offset,
+      .size = unit.out_region[i].size
+    });
+  }
+  return {
+    input.id,
+    touch_t { .selection = ts, .castable = unit.castable }
+  };
 }
 
 bool taskgraph_t::partialize_t::valid() const

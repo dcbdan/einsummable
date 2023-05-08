@@ -461,4 +461,5 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 
 int main(int argc, char** argv) {
   main10();
+  main05();
 }
