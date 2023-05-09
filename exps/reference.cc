@@ -297,7 +297,7 @@ void test_make_memgraph_without_evict(
 
       // where in the loc_buffers the result is
       int loc = taskgraph.nodes[tid].op.output_loc();
-      auto const& [offset, size] = task_inn_to_mem.at(tid);
+      auto const& [offset, size] = task_out_to_mem.at(tid);
 
       if(!is_close(val, 0, loc_buffers[loc], offset, size)) {
         throw std::runtime_error("make memgraph without evict test fail");
