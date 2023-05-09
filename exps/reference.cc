@@ -437,6 +437,7 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
   test_make_taskgraph(graph, inns);
+  test_make_memgraph_without_evict(graph, inns);
 }
 
 void test_random_matmul() {
@@ -571,5 +572,5 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 
 int main(int argc, char** argv) {
 //  main09(argc, argv);
-  test_obvious_matmul(2,2,2);
+  test_obvious_random_loc_matmul(3,2,2,2);
 }

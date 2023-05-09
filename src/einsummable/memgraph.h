@@ -143,7 +143,7 @@ struct memgraph_t {
       input_t, apply_t, move_t,
       evict_t, load_t, del_t>;
   public:
-    op_t(_op_t op): op(op) {}
+    op_t(_op_t op): op(op) { check_op(); }
 
     op_t(input_t  x): op_t(_op_t(x)) {}
     op_t(apply_t  x): op_t(_op_t(x)) {}
@@ -172,6 +172,15 @@ struct memgraph_t {
 
   private:
     _op_t op;
+
+    void check_op()    const;
+
+    void check_input() const;
+    void check_apply() const;
+    void check_move()  const;
+    void check_evict() const;
+    void check_load()  const;
+    void check_del()   const;
   };
 
   struct node_t {

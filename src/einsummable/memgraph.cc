@@ -282,9 +282,7 @@ memgraph_t::make_without_evict(
 
   auto task_to_mem = [&](int task_id) -> vector<int> {
     auto const& node = taskgraph.nodes[task_id];
-    if(node.op.is_input()) {
-      return {};
-    } else if(node.op.is_partialize()) {
+    if(node.op.is_partialize()) {
       vector<int> ret;
       auto const which_touches =
         get_which_touches_from(taskgraph, task_id);
@@ -292,7 +290,7 @@ memgraph_t::make_without_evict(
         ret.push_back(task_touch_to_mem.at(which_touch));
       }
       return ret;
-    } else if(node.op.is_apply() || node.op.is_move()) {
+    } else if(node.op.is_input() || node.op.is_apply() || node.op.is_move()) {
       return {task_node_to_mem.at(task_id)};
     } else {
       throw std::runtime_error("task_to_mem should not reach");
@@ -383,6 +381,14 @@ memgraph_t::make_without_evict(
       }
 
       current_tensors.insert({id, offset});
+
+      input_t input_op {
+          .loc = loc,
+          .offset = offset,
+          .size = sz
+      };
+      int memgraph_id = memgraph.insert(op_t(input_op), {});
+      task_node_to_mem.insert({id, memgraph_id});
     }
   }
 
@@ -459,7 +465,7 @@ memgraph_t::make_without_evict(
 
       op = op_t(move_t {
         .src = {src, current_tensors.at(task_inn)},
-        .dst = {src, current_tensors.at(id)      },
+        .dst = {dst, current_tensors.at(id)      },
         .size = size
       });
     } else if(node.op.is_partialize()) {
@@ -757,6 +763,39 @@ bool memgraph_t::depends_on(int top, int bot) const {
     return false;
   }
 }
+
+void memgraph_t::op_t::check_op() const {
+  if(is_input()) {
+    check_input();
+  } else if(is_apply()){
+    check_apply();
+  } else if(is_move()) {
+    check_move();
+  } else if(is_evict()) {
+    check_evict();
+  } else if(is_load()) {
+    check_load();
+  } else if(is_del()) {
+    check_del();
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+void memgraph_t::op_t::check_input() const {}
+void memgraph_t::op_t::check_apply() const {}
+void memgraph_t::op_t::check_move()  const {
+  move_t const& move = get_move();
+  auto const& [src, _0] = move.src;
+  auto const& [dst, _1] = move.dst;
+  if(src == dst) {
+    throw std::runtime_error("move cannot be to same location; that's an apply");
+  }
+}
+void memgraph_t::op_t::check_evict() const {}
+void memgraph_t::op_t::check_load()  const {}
+void memgraph_t::op_t::check_del()   const {}
+
 
 vector<memloc_t> memgraph_t::op_t::get_memlocs() const
 {
