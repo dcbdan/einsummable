@@ -214,6 +214,7 @@ void reference_compute_memgraph(
   };
 
   vector<map<int, buffer_t>> caches(memgraph.num_cache_locs);
+  set<int> groups_touched;
 
   for(int const& id: memgraph.get_order()) {
     auto const& op = memgraph.nodes[id].op;
@@ -234,7 +235,19 @@ void reference_compute_memgraph(
         auto const& einsummable = std::get<einsummable_t>(aop);
         reference_einsummable_inplace(einsummable, out_buffer, inn_buffers);
       } else if(std::holds_alternative<touch_t>(aop)){
-        auto const& touch = std::get<touch_t>(aop);
+        touch_t touch = std::get<touch_t>(aop);
+        if(group < 0) {
+          // in this case, there is only one touch to this output region
+          // so this operation is a copy. Mark this by reseting the
+          // optional castable in touch.
+          touch.castable.reset();
+        } else {
+          if(groups_touched.count(group) == 0) {
+            // this is the first touch, so it is a copy
+            touch.castable.reset();
+            groups_touched.insert(group);
+          }
+        }
         if(inn_buffers.size() != 1) {
           throw std::runtime_error("touch at ref: invalid mem buffers size");
         }

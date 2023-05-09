@@ -231,6 +231,12 @@ void test_make_memgraph_without_evict(
     _info0 = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
+  {
+    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+    std::ofstream f("exp_reference_taskgraph.gv");
+    taskgraph.print_graphviz(f);
+  }
+
   int num_locs = taskgraph.num_locs();
 
   // have everyone share the same cache
@@ -293,13 +299,18 @@ void test_make_memgraph_without_evict(
     auto const& vec  = part_buffer.get();
     for(int i = 0; i != vec.size(); ++i) {
       int      const& tid = tids[i];
-      buffer_t const& val = vec[i];
+      buffer_t const& from_graph = vec[i];
 
       // where in the loc_buffers the result is
       int loc = taskgraph.nodes[tid].op.output_loc();
       auto const& [offset, size] = task_out_to_mem.at(tid);
 
-      if(!is_close(val, 0, loc_buffers[loc], offset, size)) {
+      buffer_t from_memgraph =
+        make_buffer_reference(loc_buffers[loc]->data + offset, size);
+
+      if(!is_close(from_graph, from_memgraph)) {
+        std::cout << "expected: " << from_graph    << std::endl;
+        std::cout << "actual:   " << from_memgraph << std::endl;
         throw std::runtime_error("make memgraph without evict test fail");
       }
     }
@@ -560,5 +571,5 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 
 int main(int argc, char** argv) {
 //  main09(argc, argv);
-  test_obvious_matmul(2,1,2);
+  test_obvious_matmul(1,2,1);
 }
