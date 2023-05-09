@@ -230,6 +230,18 @@ bool vector_has(vector<T> const& xs, T const& value)
 }
 
 template <typename T>
+set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
+{
+  set<T> ret;
+  for(auto const& v: all_these) {
+    if(except_these.count(v) == 0) {
+      ret.insert(v);
+    }
+  }
+  return ret;
+}
+
+template <typename T>
 vector<T> _reverse_variadic_to_vec(T i) {
   vector<T> x(1, i);
   return x;

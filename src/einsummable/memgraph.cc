@@ -678,9 +678,49 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
+  // Note that deps may include dependencies that are shadowed
+  // by other dependencies.
+  // Consider inserting node 2 where deps = {0,1} but 0->1 is already
+  // an dependency.
+  //
+  // In this case, adding the 0->2 is shadowd by 1, so nodes[2].inns
+  // should only contain {1}.
+  //
+  //    0------.
+  //    |      |
+  //    |      v
+  //    |      1
+  //    -->2<--.
+
+  set<int> inns;
+
+  vector<int> deps_vec(deps.begin(), deps.end());
+  if(deps_vec.size() == 0) {
+    //
+  } else if(deps_vec.size() == 1) {
+    inns.insert(deps_vec[0]);
+  } else {
+    std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
+    set<int> unnec;
+    for(int i = 0; i != deps_vec.size(); ++i) {
+      int const& id = deps_vec[i];
+      if(unnec.count(id) == 0) {
+        if(i != deps_vec.size() - 1) {
+          for(int j = i+1; j != deps_vec.size(); ++j) {
+            int const& jd = deps_vec[j];
+            if(depends_on(id, jd)) {
+              unnec.insert(jd);
+            }
+          }
+        }
+        inns.insert(id);
+      }
+    }
+  }
+
   nodes.push_back(node_t {
     .op = op,
-    .inns = deps,
+    .inns = inns,
     .outs = {}
   });
 
@@ -690,7 +730,27 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
     nodes[inn].outs.insert(ret);
   }
 
+  all_deps.emplace_back(ret, 0);
+
+  vector<char>& ret_deps = all_deps.back();
+  for(int const& inn: inns) {
+    ret_deps[inn] = 1;
+
+    vector<char>& inn_deps = all_deps[inn];
+    for(int i = 0; i != inn_deps.size(); ++i) {
+      ret_deps[i] = std::max(ret_deps[i], inn_deps[i]);
+    }
+  }
+
   return ret;
+}
+
+bool memgraph_t::depends_on(int top, int bot) const {
+  if(top > bot) {
+    return all_deps[top][bot];
+  } else {
+    return false;
+  }
 }
 
 vector<memloc_t> memgraph_t::op_t::get_memlocs() const

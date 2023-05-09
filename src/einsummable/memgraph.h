@@ -192,4 +192,13 @@ struct memgraph_t {
 
 private:
   int insert(op_t op, set<int> const& deps);
+
+  // Get whether or not there is a directed path from
+  // bot to top
+  bool depends_on(int top, int bot) const;
+  // For every node, store a vector of 1s and 0s for all nodes
+  // that will execute before this node executes.
+  // Note also that all_deps[i] has length i--that is,
+  // 0,1,2,3,4,.. is a valid order of the graph.
+  vector<vector<char>> all_deps;
 };
