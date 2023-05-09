@@ -4,6 +4,7 @@
 #include "tensor.h"
 #include "graph.h"
 #include "taskgraph.h"
+#include "memgraph.h"
 
 #include <memory>
 
@@ -34,6 +35,11 @@ bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
 bool is_close(buffer_t const& lhs, buffer_t const& rhs, float eps = 1e-3);
 bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps = 1e-3);
 bool is_close(float lhs, float rhs, float eps = 1e-3);
+bool is_close(
+  buffer_t const& lhs, uint64_t offset_lhs,
+  buffer_t const& rhs, uint64_t offset_rhs,
+  uint64_t size,
+  float eps = 1e-3);
 
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
@@ -42,6 +48,10 @@ map<int, buffer_t> reference_compute_graph(
 map<int, buffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
   map<int, buffer_t> const& inputs);
+
+void reference_compute_memgraph(
+  memgraph_t const& memgraph,
+  vector<buffer_t>& compute_location_buffers);
 
 tensor_t<buffer_t> partition_buffer(
   partition_t const& partition,

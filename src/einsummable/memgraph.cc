@@ -91,7 +91,7 @@ tuple<
   map<int, mem_t>, // input -> mem
   map<int, mem_t>, // save -> mem
   memgraph_t>
-memgraph_t::make_without_cache(
+memgraph_t::make_without_evict(
   taskgraph_t const& taskgraph,
   vector<int> const& which_cache)
 {
@@ -266,7 +266,7 @@ memgraph_t::make_without_cache(
 
     vector<int> used_task_tensors;
     set<int> deps;
-    op_t op;
+    optional<op_t> op;
 
     // allocate the output memory if this hasn't already
     // happened (it would've only happened for some partials)
@@ -311,12 +311,12 @@ memgraph_t::make_without_cache(
         used_task_tensors.push_back(task_inn);
       }
 
-      op = apply_t {
+      op = op_t(apply_t {
         .loc = loc,
         .mems = mems,
         .op = es,
         .group = -1
-      };
+      });
     } else if(node.op.is_move()) {
       auto const& [src,dst,task_inn,size] = node.op.get_move();
 
@@ -325,11 +325,11 @@ memgraph_t::make_without_cache(
 
       used_task_tensors.push_back(task_inn);
 
-      op = move_t {
+      op = op_t(move_t {
         .src = {src, current_tensors.at(task_inn)},
         .dst = {src, current_tensors.at(id)      },
         .size = size
-      };
+      });
     } else if(node.op.is_partialize()) {
       auto const& partialize = node.op.get_partialize();
 
@@ -350,17 +350,17 @@ memgraph_t::make_without_cache(
         .size = taskgraph.nodes[task_inn].op.tensor_size()
       };
 
-      op = apply_t {
+      op = op_t(apply_t {
         .loc = partialize.loc,
         .mems = { out_mem, inn_mem },
         .op = touch,
         .group = get_group_at(id, unit_id)
-      };
+      });
     } else {
       throw std::runtime_error("should not reach");
     }
 
-    int new_memid = memgraph.insert(op, deps);
+    int new_memid = memgraph.insert(op.value(), deps);
 
     if(std::holds_alternative<_which_node_t>(which_op)) {
       task_node_to_mem.insert({id, new_memid});
@@ -589,3 +589,74 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   return ret;
 }
+
+vector<memloc_t> memgraph_t::op_t::get_memlocs() const
+{
+  using std::holds_alternative;
+  using std::get;
+
+  if(holds_alternative<input_t>(op)) {
+    auto const& input = get<input_t>(op);
+    return {
+      memloc_t { .offset = input.offset, .size = input.size, .loc = input.loc }
+    };
+  } else if(holds_alternative<apply_t>(op)) {
+    auto const& apply = get<apply_t>(op);
+    vector<memloc_t> ret;
+    for(mem_t const& mem: apply.mems) {
+      ret.push_back(mem.as_memloc(apply.loc));
+    }
+    return ret;
+  } else if(holds_alternative<move_t>(op)) {
+    auto const& move = get<move_t>(op);
+    auto const& [src_loc, src_offset] = move.src;
+    auto const& [dst_loc, dst_offset] = move.dst;
+    return {
+      memloc_t { .offset = src_offset, .size = move.size, .loc = src_loc },
+      memloc_t { .offset = dst_offset, .size = move.size, .loc = dst_loc }
+    };
+  } else if(holds_alternative<evict_t>(op)) {
+    auto const& evict = get<evict_t>(op);
+    return {
+      memloc_t { .offset = evict.offset, .size = evict.size, .loc = evict.loc }
+    };
+  } else if(holds_alternative<load_t>(op)) {
+    auto const& load = get<load_t>(op);
+    return {
+      memloc_t { .offset = load.offset, .size = load.size, .loc = load.loc }
+    };
+  } else if(holds_alternative<del_t>(op)) {
+    auto const& del = get<del_t>(op);
+    return {
+      memloc_t { .offset = del.offset, .size = del.size, .loc = del.loc }
+    };
+  } else {
+    throw std::runtime_error("get_memlocs should not reach");
+  }
+}
+
+vector<uint64_t> memgraph_t::mem_sizes() const {
+  vector<uint64_t> ret(num_compute_locs, 0);
+  for(auto const& node: nodes) {
+    for(auto const& memloc: node.op.get_memlocs()) {
+      ret[memloc.loc] = std::max(ret[memloc.loc], memloc.offset + memloc.size);
+    }
+  }
+  return ret;
+}
+
+memloc_t mem_t::as_memloc(int loc) const {
+  return memloc_t {
+    .offset = offset,
+    .size = size,
+    .loc = loc
+  };
+}
+
+mem_t memloc_t::as_mem() const {
+  return mem_t {
+    .offset = offset,
+    .size = size
+  };
+}
+

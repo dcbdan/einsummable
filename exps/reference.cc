@@ -1,4 +1,5 @@
 #include "../src/einsummable/reference.h"
+#include "../src/einsummable/memgraph.h"
 
 int main01() {
   uint64_t ni = 3;
@@ -217,6 +218,87 @@ void test_make_taskgraph(
   }
 }
 
+void test_make_memgraph_without_evict(
+  graph_t const& graph,
+  map<int, buffer_t> full_inns)
+{
+  tuple<
+    map<int, tensor_t<int> >,
+    map<int, tensor_t<int> >,
+    taskgraph_t>
+    _info0 = taskgraph_t::make(graph);
+  auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
+
+  int num_locs = taskgraph.num_locs();
+
+  // have everyone share the same cache
+  vector<int> compute_loc_to_cache(num_locs, 0);
+
+  tuple<
+    map<int, mem_t>, // input -> mem
+    map<int, mem_t>, // save -> mem
+    memgraph_t>
+    _info1 = memgraph_t::make_without_evict(taskgraph, compute_loc_to_cache);
+  auto const& [task_inn_to_mem, task_out_to_mem, memgraph] = _info1;
+
+  // allocate a blob of memory at each compute location
+  vector<buffer_t> loc_buffers;
+  vector<uint64_t> mem_sizes = memgraph.mem_sizes();
+  for(uint64_t const& mem_sz: mem_sizes) {
+    loc_buffers.push_back(std::make_shared<buffer_holder_t>(mem_sz));
+  }
+
+  // Initialize the taskgraph inputs and then
+  // copy into the location wise buffers
+  {
+    map<int, buffer_t> task_inns;
+    for(auto [gid, full_buffer]: full_inns) {
+      tensor_t<buffer_t> pbuffer = partition_buffer(
+        graph.nodes[gid].placement.partition,
+        full_buffer);
+      fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
+    }
+
+    for(auto const& [tid, buffer]: task_inns) {
+      auto const& [offset, size] = task_inn_to_mem.at(tid);
+      if(size != buffer->size) {
+        throw std::runtime_error("maybe invalid task_inn_to_mem");
+      }
+      int loc = taskgraph.nodes[tid].op.output_loc();
+      std::copy(
+        buffer->data, buffer->data + size,
+        loc_buffers[loc]->data + offset);
+    }
+  }
+
+  // compute the reference implementation
+  map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
+
+  // TODO: this implementation
+  reference_compute_memgraph(memgraph, loc_buffers);
+
+  for(auto const& [gid, full_buffer]: full_outs) {
+    tensor_t<buffer_t> part_buffer =
+      partition_buffer(graph.nodes[gid].placement.partition, full_buffer);
+
+    auto const& tids = out_to_blocks.at(gid).get();
+    auto const& vec  = part_buffer.get();
+    for(int i = 0; i != vec.size(); ++i) {
+      int      const& tid = tids[i];
+      buffer_t const& val = vec[i];
+
+      // where in the loc_buffers the result is
+      int loc = taskgraph.nodes[tid].op.output_loc();
+      auto const& [offset, size] = task_inn_to_mem.at(tid);
+
+      if(!is_close(val, 0, loc_buffers[loc], offset, size)) {
+        throw std::runtime_error("make memgraph without evict test fail");
+      }
+    }
+  }
+
+}
+
 // Here, obvious matmul means
 // 1. block the i,j,k dimensions,
 // 2. join i,j,k and do matmul at each block
@@ -379,6 +461,9 @@ void test_random_matmul() {
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
   test_make_taskgraph(graph, inns);
+
+  // TODO: get this test to pass
+  test_make_memgraph_without_evict(graph, inns);
 }
 
 void main06(int argc, char** argv) {
@@ -460,6 +545,5 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 }
 
 int main(int argc, char** argv) {
-  main10();
-  main05();
+  main09(argc, argv);
 }

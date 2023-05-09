@@ -3,15 +3,21 @@
 
 #include "taskgraph.h"
 
+struct memloc_t;
+
 struct mem_t {
   uint64_t offset;
   uint64_t size;
+
+  memloc_t as_memloc(int loc) const;
 };
 
 struct memloc_t {
   uint64_t offset;
   uint64_t size;
   int loc;
+
+  mem_t as_mem() const;
 };
 
 struct memgraph_t {
@@ -37,11 +43,14 @@ struct memgraph_t {
     map<int, mem_t>, // input -> mem
     map<int, mem_t>, // save -> mem
     memgraph_t>
-  make_without_cache(
+  make_without_evict(
     taskgraph_t const& graph,
     vector<int> const& which_cache);
 
   void print_graphviz(std::ostream& out); // TODO
+
+  // Get the amount of memory used by each location
+  vector<uint64_t> mem_sizes() const;
 
   // at time zero, this input is here with this memory
   struct input_t {
@@ -117,9 +126,28 @@ struct memgraph_t {
     uint64_t size;
   };
 
-  using op_t = std::variant<
-    input_t, apply_t, move_t,
-    evict_t, load_t, del_t>;
+  struct op_t {
+  private:
+    using _op_t = std::variant<
+      input_t, apply_t, move_t,
+      evict_t, load_t, del_t>;
+  public:
+    op_t(_op_t op): op(op) {}
+
+    op_t(input_t  x): op_t(_op_t(x)) {}
+    op_t(apply_t  x): op_t(_op_t(x)) {}
+    op_t(move_t   x): op_t(_op_t(x)) {}
+    op_t(evict_t  x): op_t(_op_t(x)) {}
+    op_t(load_t   x): op_t(_op_t(x)) {}
+    op_t(del_t    x): op_t(_op_t(x)) {}
+
+    // get all the memlocs touched by
+    // this operation
+    vector<memloc_t> get_memlocs() const;
+
+  private:
+    _op_t op;
+  };
 
   struct node_t {
     op_t op;

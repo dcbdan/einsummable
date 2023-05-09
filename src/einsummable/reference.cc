@@ -53,6 +53,27 @@ bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps)
 bool is_close(float lhs, float rhs, float eps) {
   return (lhs <= rhs + eps) && (lhs >= rhs - eps);
 }
+bool is_close(
+  buffer_t const& lhs, uint64_t offset_lhs,
+  buffer_t const& rhs, uint64_t offset_rhs,
+  uint64_t size,
+  float eps)
+{
+  if(lhs->size < offset_lhs + size) {
+    return false;
+  }
+  if(rhs->size < offset_rhs + size) {
+    return false;
+  }
+  float* raw_lhs = lhs->data + offset_lhs;
+  float* raw_rhs = rhs->data + offset_rhs;
+  for(int i = 0; i != size; ++i) {
+    if(!is_close(raw_lhs[i], raw_rhs[i], eps)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
@@ -172,6 +193,13 @@ map<int, buffer_t> reference_compute_taskgraph(
   }
 
   return outs;
+}
+
+void reference_compute_memgraph(
+  memgraph_t const& memgraph,
+  vector<buffer_t>& compute_location_buffers)
+{
+  // TODO
 }
 
 tensor_t<buffer_t> partition_buffer(
