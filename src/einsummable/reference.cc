@@ -200,6 +200,7 @@ void reference_compute_memgraph(
   vector<buffer_t>& compute_location_buffers)
 {
   // TODO
+  throw std::runtime_error("reference_compute_memgraph not implemented");
 }
 
 tensor_t<buffer_t> partition_buffer(

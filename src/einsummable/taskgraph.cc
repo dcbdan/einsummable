@@ -1278,14 +1278,14 @@ bool taskgraph_t::all_valid_partialize() const {
 }
 
 int taskgraph_t::num_locs() const {
-  int rm1 = -1;
+  int ret = 0;
   for(auto const& node: nodes) {
-    rm1 = std::max(rm1, node.op.output_loc());
+    ret = std::max(ret, 1 + node.op.output_loc());
     if(node.op.is_move()) {
-      rm1 = std::max(rm1, node.op.get_move().src);
+      ret = std::max(ret, 1 + node.op.get_move().src);
     }
   }
-  return rm1-1;
+  return ret;
 }
 
 int taskgraph_t::insert(op_t op, bool is_save) {
