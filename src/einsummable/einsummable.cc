@@ -129,7 +129,7 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   }
   out << "]";
 
-  out << "\"" << e.str() << "\"";
+  out << e.str();
 
   return out;
 }

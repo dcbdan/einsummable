@@ -1,6 +1,8 @@
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/memgraph.h"
 
+#include <fstream>
+
 int main01() {
   uint64_t ni = 3;
   uint64_t nj = 4;
@@ -274,7 +276,13 @@ void test_make_memgraph_without_evict(
   // compute the reference implementation
   map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
-  // TODO: this implementation
+  {
+    std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
+    std::ofstream f("exp_reference_memgraph.gv");
+    memgraph.print_graphviz(f);
+    memgraph.print_graphviz(std::cout);
+  }
+
   reference_compute_memgraph(memgraph, loc_buffers);
 
   for(auto const& [gid, full_buffer]: full_outs) {
@@ -339,7 +347,11 @@ void test_obvious_matmul(int pi, int pj, int pk) {
   buffer_rhs->iota(-20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-  test_make_taskgraph(graph, inns);
+
+  // TODO uncomment
+  //test_make_taskgraph(graph, inns);
+
+  test_make_memgraph_without_evict(graph, inns);
 }
 
 void test_obvious_same_input_matmul(int pi, int pj, int pk) {
@@ -460,7 +472,9 @@ void test_random_matmul() {
   buffer_rhs->iota(-20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-  test_make_taskgraph(graph, inns);
+
+  // TODO: uncomment this
+  //test_make_taskgraph(graph, inns);
 
   // TODO: get this test to pass
   test_make_memgraph_without_evict(graph, inns);
@@ -545,5 +559,6 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 }
 
 int main(int argc, char** argv) {
-  main09(argc, argv);
+//  main09(argc, argv);
+  test_obvious_matmul(1,1,1);
 }

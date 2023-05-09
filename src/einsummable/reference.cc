@@ -206,19 +206,74 @@ void reference_compute_memgraph(
   memgraph_t const& memgraph,
   vector<buffer_t>& compute_location_buffers)
 {
+  auto make_buffer_at = [&](int loc, mem_t const& mem) {
+    return make_buffer_reference(
+      compute_location_buffers[loc]->data + mem.offset,
+      mem.size
+    );
+  };
+
+  vector<map<int, buffer_t>> caches(memgraph.num_cache_locs);
+
   for(int const& id: memgraph.get_order()) {
     auto const& op = memgraph.nodes[id].op;
     if(op.is_input()) {
       // nothing to do
     } else if(op.is_apply()) {
-      //auto const& [loc, mems, op, group] = op.get_apply();
+      auto const& apply = op.get_apply();
+      auto const& [loc, mems, aop, group] = apply;
 
+      buffer_t out_buffer = make_buffer_at(loc, mems[0]);
+
+      vector<buffer_t> inn_buffers;
+      for(int i = 1; i != mems.size(); ++i) {
+        inn_buffers.push_back(make_buffer_at(loc, mems[i]));
+      }
+
+      if(std::holds_alternative<einsummable_t>(aop)) {
+        auto const& einsummable = std::get<einsummable_t>(aop);
+        reference_einsummable_inplace(einsummable, out_buffer, inn_buffers);
+      } else if(std::holds_alternative<touch_t>(aop)){
+        auto const& touch = std::get<touch_t>(aop);
+        if(inn_buffers.size() != 1) {
+          throw std::runtime_error("touch at ref: invalid mem buffers size");
+        }
+        reference_touch(touch, out_buffer, inn_buffers[0]);
+      }
     } else if(op.is_move()) {
-      // TODO
+      auto const& move = op.get_move();
+
+      auto const& [src_loc, src_offset] = move.src;
+      auto const& [dst_loc, dst_offset] = move.dst;
+      auto const& size = move.size;
+
+      buffer_t src_buffer = make_buffer_at(src_loc, mem_t { src_offset, size });
+      buffer_t dst_buffer = make_buffer_at(dst_loc, mem_t { dst_offset, size });
+
+      std::copy(src_buffer->data, src_buffer->data + size, dst_buffer->data);
     } else if(op.is_evict()) {
-      // TODO
+      auto const& evict = op.get_evict();
+      auto const& [loc, cache_id, offset, size] = evict;
+
+      buffer_t cache_buffer = make_buffer(size);
+      buffer_t loc_buffer = make_buffer_at(loc, mem_t { offset, size });
+
+      std::copy(loc_buffer->data, loc_buffer->data + size, cache_buffer->data);
+
+      if(caches[loc].count(cache_id) > 0) {
+        throw std::runtime_error("duplicate cache id");
+      }
+      caches[loc].insert({cache_id, cache_buffer});
     } else if(op.is_load()) {
-      // TODO
+      auto const& load = op.get_load();
+      auto const& [cache_id, loc, offset, size] = load;
+
+      buffer_t loc_buffer = make_buffer_at(loc, mem_t { offset, size });
+      buffer_t cache_buffer = caches[loc].at(cache_id);
+
+      std::copy(cache_buffer->data, cache_buffer->data + size, loc_buffer->data);
+
+      caches[loc].erase(cache_id);
     } else if(op.is_del()) {
       // nothing to do
     } else {
