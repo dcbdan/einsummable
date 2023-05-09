@@ -20,6 +20,9 @@ struct memloc_t {
   mem_t as_mem() const;
 };
 
+std::ostream& operator<<(std::ostream&, mem_t const&);
+std::ostream& operator<<(std::ostream&, memloc_t const&);
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
@@ -47,10 +50,18 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<int> const& which_cache);
 
-  void print_graphviz(std::ostream& out); // TODO
+  void print_graphviz(std::ostream& out) const;
 
   // Get the amount of memory used by each location
   vector<uint64_t> mem_sizes() const;
+
+  // An ordering of 0,1,2... works if memgraph_t::insert
+  // was used to construct *this
+  vector<int> get_order() const {
+    vector<int> ret(nodes.size());
+    std::iota(ret.begin(), ret.end(), 0);
+    return ret;
+  }
 
   // at time zero, this input is here with this memory
   struct input_t {
@@ -140,6 +151,20 @@ struct memgraph_t {
     op_t(evict_t  x): op_t(_op_t(x)) {}
     op_t(load_t   x): op_t(_op_t(x)) {}
     op_t(del_t    x): op_t(_op_t(x)) {}
+
+    bool is_input() const { return std::holds_alternative<input_t>(op); }
+    bool is_apply() const { return std::holds_alternative<apply_t>(op); }
+    bool is_move()  const { return std::holds_alternative<move_t>(op);  }
+    bool is_evict() const { return std::holds_alternative<evict_t>(op); }
+    bool is_load()  const { return std::holds_alternative<load_t>(op);  }
+    bool is_del()   const { return std::holds_alternative<del_t>(op);   }
+
+    input_t const& get_input() const { return std::get<input_t>(op); }
+    apply_t const& get_apply() const { return std::get<apply_t>(op); }
+    move_t  const& get_move()  const { return std::get<move_t>(op);  }
+    evict_t const& get_evict() const { return std::get<evict_t>(op); }
+    load_t  const& get_load()  const { return std::get<load_t>(op);  }
+    del_t   const& get_del()   const { return std::get<del_t>(op);   }
 
     // get all the memlocs touched by
     // this operation

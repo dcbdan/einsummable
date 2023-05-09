@@ -43,6 +43,8 @@ order_taskgraph(taskgraph_t const& taskgraph);
 // allocator_t contains a vector of blocks that either
 // have been (1) deleted, or (2) are currently occupied
 struct allocator_t {
+  allocator_t() = delete;
+
   allocator_t(uint64_t memsize_t);
 
   // Allocate this much memory if possible and return
@@ -57,6 +59,8 @@ struct allocator_t {
   // delete this memory, storing the delete dependent
   // for future use of this memory block
   void free(uint64_t offset, int del);
+
+  void print() const;
 
 private:
   struct block_t {
@@ -86,6 +90,133 @@ private:
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_available(uint64_t size);
 };
+
+allocator_t::allocator_t(uint64_t memsize)
+{
+  if(memsize == 0) {
+    throw std::runtime_error("invalid memsize for allocator");
+  }
+  blocks.push_back(block_t {
+    .beg = 0,
+    .end = memsize,
+    .dep = -1
+  });
+}
+
+void allocator_t::block_t::free(int d) {
+  if(!occupied()) {
+    throw std::runtime_error("cannot free unoccupied memory block");
+  }
+  dep = d;
+}
+
+optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
+allocator_t::find_available(uint64_t size) {
+  using return_t = tuple<iter_t, iter_t, uint64_t>;
+
+  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    if(iter->available()) {
+      iter_t ret = iter;
+      uint64_t sz = 0;
+      for(; iter != blocks.end() && iter->available(); ++iter) {
+        sz += iter->size();
+        if(sz >= size) {
+          return optional<return_t>({ret, iter + 1, sz});
+        }
+      }
+    }
+  }
+
+  return optional<return_t>();
+}
+
+optional< tuple<uint64_t, vector<int>> >
+allocator_t::try_to_allocate(uint64_t size)
+{
+  using return_t = tuple<uint64_t, vector<int>>;
+
+  auto maybe_info = find_available(size);
+  if(maybe_info) {
+    auto const& [beg,end,sz] = maybe_info.value();
+
+    // collect the output information
+    uint64_t offset = beg->beg;
+    vector<int> deps;
+    for(auto iter = beg; iter != end; ++iter) {
+      if(!iter->dep) {
+        throw std::runtime_error("invalid find_available return");
+      }
+      int const& d = iter->dep.value();
+      if(d >= 0) {
+        deps.push_back(d);
+      }
+    }
+
+    // fix blocks
+    block_t last_block_copy = *(end-1);
+
+    auto iter = blocks.erase(beg, end);
+    auto occupied_iter = blocks.insert(iter, block_t {
+      .beg = offset,
+      .end = offset+size,
+      .dep = optional<int>()
+    });
+    if(size != sz) {
+      blocks.insert(occupied_iter+1, block_t {
+        .beg = offset + size,
+        .end = last_block_copy.end,
+        .dep = last_block_copy.dep
+      });
+    }
+    return optional<return_t>({offset, deps});
+  } else {
+    return optional<return_t>();
+  }
+}
+
+tuple<uint64_t, vector<int>>
+allocator_t::allocate(uint64_t size)
+{
+  auto maybe_succ = try_to_allocate(size);
+  if(maybe_succ) {
+    return maybe_succ.value();
+  }
+  throw std::runtime_error("allocator_t: could not allocate");
+}
+
+void allocator_t::free(uint64_t offset, int del) {
+  auto iter = std::lower_bound(blocks.begin(), blocks.end(), offset,
+    [](block_t const& blk, uint64_t const& val) {
+      return blk.beg < val;
+    }
+  );
+
+  if(iter == blocks.end() || iter->beg != offset) {
+    throw std::runtime_error("cannot del this block");
+  }
+
+  block_t& block = *iter;
+  block.free(del);
+}
+
+void allocator_t::print() const {
+  auto& out = std::cout;
+
+  for(auto const& blk: blocks) {
+    out << "[" << blk.beg << "," << blk.end << ")@";
+    if(blk.dep) {
+      int const& d = blk.dep.value();
+      if(d < 0) {
+        out << "neverassigned";
+      } else {
+       out << "free;dep" << blk.dep.value();
+      }
+    } else {
+      out << "occupied";
+    }
+    out << std::endl;
+  }
+}
 
 tuple<
   map<int, mem_t>, // input -> mem
@@ -129,9 +260,6 @@ memgraph_t::make_without_evict(
   // taskgraph ids to offsets
   map<int, uint64_t> current_tensors;
 
-  map<int, int> task_node_to_mem;
-  map<_which_touch_t, int> task_touch_to_mem;
-
   int _group = 0;
   map<tuple<int,int>, int> to_group;
   auto get_group_at = [&](int task_id, int unit_id) {
@@ -147,6 +275,9 @@ memgraph_t::make_without_evict(
       return to_group.at({task_id, unit_id});
     }
   };
+
+  map<int, int> task_node_to_mem;
+  map<_which_touch_t, int> task_touch_to_mem;
 
   auto task_to_mem = [&](int task_id) -> vector<int> {
     auto const& node = taskgraph.nodes[task_id];
@@ -380,6 +511,85 @@ memgraph_t::make_without_evict(
   return {input_to_mem, save_to_mem, memgraph};
 }
 
+void memgraph_t::print_graphviz(std::ostream& out) const {
+  using std::endl;
+
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
+
+    string label;
+    string color = "";
+    if(op.is_input()) {
+      input_t const& input = op.get_input();
+      string memloc = write_with_ss(
+        memloc_t { input.offset, input.size, input.loc });
+      label = "input@" + memloc;
+    } else if(op.is_apply()) {
+      apply_t const& apply = op.get_apply();
+      auto const& aop = apply.op;
+      string aopstr;
+      if(std::holds_alternative<einsummable_t>(aop)) {
+        aopstr = write_with_ss(std::get<einsummable_t>(aop));
+      } else if(std::holds_alternative<touch_t>(aop)) {
+        aopstr = write_with_ss(std::get<touch_t>(aop));
+      } else {
+        throw std::runtime_error("parint graphviz should not reach");
+      }
+      label = "apply@loc" + write_with_ss(apply.loc) + "." + aopstr;
+      for(mem_t const& mem: apply.mems) {
+        label += "|" + write_with_ss(mem);
+      }
+    } else if(op.is_move()) {
+      move_t const& move = op.get_move();
+
+      auto const& [src_loc, src_offset] = move.src;
+      auto const& [dst_loc, dst_offset] = move.dst;
+      auto const& size = move.size;
+
+      label = "move@" +
+        write_with_ss(memloc_t { src_offset, size, src_loc }) +
+        "->" +
+        write_with_ss(memloc_t { src_offset, size, src_loc });
+    } else if(op.is_evict()) {
+      evict_t const& evict = op.get_evict();
+      label = "evict@" +
+        write_with_ss(memloc_t { evict.offset, evict.size, evict.loc }) +
+        "->cid" +
+        write_with_ss(evict.cache_id);
+    } else if(op.is_load()) {
+      load_t const& load = op.get_load();
+      label = "load@" +
+        write_with_ss(memloc_t { load.offset, load.size, load.loc }) +
+        "->cid" +
+        write_with_ss(load.cache_id);
+    } else if(op.is_del()) {
+      del_t const& del = op.get_del();
+      string memloc = write_with_ss(
+        memloc_t { del.offset, del.size, del.loc });
+      label = "del@" + memloc;
+    } else {
+      throw std::runtime_error("memgraph print should not happen");
+    }
+
+    out << tab
+      << "n" << id
+      << " [label=\"" << label << "\"";
+    if(color != "") {
+      out << ", color=" << color;
+    }
+    out << "]" << endl;
+
+    for(int const& inn_id: node.inns) {
+      out << tab << "n" << inn_id << " -> " << "n" << id << endl;
+    }
+  }
+  out << "}" << endl;
+}
+
 vector<std::variant<_which_node_t, _which_touch_t>>
 order_taskgraph(taskgraph_t const& taskgraph)
 {
@@ -404,127 +614,20 @@ order_taskgraph(taskgraph_t const& taskgraph)
     // distinction doesn't matter here
     ret.emplace_back(_which_node_t { .task_id = id });
 
-    // Now that this id is now available, so add any touches
-    // from id.
+    // Now that this id is now available, add touches from
+    // this id to a partialize out
     for(auto const& out: node.outs) {
       auto const& out_node = taskgraph.nodes[out];
       if(out_node.op.is_partialize()) {
-        auto which_touches = get_which_touches_from(taskgraph, out);
-        for(auto const& [inn, w]: which_touches) {
-          if(inn == id) {
-            ret.emplace_back(w);
-          }
+        auto which_touches = get_which_touches_from_to(taskgraph, out, id);
+        for(auto const& w: which_touches) {
+          ret.emplace_back(w);
         }
       }
     }
   }
 
   return ret;
-}
-
-allocator_t::allocator_t(uint64_t memsize)
-{
-  blocks.push_back(block_t {
-    .beg = 0,
-    .end = memsize,
-    .dep = -1
-  });
-}
-
-void allocator_t::block_t::free(int d) {
-  if(!occupied()) {
-    throw std::runtime_error("cannot free unoccupied memory block");
-  }
-  dep = d;
-}
-
-optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
-allocator_t::find_available(uint64_t size) {
-  using return_t = tuple<iter_t, iter_t, uint64_t>;
-
-  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
-    if(iter->available()) {
-      iter_t ret = iter;
-      uint64_t sz = 0;
-      for(; iter != blocks.end() && iter->available(); ++iter) {
-        sz += iter->size();
-        if(sz >= size) {
-          return optional<return_t>({ret, iter + 1, sz});
-        }
-      }
-    }
-  }
-
-  return optional<return_t>();
-}
-
-optional< tuple<uint64_t, vector<int>> >
-allocator_t::try_to_allocate(uint64_t size)
-{
-  using return_t = tuple<uint64_t, vector<int>>;
-
-  auto maybe_info = find_available(size);
-  if(maybe_info) {
-    auto const& [beg,end,sz] = maybe_info.value();
-
-    // collect the output information
-    uint64_t offset = beg->beg;
-    vector<int> deps;
-    for(auto iter = beg; iter != end; ++iter) {
-      if(!iter->dep) {
-        throw std::runtime_error("invalid find_available return");
-      }
-      int const& d = iter->dep.value();
-      if(d >= 0) {
-        deps.push_back(d);
-      }
-    }
-
-    // fix blocks
-    block_t last_block_copy = *(end-1);
-
-    auto iter = blocks.erase(beg, end);
-    auto occupied_iter = blocks.insert(iter, block_t {
-      .beg = offset,
-      .end = offset+size,
-      .dep = optional<int>()
-    });
-    if(size != sz) {
-      blocks.insert(occupied_iter+1, block_t {
-        .beg = offset + size,
-        .end = last_block_copy.end,
-        .dep = last_block_copy.dep
-      });
-    }
-    return optional<return_t>({offset, deps});
-  } else {
-    return optional<return_t>();
-  }
-}
-
-tuple<uint64_t, vector<int>>
-allocator_t::allocate(uint64_t size)
-{
-  auto maybe_succ = try_to_allocate(size);
-  if(maybe_succ) {
-    return maybe_succ.value();
-  }
-  throw std::runtime_error("allocator_t: could not allocate");
-}
-
-void allocator_t::free(uint64_t offset, int del) {
-  auto iter = std::lower_bound(blocks.begin(), blocks.end(), offset,
-    [](block_t const& blk, uint64_t const& val) {
-      return blk.beg < val;
-    }
-  );
-
-  if(iter == blocks.end() || iter->beg != offset) {
-    throw std::runtime_error("cannot del this block");
-  }
-
-  block_t& block = *iter;
-  block.free(del);
 }
 
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
@@ -658,5 +761,14 @@ mem_t memloc_t::as_mem() const {
     .offset = offset,
     .size = size
   };
+}
+
+std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
+  out << "[" << mem.offset << "," << mem.offset+mem.size << ")";
+  return out;
+}
+std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {
+  out << "loc" << memloc.loc << memloc.as_mem();
+  return out;
 }
 
