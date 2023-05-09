@@ -571,5 +571,5 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 
 int main(int argc, char** argv) {
 //  main09(argc, argv);
-  test_obvious_matmul(1,2,1);
+  test_obvious_matmul(2,2,2);
 }
