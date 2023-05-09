@@ -86,16 +86,16 @@ void print_vec(vector<T> const& xs)
 template <typename T>
 void print_vec(std::ostream& out, vector<T> const& xs)
 {
-  std::cout << "{";
+  out << "{";
   if(xs.size() >= 1) {
-    std::cout << xs[0];
+    out << xs[0];
   }
   if(xs.size() > 1) {
     for(int i = 1; i != xs.size(); ++i) {
-      std::cout << "," << xs[i];
+      out << "," << xs[i];
     }
   }
-  std::cout << "}";
+  out << "}";
 }
 
 template <typename T>
