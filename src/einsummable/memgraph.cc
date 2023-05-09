@@ -265,7 +265,8 @@ memgraph_t::make_without_evict(
   auto get_group_at = [&](int task_id, int unit_id) {
     auto const& node = taskgraph.nodes[task_id];
     auto const& partialize = node.op.get_partialize();
-    if(partialize.units.size() == 1) {
+    auto const& unit = partialize.units[unit_id];
+    if(unit.inputs.size() == 1) {
       return -1;
     } else {
       if(to_group.count({task_id, unit_id}) == 0) {
@@ -531,15 +532,19 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
       auto const& aop = apply.op;
+      string header;
       string aopstr;
       if(std::holds_alternative<einsummable_t>(aop)) {
+        header = "apply";
         aopstr = write_with_ss(std::get<einsummable_t>(aop));
       } else if(std::holds_alternative<touch_t>(aop)) {
-        aopstr = write_with_ss(std::get<touch_t>(aop));
+        header = "touch";
+        aopstr = write_with_ss(std::get<touch_t>(aop)) +
+          "group" + write_with_ss(apply.group);
       } else {
         throw std::runtime_error("parint graphviz should not reach");
       }
-      label = "apply@loc" + write_with_ss(apply.loc) + "." + aopstr;
+      label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
       for(mem_t const& mem: apply.mems) {
         label += "|" + write_with_ss(mem);
       }
