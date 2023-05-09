@@ -1494,6 +1494,66 @@ void taskgraph_t::print() const {
   }
 }
 
+void taskgraph_t::print_graphviz(std::ostream& out) const {
+  using std::endl;
+
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
+
+    string label;
+    string color = "";
+
+    // set label and color
+    if(op.is_input()) {
+      auto const& [loc, _] = node.op.get_input();
+      label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc);
+    } else if(op.is_apply()) {
+      auto const& [loc, _, e] = node.op.get_apply();
+      label = "apply@loc[" + write_with_ss(loc) + "]" + write_with_ss(e);
+    } else if(op.is_move()) {
+      auto const& [src, dst, _0, _1] = node.op.get_move();
+      string src_ = write_with_ss(src);
+      string dst_ = write_with_ss(dst);
+      label = "move@loc" + src_ + "->" + dst_;
+    } else if(op.is_partialize()) {
+      int loc = node.op.output_loc();
+      label = "partialize@loc" + write_with_ss(loc);
+    }
+
+    out << tab
+      << "n" << id
+      << " [label=\"" << label << "\"";
+    if(color != "") {
+      out << ", color=" << color;
+    }
+    out << "]" << endl;
+
+    // print out the edges
+    if(op.is_input()) {
+      // no edges to id
+    } else if(op.is_apply()) {
+      auto const& inns = op.get_apply().inns;
+      for(int i = 0; i != inns.size(); ++i) {
+        int const& inn_id = inns[i];
+        out << tab << "n" << inn_id << " -> " << "n" << id;
+        out << "[label=\"" << write_with_ss(i) << "\"]" << endl;
+      }
+    } else if(op.is_move()) {
+      int const& inn_id = op.get_move().inn;
+      out << tab << "n" << inn_id << " -> " << "n" << id;
+    } else if(op.is_partialize()) {
+      for(auto const& inn_id: op.inputs()) {
+        out << tab << "n" << inn_id << " -> " << "n" << id;
+      }
+    }
+  }
+  out << "}" << endl;
+}
+
 std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {
   out << "td[d_inn:" << td.d_inn << ",d_out:" << td.d_out;
   out << ",o_inn:" << td.offset_inn << ",o_out:" << td.offset_out;

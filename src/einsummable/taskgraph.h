@@ -102,6 +102,8 @@ struct taskgraph_t {
   // for debugging
   void print() const;
 
+  void print_graphviz(std::ostream& out) const;
+
   // Get a compute order for the graph.
   // (It is not neccesarily the case that get_order = 0,1,2,...
   //  because things can get added to partialize ops)
