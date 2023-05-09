@@ -286,7 +286,6 @@ void test_make_memgraph_without_evict(
     std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
     std::ofstream f("exp_reference_memgraph.gv");
     memgraph.print_graphviz(f);
-    memgraph.print_graphviz(std::cout);
   }
 
   reference_compute_memgraph(memgraph, loc_buffers);
@@ -315,7 +314,6 @@ void test_make_memgraph_without_evict(
       }
     }
   }
-
 }
 
 // Here, obvious matmul means
@@ -349,7 +347,7 @@ void test_obvious_matmul(int pi, int pj, int pk) {
     id_join,
     true);
 
-  graph.print();
+  //graph.print();
 
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
@@ -427,16 +425,16 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
     id_join,
     true);
 
-  graph.print();
+  //graph.print();
 
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
-  buffer_lhs->iota(-10);
+  buffer_lhs->iota(1); //-10);
 
   buffer_t buffer_rhs = std::make_shared<buffer_holder_t>(nj*nk);
-  buffer_rhs->iota(-20);
+  buffer_rhs->iota(7); // -20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-  test_make_taskgraph(graph, inns);
+  //test_make_taskgraph(graph, inns);
   test_make_memgraph_without_evict(graph, inns);
 }
 
@@ -572,5 +570,6 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
 
 int main(int argc, char** argv) {
 //  main09(argc, argv);
-  test_obvious_random_loc_matmul(3,2,2,2);
+  set_seed(0);
+  test_obvious_random_loc_matmul(3,3,3,2);
 }

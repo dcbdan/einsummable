@@ -545,7 +545,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         aopstr = write_with_ss(std::get<einsummable_t>(aop));
       } else if(std::holds_alternative<touch_t>(aop)) {
         header = "touch";
-        aopstr = write_with_ss(std::get<touch_t>(aop)) +
+        aopstr = write_with_ss(std::get<touch_t>(aop).castable) +
           "group" + write_with_ss(apply.group);
       } else {
         throw std::runtime_error("parint graphviz should not reach");
@@ -564,7 +564,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       label = "move@" +
         write_with_ss(memloc_t { src_offset, size, src_loc }) +
         "->" +
-        write_with_ss(memloc_t { src_offset, size, src_loc });
+        write_with_ss(memloc_t { dst_offset, size, dst_loc });
+      color = "lightgray";
     } else if(op.is_evict()) {
       evict_t const& evict = op.get_evict();
       label = "evict@" +
@@ -611,19 +612,16 @@ order_taskgraph(taskgraph_t const& taskgraph)
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
       // Input nodes have already been provided
-      continue;
-    }
-    if(node.op.is_partialize()) {
+    } else if(node.op.is_partialize()) {
       // Every partialize touch should be accounted for
       // from the corresponding input. The idea is
       // if input A becomes ready, immediately
       // increment do touch op B += A.
-      continue;
+    } else {
+      // this is an apply or move node, but the
+      // distinction doesn't matter here
+      ret.emplace_back(_which_node_t { .task_id = id });
     }
-
-    // this is an apply or move node, but the
-    // distinction doesn't matter here
-    ret.emplace_back(_which_node_t { .task_id = id });
 
     // Now that this id is now available, add touches from
     // this id to a partialize out
