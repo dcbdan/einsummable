@@ -78,6 +78,8 @@ struct graph_t {
 
   void print() const;
 
+  vector<int> get_inputs() const;
+
 public:
 
   struct input_t {

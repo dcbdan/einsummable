@@ -231,11 +231,11 @@ void test_make_memgraph_without_evict(
     _info0 = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
-  {
-    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
-    std::ofstream f("exp_reference_taskgraph.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+  //  std::ofstream f("exp_reference_taskgraph.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   int num_locs = taskgraph.num_locs();
 
@@ -282,11 +282,11 @@ void test_make_memgraph_without_evict(
   // compute the reference implementation
   map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
-  {
-    std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
-    std::ofstream f("exp_reference_memgraph.gv");
-    memgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
+  //  std::ofstream f("exp_reference_memgraph.gv");
+  //  memgraph.print_graphviz(f);
+  //}
 
   reference_compute_memgraph(memgraph, loc_buffers);
 
@@ -473,7 +473,7 @@ void test_random_matmul() {
     id_join,
     true);
 
-  graph.print();
+  //graph.print();
 
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
@@ -483,10 +483,8 @@ void test_random_matmul() {
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
 
-  // TODO: uncomment this
   //test_make_taskgraph(graph, inns);
 
-  // TODO: get this test to pass
   test_make_memgraph_without_evict(graph, inns);
 }
 
@@ -546,6 +544,30 @@ void main10() {
   }
 }
 
+void test_3d_matmul(int pi, int pj, int pk, int nloc)
+{
+  uint64_t di = 10;
+  uint64_t dj = 10;
+  uint64_t dk = 10;
+
+  uint64_t ni = pi*di;
+  uint64_t nj = pj*dj;
+  uint64_t nk = pk*dk;
+
+  graph_t graph = three_dimensional_matrix_multiplication(pi,pj,pk,di,dj,dk,nloc);
+
+  buffer_t buffer0 = std::make_shared<buffer_holder_t>(ni*nj);
+  buffer0->iota(-10);
+
+  buffer_t buffer1 = std::make_shared<buffer_holder_t>(nj*nk);
+  buffer1->iota(-20);
+
+  vector<int> inputs = graph.get_inputs();
+  map<int, buffer_t> inns{ {inputs[0], buffer0}, {inputs[1], buffer1} };
+
+  test_make_memgraph_without_evict(graph, inns);
+}
+
 void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
   buffer_t lhs = std::make_shared<buffer_holder_t>(di*dj);
   lhs->random();
@@ -568,8 +590,20 @@ void test_matmul_reference(uint64_t di, uint64_t dj, uint64_t dk) {
   std::cout << rhs_ref  << std::endl;
 }
 
+void main11(int argc, char** argv) {
+  if(argc != 5) {
+    throw std::runtime_error("usage: pi pj pk nproc");
+  }
+  int pi = parse_with_ss<int>(argv[1]);
+  int pj = parse_with_ss<int>(argv[2]);
+  int pk = parse_with_ss<int>(argv[3]);
+  int np = parse_with_ss<int>(argv[4]);
+  test_3d_matmul(pi, pj, pk, np);
+}
+
 int main(int argc, char** argv) {
-//  main09(argc, argv);
-  set_seed(0);
-  test_obvious_random_loc_matmul(3,3,3,2);
+  //main09(argc, argv);
+  main11(argc, argv);
+  //set_seed(0);
+  //test_obvious_random_loc_matmul(5,5,5,5);
 }

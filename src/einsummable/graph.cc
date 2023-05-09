@@ -181,6 +181,17 @@ void graph_t::print() const {
   }
 }
 
+vector<int> graph_t::get_inputs() const {
+  vector<int> ret;
+  for(int id = 0; id != nodes.size(); ++id) {
+    auto const& node = nodes[id];
+    if(node.op.is_input()) {
+      ret.push_back(id);
+    }
+  }
+  return ret;
+}
+
 // Construct a 3D matmul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj
 //   shape rhs: dj*pj x dk*pk
