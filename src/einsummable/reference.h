@@ -9,8 +9,9 @@
 #include <memory>
 
 struct buffer_holder_t {
-  buffer_holder_t(uint64_t size): size(size) { data = new float[size]; }
-  ~buffer_holder_t() { delete[] data; }
+  buffer_holder_t(uint64_t size): size(size), own(true) { data = new float[size]; }
+  buffer_holder_t(float* data, uint64_t size): size(size), own(false), data(data) {}
+  ~buffer_holder_t() { if(own) { delete[] data; } }
 
   void zeros() { std::fill(data, data + size, 0.0); }
   void ones()  { std::fill(data, data + size, 1.0); }
@@ -22,10 +23,14 @@ struct buffer_holder_t {
   vector<float> as_vector() const;
 
   uint64_t size;
+  bool own;
   float* data;
 };
 
 using buffer_t = std::shared_ptr<buffer_holder_t>;
+
+buffer_t make_buffer(uint64_t size);
+buffer_t make_buffer_reference(float* data, uint64_t size);
 
 bool operator==(buffer_t const& lhs, buffer_t const& rhs);
 bool operator!=(buffer_t const& lhs, buffer_t const& rhs);

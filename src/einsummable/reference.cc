@@ -1,5 +1,12 @@
 #include "reference.h"
 
+buffer_t make_buffer(uint64_t size) {
+  return std::make_shared<buffer_holder_t>(size);
+}
+buffer_t make_buffer_reference(float* data, uint64_t size) {
+  return std::make_shared<buffer_holder_t>(data, size);
+}
+
 void buffer_holder_t::random(float lower, float upper) {
   std::uniform_real_distribution<float> dist(lower, upper);
   auto gen = [&dist]{ return dist(random_gen()); };
@@ -148,7 +155,7 @@ map<int, buffer_t> reference_compute_taskgraph(
       auto const& move = node.op.get_move();
       buffer_t buffer_src = get_at(move.inn, move.src);
 
-      buffer_t buffer_dst = std::make_shared<buffer_holder_t>(buffer_src->size);
+      buffer_t buffer_dst = make_buffer(buffer_src->size);
       std::copy(
         buffer_src->data,
         buffer_src->data + buffer_src->size,
@@ -158,7 +165,7 @@ map<int, buffer_t> reference_compute_taskgraph(
     } else if(node.op.is_partialize()) {
       int loc = node.op.output_loc();
 
-      buffer_t write = std::make_shared<buffer_holder_t>(node.op.tensor_size());
+      buffer_t write = make_buffer(node.op.tensor_size());
       tensors[id] = {loc, write};
 
       // Note: ignoring consummables
@@ -199,8 +206,25 @@ void reference_compute_memgraph(
   memgraph_t const& memgraph,
   vector<buffer_t>& compute_location_buffers)
 {
-  // TODO
-  throw std::runtime_error("reference_compute_memgraph not implemented");
+  for(int const& id: memgraph.get_order()) {
+    auto const& op = memgraph.nodes[id].op;
+    if(op.is_input()) {
+      // nothing to do
+    } else if(op.is_apply()) {
+      //auto const& [loc, mems, op, group] = op.get_apply();
+
+    } else if(op.is_move()) {
+      // TODO
+    } else if(op.is_evict()) {
+      // TODO
+    } else if(op.is_load()) {
+      // TODO
+    } else if(op.is_del()) {
+      // nothing to do
+    } else {
+      throw std::runtime_error("reference_compute_memgraph: should not happen");
+    }
+  }
 }
 
 tensor_t<buffer_t> partition_buffer(
@@ -220,7 +244,7 @@ tensor_t<buffer_t> partition_buffer(
 
     buffer_t& buffer = ret.at(block_index);
     vector<uint64_t> buffer_shape = shape_hrect(hrect);
-    buffer = std::make_shared<buffer_holder_t>(product(buffer_shape));
+    buffer = make_buffer(product(buffer_shape));
 
     vector<uint64_t> inn_index = offset;
     do {
@@ -241,7 +265,7 @@ buffer_t unpartition_buffer(
   vector<int> block_shape = partition.block_shape();
   vector<uint64_t> out_shape = partition.total_shape();
 
-  buffer_t out_buffer = std::make_shared<buffer_holder_t>(product(out_shape));
+  buffer_t out_buffer = make_buffer(product(out_shape));
 
   vector<int> block_index(block_shape.size(), 0);
   do {
@@ -291,7 +315,7 @@ buffer_t reference_einsummable(
   einsummable_t const& einsummable,
   vector<buffer_t> const& inputs)
 {
-  buffer_t ret = std::make_shared<buffer_holder_t>(product(einsummable.out_shape()));
+  buffer_t ret = make_buffer(product(einsummable.out_shape()));
 
   reference_einsummable_inplace(einsummable, ret, inputs);
 

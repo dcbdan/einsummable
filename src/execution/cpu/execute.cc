@@ -386,7 +386,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
       }
       // If not, allocate.
       if(!out_buffer) {
-        out_buffer = std::make_shared<buffer_holder_t>(node.op.tensor_size());
+        out_buffer = make_buffer(node.op.tensor_size());
       }
 
       vector<float const*> raw_inputs;
@@ -655,7 +655,7 @@ cpu_exec_state_t::get_buffers(
     if(tensors.count(id) == 0) {
       tensors.insert_or_assign(
         id,
-        std::make_shared<buffer_holder_t>(sz)
+        make_buffer(sz)
       );
     }
     writes.push_back(tensors.at(id));
