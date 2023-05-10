@@ -304,6 +304,8 @@ memgraph_t::make_without_evict(
     remaining_usage_counts.push_back(node.outs.size());
   }
 
+  set<int> donated;
+
   auto try_to_delete = [&](int task_id) {
     int& rem = remaining_usage_counts[task_id];
     if(rem == 0) {
@@ -311,9 +313,16 @@ memgraph_t::make_without_evict(
     }
     rem -= 1;
     if(rem == 0) {
+      if(donated.count(task_id) > 0) {
+        // can't be delted since this guy was donated to where it was used
+        donated.erase(task_id);
+        return;
+      }
+
       auto const& node = taskgraph.nodes[task_id];
+
       if(node.is_save) {
-        // stop here since this node can't be deleted
+        // can't be deleted since it is marked for saving
         return;
       }
 
@@ -350,6 +359,66 @@ memgraph_t::make_without_evict(
       // this tensor is no longer current
       current_tensors.erase(task_id);
     }
+  };
+
+  // Allocate the output memory if neccessary.
+  // For partials, the memory may have already been allocated.
+  // For some einsummables, an input tensor may get donated
+  auto get_output = [&](int task_id, set<int>& deps) {
+    // partial ops may already have an output
+    if(current_tensors.count(task_id) > 0) {
+      return current_tensors.at(task_id);
+    }
+    // otherwise allocate the output or grab
+    // memory from something that can be donated
+    auto const& node = taskgraph.nodes[task_id];
+
+    mem_t output_mem;
+    output_mem.size = node.op.tensor_size();
+    // output_mem.offset needs to be set
+
+    bool did_get_donation = false;
+
+    // see if we can avoid allocating memory
+    if(node.op.is_apply()) {
+      auto const& apply = node.op.get_apply();
+      einsummable_t const& es = apply.einsummable;
+      if(es.is_straight_elementwise()) {
+        for(int const& inn_id: apply.inns) {
+          // this tensor can be donated if
+          // 1. it does not come from a save node
+          // 2. it only has one usage (here)
+          auto const& inn_node = taskgraph.nodes[inn_id];
+          if(!inn_node.is_save && inn_node.outs.size() == 1) {
+            did_get_donation = true;
+            output_mem.offset = current_tensors.at(inn_id);
+
+            // this will keep it from getting deleted
+            donated.insert(inn_id);
+
+            // inn_id no longer has a tensor
+            current_tensors.erase(inn_id);
+
+            break;
+          }
+        }
+      }
+    }
+
+    if(!did_get_donation) {
+      int loc = node.op.output_loc();
+      auto [offset_, ds] = allocators[loc].allocate(output_mem.size);
+      output_mem.offset = offset_;
+      deps.insert(ds.begin(), ds.end());
+    }
+
+    current_tensors.insert({task_id, output_mem.offset});
+
+    if(node.is_save) {
+      save_to_mem.insert({task_id, output_mem});
+    }
+
+    return output_mem.offset;
   };
 
   // Allocate all the input nodes
@@ -406,48 +475,35 @@ memgraph_t::make_without_evict(
     set<int> deps;
     optional<op_t> op;
 
-    // allocate the output memory if this hasn't already
-    // happened (it would've only happened for some partials)
-    if(current_tensors.count(id) == 0) {
-      int loc = node.op.output_loc();
-      uint64_t sz = node.op.tensor_size();
-      auto [offset, ds] = allocators[loc].allocate(sz);
-      current_tensors.insert({id, offset});
-      deps.insert(ds.begin(), ds.end());
-
-      if(node.is_save) {
-        mem_t mem {
-          .offset = offset,
-          .size = sz
-        };
-        save_to_mem.insert({id, mem});
-      }
-    }
-
     if(node.op.is_apply()) {
       auto const& [loc, inns, es] = node.op.get_apply();
 
-      vector<mem_t> mems;
-
-      mems.push_back(mem_t {
-        .offset = current_tensors.at(id),
-        .size = node.op.tensor_size()
-      });
+      vector<mem_t> mems(1 + inns.size());
 
       auto inn_shapes = es.inn_shapes();
       for(int i = 0; i != inns.size(); ++i) {
         int const& task_inn = inns[i];
         auto sz = product(inn_shapes[i]);
-        mems.push_back(mem_t {
+        mems[i+1] = mem_t {
           .offset = current_tensors.at(task_inn),
           .size = sz
-        });
+        };
 
         vector<int> inn_deps = task_to_mem(task_inn);
         deps.insert(inn_deps.begin(), inn_deps.end());
 
         used_task_tensors.push_back(task_inn);
       }
+
+      uint64_t out_offset = get_output(id, deps);
+
+      // The reason mems[0] is being set last is because
+      // get_output may invalidate current_tensors at
+      // the input nodes
+      mems[0] = mem_t {
+        .offset = out_offset,
+        .size = node.op.tensor_size()
+      };
 
       op = op_t(apply_t {
         .loc = loc,
@@ -463,9 +519,12 @@ memgraph_t::make_without_evict(
 
       used_task_tensors.push_back(task_inn);
 
+      uint64_t offset_src = current_tensors.at(task_inn);
+      uint64_t offset_dst = get_output(id, deps);
+
       op = op_t(move_t {
-        .src = {src, current_tensors.at(task_inn)},
-        .dst = {dst, current_tensors.at(id)      },
+        .src = {src, offset_src},
+        .dst = {dst, offset_dst},
         .size = size
       });
     } else if(node.op.is_partialize()) {
@@ -479,13 +538,13 @@ memgraph_t::make_without_evict(
 
       used_task_tensors.push_back(task_inn);
 
-      mem_t out_mem {
-        .offset = current_tensors.at(id),
-        .size = node.op.tensor_size(),
-      };
       mem_t inn_mem {
         .offset = current_tensors.at(task_inn),
         .size = taskgraph.nodes[task_inn].op.tensor_size()
+      };
+      mem_t out_mem {
+        .offset = get_output(id, deps),
+        .size = node.op.tensor_size(),
       };
 
       op = op_t(apply_t {

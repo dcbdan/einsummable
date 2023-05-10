@@ -53,6 +53,9 @@ struct einsummable_t {
   //                   (ijk,ijk->ij) is not elementwise since an aggregation
   //                   happens.
   bool is_straight_elementwise() const;
+  // TODO: what is ij,i->ij ? That is, the left input can be donated but
+  //                          this returns false
+
 
   bool has_aggregation() const;
 

@@ -603,7 +603,8 @@ void main11(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  main11(argc, argv);
+  main10();
+  //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
 }
