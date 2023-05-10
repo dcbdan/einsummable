@@ -25,9 +25,9 @@ struct cluster_t {
     return connections[to_connection.at({src,dst})];
   }
 
-  float move(int src, int dst, uint64_t bytes) const;
+  double move(int src, int dst, uint64_t bytes) const;
 
-  float compute(int loc, uint64_t flops) const;
+  double compute(int loc, uint64_t flops) const;
 
   vector<device_t> const devices;
   vector<connection_t> const connections;
@@ -42,7 +42,7 @@ struct costgraph_t {
   static costgraph_t make_from_taskgraph(taskgraph_t const& taskgraph);
 
   // compute the cost of this graph over this cluster
-  float operator()(cluster_t const& cluster) const;
+  double operator()(cluster_t const& cluster) const;
 
   struct compute_t {
     int loc;
@@ -126,11 +126,11 @@ struct coster_t {
     : cluster(cluster), twolayer(twolayergraph_t::make(g))
   {}
 
-  float operator()() const {
+  double operator()() const {
     return this->operator()(cluster);
   }
 
-  float operator()(cluster_t const& cluster) const {
+  double operator()(cluster_t const& cluster) const {
     auto costgraph = costgraph_t::make(twolayer);
     return costgraph(cluster);
   }

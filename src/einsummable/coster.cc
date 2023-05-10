@@ -28,12 +28,12 @@ cluster_t cluster_t::make(
   };
 }
 
-float cluster_t::move(int src, int dst, uint64_t bytes) const {
+double cluster_t::move(int src, int dst, uint64_t bytes) const {
   connection_t const& c = connections[to_connection.at({src,dst})];
   return (1.0 / c.bandwidth) * bytes;
 }
 
-float cluster_t::compute(int loc, uint64_t flops) const {
+double cluster_t::compute(int loc, uint64_t flops) const {
   device_t const& d = devices[loc];
   return (1.0 / d.compute) * flops;
 }
@@ -353,7 +353,7 @@ struct cost_state_t {
       // utilize the workers
       capacity_here -= node.worker_utilization();
       // and start working
-      float time_when_finished = time + compute_cost(node.op);
+      double time_when_finished = time + compute_cost(node.op);
       in_progress.push({time_when_finished, op_id});
 
       auto it = std::copy_if(
@@ -374,7 +374,7 @@ struct cost_state_t {
     }
   }
 
-  float compute_cost(costgraph_t::op_t const& x)
+  double compute_cost(costgraph_t::op_t const& x)
   {
     if(std::holds_alternative<costgraph_t::compute_t>(x)){
       auto const& compute = std::get<costgraph_t::compute_t>(x);
@@ -403,21 +403,21 @@ struct cost_state_t {
   cluster_t const& cluster;
   costgraph_t const& costgraph;
 
-  float time;
+  double time;
 
   // for each worker, store the ids of all ops that can be
   // started
   worker_map_t<set<int>> pending;
 
   // store when the id will be ready, and the id
-  priority_queue_least<tuple<float, int>> in_progress;
+  priority_queue_least<tuple<double, int>> in_progress;
 
   worker_map_t<int> capacity;
 
   vector<int> num_remaining; // for each id, the num remaining
 };
 
-float costgraph_t::operator()(cluster_t const& cluster) const {
+double costgraph_t::operator()(cluster_t const& cluster) const {
   cost_state_t state(cluster, *this);
 
   do {
