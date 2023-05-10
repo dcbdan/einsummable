@@ -23,6 +23,8 @@ struct memloc_t {
 std::ostream& operator<<(std::ostream&, mem_t const&);
 std::ostream& operator<<(std::ostream&, memloc_t const&);
 
+struct memgraph_make_state_t;
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
@@ -63,6 +65,14 @@ struct memgraph_t {
     return ret;
   }
 
+  int const num_compute_locs;
+  int const num_cache_locs;
+
+  // Example: Four gpu node, with ram as the cache, then
+  //          cache_locs = {0,0,0,0} and compute locs are 0,1,2,3.
+  vector<int> const cache_locs;
+
+public:
   // at time zero, this input is here with this memory
   struct input_t {
     int loc;
@@ -192,14 +202,9 @@ struct memgraph_t {
   };
   vector<node_t> nodes;
 
-  int const num_compute_locs;
-  int const num_cache_locs;
-
-  // Example: Four gpu node, with ram as the cache, then
-  //          cache_locs = {0,0,0,0} and compute locs are 0,1,2,3.
-  vector<int> const cache_locs;
-
 private:
+  friend class memgraph_make_state_t;
+
   int insert(op_t op, set<int> const& deps);
 
   // Get whether or not there is a directed path from
@@ -211,3 +216,123 @@ private:
   // 0,1,2,3,4,.. is a valid order of the graph.
   vector<vector<char>> all_deps;
 };
+
+// allocator_t contains a vector of blocks that either
+// have been (1) deleted, or (2) are currently occupied
+struct allocator_t {
+  allocator_t() = delete;
+
+  allocator_t(uint64_t memsize_t);
+
+  // Allocate this much memory if possible and return
+  // the offset and all dependents. If there is not
+  // free memory of this size, none is returned.
+  optional< tuple<uint64_t, vector<int>> >
+  try_to_allocate(uint64_t size);
+
+  tuple<uint64_t, vector<int>>
+  allocate(uint64_t size);
+
+  // delete this memory, storing the delete dependent
+  // for future use of this memory block
+  void free(uint64_t offset, int del);
+
+  void print() const;
+
+private:
+  struct block_t {
+    uint64_t beg;
+    uint64_t end;
+
+    // dep is none:
+    //   this memory is occupied
+    // dep is < 0:
+    //   this memory is free and can be used without
+    //   adding a dependency
+    // dep is >= 0:
+    //   this memory is free and can only be used
+    //   after dep id has been deleted
+    optional<int> dep;
+
+    uint64_t size() const { return end - beg; }
+    bool occupied() const  { return !dep.has_value(); }
+    bool available() const { return !occupied(); }
+    void free(int dep);
+  };
+
+  vector<block_t> blocks;
+
+  using iter_t = vector<block_t>::iterator;
+
+  optional<tuple<iter_t, iter_t, uint64_t>>
+  find_available(uint64_t size);
+};
+
+struct _which_node_t {
+  int task_id;
+};
+struct _which_touch_t {
+  int task_id;
+  int unit_id;
+  int touch_id;
+};
+
+bool operator==(_which_touch_t const& lhs, _which_touch_t const& rhs);
+bool operator<(_which_touch_t const& lhs, _which_touch_t const& rhs);
+
+struct memgraph_make_state_t {
+  memgraph_make_state_t(
+    taskgraph_t const& taskgraph,
+    vector<int> const& which_cache,
+    vector<allocator_t> const& as,
+    int num_compute,
+    int num_cache);
+
+  using op_t    = memgraph_t::op_t;
+  using input_t = memgraph_t::input_t;
+  using apply_t = memgraph_t::apply_t;
+  using move_t  = memgraph_t::move_t;
+  using del_t   = memgraph_t::del_t;
+
+  void allocate_inputs();
+
+  void add_to_memgraph(
+    std::variant<_which_node_t, _which_touch_t> const& which_op);
+
+  vector<int> task_to_mem(int task_id) const;
+
+  int get_group_at(int task_id, int unit_id);
+
+  void try_to_delete(int task_id);
+
+  // Allocate the output memory if neccessary.
+  // For partials, the memory may have already been allocated.
+  // For some einsummables, an input tensor may get donated
+  uint64_t get_output_alloc_if_necc(
+    int task_id,
+    set<int>& deps);
+
+  taskgraph_t const& taskgraph;
+
+  map<int, mem_t> input_to_mem;
+  map<int, mem_t> save_to_mem;
+  memgraph_t memgraph;
+
+  vector<allocator_t> allocators;
+
+  // taskgraph ids to offsets
+  map<int, uint64_t> current_tensors;
+
+  int _group;
+  map<tuple<int,int>, int> to_group;
+
+  map<int, int> task_node_to_mem;
+  map<_which_touch_t, int> task_touch_to_mem;
+
+  vector<int> remaining_usage_counts;
+
+  set<int> donated;
+};
+
+
+

@@ -231,11 +231,11 @@ void test_make_memgraph_without_evict(
     _info0 = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
-  {
-    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
-    std::ofstream f("exp_reference_taskgraph.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+  //  std::ofstream f("exp_reference_taskgraph.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   int num_locs = taskgraph.num_locs();
 
@@ -282,11 +282,11 @@ void test_make_memgraph_without_evict(
   // compute the reference implementation
   map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
-  {
-    std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
-    std::ofstream f("exp_reference_memgraph.gv");
-    memgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
+  //  std::ofstream f("exp_reference_memgraph.gv");
+  //  memgraph.print_graphviz(f);
+  //}
 
   reference_compute_memgraph(memgraph, loc_buffers);
 
@@ -675,9 +675,9 @@ void main11(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  //main10();
+  main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
-  test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
+  //test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
 }
