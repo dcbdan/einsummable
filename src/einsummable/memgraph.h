@@ -278,7 +278,7 @@ struct _which_touch_t {
 };
 
 bool operator==(_which_touch_t const& lhs, _which_touch_t const& rhs);
-bool operator<(_which_touch_t const& lhs, _which_touch_t const& rhs);
+bool operator< (_which_touch_t const& lhs, _which_touch_t const& rhs);
 
 struct memgraph_make_state_t {
   memgraph_make_state_t(

@@ -15,6 +15,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 add_library(einsummable
   STATIC
+  src/einsummable/antplacer.cc
   src/einsummable/copyregion.cc
   src/einsummable/coster.cc
   src/einsummable/einsummable.cc
