@@ -646,6 +646,14 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("memgraph print should not happen");
     }
 
+    auto memlocs = op.get_memlocs();
+    for(int i = 1; i != memlocs.size(); ++i) {
+      if(memlocs[0].offset == memlocs[i].offset) {
+        // this argument is donated
+        color = "green";
+      }
+    }
+
     out << tab
       << "n" << id
       << " [label=\"" << label << "\"";

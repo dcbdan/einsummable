@@ -231,11 +231,11 @@ void test_make_memgraph_without_evict(
     _info0 = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
-  //{
-  //  std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
-  //  std::ofstream f("exp_reference_taskgraph.gv");
-  //  taskgraph.print_graphviz(f);
-  //}
+  {
+    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+    std::ofstream f("exp_reference_taskgraph.gv");
+    taskgraph.print_graphviz(f);
+  }
 
   int num_locs = taskgraph.num_locs();
 
@@ -282,11 +282,11 @@ void test_make_memgraph_without_evict(
   // compute the reference implementation
   map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
-  //{
-  //  std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
-  //  std::ofstream f("exp_reference_memgraph.gv");
-  //  memgraph.print_graphviz(f);
-  //}
+  {
+    std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
+    std::ofstream f("exp_reference_memgraph.gv");
+    memgraph.print_graphviz(f);
+  }
 
   reference_compute_memgraph(memgraph, loc_buffers);
 
@@ -488,6 +488,78 @@ void test_random_matmul() {
   test_make_memgraph_without_evict(graph, inns);
 }
 
+void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
+  if(!unary_scalar_op.is_unary()) {
+    throw std::runtime_error("expecting a unary op");
+  }
+
+  int nloc = 3;
+  auto random_placement = [&](vector<uint64_t> total_shape) {
+    vector<partdim_t> partdims;
+    for(uint64_t const& n: total_shape) {
+      int p = runif(1, 10);
+      partdims.push_back(partdim_t::split(n, p));
+    }
+    partition_t part(partdims);
+
+    return placement_t::random(part, nloc);
+  };
+
+  graph_t graph;
+
+  uint64_t ni = 10;
+  uint64_t nj = 10;
+  uint64_t nk = 10;
+
+  int id_lhs = graph.insert_input(random_placement({ni,nj}));
+  int id_rhs = graph.insert_input(random_placement({nj,nk}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    random_placement({ni,nk,nj}),
+    matmul,
+    {id_lhs, id_rhs});
+
+  einsummable_t unary_es {
+    .join_shape = {ni,nk},
+    .inns = { {0,1} },
+    .out_rank = 2,
+    .join = unary_scalar_op,
+    .castable = optional<castable_t>()
+  };
+
+  auto const& pds = graph.nodes[id_join].placement.partition;
+  partition_t part_unary(vector<partdim_t>(
+    pds.partdims.begin(),
+    pds.partdims.begin() + 2));
+
+  int id_unary = graph.insert_einsummable(
+    placement_t::random(part_unary, nloc),
+    unary_es,
+    {id_join});
+
+  int id_save = graph.insert_formation(
+    random_placement({ni,nk}),
+    id_unary,
+    true);
+
+  //graph.print();
+
+  buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
+  buffer_lhs->iota(-10);
+
+  buffer_t buffer_rhs = std::make_shared<buffer_holder_t>(nj*nk);
+  buffer_rhs->iota(-20);
+
+  map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
+
+  //test_make_taskgraph(graph, inns);
+
+  test_make_memgraph_without_evict(graph, inns);
+}
+
 void main06(int argc, char** argv) {
   if(argc != 4) {
     throw std::runtime_error("usage: pi pj pk");
@@ -603,8 +675,9 @@ void main11(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  main10();
+  //main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
+  test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
 }
