@@ -354,3 +354,180 @@ bool operator< (ant_graph_t::edge_t const& lhs, ant_graph_t::edge_t const& rhs)
   return two_tuple_lt(lhs, rhs);
 }
 
+// TODO: The taskgraph locally aggregates before moving. How will
+//       that be accounted for here?
+//       > what does the twolayer graph do? how does it handle aggregations?
+
+// Here is the idea:
+// 1 every node in the graph gets a usage partition which is the intersection
+//   between the nodes partition and all of its uses
+// 2 there is an edge between each inn block and out block with the ident of
+//   the usage block
+// Note: formation nodes of the same partition as the input
+//       don't actually get formed in the ant graph
+// Note: einsummables with one input and no aggregation that have the same
+//       partition as the input are set as equal
+tuple<
+  map<int, tensor_t<int>>,
+  equal_items_t<int>,
+  ant_graph_t>
+ant_graph_t::make(graph_t const& graph)
+{
+  equal_items_t<int> equal_items;
+  map<tuple<int, int>, int> g_to_ag;
+  ant_graph_t ant_graph;
+
+  vector<partition_t> usage_partitions;
+  // TODO: get all usage partitions
+
+  for(int const& gid: graph.get_order()) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& partition = node.placement.partition;
+      vector<int> shape = partition.block_shape();
+      vector<int> index(shape.size(), 0);
+      do {
+        int aid  = ant_graph.insert_node(0);
+        int gidx = idxs_to_index(shape, index);
+        g_to_ag.insert({ {gid, gidx}, aid });
+      } while(increment_idxs(shape, index));
+    } else {
+      if(node.op.is_formation()) {
+        int const& inn_gid = node.inns[0];
+        auto const& inn_node = graph.nodes[inn_gid];
+        auto const& inn_part = inn_node.placement.partition;
+        auto const& part = node.placement.partition;
+        if(inn_part == part) {
+          // if this partition is the same as the input partition
+          // (which means there is no agg) then don't actually add
+          // any ant_graph nodes since the placements should be the
+          // same
+          vector<int> shape = part.block_shape();
+          vector<int> index(shape.size(), 0);
+          do {
+            int gidx = idxs_to_index(shape, index);
+            int aid = g_to_ag.at({inn_gid, gidx});
+            g_to_ag.insert({ {gid, gidx}, aid });
+          } while(increment_idxs(shape, index));
+        }
+        continue;
+      }
+      if(node.op.is_einsummable() &&
+         node.inns.size() == 1 &&
+         !node.op.has_aggregation())
+      {
+        einsummable_t const& e = node.op.get_einsummable();
+
+        int const& gid_inn = node.inns[0];
+        auto const& node_inn = graph.nodes[gid_inn];
+
+        auto const& part     = node.placement.partition;
+        auto const& part_inn = node_inn.placement.partition;
+
+        auto partdims_with_respect_to_inn =
+          e.get_input_from_join(part.partdims, 0);
+
+        // What about ij->i->i ?
+        //   Here, the inn op is ij->i
+        //   this op is           i->i
+        // Here, the inn op has a rank 2 partition
+        // and this op has a rank 1 partition, so
+        // the corresponding partitions won't work.
+        //
+        // What about i->ij->ij ?
+        //   This won't happen since i->ij isn't a valid
+        //   einsummable op.
+        //
+        // But ij->ji->ij could work
+
+        if(part_inn.partdims == partdims_with_respect_to_inn) {
+          // In this case, reach through the permutation and make sure
+          // the locations are equal
+
+          auto inn_shape  = part_inn.block_shape();
+          auto join_shape = part.block_shape();
+          vector<int> join_index(join_shape.size(), 0);
+          do {
+            uint64_t cost = product(part.tensor_shape_at(join_index));
+
+            // insert this ant graph node
+            int aid = ant_graph.insert(cost);
+            int gidx = idxs_to_index(join_shape, join_index);
+            g_to_ag.insert({ {gid, gidx}, aid });
+
+            // set this and the corresponding input location to be equal
+            vector<int> inn_index = e.get_input_from_join(join_index, 0);
+            int inn_idx = idxs_to_index(inn_shape, inn_index);
+            int aid_inn = g_to_ag.at( { gid_inn, inn_idx } );
+            // TODO: ^getting this should reach past missing formation nodes
+            equal_items.insert(aid, aid_inn);
+
+            // now add all the edges between aid_inn and aid.
+            // Note: it may not be the case that the inn usage partition
+            //       is the same as this node. Go through every block of
+            //       the usage partition to create an edge from
+            //       aid_inn to aid
+            auto const& inn_usage_part = usage_partitions[gid_inn];
+            vector<int> inn_usage_shape = inn_usage_part.block_shape();
+
+            auto hrect = part.get_hrect(join_index);
+            auto hrect_inn = e.get_input_from_join(hrect, 0);
+            auto inn_usage_region = inn_usage_part.get_exact_region(hrect_inn);
+            vector<int> inn_usage_idxs = vector_mapfst(inn_usage_region);
+            do {
+              int ident = idxs_to_index(inn_usage_shape, inn_usage_idxs);
+              uint64_t cost = product(inn_usage_part.tensor_shape_at(inn_usage_idxs));
+              ant_graph.insert_edge(aid_inn, aid, cost, ident);
+            } while(increment_idxs_region(inn_usage_region, inn_usage_idxs);
+          } while(increment_idxs(join_shape, join_index));
+
+          continue;
+        }
+      }
+
+      // This is a non-trivial formation or a non-identical einsummable
+
+
+      auto const& join_part = node.placement.partition;
+      vector<int> join_shape = part.block_shape();
+      vector<int> join_idxs(join_shape.size(), 0);
+
+      einsummable_t e;
+      if(node.op.is_einsummable()) {
+        node.op.get_einsummable();
+      } else {
+        vector<int> inns(join_shape.size());
+        std::iota(inns.begin(), inns.end(), 0);
+
+        // just create a dummy einsummable
+        e = einsummable_t {
+          .join_shape = join_part.total_shape(),
+          .inns = { inns },
+          .join = scalarop_t::make_identity(),
+          .castable = optional<castable_t>()
+        };
+      }
+
+      // For each out block:
+      //   create aid w/ cost
+      //   for each input:
+      //     get the input usage partition
+      //     get the input hrect across all aggregations of the input
+      //     for each ???????????????????????????????????????
+      // TODO: how did copy region work? see nasty bits of taskgraph or twolayergraph
+      //
+      do {
+        uint64_t cost = product(join_part.tensor_shape_at(join_idxs));
+        int aid = ant_graph.insert_edge(cost);
+
+        auto join_hrect = join_part.get_hrect(join_idxs);
+        for(int which_inn = 0; which_inn != e.inns.size(); ++which_inn) {
+          vector<int> inn_out_index =
+        }
+
+      } while(increment_idxs(join_shape, join_idxs));
+    }
+  }
+
+  return {g_to_ag, equal_items, ant_graph};
+}

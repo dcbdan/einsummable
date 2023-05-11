@@ -19,5 +19,12 @@
 // Note: This placement will work best when
 //       all compute blocks on a node are about
 //       the same size.
-void load_balanced_placement(graph_t& graph, int nlocs);
+//
+// Input nodes are either round robin placed 0,1,2...
+// or randomly assigned (but still load balanced)
+vector<tensor_t<int>>
+load_balanced_placement(
+  graph_t const& graph,
+  int nlocs,
+  bool random_input);
 

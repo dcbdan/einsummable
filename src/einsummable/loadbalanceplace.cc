@@ -77,32 +77,37 @@ struct _loc_setter_t {
   vector<int> avail_locs;
 };
 
-void load_balanced_placement(
-  graph_t& graph,
-  int nlocs)
+// TODO: fix this function
+vector<tensor_t<int>> load_balanced_placement(
+  graph_t const& graph,
+  int nlocs,
+  bool random_input)
 {
-  // twolayer contains graph by const reference
-  twolayergraph_t twolayer = twolayergraph_t::make(graph);
+  tuple<
+    vector<tensor_t<int>>,
+    equal_items_t<int>,
+    twolayergraph_t> _info = twolayergraph_t::make(graph);
+  auto& [to_join_id, _, twolayer] = _info;
 
-  // [graph id, block id] -> join id
-  map<twolayergraph_t::gid_t, int> to_join_id;
-  for(int jid=0; jid != twolayer.joins.size(); ++jid) {
-    auto const& join = twolayer.joins[jid];
-    to_join_id.insert({join.gid, jid});
-  }
+  vector<int> chosen_locs(twolayer.joins.size(), -1);
 
   for(int graph_id: graph.get_order()) {
     auto& node = graph.nodes[graph_id];
 
     if(node.op.is_input()) {
-      // Just round robin assign input nodes
+      if(random_input) {
+        // TODO
+        throw std::runtime_error("not implemented");
+      } else {
+        // Just round robin assign input nodes
+        // TODO
+        vector<int>& locs = node.placement.locations.get();
 
-      vector<int>& locs = node.placement.locations.get();
-
-      int l = 0;
-      for(auto& loc: locs) {
-        loc = l;
-        l = (l + 1) % nlocs;
+        int l = 0;
+        for(auto& loc: locs) {
+          loc = l;
+          l = (l + 1) % nlocs;
+        }
       }
 
       continue;
@@ -141,7 +146,6 @@ void load_balanced_placement(
         auto&       place     = node.placement;
         auto const& place_inn = node_inn.placement;
 
-        auto inn_shape  = part_inn.block_shape();
         auto join_shape = part.block_shape();
         vector<int> join_index(join_shape.size(), 0);
         do {

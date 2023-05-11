@@ -33,14 +33,14 @@
 //   |        |        |
 //   |   11111222222222|
 //   |---33333444444444|
-//   |   33333444444444|   <- need to write into the
+//   |   33333444444444|   <- need to write into
 //   |        |        |      these four blocks with
 //                            four separate ops
 //
 // What the code should roughly look like to
 // do the computation:
 //
-//   copy_index_ops_t indexer(out, inn, index);
+//   copy_region_t indexer(out, inn, index);
 //   do {
 //     out index  = [x.idx        for x in indexer.info]
 //     offset inn = [x.offset_inn for x in indexer.info]

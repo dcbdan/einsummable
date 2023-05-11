@@ -1,7 +1,7 @@
 #include "../src/matrixgraph/ff.h"
 #include "../src/einsummable/coster.h"
 #include "../src/einsummable/loadbalanceplace.h"
-#include "../src/einsummable/antplacer.h"
+//#include "../src/einsummable/antplacer.h"
 
 cluster_t make_cluster(int nlocs) {
   using device_t = cluster_t::device_t;

@@ -1,14 +1,12 @@
 #include "twolayergraph.h"
 #include "copyregion.h"
 
-int twolayergraph_t::insert_join(uint64_t flops, int util, gid_t gid, vector<rid_t> deps)
+int twolayergraph_t::insert_join(uint64_t flops, vector<rid_t> const& deps)
 {
   int ret = joins.size();
 
   joins.push_back(join_t {
     .flops = flops,
-    .util = util,
-    .gid = gid,
     .deps = deps,
     .outs = {}
   });
@@ -77,10 +75,19 @@ partition_t union_partitions(vector<partition_t> const& ps)
 
 // This function is a riff on state_t::communicate
 // in taskgraph.cc used in taskgraph_t::make.
-twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
-  twolayergraph_t ret(graph);
+tuple<
+  vector<tensor_t<int>>,
+  equal_items_t<int>,
+  twolayergraph_t>
+twolayergraph_t::make(graph_t const& graph)
+{
+  twolayergraph_t ret;
 
+  equal_items_t<int> equal_items;
+
+  vector<tensor_t<rid_t>> all_jids(graph.nodes.size());
   vector<tensor_t<rid_t>> all_refis(graph.nodes.size());
+
   map<int, partition_t> all_refinement_partitions;
 
   // set up all the refinement partitions, which for a given node is
@@ -121,10 +128,11 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
     auto const& join_locations = node.placement.locations;
 
     auto join_block_shape = join_partition.block_shape();
+    all_jids[graph_id] = tensor_t<int>(join_block_shape);
+    tensor_t<jid_t>& join_ids = all_jids[graph_id];
 
     // initialize join_ids by inserting
     // join ops into the graph for each block
-    tensor_t<jid_t> join_ids = tensor_t<jid_t>(join_block_shape);
     {
       vector<int> join_index(join_block_shape.size(), 0);
 
@@ -140,23 +148,6 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       } else {
         get_flops = []{ return 0; };
       }
-
-      // TODO: Implement get_util somehow..
-      //
-      // The actual worker utilization depends on what the device is,
-      // which this function should remain agnostic to.
-      //
-      // A gpu may have 1000 workers whereas a cpu may have 10.
-      // A matmul will have a full utilization whereas an elementwise
-      // op may have a utilization of 1 on a cpu if it is single threaded.
-      //
-      // Perhaps have every op either get a full utilization or
-      // singleton utilization.
-      //
-      // In any case, a utilization of 1 and a worker capacity of 1
-      // is equivalent to not having worker capacities anyway, which
-      // is what should be implemented in the meantime.
-      std::function<int()> get_util = []{ return 1; };
 
       // deps
       //   input nodes: {}
@@ -179,8 +170,8 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
             .join_shape = op_shape,
             .inns = inns,
             .out_rank = rank,
-            .join = scalarop_t::make_mul(), // will not be used
-            .castable = castable_t::add,    // will not be used
+            .join = scalarop_t::make_identity(), // will not be used
+            .castable = optional<castable_t>(),  // will not be used
           };
         } else {
           einsummable = node.op.get_einsummable();
@@ -215,16 +206,38 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
       }
 
       do {
-        gid_t gid {
-          .id = graph_id,
-          .index = idxs_to_index(join_block_shape, join_index)
-        };
         join_ids.at(join_index) = ret.insert_join(
           get_flops(),
-          get_util(),
-          gid,
           get_deps());
       } while(increment_idxs(join_block_shape, join_index));
+
+      // Set equal items whenever this is a formation with the same
+      // partition as the input or a unary einsummable without an agg
+      // and a possible permutation with the same corr input partition
+      if(einsummable.inns.size() == 1 &&
+         !einsummable.has_aggregation())
+      {
+        int const& id_inn = node.inns[0];
+        auto const& node_inn = graph.nodes[id_inn];
+        auto const& inn_join_ids = all_jids[id_inn];
+
+        auto const& part     = node.placement.partition;
+        auto const& part_inn = node_inn.placement.partition;
+
+        auto partdims_with_respect_to_inn =
+          einsummable.get_input_from_join(part.partdims, 0);
+
+        if(part_inn.partdims == partdims_with_respect_to_inn) {
+          // now we have to reach past the permutation
+          join_index = vector<int>(join_block_shape.size(), 0);
+          do {
+            vector<int> inn_index = einsummable.get_input_from_join(join_index, 0);
+            equal_items.insert(
+              inn_join_ids.at(inn_index),
+              join_ids.at(join_index));
+          } while(increment_idxs(join_block_shape, join_index));
+        }
+      }
     }
 
     if(node.outs.size() == 0) {
@@ -301,31 +314,7 @@ twolayergraph_t twolayergraph_t::make(graph_t const& graph) {
     } while(increment_idxs(out_shape, out_index));
   }
 
-  return ret;
+  return {all_jids, equal_items, ret};
 }
 
-uint64_t twolayergraph_t::count_bytes_to(jid_t jid, int loc) const
-{
-  auto const& join = joins[jid];
-
-  uint64_t ret;
-  for(auto const& rid: join.deps) {
-    auto const& refinement = refinements[rid];
-    for(auto const& agg_unit: refinement.units) {
-      for(auto const& dep_jid: agg_unit.deps) {
-        if(join_location(dep_jid) != loc) {
-          ret += agg_unit.bytes;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
-bool operator<(twolayergraph_t::gid_t const& lhs, twolayergraph_t::gid_t const& rhs) {
-  return two_tuple_lt(lhs, rhs);
-}
-bool operator==(twolayergraph_t::gid_t const& lhs, twolayergraph_t::gid_t const& rhs) {
-  return two_tuple_eq(lhs, rhs);
-}
 

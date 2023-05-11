@@ -4,6 +4,15 @@
 #include "coster.h"
 
 struct ant_graph_t {
+  // use the graph placements to create an ant graph
+  static
+  tuple<
+    map<int, tensor_t<int>> // map grom graph id to tensor of ant graph ids
+    equal_items_t<int>,     // these ant_graph ids are suggested to have
+                            //   the same location assignment
+    ant_graph_t>
+  make(graph_t const& graph);
+
   void insert_edge(int inn, int out, uint64_t cost, int ident);
 
   int insert_node(uint64_t cost);

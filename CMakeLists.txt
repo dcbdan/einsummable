@@ -15,13 +15,13 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 add_library(einsummable
   STATIC
-  src/einsummable/antplacer.cc
+  #src/einsummable/antplacer.cc
   src/einsummable/copyregion.cc
   src/einsummable/coster.cc
   src/einsummable/einsummable.cc
   src/einsummable/graph.cc
   src/einsummable/indexer.cc
-  src/einsummable/loadbalanceplace.cc
+  #src/einsummable/loadbalanceplace.cc
   src/einsummable/memgraph.cc
   src/einsummable/partdim.cc
   src/einsummable/partition.cc
@@ -60,9 +60,9 @@ add_library(matrixgraph
   # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
 )
 
-add_executable(autograph exps/autograph.cc)
-target_link_libraries(autograph matrixgraph)
-target_link_libraries(autograph einsummable)
+#add_executable(autograph exps/autograph.cc)
+#target_link_libraries(autograph matrixgraph)
+#target_link_libraries(autograph einsummable)
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
