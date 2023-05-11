@@ -4,6 +4,7 @@
 #include "scalarop.h"
 #include <optional>
 #include <tuple>
+#include <map>
 
 struct einsummable_t {
   vector<uint64_t> join_shape;
@@ -122,23 +123,45 @@ struct einsummable_t {
     /* Suppose now we have bij,bjk->ik */
     size_t arrow_idx = einsummable_str.find(">");
     std::cout << "arrow index: " << arrow_idx << std::endl;
-    char curr_char = einsummable_str[arrow_idx+1];
-    std::map<std::string, int> output_alpha2num;
-    std::map<std::string, int> input_alpha2num;
-    while (curr_char != '\0') {
+    int char_idx = arrow_idx + 1;
+    std::map<char, int> alpha2num;
+    // std::map<char, int> input_alpha2num;
+    std::vector<int> inner_inns = {};
+    std::vector<vector<int>> outer_inns = {};
+    int alpha_idx = 0;
+    int output_count = 0;
+    char curr_char;
+    while (einsummable_str[char_idx] != '\0') {
+      curr_char = einsummable_str[char_idx];
       if (curr_char >= 'a' && curr_char <= 'z') {
-        std::cout << curr_char << std::endl;
-
+        alpha2num[curr_char] = alpha_idx;
+        alpha_idx += 1;
+        output_count += 1;
+        std::cout << curr_char << " " << alpha2num[curr_char] << std::endl;
       }
+      char_idx += 1;
     }
-    // for (size_t i = 0; i < einsummable_str.length(); i++) {
-    //   char c = einsummable_str[i];
-    //   if (c == '>')
-    // }
-    // int i = 42;
-    // std::string s = "Hello, World!";
-    vector<vector<int>> x;
-    return std::make_tuple(x, 1);
+    char_idx = 0;
+    while (einsummable_str[char_idx] != '>'){
+      curr_char = einsummable_str[char_idx];
+      if (curr_char >= 'a' && curr_char <= 'z') {
+        if (alpha2num.count(curr_char)) {
+          //curr_char exist in alpha2num
+          inner_inns.insert(inner_inns.end(), alpha2num[curr_char]);
+          std::cout << inner_inns[0] << std::endl;
+        } else {
+          //curr_char doens't exist in alpha2num
+          alpha2num[curr_char] = alpha_idx;
+          alpha_idx += 1;
+          inner_inns.insert(inner_inns.end(), alpha2num[curr_char]);
+        }
+      } else if (curr_char == ',' || curr_char == '-') {
+        outer_inns.insert(outer_inns.end(), inner_inns);
+        inner_inns = {};
+      }
+      char_idx += 1;
+    }
+    return std::make_tuple(outer_inns, output_count);
   }
 
 
