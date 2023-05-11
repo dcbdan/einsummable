@@ -317,4 +317,36 @@ twolayergraph_t::make(graph_t const& graph)
   return {all_jids, equal_items, ret};
 }
 
+uint64_t twolayergraph_t::count_bytes_to(
+  vector<int> const& locations,
+  jid_t jid,
+  int dst) const
+{
+  auto const& join = joins[jid];
+
+  uint64_t ret;
+  for(auto const& rid: join.deps) {
+    auto const& refinement = refinements[rid];
+    for(auto const& agg_unit: refinement.units) {
+      // This agg unit needs to be moved to this location.
+      // This happens by first locally aggregating at
+      // each source location and then moving from that source
+      // location to the destination.
+
+      // src_locs keeps track of which source locations
+      // have already been sent from. Only send at most
+      // once per location. Don't send from dst.
+      set<int> src_locs;
+      for(auto const& dep_jid: agg_unit.deps) {
+        int const& src = locations[dep_jid];
+        if(src != dst && src_locs.count(src) == 0) {
+          ret += agg_unit.bytes;
+          src_locs.insert(src);
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 

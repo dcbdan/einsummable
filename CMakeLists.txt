@@ -21,7 +21,7 @@ add_library(einsummable
   src/einsummable/einsummable.cc
   src/einsummable/graph.cc
   src/einsummable/indexer.cc
-  #src/einsummable/loadbalanceplace.cc
+  src/einsummable/loadbalanceplace.cc
   src/einsummable/memgraph.cc
   src/einsummable/partdim.cc
   src/einsummable/partition.cc

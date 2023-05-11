@@ -16,11 +16,11 @@ inline bool operator<(
 bool is_balanced(vector<int> const& locs);
 
 vector<_lbp_count_t> compute_loc_scores(
-  twolayergraph_t const& twolayer,
-  map<twolayergraph_t::gid_t, int> const& to_join_id,
   vector<int> const& avail_locs,
-  int graph_id,
-  vector<int> const& block_ids);
+  twolayergraph_t const& twolayer,
+  twolayer_join_holder_t<int> const& placements,
+  int gid,
+  vector<int> const& bids);
 
 struct _loc_setter_t {
   _loc_setter_t(int n_items, int n_locs) {
@@ -77,7 +77,6 @@ struct _loc_setter_t {
   vector<int> avail_locs;
 };
 
-// TODO: fix this function
 vector<tensor_t<int>> load_balanced_placement(
   graph_t const& graph,
   int nlocs,
@@ -89,23 +88,34 @@ vector<tensor_t<int>> load_balanced_placement(
     twolayergraph_t> _info = twolayergraph_t::make(graph);
   auto& [to_join_id, _, twolayer] = _info;
 
-  vector<int> chosen_locs(twolayer.joins.size(), -1);
+  twolayer_join_holder_t<int> placements =
+    twolayer_join_holder_t<int>::make(to_join_id, -1);
 
   for(int graph_id: graph.get_order()) {
     auto& node = graph.nodes[graph_id];
 
     if(node.op.is_input()) {
       if(random_input) {
-        // TODO
-        throw std::runtime_error("not implemented");
+        vector<int> const& jids = placements.g_to_tl[graph_id].get();
+
+        for(int const& jid: jids) {
+          _loc_setter_t setter(jids.size(), nlocs);
+          int which_loc = runif(setter.avail_locs.size());
+          int loc = setter.avail_locs[which_loc];
+          placements.items[jid] = loc;
+          setter.decrement(loc);
+        }
+
+        if(!is_balanced(placements.get_vector_at_gid(graph_id))) {
+          throw std::runtime_error("random assignment is not balanced");
+        }
       } else {
         // Just round robin assign input nodes
-        // TODO
-        vector<int>& locs = node.placement.locations.get();
+        vector<int> const& jids = placements.g_to_tl[graph_id].get();
 
         int l = 0;
-        for(auto& loc: locs) {
-          loc = l;
+        for(auto const& jid: jids) {
+          placements.items[jid] = l;
           l = (l + 1) % nlocs;
         }
       }
@@ -119,8 +129,8 @@ vector<tensor_t<int>> load_balanced_placement(
       if(node.placement.partition == node_inn.placement.partition) {
         // This is a formation node with an equivalently placed input,
         // so there is no other reasonable location than this one
-        vector<int>& locs = node.placement.locations.get();
-        locs = node_inn.placement.locations.get();
+        vector<int> locs = placements.get_vector_at_gid(id_inn);
+        placements.set_at_gid(graph_id, locs);
         continue;
       }
     }
@@ -142,32 +152,37 @@ vector<tensor_t<int>> load_balanced_placement(
 
       if(part_inn.partdims == partdims_with_respect_to_inn) {
         // now we have to reach past the permutation
-
-        auto&       place     = node.placement;
-        auto const& place_inn = node_inn.placement;
-
         auto join_shape = part.block_shape();
         vector<int> join_index(join_shape.size(), 0);
         do {
           vector<int> inn_index = e.get_input_from_join(join_index, 0);
-          place.at(join_index) = place_inn.at(inn_index);
+          placements.get_at_gid(graph_id, join_index) =
+            placements.get_at_gid(graph_id, inn_index);
         } while(increment_idxs(join_shape, join_index));
 
         continue;
       }
     }
 
-    vector<int>& locs = node.placement.locations.get();
+    int num_parts = placements.block_size(graph_id);
+    vector<int> locs(num_parts, -1);
 
-    int num_parts = node.placement.num_parts();
     vector<int> remaining(num_parts);
     std::iota(remaining.begin(), remaining.end(), 0);
 
     _loc_setter_t setter(num_parts, nlocs);
 
     while(remaining.size() > 0) {
+      // compute a three tuple of
+      //   1. bytes move if this location is chosen
+      //   2. location
+      //   3. blockid
       vector<_lbp_count_t> loc_scores = compute_loc_scores(
-        twolayer, to_join_id, setter.avail_locs, graph_id, remaining);
+        setter.avail_locs,
+        twolayer,
+        placements,
+        graph_id,
+        remaining);
       std::sort(loc_scores.begin(), loc_scores.end());
 
       vector<int> new_remaining;
@@ -188,26 +203,34 @@ vector<tensor_t<int>> load_balanced_placement(
     if(!is_balanced(locs)) {
       throw std::runtime_error("is not balanced!");
     }
+
+    placements.set_at_gid(graph_id, locs);
   }
+
+  return placements.as_graph_repr();
 }
 
 vector<_lbp_count_t> compute_loc_scores(
-  twolayergraph_t const& twolayer,
-  map<twolayergraph_t::gid_t, int> const& to_join_id,
   vector<int> const& avail_locs,
-  int graph_id,
-  vector<int> const& block_ids)
+  twolayergraph_t const& twolayer,
+  twolayer_join_holder_t<int> const& placements,
+  int gid,
+  vector<int> const& bids)
 {
   vector<_lbp_count_t> ret;
-  ret.reserve(block_ids.size());
+  ret.reserve(bids.size());
 
-  for(auto const& bid: block_ids) {
-    auto const& jid = to_join_id.at({graph_id, bid});
+  vector<int> const& to_jid = placements.g_to_tl[gid].get();
 
+  for(auto const& bid: bids) {
+    int const& jid = to_jid[bid];
     vector<uint64_t> scores;
     scores.reserve(avail_locs.size());
     for(auto const& loc: avail_locs) {
-      scores.push_back(twolayer.count_bytes_to(jid, loc));
+      scores.push_back(twolayer.count_bytes_to(
+        placements.items,
+        jid,
+        loc));
     }
 
     int which = std::min_element(scores.begin(), scores.end()) - scores.begin();

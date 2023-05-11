@@ -76,10 +76,125 @@ struct twolayergraph_t {
   };
   vector<twolayerid_t> order;
 
+  // Count the number of bytes move if jid is
+  // set to have location loc. Only jids dependent
+  // on id will be accessed in locations.
+  uint64_t count_bytes_to(
+    vector<int> const& locations,
+    int jid,
+    int loc) const;
+
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
   rid_t insert_empty_refinement();
   void add_agg_unit(rid_t rid, uint64_t bytes, vector<jid_t> deps);
+};
+
+template <typename T>
+struct twolayer_join_holder_t {
+  // for each graph node, the tids
+  vector<tensor_t<int>> const g_to_tl;
+
+  // for each two layer join node the graph and block id
+  vector<tuple<int,int>> const tl_to_g;
+
+  // An item for every join object
+  vector<T> items;
+
+  vector<int> block_shape(int gid) const {
+    return g_to_tl[gid].get_shape();
+  }
+  int block_size(int gid) const {
+    return product(block_shape(gid));
+  }
+
+  void set_at_gid(int gid, vector<T> const& vs) {
+    tensor_t<int> const& to_tl = g_to_tl[gid];
+    vector<int> const& to_tl_vec = to_tl.get();
+    if(to_tl_vec.size() != vs.size()) {
+      throw std::runtime_error("set_at_gid invalid size");
+    }
+    for(int bid = 0; bid != to_tl_vec.size(); ++bid) {
+      int const& jid = to_tl_vec[bid];
+      items[jid] = vs[bid];
+    }
+  }
+
+  tensor_t<T> get_tensor_at_gid(int gid) const {
+    tensor_t<int> const& to_tl = g_to_tl[gid];
+    vector<int> const& to_tl_vec = to_tl.get();
+
+    tensor_t<T> ret(to_tl.get_shape());
+    vector<T>& new_vs_vec = ret.get();
+
+    for(int bid = 0; bid != to_tl_vec.size(); ++bid) {
+      int const& jid = to_tl_vec[bid];
+      new_vs_vec[bid] = items[jid];
+    }
+
+    return ret;
+  }
+
+  vector<T> get_vector_at_gid(int gid) const {
+    return get_tensor_at_gid(gid).get();
+  }
+
+  T& get_at_gid(int gid, int bid) {
+    int const& jid = g_to_tl[gid].get()[bid];
+    return items[jid];
+  }
+  T const& get_at_gid(int gid, int bid) const {
+    int const& jid = g_to_tl[gid].get()[bid];
+    return items[jid];
+  }
+
+  T& get_at_gid(int gid, vector<int> const& idxs) {
+    int const& jid = g_to_tl[gid].at(idxs);
+    return items[jid];
+  }
+  T const& get_at_gid(int gid, vector<int> const& idxs) const {
+    int const& jid = g_to_tl[gid].at(idxs);
+    return items[jid];
+  }
+
+  vector<tensor_t<T>> as_graph_repr() {
+    vector<tensor_t<T>> ret;
+    for(int gid = 0; gid != g_to_tl.size(); ++gid) {
+      ret.push_back(get_tensor_at_gid(gid));
+    }
+    return ret;
+  }
+
+  static twolayer_join_holder_t make(
+    vector<tensor_t<int>> const& g_to_tl,
+    T const& default_value)
+  {
+    int nj = 0;
+    for(tensor_t<int> const& t: g_to_tl) {
+      vector<int> const& v = t.get();
+      nj = std::max(
+        nj,
+        *std::max_element(v.begin(), v.end()));
+    }
+
+    vector<tuple<int,int>> tl_to_g(nj);
+
+    for(int gid = 0; gid != g_to_tl.size(); ++gid) {
+      tensor_t<int> const& t = g_to_tl[gid];
+      vector<int> const& v = t.get();
+
+      for(int bid = 0; bid != v.size(); ++bid) {
+        int const& jid = v[bid];
+        tl_to_g[jid] = {gid, bid};
+      }
+    }
+
+    return twolayer_join_holder_t {
+      .g_to_tl = g_to_tl,
+      .tl_to_g = tl_to_g,
+      .items = vector<T>(nj, default_value)
+    };
+  }
 };
 
 

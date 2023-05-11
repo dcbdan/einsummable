@@ -306,8 +306,10 @@ void set_seed(int seed);
 
 std::mt19937& random_gen();
 
+// random number in [beg,end)
 int runif(int beg, int end);
 
+// random number in [0,n)
 int runif(int n);
 
 template <typename T>
