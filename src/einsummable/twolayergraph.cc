@@ -166,13 +166,11 @@ twolayergraph_t::make(graph_t const& graph)
           inns[0] = vector<int>(rank);
           std::iota(inns[0].begin(), inns[0].end(), 0);
 
-          einsummable = einsummable_t {
-            .join_shape = op_shape,
-            .inns = inns,
-            .out_rank = rank,
-            .join = scalarop_t::make_identity(), // will not be used
-            .castable = optional<castable_t>(),  // will not be used
-          };
+          einsummable = einsummable_t(
+            op_shape,
+            inns,
+            rank,
+            scalarop_t::make_identity()); // will not be used
         } else {
           einsummable = node.op.get_einsummable();
         }

@@ -2,6 +2,8 @@
 #include "setup.h"
 
 #include "scalarop.h"
+#include <optional>
+#include <tuple>
 
 struct einsummable_t {
   vector<uint64_t> join_shape;
@@ -26,6 +28,24 @@ struct einsummable_t {
   //   ijkl,klmn->ijmn is the same as
   //   a b, b c ->a c
 
+  einsummable_t() {
+  }
+
+  einsummable_t(vector<uint64_t> join_shape, vector<vector<int>> inns, int out_rank, scalarop_t join,
+              optional<castable_t> castable = std::nullopt)
+              : join_shape(join_shape),
+                inns(inns),
+                out_rank(out_rank),
+                join(join),
+                castable(castable)
+  {
+    std::cout << "done creating einsummable_t" << std::endl;
+    //If out_rank != join_shape length, then we enforce it to have castable
+    if (join_shape.size() != out_rank && !castable) {
+      throw std::invalid_argument("Don't have a castable, and in out rank does't match.");
+    }
+
+  }
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);
@@ -92,6 +112,37 @@ struct einsummable_t {
 
     return ret;
   }
+  /**
+   * @brief Takes a string "ij,jk->ik" and turn into (inns, out_rank)
+    Used when we want to compare two strings deterministically
+  *
+  */
+  static std::tuple<vector<vector<int>>, int>
+  str_to_inns_outrank(std::string einsummable_str) {
+    /* Suppose now we have bij,bjk->ik */
+    size_t arrow_idx = einsummable_str.find(">");
+    std::cout << "arrow index: " << arrow_idx << std::endl;
+    char curr_char = einsummable_str[arrow_idx+1];
+    std::map<std::string, int> output_alpha2num;
+    std::map<std::string, int> input_alpha2num;
+    while (curr_char != '\0') {
+      if (curr_char >= 'a' && curr_char <= 'z') {
+        std::cout << curr_char << std::endl;
+
+      }
+    }
+    // for (size_t i = 0; i < einsummable_str.length(); i++) {
+    //   char c = einsummable_str[i];
+    //   if (c == '>')
+    // }
+    // int i = 42;
+    // std::string s = "Hello, World!";
+    vector<vector<int>> x;
+    return std::make_tuple(x, 1);
+  }
+
+
+
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);

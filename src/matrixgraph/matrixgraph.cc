@@ -890,24 +890,12 @@ matrixgraph_t::translate_node(node_t const& node) const
   } else if(node.is_ewb()) {
     auto const& [op, id_lhs, id_rhs] = std::get<ewb_t>(node.op);
     auto const& [d0,d1] = node.out_shape;
-    einsummable_t e {
-      .join_shape = {d0, d1},
-      .inns = { {0, 1}, {0, 1} },
-      .out_rank = 2,
-      .join = op,
-      .castable = castable_t::add,
-    };
+    einsummable_t e = einsummable_t({d0, d1}, { {0, 1}, {0, 1} }, 2, op, castable_t::add);
     return {e, {id_lhs, id_rhs}};
   } else if(node.is_ew()) {
     auto const& [op, id_inn] = std::get<ew_t>(node.op);
     auto const& [d0,d1] = node.out_shape;
-    einsummable_t e {
-      .join_shape = {d0, d1},
-      .inns = { {0, 1} },
-      .out_rank = 2,
-      .join = op,
-      .castable = castable_t::add,
-    };
+    einsummable_t e  = einsummable_t({d0, d1}, { {0, 1} }, 2, op, castable_t::add);
     return {e, {id_inn}};
   } else {
     throw std::runtime_error("should not reach");

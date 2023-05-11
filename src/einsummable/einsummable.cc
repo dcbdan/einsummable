@@ -5,13 +5,15 @@ einsummable_t _einsummable_matmul_helper(
   uint64_t di, uint64_t dj, uint64_t dk,
   vector<vector<int>> const& inns)
 {
-  return einsummable_t {
-    .join_shape = {di, dk, dj},
-    .inns = inns,
-    .out_rank = 2,
-    .join = scalarop_t::make_mul(),
-    .castable = castable_t::add
-  };
+  // return einsummable_t {
+  //   .join_shape = {di, dk, dj},
+  //   .inns = inns,
+  //   .out_rank = 2,
+  //   .join = scalarop_t::make_mul(),
+  //   .castable = castable_t::add
+  // };
+  return einsummable_t({di, dk, dj}, inns, 2, scalarop_t::make_mul(), castable_t::add);
+
 }
 
 einsummable_t einsummable_t::from_matmul(uint64_t di, uint64_t dj, uint64_t dk) {
@@ -50,13 +52,14 @@ einsummable_t einsummable_t::with_new_shape(
   if(e.join_shape.size() != new_join_shape.size()) {
     throw std::runtime_error("einsummable_t::with_new_shape");
   }
-  return einsummable_t {
-    .join_shape = new_join_shape,
-    .inns       = e.inns,
-    .out_rank   = e.out_rank,
-    .join       = e.join,
-    .castable   = e.castable
-  };
+  return einsummable_t(new_join_shape, e.inns, e.out_rank, e.join, e.castable);
+  // return einsummable_t {
+  //   .join_shape = new_join_shape,
+  //   .inns       = e.inns,
+  //   .out_rank   = e.out_rank,
+  //   .join       = e.join,
+  //   .castable   = e.castable
+  // };
 }
 
 vector<uint64_t> einsummable_t::out_shape() const {
