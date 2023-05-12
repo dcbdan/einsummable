@@ -122,7 +122,6 @@ struct einsummable_t {
   str_to_inns_outrank(std::string einsummable_str) {
     /* Suppose now we have bij,bjk->ik */
     size_t arrow_idx = einsummable_str.find(">");
-    std::cout << "arrow index: " << arrow_idx << std::endl;
     int char_idx = arrow_idx + 1;
     std::map<char, int> alpha2num;
     // std::map<char, int> input_alpha2num;
@@ -137,7 +136,6 @@ struct einsummable_t {
         alpha2num[curr_char] = alpha_idx;
         alpha_idx += 1;
         output_count += 1;
-        std::cout << curr_char << " " << alpha2num[curr_char] << std::endl;
       }
       char_idx += 1;
     }
@@ -148,7 +146,6 @@ struct einsummable_t {
         if (alpha2num.count(curr_char)) {
           //curr_char exist in alpha2num
           inner_inns.insert(inner_inns.end(), alpha2num[curr_char]);
-          std::cout << inner_inns[0] << std::endl;
         } else {
           //curr_char doens't exist in alpha2num
           alpha2num[curr_char] = alpha_idx;
@@ -162,6 +159,25 @@ struct einsummable_t {
       char_idx += 1;
     }
     return std::make_tuple(outer_inns, output_count);
+  }
+
+  static bool
+  str_equals_compare(std::string str1, std::string str2) {
+    std::tuple<vector<vector<int>>, int> tup1 = str_to_inns_outrank(str1);
+    std::tuple<vector<vector<int>>, int> tup2 = str_to_inns_outrank(str2);
+    if (tup1 == tup2) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool einsummable_equals_compare(einsummable_t eins) {
+    if ((eins.join_shape == join_shape) && (eins.inns == inns) && (eins.out_rank == out_rank) && (eins.join == join) && (eins.castable == castable)) {
+      return true;
+    } else {
+      return false;
+    }
   }
 
 
