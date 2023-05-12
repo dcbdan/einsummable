@@ -535,4 +535,23 @@ private:
   map<T, int> to_sets;
 };
 
+// This is so you can do range based for loops:
+//
+//  // print 1,2,3,4,5
+//  set<int> xs{5,4,3,2,1};
+//  for(int const& item: set_in_order(xs)) {
+//    std::cout << item << std::endl;
+//  }
+//
+// Note that you can't do for(int& item: set_in_order(x)) {...}
+//   since modifying elements of a std::set can't be done (that would
+//   invalidate set internals)
+//
+// (This function doesn't do anything since std::set keeps things
+//  orded for you--but it keeps one from having to remember that
+//  when all one cares is that a set is a bag of elements)
+template <typename T>
+inline set<T> const& set_in_order(set<T> const& items) {
+  return items;
+}
 

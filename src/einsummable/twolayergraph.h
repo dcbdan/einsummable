@@ -83,6 +83,8 @@ struct twolayergraph_t {
     vector<int> const& locations,
     int jid,
     int loc) const;
+  // Note: I don't like this method.
+  // Ask: What is being moved?
 
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
