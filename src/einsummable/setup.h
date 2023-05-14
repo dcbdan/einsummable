@@ -71,7 +71,7 @@ template <typename T>
 T product(vector<T> const& xs)
 {
   T ret = 1;
-  for(int const& x: xs) {
+  for(T const& x: xs) {
     ret *= x;
   }
   return ret;

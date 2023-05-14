@@ -213,7 +213,6 @@ void execute(
 {
   cpu_exec_state_t state(mpi, taskgraph, tensors, settings.num_apply_kernel_threads);
 
-  // TODO: set n_apply, n_touch, n_send, n_recv from somewhere
   state.run(
     settings.num_apply_runner,
     settings.num_touch_runner,

@@ -79,6 +79,14 @@ struct decision_interface_t {
   // compute node -> which location
   std::function<int(
     int)> choose_location;
+
+  // randomly choose each choice
+  static decision_interface_t random(int nloc);
+
+  // randomly choose the apply and move but
+  // use at_locs for choose_location
+  static decision_interface_t from_locs(vector<int> const& at_locs);
+  // this copies at_locs once
 };
 
 struct forward_state_t {
@@ -123,33 +131,61 @@ struct forward_state_t {
   bool all_done() const;
 
 private:
+  // Find the earliest finish time of work currently
+  // being processed, set that worker to no longer busy
+  // and return what it was working on
   tuple<double, double, completed_t> pop_work();
 
-  void add_broadcast_to_pending(int rid, int uid, int src);
+  // Once a location has been assigned, it may
+  // be the case that an agg unit is now available
+  void process_assigned_location(int jid);
+  // Note: if this guy has 0 dependencies, it must be
+  //       added to pending once a location is chosen
 
-  // There is an invariant: whenever all of a refinements outputs become set,
-  // it should be the case that the correponding rid refi_status items
-  // are initialised. To maintain this invariant, also setup refi status
-  // if it should be setup
-  bool refi_out_locs_set_and_refi_status_setup(int rid);
+  // Once a join completes, the outgoing agg units at
+  // the computed location have one less dependent
+  void process_completed_join(int jid);
 
-  vector<int> get_avail_broadcast_srcs(int rid, int uid) const;
+  // A join at src has just completed, so propagate that information
+  // in agg_moves_in_progress
+  void notify_agg_moves_in_progress(int rid, int uid, int src);
+  // When an agg move is completed, the actual moves can be
+  // scheduled and when a move isn't required (src->src)
+  // call process_completed_move directly
+  void broadcast_agg_move(int rid, int uid, int src);
 
-  // Notify that agg unit at (rid, uid) that an input
-  // has been computed at src.
-  // The agg unit at loc can be moved from when
-  // 1. all inputs have been assigned a compute location
-  // 2. all inputs at loc have been computed.
-  // If (1) does not hold, add the input joins without a location to
-  //        pending_location_choices.
-  // Return whether or not (1) and (2) hold.
-  bool notify_agg_unit_at(int rid, int uid, int src);
-  // Only call this directly after a dependent join at src happened
+  // Once a move is completed, an agg unit at dst is that
+  // move closer to being complete.
+  // (This should be called even when the src location
+  //  is dst and thus a physical move didn't actually happen)
+  void process_completed_move(int rid, int uid, int dst);
 
-  void decrement_refi_status_and_maybe_dep_joins(int rid, int dst);
+  // Once an agg unit at some dst has completed,
+  // a the corresponding refinement has one less dependent
+  void process_completed_agg_unit(int rid, int uid, int dst);
 
-  void decrement_dep_joins(int rid, int loc);
+  // Once a refinment at dst has completed, the outgoing joins at
+  // at dst have one less dependency to wait for
+  void process_completed_refi(int rid, int dst);
 
+  // Once all input and output locations have been assigned
+  // for an agg unit, where data needs to be moved is known.
+  //
+  // This creates agg units, dst pairs
+  void process_avail_agg_unit(int rid, int uid);
+  // Return whether or not all input and output locations
+  // of this agg unit has been assigned
+  bool is_avail_agg_unit(int rid, int uid) const;
+  // Get the agg unit srcs/dsts. If the agg unit is not available,
+  // this will return none. (For the dsts case, all agg units under
+  // a single rid have the same dsts, so just the rid is needed)
+  optional<set<int>> get_agg_unit_srcs(int rid, int uid) const;
+  optional<set<int>> get_refi_dsts(int rid) const;
+
+  // add all jid neccessary to make this agg unit avilable
+  // that aren't yet given a location to pending location
+  // choices
+  void choose_agg_unit_locs(int rid, int uid);
 private:
   cluster_t const& cluster;
   twolayergraph_t const& twolayer;
@@ -159,9 +195,6 @@ private:
   vector<twolayergraph_t::refinement_t> const& refis;
 
   equal_items_t<int> const& equal_compute_locations;
-
-  // TODO implement fixed compute locations
-  //   map<int, int> const& fixed_compute_locations
 
   vector<worker_t<int>   > apply_workers;
   vector<worker_t<tl_move_t>> move_workers;
@@ -178,21 +211,18 @@ private:
   // >0 = this many tensor fractions must be moved or computed
   vector<int> compute_status;
 
-  // for each rid, uid pair, collect the source locations
-  // for which a broadcast has already occurred
-  vector<vector<set<int>>> started_move_from;
-
-  // This rid,dst pair needs this many more moves to complete
-  map<tuple<int, int>, int> refi_status;
-  // refi status is not always setup, so have a vector of flags
-  // to indicate if the refi has been setup
-  vector<char> refi_status_setup;
-
   int num_compute_remaining;
 
   std::queue<int> pending_location_choices;
 
   float time;
-};
 
+  // rid,uid,src -> number of joins left to be completed
+  //                at src until a broadcast can occur
+  map<tuple<int,int,int>, int> agg_moves_in_progress;
+  // rid,uid,dst -> number of moves from each src left
+  map<tuple<int,int,int>, int> agg_units_in_progress;
+  // rid,dst -> number of agg units left
+  map<tuple<int,int>, int> refis_in_progress;
+};
 

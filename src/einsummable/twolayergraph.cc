@@ -324,7 +324,7 @@ uint64_t twolayergraph_t::count_bytes_to(
 {
   auto const& join = joins[jid];
 
-  uint64_t ret;
+  uint64_t ret = 0;
   for(auto const& rid: join.deps) {
     auto const& refinement = refinements[rid];
     for(auto const& agg_unit: refinement.units) {
@@ -349,4 +349,49 @@ uint64_t twolayergraph_t::count_bytes_to(
   return ret;
 }
 
+void twolayergraph_t::print_graphviz(std::ostream& out)
+{
+  using std::endl;
+
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  for(int jid = 0; jid != joins.size(); ++jid) {
+    out << tab << "j" << jid << endl;
+  }
+  for(int rid = 0; rid != refinements.size(); ++rid) {
+    out << tab << "r" << rid << endl;
+    auto const& refi = refinements[rid];
+
+    for(int uid = 0; uid != refi.units.size(); ++uid) {
+      auto const& unit = refi.units[uid];
+      for(auto const& inn_jid: unit.deps) {
+        out << tab << "j" << inn_jid << " -> " << "r" << rid
+          << " [label=\"" << uid << "\"]" << endl;
+      }
+    }
+
+    for(auto const& out_jid: refi.outs) {
+      out << tab << "r" << rid << " -> " << "j" << out_jid << endl;
+    }
+  }
+  out << "}" << endl;
+}
+
+vector<int> graph_locations_to_tasklayer(
+  graph_t const& graph,
+  vector<tensor_t<int>> const& g_to_tl)
+{
+  vector<tuple<int,int>> tl_to_g =
+    twolayer_join_holder_t<int>::make_tl_to_g(g_to_tl);
+
+  vector<int> items(tl_to_g.size());
+
+  for(int jid = 0; jid != tl_to_g.size(); ++jid) {
+    auto const& [gid,bid] = tl_to_g[jid];
+    items[jid] = graph.nodes[gid].placement.locations.get()[bid];
+  }
+
+  return items;
+}
 

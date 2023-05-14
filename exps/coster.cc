@@ -16,8 +16,6 @@ cluster_t make_cluster(int nlocs) {
   int capacity = 1; // all kernels have a utilization of 1 for now,
                     // so  give all devices a capacity of 1
 
-
-
   vector<device_t> devices;
   for(int loc = 0; loc != nlocs; ++loc) {
     devices.push_back(device_t {

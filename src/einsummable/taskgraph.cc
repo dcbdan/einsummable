@@ -364,8 +364,6 @@ void
 state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
   //DOUT("COMMUNICATE " << join_gid);
-  using locid_t = multiple_tensor_t::locid_t;
-
   auto const& join_node = graph.nodes[join_gid];
   auto const& join_placement = join_node.placement;
 
@@ -1018,11 +1016,6 @@ int taskgraph_t::insert_select_subset(
   int inn,
   bool is_save)
 {
-  using inn_regiondim_t = partialize_t::inn_regiondim_t;
-  using out_regiondim_t = partialize_t::out_regiondim_t;
-  using input_op_t      = partialize_t::input_op_t;
-  using partial_unit_t  = partialize_t::partial_unit_t;
-
   vector<uint64_t> write_shape;
   write_shape.reserve(selection.size());
 

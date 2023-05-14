@@ -9,6 +9,8 @@ endif()
 
 set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+#set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-sign-compare")
+#set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
@@ -47,6 +49,9 @@ target_link_libraries(coster einsummable)
 
 add_executable(scalarop exps/scalarop.cc)
 target_link_libraries(scalarop einsummable)
+
+add_executable(forwardsim exps/forwardsim.cc)
+target_link_libraries(forwardsim einsummable)
 
 add_library(matrixgraph
   STATIC

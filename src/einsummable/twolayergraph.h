@@ -86,6 +86,8 @@ struct twolayergraph_t {
   // Note: I don't like this method.
   // Ask: What is being moved?
 
+  void print_graphviz(std::ostream&);
+
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
   rid_t insert_empty_refinement();
@@ -167,13 +169,15 @@ struct twolayer_join_holder_t {
     return ret;
   }
 
-  static twolayer_join_holder_t make(
-    vector<tensor_t<int>> const& g_to_tl,
-    T const& default_value)
+  static vector<tuple<int,int>> make_tl_to_g(
+    vector<tensor_t<int>> const& g_to_tl)
   {
     int nj = 0;
     for(tensor_t<int> const& t: g_to_tl) {
       vector<int> const& v = t.get();
+      if(v.size() == 0) {
+        throw std::runtime_error("g_to_l must have nonempty tensors");
+      }
       nj = std::max(
         nj,
         *std::max_element(v.begin(), v.end()));
@@ -191,12 +195,51 @@ struct twolayer_join_holder_t {
       }
     }
 
+    return tl_to_g;
+  }
+
+  static twolayer_join_holder_t make(
+    vector<tensor_t<int>> const& g_to_tl,
+    T const& default_value)
+  {
+    auto tl_to_g = make_tl_to_g(g_to_tl);
+
     return twolayer_join_holder_t {
       .g_to_tl = g_to_tl,
       .tl_to_g = tl_to_g,
-      .items = vector<T>(nj, default_value)
+      .items = vector<T>(tl_to_g.size(), default_value)
     };
+  }
+
+  static twolayer_join_holder_t make(
+    vector<tensor_t<int>> const& g_to_tl,
+    vector<tensor_t<T>>   const& tensors)
+  {
+    vector<tuple<int,int>> tl_to_g = make_tl_to_g(g_to_tl);
+
+    vector<T> items(tl_to_g.size());
+
+    for(int jid = 0; jid != tl_to_g.size(); ++jid) {
+      auto const& [gid,bid] = tl_to_g[jid];
+      items[jid] = tensors[gid].get()[bid];
+    }
+
+    return twolayer_join_holder_t {
+      .g_to_tl = g_to_tl,
+      .tl_to_g = tl_to_g,
+      .items = items
+    };
+  }
+
+  static vector<T> get_items(
+    vector<tensor_t<int>> const& g_to_tl,
+    vector<tensor_t<T>>   const& tensors)
+  {
+    return make(g_to_tl, tensors).items;
   }
 };
 
+vector<int> graph_locations_to_tasklayer(
+  graph_t const& graph,
+  vector<tensor_t<int>> const& g_to_tl);
 
