@@ -1,5 +1,6 @@
 #include "../src/einsummable/forwardsim.h"
 #include "../src/einsummable/taskgraph.h"
+#include "../src/einsummable/timeplot.h"
 
 #include <fstream>
 
@@ -104,16 +105,40 @@ int main(int argc, char** argv) {
 
   set_seed(0);
 
+  using box_t = timeplot_ns::box_t;
+  vector<box_t> boxes;
+
   while(!sim_state.all_done()) {
     auto const& [start,stop,work_unit] = sim_state.step(interface);
     std::cout << start << "," << stop << ": ";
     if(work_unit.did_move()) {
-      auto const& [src,dst,_0,_1] = work_unit.get_move_info();
+      auto const& [src,dst,rid,uid] = work_unit.get_move_info();
       std::cout << "move@" << src << "->" << dst;
+
+      boxes.push_back(box_t {
+        .row = np + cluster.to_connection.at({src,dst}),
+        .start = start,
+        .stop = stop,
+        .text = write_with_ss(rid) + "," + write_with_ss(uid)
+      });
     } else {
       auto const& [loc,jid] = work_unit.get_apply_info();
       std::cout << "apply J" << jid << "@" << loc;
+
+      boxes.push_back(box_t {
+        .row = loc,
+        .start = start,
+        .stop = stop,
+        .text = write_with_ss(jid)
+      });
     }
     std::cout << std::endl;
+  }
+
+  {
+    std::ofstream f("timeplot.svg");
+    int row_height = 50;
+    int min_box_width = 30;
+    timeplot(f, boxes, row_height, min_box_width);
   }
 }
