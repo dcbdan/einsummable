@@ -87,6 +87,9 @@ struct twolayergraph_t {
   // Ask: What is being moved?
 
   void print_graphviz(std::ostream&);
+  void print_graphviz(
+    std::ostream&,
+    std::function<string(int)> const& jid_to_color);
 
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);

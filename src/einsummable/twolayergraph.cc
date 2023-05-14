@@ -351,13 +351,25 @@ uint64_t twolayergraph_t::count_bytes_to(
 
 void twolayergraph_t::print_graphviz(std::ostream& out)
 {
+  print_graphviz(out, [](int){ return ""; });
+}
+
+void twolayergraph_t::print_graphviz(
+  std::ostream& out,
+  std::function<string(int)> const& jid_to_color)
+{
   using std::endl;
 
   string tab = "  ";
   out << "digraph {" << endl;
 
   for(int jid = 0; jid != joins.size(); ++jid) {
-    out << tab << "j" << jid << endl;
+    string color = jid_to_color(jid);
+    out << tab << "j" << jid;
+    if(color != "") {
+      out << " [style=filled,color=\"" << color << "\"]";
+    }
+    out << endl;
   }
   for(int rid = 0; rid != refinements.size(); ++rid) {
     out << tab << "r" << rid << endl;

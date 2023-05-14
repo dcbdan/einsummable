@@ -103,6 +103,9 @@ struct taskgraph_t {
   void print() const;
 
   void print_graphviz(std::ostream& out) const;
+  void print_graphviz(
+    std::ostream& out,
+    vector<string> const& colors) const;
 
   // Get a compute order for the graph.
   // (It is not neccesarily the case that get_order = 0,1,2,...

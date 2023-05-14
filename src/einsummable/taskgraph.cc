@@ -1488,6 +1488,12 @@ void taskgraph_t::print() const {
 }
 
 void taskgraph_t::print_graphviz(std::ostream& out) const {
+  print_graphviz(out, {});
+}
+void taskgraph_t::print_graphviz(
+  std::ostream& out,
+  vector<string> const& colors) const
+{
   using std::endl;
 
   string tab = "  ";
@@ -1503,9 +1509,15 @@ void taskgraph_t::print_graphviz(std::ostream& out) const {
     // set label and color
     if(op.is_input()) {
       auto const& [loc, _] = node.op.get_input();
+      if(loc < colors.size()) {
+        color = colors[loc];
+      }
       label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc);
     } else if(op.is_apply()) {
       auto const& [loc, _, e] = node.op.get_apply();
+      if(loc < colors.size()) {
+        color = colors[loc];
+      }
       label = "apply@loc[" + write_with_ss(loc) + "]" + write_with_ss(e);
     } else if(op.is_move()) {
       auto const& [src, dst, _0, _1] = node.op.get_move();
@@ -1514,14 +1526,17 @@ void taskgraph_t::print_graphviz(std::ostream& out) const {
       label = "move@loc" + src_ + "->" + dst_;
     } else if(op.is_partialize()) {
       int loc = node.op.output_loc();
+      if(loc < colors.size()) {
+        color = colors[loc];
+      }
       label = "partialize@loc" + write_with_ss(loc);
     }
 
     out << tab
       << "n" << id
-      << " [label=\"" << label << "\"";
+      << " [style=filled,label=\"" << label << "\"";
     if(color != "") {
-      out << ", color=" << color;
+      out << ",color=\"" << color << "\"";
     }
     out << "]" << endl;
 

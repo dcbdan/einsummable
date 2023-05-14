@@ -1,4 +1,7 @@
 #include "../src/einsummable/forwardsim.h"
+#include "../src/einsummable/taskgraph.h"
+
+#include <fstream>
 
 cluster_t make_cluster(int nlocs) {
   using device_t = cluster_t::device_t;
@@ -62,9 +65,38 @@ int main(int argc, char** argv) {
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
 
-  twolayer.print_graphviz(std::cout);
-
   vector<int> locations = graph_locations_to_tasklayer(graph, g_to_tl);
+
+  vector<string> colors{
+    "#61B292",
+    "#AED09E",
+    "#F1E8A7",
+    "#A8896C",
+    "#A8D8EA",
+    "#AA96DA",
+    "#FCBAD3",
+    "#FFFFD2"
+  };
+
+  {
+    std::ofstream f("twolayer.gv");
+    twolayer.print_graphviz(f,
+      [&](int jid) {
+        int const& loc = locations[jid];
+        if(loc < locations.size()) {
+          return colors[loc];
+        } else {
+          return string();
+        }
+      }
+    );
+  }
+
+  {
+    auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+    std::ofstream f("taskgraph.gv");
+    taskgraph.print_graphviz(f, colors);
+  }
 
   decision_interface_t interface = decision_interface_t::random(np);
 
