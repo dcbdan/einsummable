@@ -82,11 +82,6 @@ struct decision_interface_t {
 
   // randomly choose each choice
   static decision_interface_t random(int nloc);
-
-  // randomly choose the apply and move but
-  // use at_locs for choose_location
-  static decision_interface_t from_locs(vector<int> const& at_locs);
-  // this copies at_locs once
 };
 
 struct forward_state_t {

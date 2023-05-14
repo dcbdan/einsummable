@@ -66,9 +66,9 @@ int main(int argc, char** argv) {
 
   vector<int> locations = graph_locations_to_tasklayer(graph, g_to_tl);
 
-  decision_interface_t interface = decision_interface_t::from_locs(locations);
+  decision_interface_t interface = decision_interface_t::random(np);
 
-  forward_state_t sim_state(cluster, twolayer, equal_items);
+  forward_state_t sim_state(cluster, twolayer, equal_items, locations);
 
   set_seed(0);
 
