@@ -201,6 +201,7 @@ private:
       bool consumable;             // can the input be consumsed
       vector<inn_regiondim_t> region;
     };
+    // TODO: Where does consumable get used? How to use it?
 
     struct partial_unit_t {
       // Each partial unit can have a different castable.
@@ -222,6 +223,10 @@ private:
     // determine if the entire write shape has been touched
     // by exactly one unit
     bool valid() const;
+
+    // determine if this op is a direct copy from one
+    // buffer to another of the same size
+    bool is_straight_copy() const;
 
     int loc;
     vector<uint64_t> write_shape;
@@ -272,6 +277,10 @@ public:
     }
     bool is_valid_if_partialize() const {
       return !is_partialize() || get_partialize().valid();
+    }
+    // TODO: figure out where check these don't occur
+    bool is_no_op_partialize() const {
+      return is_partialize() && get_partialize().is_straight_copy();
     }
     int output_loc() const {
       if(is_input()) {
