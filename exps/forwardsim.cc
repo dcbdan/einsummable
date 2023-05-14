@@ -96,16 +96,6 @@ int main(int argc, char** argv) {
     auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
     std::ofstream f("taskgraph.gv");
     taskgraph.print_graphviz(f, colors);
-
-    for(int id: {35,27,21}) {
-      auto const& node = taskgraph.nodes[id];
-      auto const& partialize = node.op.get_partialize();
-      for(auto const& ts: partialize.as_touches_from()) {
-        for(auto const& [i,t]: ts) {
-          DLINEOUT(id << ": inn" << i << " " << t);
-        }
-      }
-    }
   }
 
   decision_interface_t interface = decision_interface_t::random(np);
