@@ -94,6 +94,22 @@ struct forward_state_t {
     cluster_t const& cluster,
     twolayergraph_t const& twolayer,
     equal_items_t<int> const& equal_compute_locations);
+  forward_state_t(
+    cluster_t const& cluster,
+    twolayergraph_t const& twolayer,
+    equal_items_t<int> const& equal_compute_locations,
+    // for each jid, fix these location; -1 values will get chosen
+    vector<int> const& compute_locations);
+  forward_state_t(
+    cluster_t const& cluster,
+    twolayergraph_t const& twolayer,
+    equal_items_t<int> const& equal_compute_locations,
+    // for each jid, fix these location
+    map<int,int> const& compute_locations);
+  // Note: setting compute locations directly may override
+  //       equal_compute_locations. For instance, 0==1,
+  //       but compute_locations@0 = 9, @1 = 10,
+  //       then the result will not have 0==1
 
   struct completed_t {
     completed_t(int src, int dst, int rid, int uid)

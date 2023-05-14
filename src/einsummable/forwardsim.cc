@@ -4,6 +4,37 @@ forward_state_t::forward_state_t(
   cluster_t const& c,
   twolayergraph_t const& tl,
   equal_items_t<int> const& ecl)
+  : forward_state_t(c, tl, ecl, vector<int>(tl.joins.size(), -1))
+{}
+
+vector<int> _setup_compute_locations(
+  int nj,
+  map<int,int> const& locs)
+{
+  vector<int> ret(nj, -1);
+  for(auto const& [jid,loc]: locs) {
+    if(jid < 0 || jid >= nj) {
+      throw std::runtime_error("invalid compute locations map");
+    }
+    ret[jid] = loc;
+  }
+  return ret;
+}
+
+forward_state_t::forward_state_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl,
+  map<int,int> const& compute_locations)
+  : forward_state_t(c, tl, ecl,
+      _setup_compute_locations(tl.joins.size(), compute_locations))
+{}
+
+forward_state_t::forward_state_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl,
+  vector<int> const& cl)
   : cluster(c),
     twolayer(tl),
     joins(tl.joins),
@@ -12,20 +43,39 @@ forward_state_t::forward_state_t(
     apply_workers(c.devices.size()),
     move_workers(c.connections.size()),
     to_move_worker(cluster.to_connection),
-    compute_locations(tl.joins.size(), -1),
+    compute_locations(cl),
     compute_status(tl.joins.size()),
     num_compute_remaining(tl.joins.size()),
     time(0.0)
 {
-  // set compute_status and add all inputs to
-  // pending location choices
+  if(compute_locations.size() != joins.size()) {
+    throw std::runtime_error("invalid provided compute locations");
+  }
+
+  // 1. set compute_status
+  // 2. add all unassigned inputs to pending location choices
+  // 3. process all initially assigned locations
+  // 4. throw an error if compue_locations is not valid
+  int n_locs = apply_workers.size();
   for(int jid = 0; jid != joins.size(); ++jid) {
     auto const& join = joins[jid];
     int num_inns = join.deps.size();
     compute_status[jid] = num_inns;
 
-    if(num_inns == 0) {
-      pending_location_choices.push(jid);
+    int const& loc = compute_locations[jid];
+    if(loc == -1) {
+      if(num_inns == 0) {
+        pending_location_choices.push(jid);
+      }
+    } else if(loc >= 0 && loc < n_locs) {
+      // this location has already been assigned, so update this state
+      process_assigned_location(jid);
+    } else if(loc < -1) {
+      throw std::runtime_error("invalid compute location: is < -1");
+    } else if(loc >= n_locs) {
+      throw std::runtime_error("invalid compute location: is > num locs in cluster");
+    } else {
+      throw std::runtime_error("that should've been all the cases");
     }
   }
 }
