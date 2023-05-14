@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     twolayer.print_graphviz(f,
       [&](int jid) {
         int const& loc = locations[jid];
-        if(loc < locations.size()) {
+        if(loc < colors.size()) {
           return colors[loc];
         } else {
           return string();

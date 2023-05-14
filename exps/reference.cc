@@ -522,13 +522,11 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
     matmul,
     {id_lhs, id_rhs});
 
-  einsummable_t unary_es {
-    .join_shape = {ni,nk},
-    .inns = { {0,1} },
-    .out_rank = 2,
-    .join = unary_scalar_op,
-    .castable = optional<castable_t>()
-  };
+  einsummable_t unary_es(
+    {ni,nk},
+    { {0,1} },
+    2,
+    unary_scalar_op);
 
   auto const& pds = graph.nodes[id_join].placement.partition;
   partition_t part_unary(vector<partdim_t>(

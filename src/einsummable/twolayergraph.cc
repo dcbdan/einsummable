@@ -154,7 +154,7 @@ twolayergraph_t::make(graph_t const& graph)
       //   formation nodes: same as a straight einsummable op
       //   einsummable nodes: reach into each input and grab it
       std::function<vector<int>()> get_deps;
-      einsummable_t einsummable;
+      optional<einsummable_t> maybe_einsummable;
       if(node.op.is_input()) {
         get_deps = []{ return vector<int>(); };
       } else {
@@ -166,13 +166,13 @@ twolayergraph_t::make(graph_t const& graph)
           inns[0] = vector<int>(rank);
           std::iota(inns[0].begin(), inns[0].end(), 0);
 
-          einsummable = einsummable_t(
+          maybe_einsummable = einsummable_t(
             op_shape,
             inns,
             rank,
             scalarop_t::make_identity()); // will not be used
         } else {
-          einsummable = node.op.get_einsummable();
+          maybe_einsummable = node.op.get_einsummable();
         }
 
         get_deps = [&]{
@@ -190,7 +190,8 @@ twolayergraph_t::make(graph_t const& graph)
 
             tensor_t<rid_t> const& inn_refis = all_refis[inn];
 
-            auto inn_hrect = einsummable.get_input_from_join(hrect, which_inn);
+            auto const& e = maybe_einsummable.value();
+            auto inn_hrect = e.get_input_from_join(hrect, which_inn);
 
             auto inn_region = inn_partition.get_region(inn_hrect);
             vector<int> inn_index = vector_mapfst(inn_region);
@@ -212,8 +213,8 @@ twolayergraph_t::make(graph_t const& graph)
       // Set equal items whenever this is a formation with the same
       // partition as the input or a unary einsummable without an agg
       // and a possible permutation with the same corr input partition
-      if(einsummable.inns.size() == 1 &&
-         !einsummable.has_aggregation())
+      if(node.inns.size() == 1 &&
+         !maybe_einsummable.value().has_aggregation())
       {
         int const& id_inn = node.inns[0];
         auto const& node_inn = graph.nodes[id_inn];
@@ -222,14 +223,15 @@ twolayergraph_t::make(graph_t const& graph)
         auto const& part     = node.placement.partition;
         auto const& part_inn = node_inn.placement.partition;
 
+        auto const& e = maybe_einsummable.value();
         auto partdims_with_respect_to_inn =
-          einsummable.get_input_from_join(part.partdims, 0);
+          e.get_input_from_join(part.partdims, 0);
 
         if(part_inn.partdims == partdims_with_respect_to_inn) {
           // now we have to reach past the permutation
           join_index = vector<int>(join_block_shape.size(), 0);
           do {
-            vector<int> inn_index = einsummable.get_input_from_join(join_index, 0);
+            vector<int> inn_index = e.get_input_from_join(join_index, 0);
             equal_items.insert(
               inn_join_ids.at(inn_index),
               join_ids.at(join_index));
