@@ -19,7 +19,6 @@ add_library(einsummable
   STATIC
   src/einsummable/cluster.cc
   src/einsummable/copyregion.cc
-  src/einsummable/coster.cc
   src/einsummable/einsummable.cc
   src/einsummable/forwardsim.cc
   src/einsummable/graph.cc
@@ -43,9 +42,6 @@ target_link_libraries(reference einsummable)
 
 add_executable(copyregion exps/copyregion.cc)
 target_link_libraries(copyregion einsummable)
-
-add_executable(coster exps/coster.cc)
-target_link_libraries(coster einsummable)
 
 add_executable(scalarop exps/scalarop.cc)
 target_link_libraries(scalarop einsummable)
@@ -86,7 +82,6 @@ if(${CPU_EXECUTION_ENGINE})
     src/execution/cpu/kernels.cc
     src/execution/cpu/permute.cc
     src/einsummable/copyregion.cc
-    src/einsummable/coster.cc
     src/einsummable/einsummable.cc
     src/einsummable/graph.cc
     src/einsummable/indexer.cc
