@@ -481,6 +481,9 @@ decision_interface_t decision_interface_t::from_locs(vector<int> const& at_locs)
         return runif(pending.size());
       },
     .choose_location = [at_locs](int jid) {
+        if(jid < 0 || jid >= at_locs.size()) {
+          throw std::runtime_error("can't decide what location");
+        }
         return at_locs[jid];
       }
   };

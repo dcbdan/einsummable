@@ -183,6 +183,10 @@ struct twolayer_join_holder_t {
         *std::max_element(v.begin(), v.end()));
     }
 
+    // here: nj is the size of the largest access tl_to_g will have
+    nj += 1;
+    // here: nj is the size of tl_to_g
+
     vector<tuple<int,int>> tl_to_g(nj);
 
     for(int gid = 0; gid != g_to_tl.size(); ++gid) {
