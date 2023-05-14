@@ -180,7 +180,7 @@ void test_make_taskgraph(
     _info = taskgraph_t::make(graph);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
-  taskgraph.print();
+  //taskgraph.print();
 
   map<int, buffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
@@ -483,7 +483,7 @@ void test_random_matmul() {
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
 
-  //test_make_taskgraph(graph, inns);
+  test_make_taskgraph(graph, inns);
 
   test_make_memgraph_without_evict(graph, inns);
 }
