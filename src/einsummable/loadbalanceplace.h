@@ -9,7 +9,7 @@
 //   the input, copy directly.
 //
 //   Otherwise, order placements in terms of minimum
-//   number of bytes moved, and assign with
+//   number of elements moved, and assign with
 //   the corresponding locations until
 //   a location has run out of its load-balanced
 //   allotment. Then redo the ordering without

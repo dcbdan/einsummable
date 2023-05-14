@@ -34,12 +34,12 @@ int twolayergraph_t::insert_empty_refinement()
   return ret;
 }
 
-void twolayergraph_t::add_agg_unit(int rid, uint64_t bytes, vector<jid_t> deps)
+void twolayergraph_t::add_agg_unit(int rid, uint64_t size, vector<jid_t> deps)
 {
   auto& refi = refinements[rid];
 
   refi.units.push_back(agg_unit_t {
-    .bytes = bytes,
+    .size = size,
     .deps = deps
   });
 
@@ -317,7 +317,7 @@ twolayergraph_t::make(graph_t const& graph)
   return {all_jids, equal_items, ret};
 }
 
-uint64_t twolayergraph_t::count_bytes_to(
+uint64_t twolayergraph_t::count_elements_to(
   vector<int> const& locations,
   jid_t jid,
   int dst) const
@@ -340,7 +340,7 @@ uint64_t twolayergraph_t::count_bytes_to(
       for(auto const& dep_jid: agg_unit.deps) {
         int const& src = locations[dep_jid];
         if(src != dst && src_locs.count(src) == 0) {
-          ret += agg_unit.bytes;
+          ret += agg_unit.size;
           src_locs.insert(src);
         }
       }

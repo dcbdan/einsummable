@@ -25,10 +25,10 @@ struct twolayergraph_t {
   //      X2 and X3 are summed at location 1 and moved
   //      X4 is moved.
   // An agg unit depends on a set of join ids (X1,X2,X3,X4)
-  // but neccessarily on all bytes of the join ids.
-  // The bytes variable how much of each input it takes.
+  // but not neccessarily on all elements of the join ids.
+  // The size variable how much of each input it takes.
   struct agg_unit_t {
-    uint64_t bytes;
+    uint64_t size;
     vector<jid_t> deps;
   };
 
@@ -39,7 +39,7 @@ struct twolayergraph_t {
   // Consider Y = UnaryElementwiseOp(X) where X is partitioned into 2x2 blocks
   // and Y is a formation and the only usage, partitioned into 3x3 blocks.
   // The refinement of Y[0,0] has one agg unit. That agg unit has as dependency
-  //   just Unary(X[0,0]) and the size of bytes is the size of Y[0,0] block.
+  //   just Unary(X[0,0]) and the size is the size of Y[0,0] block.
   // The refinement of Y[1,1] has four agg units. Each agg unit has one of the
   //   Unary(X[i,j]) blocks for i,j in [0,1]x[0,1]. The size of each agg unit block
   //   is roughly 1/4 the size of the Y[1,1] block.
@@ -50,7 +50,7 @@ struct twolayergraph_t {
   // and Y is partitioned again into 3x3 blocks. Everything holds the same
   // as before except each agg unit has 3 inputs.
   // The refinement of Y[0,0] has one agg unit. That agg unit has as dependency
-  //   (ijk->ij, X[0,0,k]) for k=0,1,2 and the size of bytes is the size of Y[0,0] block.
+  //   (ijk->ij, X[0,0,k]) for k=0,1,2 and the size is the size of Y[0,0] block.
   // The refinement of Y[1,1] has four agg units. Each agg unit represents some i,j
   //   and that agg unit has blocks (ijk->ij, X[i,j,k]) for k=0,1,2.
   //   The size of each agg unit block is roughly 1/4 the size of the Y[1,1] block.
@@ -76,10 +76,10 @@ struct twolayergraph_t {
   };
   vector<twolayerid_t> order;
 
-  // Count the number of bytes move if jid is
+  // Count the number of elements moved if jid is
   // set to have location loc. Only jids dependent
   // on id will be accessed in locations.
-  uint64_t count_bytes_to(
+  uint64_t count_elements_to(
     vector<int> const& locations,
     int jid,
     int loc) const;
@@ -94,7 +94,7 @@ struct twolayergraph_t {
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
   rid_t insert_empty_refinement();
-  void add_agg_unit(rid_t rid, uint64_t bytes, vector<jid_t> deps);
+  void add_agg_unit(rid_t rid, uint64_t size, vector<jid_t> deps);
 };
 
 template <typename T>

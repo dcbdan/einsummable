@@ -1,7 +1,7 @@
 #include "loadbalanceplace.h"
 
 struct _lbp_count_t {
-  uint64_t bytes;
+  uint64_t size;
   int loc;
   int block_id;
 };
@@ -10,7 +10,7 @@ inline bool operator<(
   _lbp_count_t const& lhs,
   _lbp_count_t const& rhs)
 {
-  return lhs.bytes < rhs.bytes;
+  return lhs.size < rhs.size;
 }
 
 bool is_balanced(vector<int> const& locs);
@@ -174,7 +174,7 @@ vector<tensor_t<int>> load_balanced_placement(
 
     while(remaining.size() > 0) {
       // compute a three tuple of
-      //   1. bytes move if this location is chosen
+      //   1. elements move if this location is chosen
       //   2. location
       //   3. blockid
       vector<_lbp_count_t> loc_scores = compute_loc_scores(
@@ -227,7 +227,7 @@ vector<_lbp_count_t> compute_loc_scores(
     vector<uint64_t> scores;
     scores.reserve(avail_locs.size());
     for(auto const& loc: avail_locs) {
-      scores.push_back(twolayer.count_bytes_to(
+      scores.push_back(twolayer.count_elements_to(
         placements.items,
         jid,
         loc));
@@ -235,7 +235,7 @@ vector<_lbp_count_t> compute_loc_scores(
 
     int which = std::min_element(scores.begin(), scores.end()) - scores.begin();
     ret.push_back(_lbp_count_t {
-      .bytes = scores[which],
+      .size = scores[which],
       .loc = avail_locs[which],
       .block_id = bid
     });

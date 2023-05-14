@@ -3,7 +3,7 @@
 
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
-// the specified bytes.
+// the specified elements.
 //
 // Their are three phases to worry about. The "compute" phase,
 // the "access" phase, the "communicate" phase.

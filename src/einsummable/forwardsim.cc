@@ -144,8 +144,8 @@ forward_state_t::step(decision_interface_t const& interface)
       int which = interface.choose_move(src, dst, pending);
 
       auto const& [rid,uid] = pending[which];
-      uint64_t const& bytes = refis[rid].units[uid].bytes;
-      double work_time = cluster.move(src, dst, bytes);
+      uint64_t const& size = refis[rid].units[uid].size;
+      double work_time = cluster.move(src, dst, sizeof(float)*size);
 
       move_worker.start_work(which, time, time + work_time);
     }
