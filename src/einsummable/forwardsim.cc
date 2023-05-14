@@ -69,6 +69,9 @@ forward_state_t::step(decision_interface_t const& interface)
     auto& apply_worker = apply_workers[loc];
     if(!apply_worker.is_in_progress()) {
       vector<int> const& pending = apply_worker.get_pending();
+      if(pending.size() == 0) {
+        continue;
+      }
 
       int which = interface.choose_apply(loc, pending);
 
@@ -84,6 +87,9 @@ forward_state_t::step(decision_interface_t const& interface)
     auto& move_worker = move_workers[idx];
     if(!move_worker.is_in_progress()) {
       vector<tl_move_t> const& pending = move_worker.get_pending();
+      if(pending.size() == 0) {
+        continue;
+      }
 
       int which = interface.choose_move(src, dst, pending);
 
