@@ -1,0 +1,44 @@
+syntax = "proto2";
+
+package es_proto;
+
+message EsInn {
+  repeated int32 idxs = 1;
+}
+
+message Einsummable {
+  repeated uint64 join_shape = 1;
+  repeated EsInn inns = 2;
+  required int32 out_rank = 3;
+  required string join = 4;
+  optional string castable = 5;
+}
+
+message TGInput {
+  required int32 x = 1;
+}
+message TGApply {
+  required int32 x = 1;
+}
+message TGMove {
+  required int32 x = 1;
+}
+message TGPartialize {
+  required int32 x = 1;
+}
+
+message TaskGraphNode {
+  oneof node {
+    TGInput input = 1;
+    TGApply apply = 2;
+    TGMove move = 3;
+    TGPartialize partialize = 4;
+  }
+  repeated int32 outs = 5;
+  required bool is_save = 6;
+}
+
+message TaskGraph {
+  repeated TaskGraphNode nodes = 1;
+}
+

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.2)
 
 project(einsummable)
 
-
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -14,6 +13,11 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
+find_package(Protobuf REQUIRED)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
+include_directories(${Protobuf_INCLUDE_DIRS})
+
+add_subdirectory(src/proto)
 
 add_library(einsummable
   STATIC
@@ -35,33 +39,33 @@ add_library(einsummable
   src/einsummable/twolayergraph.cc
 )
 
-add_executable(make_3dmatmul exps/make_3dmatmul.cc)
-target_link_libraries(make_3dmatmul einsummable)
-
-add_executable(reference exps/reference.cc)
-target_link_libraries(reference einsummable)
-
-add_executable(copyregion exps/copyregion.cc)
-target_link_libraries(copyregion einsummable)
-
-add_executable(scalarop exps/scalarop.cc)
-target_link_libraries(scalarop einsummable)
+#add_executable(make_3dmatmul exps/make_3dmatmul.cc)
+#target_link_libraries(make_3dmatmul einsummable)
+#
+#add_executable(reference exps/reference.cc)
+#target_link_libraries(reference einsummable)
+#
+#add_executable(copyregion exps/copyregion.cc)
+#target_link_libraries(copyregion einsummable)
+#
+#add_executable(scalarop exps/scalarop.cc)
+#target_link_libraries(scalarop einsummable)
 
 add_executable(forwardsim exps/forwardsim.cc)
-target_link_libraries(forwardsim einsummable)
+target_link_libraries(forwardsim einsummable proto ${Protobuf_LIBRARIES})
 
-add_library(matrixgraph
-  STATIC
-  src/matrixgraph/matrixgraph.cc
-  src/matrixgraph/ff.cc
-  src/einsummable/einsummable.cc
-  src/einsummable/graph.cc
-  src/einsummable/partdim.cc
-  src/einsummable/partition.cc
-  src/einsummable/setup.cc
-  src/einsummable/indexer.cc
-  # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
-)
+#add_library(matrixgraph
+#  STATIC
+#  src/matrixgraph/matrixgraph.cc
+#  src/matrixgraph/ff.cc
+#  src/einsummable/einsummable.cc
+#  src/einsummable/graph.cc
+#  src/einsummable/partdim.cc
+#  src/einsummable/partition.cc
+#  src/einsummable/setup.cc
+#  src/einsummable/indexer.cc
+#  # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
+#)
 
 #add_executable(autograph exps/autograph.cc)
 #target_link_libraries(autograph matrixgraph)

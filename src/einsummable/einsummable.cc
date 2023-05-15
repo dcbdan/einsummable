@@ -1,4 +1,5 @@
 #include "einsummable.h"
+#include "einsummable.pb.h"
 
 einsummable_t::einsummable_t(
   vector<uint64_t> join_shape,
@@ -42,6 +43,69 @@ einsummable_t::einsummable_t(
   if(!valid_inns_out(inns, out_rank)) {
     throw std::runtime_error("einsummable: invalid inns, out rank");
   }
+}
+
+einsummable_t einsummable_t::from_wire(string const& str)
+{
+  es_proto::Einsummable e;
+  e.ParseFromString(str);
+
+  vector<uint64_t> join_shape;
+  {
+    auto const& js = e.join_shape();
+    join_shape = vector<uint64_t>(js.begin(), js.end());
+  }
+
+  vector<vector<int>> inns;
+  inns.reserve(e.inns_size());
+  for(int i = 0; i != e.inns_size(); ++i) {
+    auto const& is = e.inns(i).idxs();
+    inns.emplace_back(is.begin(), is.end());
+  }
+
+  int out_rank = e.out_rank();
+
+  scalarop_t join = parse_with_ss<scalarop_t>(e.join());
+
+  optional<castable_t> castable = std::nullopt;
+  if(e.has_castable()) {
+    castable = parse_with_ss<castable_t>(e.castable());
+  }
+
+  return einsummable_t(join_shape, inns, out_rank, join, castable);
+}
+
+string einsummable_t::to_wire() const
+{
+  es_proto::Einsummable e;
+
+  // join shape
+  for(uint64_t const& n: join_shape) {
+    e.add_join_shape(n);
+  }
+
+  // inns
+  for(vector<int> const& inn: inns) {
+    es_proto::EsInn* ei = e.add_inns();
+    for(int const& i: inn) {
+      ei->add_idxs(i);
+    }
+  }
+
+  // out rank
+  e.set_out_rank(out_rank);
+
+  // join
+  e.set_join(write_with_ss(join));
+
+  // castable
+  if(castable) {
+    e.set_castable(write_with_ss(castable.value()));
+  }
+
+  string ret;
+  e.SerializeToString(&ret);
+  return ret;
 }
 
 inline
@@ -317,6 +381,25 @@ std::ostream& operator<<(std::ostream& out, castable_t const& c) {
   return out;
 }
 
+std::istream& operator>>(std::istream& inn, castable_t& castable) {
+  char c;
+  inn.read(&c, 1);
+
+  if(c == '+') {
+    castable = castable_t::add;
+  } else if(c == 'x') {
+    castable = castable_t::mul;
+  } else if(c == 'v') {
+    castable = castable_t::min;
+  } else if(c == '^') {
+    castable = castable_t::max;
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  return inn;
+}
+
 std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c) {
   if(maybe_c) {
     out << maybe_c.value();
@@ -325,4 +408,5 @@ std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c)
   }
   return out;
 }
+
 

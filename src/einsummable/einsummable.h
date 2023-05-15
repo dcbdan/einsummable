@@ -34,6 +34,9 @@ struct einsummable_t {
     scalarop_t join,
     optional<castable_t> castable = std::nullopt);
 
+  static einsummable_t from_wire(string const& str);
+  string to_wire() const;
+
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);
@@ -111,4 +114,6 @@ struct einsummable_t {
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
 std::ostream& operator<<(std::ostream& out, castable_t const& c);
 std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c);
+
+std::istream& operator>>(std::istream& inn, castable_t& c);
 
