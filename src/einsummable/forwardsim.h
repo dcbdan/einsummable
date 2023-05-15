@@ -107,11 +107,11 @@ struct forward_state_t {
   //       then the result will not have 0==1
 
   struct completed_t {
-    completed_t(int src, int dst, int rid, int uid)
-      : c(done_move_t{ src, dst, rid, uid })
+    completed_t(int src, int dst, int rid, int uid, uint64_t size)
+      : c(done_move_t{ src, dst, rid, uid, size })
     {}
-    completed_t(int loc, int jid)
-      : c(done_apply_t{ loc, jid })
+    completed_t(int loc, int jid, uint64_t flops)
+      : c(done_apply_t{ loc, jid, flops })
     {}
 
     struct done_move_t {
@@ -119,10 +119,12 @@ struct forward_state_t {
       int dst;
       int rid;
       int unit;
+      uint64_t size;
     };
     struct done_apply_t {
       int loc;
       int jid;
+      uint64_t flops;
     };
 
     bool did_move()  const { return std::holds_alternative<done_move_t>(c);  }

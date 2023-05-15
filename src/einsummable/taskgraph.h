@@ -120,6 +120,9 @@ struct taskgraph_t {
 
   int num_locs() const;
 
+  uint64_t total_elems_moved() const;
+  uint64_t total_flops() const;
+
 private:
   struct input_t {
     int loc;

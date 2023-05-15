@@ -1338,6 +1338,26 @@ int taskgraph_t::num_locs() const {
   return ret;
 }
 
+uint64_t taskgraph_t::total_elems_moved() const {
+  uint64_t ret = 0;
+  for(auto const& node: nodes) {
+    if(node.op.is_move()) {
+      ret += node.op.get_move().size;
+    }
+  }
+  return ret;
+}
+
+uint64_t taskgraph_t::total_flops() const {
+  uint64_t ret = 0;
+  for(auto const& node: nodes) {
+    if(node.op.is_apply()) {
+      ret += product(node.op.get_apply().einsummable.join_shape);
+    }
+  }
+  return ret;
+}
+
 int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 

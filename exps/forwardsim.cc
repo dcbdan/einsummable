@@ -93,10 +93,15 @@ int main(int argc, char** argv) {
     );
   }
 
+  uint64_t correct_total_elems;
+  uint64_t correct_total_flops;
   {
     auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
     std::ofstream f("taskgraph.gv");
     taskgraph.print_graphviz(f, colors);
+
+    correct_total_elems = taskgraph.total_elems_moved();
+    correct_total_flops = taskgraph.total_flops();
   }
 
   decision_interface_t interface = decision_interface_t::random(np);
@@ -108,11 +113,17 @@ int main(int argc, char** argv) {
   using box_t = timeplot_ns::box_t;
   vector<box_t> boxes;
 
+  uint64_t total_elems = 0;
+  uint64_t total_flops = 0;
+
   while(!sim_state.all_done()) {
     auto const& [start,stop,work_unit] = sim_state.step(interface);
     std::cout << start << "," << stop << ": ";
     if(work_unit.did_move()) {
-      auto const& [src,dst,rid,uid] = work_unit.get_move_info();
+      auto const& [src,dst,rid,uid,size] = work_unit.get_move_info();
+
+      total_elems += size;
+
       std::cout << "move@" << src << "->" << dst;
 
       boxes.push_back(box_t {
@@ -122,7 +133,10 @@ int main(int argc, char** argv) {
         .text = write_with_ss(rid) + "," + write_with_ss(uid)
       });
     } else {
-      auto const& [loc,jid] = work_unit.get_apply_info();
+      auto const& [loc,jid,flops] = work_unit.get_apply_info();
+
+      total_flops += flops;
+
       std::cout << "apply J" << jid << "@" << loc;
 
       boxes.push_back(box_t {
@@ -134,6 +148,12 @@ int main(int argc, char** argv) {
     }
     std::cout << std::endl;
   }
+
+  std::cout << "Total elems: " << total_elems << std::endl;
+  std::cout << "Total flops: " << total_flops << std::endl;
+
+  std::cout << "Correct total elems: " << correct_total_elems << std::endl;
+  std::cout << "Correct total flops: " << correct_total_flops << std::endl;
 
   {
     std::ofstream f("timeplot.svg");

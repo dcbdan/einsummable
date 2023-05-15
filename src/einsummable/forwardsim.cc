@@ -158,10 +158,10 @@ forward_state_t::step(decision_interface_t const& interface)
   time = finished_at;
 
   if(completion.did_apply()) {
-    auto const& [_, jid] = completion.get_apply_info();
+    auto const& [_0, jid,_1] = completion.get_apply_info();
     process_completed_join(jid);
   } else if(completion.did_move()) {
-    auto const& [_,dst,rid,uid] = completion.get_move_info();
+    auto const& [_0,dst,rid,uid,_1] = completion.get_move_info();
     process_completed_move(rid, uid, dst);
   } else {
     throw std::runtime_error("completion object cases: should not reach");
@@ -206,8 +206,9 @@ forward_state_t::pop_work()
     int const& loc = which;
 
     auto [start,finish,join] = apply_worker.get_in_progress();
+    uint64_t const& flops = joins[join].flops;
     apply_worker.finish_work();
-    return {start, finish, completed_t(loc, join)};
+    return {start, finish, completed_t(loc, join, flops)};
   } else {
     auto& move_worker = move_workers[which];
 
@@ -217,8 +218,9 @@ forward_state_t::pop_work()
 
     auto [start,finish,move] = move_worker.get_in_progress();
     auto const& [rid, uid] = move;
+    uint64_t const& size = refis[rid].units[uid].size;
     move_worker.finish_work();
-    return {start, finish, completed_t(src, dst, rid, uid)};
+    return {start, finish, completed_t(src, dst, rid, uid, size)};
   }
 }
 
