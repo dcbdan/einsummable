@@ -239,3 +239,67 @@ private:
   map<tuple<int,int>, int> refis_in_progress;
 };
 
+struct forward_node_t;
+
+using forward_node_ptr_t = std::unique_ptr<forward_node_t>;
+
+struct forward_node_t {
+  forward_node_t():
+    root(this), up(nullptr)
+  {}
+  forward_node_t(int n):
+    root(this), up(nullptr), children(n)
+  {}
+  forward_node_t(forward_node_t* up):
+    root(up->root), up(up)
+  {}
+  forward_node_t(forward_node_t* up, int n):
+    root(up->root), up(up), children(n)
+  {}
+
+  void num_nodes_(int& ret) const;
+  int num_nodes() const;
+
+  forward_node_t* root;
+  forward_node_t* up;
+  vector<forward_node_ptr_t> children;
+
+  void merge_line(forward_node_ptr_t && other);
+};
+
+struct forward_manager_t {
+  forward_manager_t(
+    cluster_t const& cluster,
+    twolayergraph_t const& twolayer,
+    equal_items_t<int> const& equal_compute_locations);
+  forward_manager_t(
+    cluster_t const& cluster,
+    twolayergraph_t const& twolayer,
+    equal_items_t<int> const& equal_compute_locations,
+    vector<int> const& compute_locations);
+  forward_manager_t(
+    cluster_t const& cluster,
+    twolayergraph_t const& twolayer,
+    equal_items_t<int> const& equal_compute_locations,
+    map<int, int> const& compute_locations);
+
+  cluster_t const& cluster;
+  twolayergraph_t const& twolayer;
+  equal_items_t<int> const& equal_compute_locations;
+  vector<int> compute_locations;
+
+  forward_node_ptr_t root;
+
+  forward_state_t new_state() const;
+
+  void merge_line(forward_node_ptr_t && new_root);
+
+  forward_node_ptr_t simulate();
+
+
+  // TODO: this may need to be batched or divided evenly;
+  //       not sure how much work there really is per simulation
+  void run(int num_times, int num_threads = 1);
+};
+
+

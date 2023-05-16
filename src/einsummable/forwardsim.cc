@@ -1,5 +1,9 @@
 #include "forwardsim.h"
 
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
 forward_state_t::forward_state_t(
   cluster_t const& c,
   twolayergraph_t const& tl,
@@ -529,3 +533,208 @@ decision_interface_t decision_interface_t::random(int nloc)
   };
 }
 
+void forward_node_t::merge_line(forward_node_ptr_t && other) {
+  if(children.size() != other->children.size()) {
+    throw std::runtime_error("how come the choice sizes are not the same?");
+  }
+
+  if(children.size() == 0) {
+    // this is a leaf node
+    return;
+  }
+
+  int choice = 0;
+  for(; choice != other->children.size(); ++choice) {
+    forward_node_ptr_t& child = other->children[choice];
+    if(child) {
+      break;
+    }
+  }
+
+  // Test the assumption that there is one and only one choice
+  // taken in the line
+  // (One could instead recurse on all the child nodes!)
+  if(choice == other->children.size()) {
+    throw std::runtime_error("all children in line tree are nullptr");
+  }
+  for(int i = choice + 1; i != other->children.size(); ++i) {
+    forward_node_ptr_t& child = other->children[i];
+    if(child) {
+      throw std::runtime_error("this line took multiple choices here!");
+    }
+  }
+
+  if(children[choice]) {
+    // this choice has been taken; recurse
+    forward_node_t& child = *children[choice];
+    child.merge_line(std::move(other->children[choice]));
+  } else {
+    // this choice has not been taken, merge the child into this tree
+    children[choice] = std::move(other->children[choice]);
+  }
+}
+
+void forward_node_t::num_nodes_(int& ret) const {
+  ret += 1;
+  for(auto& child: children) {
+    if(child) {
+      child->num_nodes_(ret);
+    }
+  }
+}
+int forward_node_t::num_nodes() const {
+  int ret = 0;
+  num_nodes_(ret);
+  return ret;
+}
+
+forward_manager_t::forward_manager_t::forward_manager_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl)
+  : forward_manager_t(c, tl, ecl, vector<int>(tl.joins.size(), -1))
+{}
+
+forward_manager_t::forward_manager_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl,
+  vector<int> const& cl)
+  : cluster(c),
+    twolayer(tl),
+    equal_compute_locations(ecl),
+    compute_locations(cl)
+{}
+
+vector<int> _forward_manager_to_vector(
+  map<int, int> const& cl,
+  int n)
+{
+  vector<int> ret(n, -1);
+  for(auto const& [i,l]: cl) {
+    if(i < 0 || i >= n) {
+      throw std::runtime_error("invalid mapping given to forwardmanager");
+    }
+    ret[i] = l;
+  }
+  return ret;
+}
+
+forward_manager_t::forward_manager_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl,
+  map<int, int> const& cl)
+  : forward_manager_t(c, tl, ecl,
+      _forward_manager_to_vector(cl, tl.joins.size()))
+{}
+
+void forward_manager_t::merge_line(forward_node_ptr_t && new_root) {
+  if(root) {
+    root->merge_line(std::move(new_root));
+  } else {
+    root = std::move(new_root);
+  }
+}
+
+forward_state_t forward_manager_t::new_state() const {
+  return forward_state_t(
+    cluster,
+    twolayer,
+    equal_compute_locations,
+    compute_locations);
+}
+
+forward_node_ptr_t forward_manager_t::simulate() {
+  forward_state_t state = new_state();
+
+  int nloc = cluster.devices.size();
+
+  forward_node_ptr_t line = std::make_unique<forward_node_t>();
+  forward_node_t* node = line.get();
+
+  forward_node_t* base = root ? root.get() : nullptr;
+
+  auto update_choice = [&](int which, int num_options) {
+    node->children = vector<forward_node_ptr_t>(num_options);
+    node->children[which] = std::make_unique<forward_node_t>(node);
+
+    if(base) {
+      if(base->children[which]) {
+        base = base->children[which].get();
+      } else {
+        base = nullptr;
+      }
+    }
+
+    node = node->children[which].get();
+  };
+
+  decision_interface_t interface {
+    .choose_apply = [&](int loc, vector<int> const& pending) {
+      update_choice(0, pending.size());
+      return 0;
+    },
+    .choose_move = [&](int src, int dst, vector<tl_move_t> const& pending) {
+      update_choice(0, pending.size());
+      return 0;
+    },
+    .choose_location = [&](int id) {
+      int loc = runif(nloc);
+      update_choice(loc, nloc);
+      return loc;
+    }
+  };
+
+  double finish;
+  do {
+    auto [_0, finish_, _1] = state.step(interface);
+    finish = finish_;
+  } while(!state.all_done());
+
+  DOUT(finish);
+
+  return line;
+}
+
+void forward_manager_t::run(int num_times, int num_threads) {
+  if(num_threads == 1) {
+    for(int i = 0; i != num_times; ++i) {
+      merge_line(simulate());
+      DOUT("  num nodes: " << root->num_nodes());
+    }
+    return;
+  }
+
+  vector<forward_node_ptr_t> sims(num_times);
+
+  int counter = 0;
+  std::mutex m;
+
+  std::function<void()> runner = [this, &sims, &counter, &m, num_times] {
+    int which;
+    while(true) {
+      {
+        std::unique_lock lk(m);
+        which = counter;
+        counter += 1;
+      }
+      if(which >= num_times) {
+        return;
+      }
+      sims[which] = simulate();
+    }
+  };
+
+  vector<std::thread> runners;
+  for(int i = 0; i != num_threads; ++i) {
+    runners.emplace_back(runner);
+  }
+  for(auto& t: runners) {
+    t.join();
+  }
+
+  for(auto && sim: sims) {
+    merge_line(std::move(sim));
+  }
+}

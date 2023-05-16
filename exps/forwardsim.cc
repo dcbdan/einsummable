@@ -43,7 +43,7 @@ cluster_t make_cluster(int nlocs) {
   return cluster_t::make(devices, connections);
 }
 
-int main(int argc, char** argv) {
+void main01(int argc, char** argv) {
   if(argc != 8) {
     throw std::runtime_error("usage: pi pj pk di dj dk nproc");
   }
@@ -160,4 +160,45 @@ int main(int argc, char** argv) {
     int min_box_width = 30;
     timeplot(f, boxes, row_height, min_box_width);
   }
+}
+
+int main(int argc, char** argv) {
+  if(argc != 8) {
+    throw std::runtime_error("usage: pi pj pk di dj dk nproc");
+  }
+  int pi = parse_with_ss<int>(argv[1]);
+  int pj = parse_with_ss<int>(argv[2]);
+  int pk = parse_with_ss<int>(argv[3]);
+
+  uint64_t di = parse_with_ss<uint64_t>(argv[4]);
+  uint64_t dj = parse_with_ss<uint64_t>(argv[5]);
+  uint64_t dk = parse_with_ss<uint64_t>(argv[6]);
+
+  int np = parse_with_ss<int>(argv[7]);
+
+  cluster_t cluster = make_cluster(np);
+
+  graph_t graph = three_dimensional_matrix_multiplication(
+    pi,pj,pk,
+    di,dj,dk,
+    np);
+
+  auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+
+  vector<int> locations = graph_locations_to_tasklayer(graph, g_to_tl);
+
+  {
+    forward_state_t sim_state(cluster, twolayer, equal_items, locations);
+    decision_interface_t interface = decision_interface_t::random(np);
+    double finish;
+    while(!sim_state.all_done()) {
+      auto [_0,finish_,_1] = sim_state.step(interface);
+      finish = finish_;
+    }
+    std::cout << "3D Time: " << finish << std::endl;
+  }
+
+  forward_manager_t manager(cluster, twolayer, equal_items);
+
+  manager.run(100, 1);
 }
