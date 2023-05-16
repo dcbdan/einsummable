@@ -56,6 +56,26 @@ forward_state_t::forward_state_t(
     throw std::runtime_error("invalid provided compute locations");
   }
 
+  // See if any more compute locations can be deduced
+  {
+    vector<tuple<int, int>> init_locs;
+    for(int jid = 0; jid != joins.size(); ++jid) {
+      int const& loc = compute_locations[jid];
+      if(loc != -1) {
+        init_locs.emplace_back(jid, loc);
+      }
+    }
+    for(auto const& [fixed_jid,loc]: init_locs) {
+      if(equal_compute_locations.has(fixed_jid)) {
+        for(int const& jid: equal_compute_locations.get_at(fixed_jid)) {
+          if(compute_locations[jid] == -1) {
+            compute_locations[jid] = loc;
+          }
+        }
+      }
+    }
+  }
+
   // 1. set compute_status
   // 2. add all unassigned inputs to pending location choices
   // 3. process all initially assigned locations
@@ -533,45 +553,105 @@ decision_interface_t decision_interface_t::random(int nloc)
   };
 }
 
-void forward_node_t::merge_line(forward_node_ptr_t && other) {
+forward_node_t* forward_node_t::merge_line(forward_node_ptr_t && other) {
   if(children.size() != other->children.size()) {
     throw std::runtime_error("how come the choice sizes are not the same?");
   }
 
   if(children.size() == 0) {
     // this is a leaf node
-    return;
+    return this;
   }
 
-  int choice = 0;
-  for(; choice != other->children.size(); ++choice) {
-    forward_node_ptr_t& child = other->children[choice];
-    if(child) {
-      break;
-    }
-  }
-
-  // Test the assumption that there is one and only one choice
-  // taken in the line
-  // (One could instead recurse on all the child nodes!)
-  if(choice == other->children.size()) {
-    throw std::runtime_error("all children in line tree are nullptr");
-  }
-  for(int i = choice + 1; i != other->children.size(); ++i) {
-    forward_node_ptr_t& child = other->children[i];
-    if(child) {
-      throw std::runtime_error("this line took multiple choices here!");
-    }
-  }
+  int choice = other->singleton_child();
 
   if(children[choice]) {
     // this choice has been taken; recurse
     forward_node_t& child = *children[choice];
-    child.merge_line(std::move(other->children[choice]));
+    return child.merge_line(std::move(other->children[choice]));
   } else {
     // this choice has not been taken, merge the child into this tree
     children[choice] = std::move(other->children[choice]);
+    // up and root need to be corrected on all the childre node,
+    // so do that here
+    return children[choice]->fix_merge_line_(root, this);
   }
+}
+
+forward_node_t* forward_node_t::fix_merge_line_(
+  forward_node_t* root_, forward_node_t* up_)
+{
+  root = root_;
+  up = up_;
+  if(children.size() == 0) {
+    return this;
+  } else {
+    int choice = singleton_child();
+    return children[choice]->fix_merge_line_(root_, this);
+  }
+}
+
+forward_node_t* forward_node_t::singleton_leaf() {
+  if(children.size() == 0) {
+    return this;
+  }
+  int choice = singleton_child();
+  return children[choice]->singleton_leaf();
+}
+
+int forward_node_t::singleton_child() const {
+  int choice = 0;
+  for(; choice != children.size(); ++choice) {
+    forward_node_ptr_t const& child = children[choice];
+    if(child) {
+      break;
+    }
+  }
+  if(choice == children.size()) {
+    throw std::runtime_error("all children in are nullptr");
+  }
+  for(int i = choice + 1; i != children.size(); ++i) {
+    forward_node_ptr_t const& child = children[i];
+    if(child) {
+      throw std::runtime_error("multiple choices here!");
+    }
+  }
+  return choice;
+}
+
+vector<tuple<decision_type_t, int>>
+forward_node_t::get_decisions_to_here() const
+{
+  vector<tuple<decision_type_t, int>> ret;
+  get_decisions_to_here_(ret);
+  std::reverse(ret.begin(), ret.end());
+  return ret;
+}
+
+
+void forward_node_t::get_decisions_to_here_(
+  vector<tuple<decision_type_t, int>>& ret) const
+{
+  if(root == this) {
+    return;
+  }
+
+  int d = 0;
+  for(; d != up->children.size(); ++d) {
+    if(up->children[d]) {
+      forward_node_t* child = up->children[d].get();
+      if(child == this) {
+        break;
+      }
+    }
+  }
+  if(d == up->children.size()) {
+    throw std::runtime_error("could not find self");
+  }
+
+  ret.emplace_back(up->decision, d);
+
+  up->get_decisions_to_here_(ret);
 }
 
 void forward_node_t::num_nodes_(int& ret) const {
@@ -603,7 +683,8 @@ forward_manager_t::forward_manager_t(
   : cluster(c),
     twolayer(tl),
     equal_compute_locations(ecl),
-    compute_locations(cl)
+    compute_locations(cl),
+    best(nullptr)
 {}
 
 vector<int> _forward_manager_to_vector(
@@ -629,12 +710,29 @@ forward_manager_t::forward_manager_t(
       _forward_manager_to_vector(cl, tl.joins.size()))
 {}
 
-void forward_manager_t::merge_line(forward_node_ptr_t && new_root) {
+void forward_manager_t::merge_line(
+  forward_node_ptr_t && new_root,
+  forward_manager_t::stats_t const& new_stats)
+{
   if(root) {
-    root->merge_line(std::move(new_root));
+    forward_node_t* leaf = root->merge_line(std::move(new_root));
+    if(new_stats.makespan < best_stats.makespan) {
+      best = leaf;
+      best_stats = new_stats;
+    }
   } else {
     root = std::move(new_root);
+    forward_node_t* leaf = root->singleton_leaf();
+    best = leaf;
+    best_stats = new_stats;
   }
+}
+
+void forward_manager_t::merge_line(
+  tuple<forward_node_ptr_t, forward_manager_t::stats_t> && info)
+{
+  auto && [a,b] = info;
+  merge_line(std::move(a), b);
 }
 
 forward_state_t forward_manager_t::new_state() const {
@@ -645,7 +743,9 @@ forward_state_t forward_manager_t::new_state() const {
     compute_locations);
 }
 
-forward_node_ptr_t forward_manager_t::simulate() {
+tuple<forward_node_ptr_t, forward_manager_t::stats_t>
+forward_manager_t::simulate_once()
+{
   forward_state_t state = new_state();
 
   int nloc = cluster.devices.size();
@@ -655,7 +755,8 @@ forward_node_ptr_t forward_manager_t::simulate() {
 
   forward_node_t* base = root ? root.get() : nullptr;
 
-  auto update_choice = [&](int which, int num_options) {
+  auto update_choice = [&](decision_type_t decision, int which, int num_options) {
+    node->decision = decision;
     node->children = vector<forward_node_ptr_t>(num_options);
     node->children[which] = std::make_unique<forward_node_t>(node);
 
@@ -672,41 +773,59 @@ forward_node_ptr_t forward_manager_t::simulate() {
 
   decision_interface_t interface {
     .choose_apply = [&](int loc, vector<int> const& pending) {
-      update_choice(0, pending.size());
+      update_choice(
+        decision_type_t::choose_apply(loc),
+        0,
+        pending.size());
       return 0;
     },
     .choose_move = [&](int src, int dst, vector<tl_move_t> const& pending) {
-      update_choice(0, pending.size());
+      update_choice(
+        decision_type_t::choose_move(src, dst),
+        0,
+        pending.size());
       return 0;
     },
     .choose_location = [&](int id) {
       int loc = runif(nloc);
-      update_choice(loc, nloc);
+      update_choice(
+        decision_type_t::choose_location(id),
+        loc,
+        nloc);
       return loc;
     }
   };
 
-  double finish;
-  do {
-    auto [_0, finish_, _1] = state.step(interface);
-    finish = finish_;
-  } while(!state.all_done());
+  stats_t stats { 0, 0, 0.0 };
+  while(!state.all_done()) {
+    auto [_, stop, completed] = state.step(interface);
 
-  DOUT(finish);
+    stats.makespan = stop;
 
-  return line;
+    if(completed.did_move()) {
+      stats.elems_total += completed.get_move_info().size;
+    } else {
+      stats.flops_total += completed.get_apply_info().flops;
+    }
+  }
+
+  DLINEOUT("Makespan: " << stats.makespan);
+
+  return std::make_tuple(std::move(line), stats);
 }
 
-void forward_manager_t::run(int num_times, int num_threads) {
+void forward_manager_t::simulate(int num_times, int num_threads) {
   if(num_threads == 1) {
     for(int i = 0; i != num_times; ++i) {
-      merge_line(simulate());
-      DOUT("  num nodes: " << root->num_nodes());
+      DLINEOUT(i + 1 << " / " << num_times);
+      auto [line, stats] = simulate_once();
+      merge_line(std::move(line), stats);
+      DLINEOUT("  num nodes: " << root->num_nodes());
     }
     return;
   }
 
-  vector<forward_node_ptr_t> sims(num_times);
+  vector<tuple<forward_node_ptr_t, stats_t>> sims(num_times);
 
   int counter = 0;
   std::mutex m;
@@ -722,7 +841,7 @@ void forward_manager_t::run(int num_times, int num_threads) {
       if(which >= num_times) {
         return;
       }
-      sims[which] = simulate();
+      sims[which] = simulate_once();
     }
   };
 
@@ -737,4 +856,41 @@ void forward_manager_t::run(int num_times, int num_threads) {
   for(auto && sim: sims) {
     merge_line(std::move(sim));
   }
+}
+
+// TODO: this would probably be better if it didn't have to rerun
+//       the whole forward state.
+vector<int> forward_manager_t::get_best_locations() const
+{
+  if(!best) {
+    throw std::runtime_error("this tree must still be unset");
+  }
+  auto decisions = best->get_decisions_to_here();
+
+  auto iter = decisions.begin();
+
+  auto next = [&]() {
+    auto const& [_, choice] = *iter;
+    iter += 1;
+    return choice;
+  };
+
+  decision_interface_t interface {
+    .choose_apply = [&](int, vector<int> const&) {
+      return next();
+    },
+    .choose_move = [&](int, int, vector<tl_move_t> const&) {
+      return next();
+    },
+    .choose_location = [&](int) {
+      return next();
+    }
+  };
+
+  forward_state_t state = new_state();
+  while(!state.all_done()) {
+    state.step(interface);
+  }
+
+  return state.get_compute_locations();
 }

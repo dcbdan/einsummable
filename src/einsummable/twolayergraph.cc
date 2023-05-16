@@ -390,7 +390,7 @@ void twolayergraph_t::print_graphviz(
   out << "}" << endl;
 }
 
-vector<int> graph_locations_to_tasklayer(
+vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
   vector<tensor_t<int>> const& g_to_tl)
 {
@@ -407,3 +407,16 @@ vector<int> graph_locations_to_tasklayer(
   return items;
 }
 
+void set_locations_from_twolayer(
+  graph_t& graph,
+  vector<tensor_t<int>> const& g_to_tl,
+  vector<int> const& locs)
+{
+  auto tl_to_g = twolayer_join_holder_t<int>::make_tl_to_g(g_to_tl);
+
+  for(int tid = 0; tid != locs.size(); ++tid) {
+    auto const& [gid,bid] = tl_to_g[tid];
+    int const& loc = locs[tid];
+    graph.nodes[gid].placement.locations.get()[bid] = loc;
+  }
+}

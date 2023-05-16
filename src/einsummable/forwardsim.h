@@ -67,6 +67,69 @@ struct tl_move_t {
 
 bool operator==(tl_move_t const& lhs, tl_move_t const& rhs);
 
+struct decision_type_t {
+  decision_type_t()
+    : choice(none_t{})
+  {}
+
+  static decision_type_t choose_apply(int loc) {
+    decision_type_t ret;
+    ret.choice = pending_apply_t { loc };
+    return ret;
+  }
+
+  static decision_type_t choose_move(int src, int dst) {
+    decision_type_t ret;
+    ret.choice = pending_move_t { src, dst };
+    return ret;
+  }
+
+  static decision_type_t choose_location(int id) {
+    decision_type_t ret;
+    ret.choice = location_t{ id };
+    return ret;
+  }
+
+  struct none_t {};
+  struct pending_apply_t {
+    int loc;
+  };
+  struct pending_move_t {
+    int src;
+    int dst;
+  };
+  struct location_t {
+    int id;
+  };
+  std::variant<
+    none_t,
+    pending_apply_t,
+    pending_move_t,
+    location_t> choice;
+
+  bool is_choose_apply() const {
+    return std::holds_alternative<pending_apply_t>(choice);
+  }
+  bool is_choose_move() const {
+    return std::holds_alternative<pending_move_t>(choice);
+  }
+  bool is_choose_location() const {
+    return std::holds_alternative<location_t>(choice);
+  }
+
+  int const& get_choose_apply() const {
+    return std::get<pending_apply_t>(choice).loc;
+  }
+  tuple<int,int> get_choose_move() const {
+    auto const& [src,dst] = std::get<pending_move_t>(choice);
+    return {src,dst};
+  }
+  int const& get_choose_location() const {
+    return std::get<location_t>(choice).id;
+  }
+
+};
+
 struct decision_interface_t {
   // loc, pending -> which apply
   std::function<int(
@@ -143,6 +206,9 @@ struct forward_state_t {
 
   bool all_done() const;
 
+  vector<int> const& get_compute_locations() const {
+    return compute_locations;
+  }
 private:
   // Find the earliest finish time of work currently
   // being processed, set that worker to no longer busy
@@ -257,14 +323,30 @@ struct forward_node_t {
     root(up->root), up(up), children(n)
   {}
 
-  void num_nodes_(int& ret) const;
-  int num_nodes() const;
-
+  decision_type_t decision;
   forward_node_t* root;
   forward_node_t* up;
   vector<forward_node_ptr_t> children;
 
-  void merge_line(forward_node_ptr_t && other);
+  // merge other (which is a line) into this node
+  // and return the leaf of other after having been merged
+  forward_node_t* merge_line(forward_node_ptr_t && other);
+  forward_node_t* fix_merge_line_(forward_node_t* root_, forward_node_t* up_);
+
+  // from this node down must be a line; return the leaf node
+  // and error out if this is not a line
+  forward_node_t* singleton_leaf();
+
+  // get the only child of this node; error if more than one node
+  // at any point
+  int singleton_child() const;
+
+  int num_nodes() const;
+  void num_nodes_(int& ret) const;
+
+  vector<tuple<decision_type_t, int>> get_decisions_to_here() const;
+  void get_decisions_to_here_(vector<tuple<decision_type_t, int>>&) const;
+  // ^ the recursive get_decisions_to_here_ will be reversed
 };
 
 struct forward_manager_t {
@@ -286,20 +368,36 @@ struct forward_manager_t {
   cluster_t const& cluster;
   twolayergraph_t const& twolayer;
   equal_items_t<int> const& equal_compute_locations;
-  vector<int> compute_locations;
+  vector<int> const compute_locations;
 
   forward_node_ptr_t root;
 
+  struct stats_t {
+    uint64_t elems_total;
+    uint64_t flops_total;
+    double makespan;
+  };
+
+  // the leaf node of the best item;
+  // walk backwards from here to find the corresponding decisions
+  forward_node_t* best;
+  stats_t best_stats;
+
   forward_state_t new_state() const;
 
-  void merge_line(forward_node_ptr_t && new_root);
+  // merge the new_node starting at new_root and return the
+  // leaf node after merge. (new_root is a line, not a tree, so
+  // there is only one leaf node)
+  void merge_line(forward_node_ptr_t && new_root, stats_t const& stats);
+  void merge_line(tuple<forward_node_ptr_t, stats_t> && info);
 
-  forward_node_ptr_t simulate();
-
+  tuple<forward_node_ptr_t, stats_t> simulate_once();
 
   // TODO: this may need to be batched or divided evenly;
   //       not sure how much work there really is per simulation
-  void run(int num_times, int num_threads = 1);
+  void simulate(int num_times, int num_threads = 1);
+
+  vector<int> get_best_locations() const;
 };
 
 

@@ -192,6 +192,20 @@ vector<int> graph_t::get_inputs() const {
   return ret;
 }
 
+void graph_t::reset_annotations(
+  vector<partition_t> const& new_partitions)
+{
+  if(new_partitions.size() != nodes.size()) {
+    throw std::runtime_error("incorrect number of partitions");
+  }
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    node_t& node = nodes[id];
+    partition_t const& new_part = new_partitions[id];
+    nodes[id].placement = placement_t(new_part);
+  }
+}
+
 // Construct a 3D matmul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj
 //   shape rhs: dj*pj x dk*pk

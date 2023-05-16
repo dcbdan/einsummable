@@ -2,6 +2,8 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/timeplot.h"
 
+#include "../src/matrixgraph/ff.h"
+
 #include <fstream>
 
 cluster_t make_cluster(int nlocs) {
@@ -66,7 +68,7 @@ void main01(int argc, char** argv) {
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
 
-  vector<int> locations = graph_locations_to_tasklayer(graph, g_to_tl);
+  vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
 
   vector<string> colors{
     "#61B292",
@@ -162,7 +164,7 @@ void main01(int argc, char** argv) {
   }
 }
 
-int main(int argc, char** argv) {
+void main02(int argc, char** argv) {
   if(argc != 8) {
     throw std::runtime_error("usage: pi pj pk di dj dk nproc");
   }
@@ -185,7 +187,7 @@ int main(int argc, char** argv) {
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
 
-  vector<int> locations = graph_locations_to_tasklayer(graph, g_to_tl);
+  vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
 
   {
     forward_state_t sim_state(cluster, twolayer, equal_items, locations);
@@ -200,5 +202,58 @@ int main(int argc, char** argv) {
 
   forward_manager_t manager(cluster, twolayer, equal_items);
 
-  manager.run(100, 1);
+  manager.simulate(100, 1);
+}
+
+int main(int argc, char** argv) {
+  if(argc < 5) {
+    std::cout << "usage: nlocs dn dp dd dws" << std::endl;
+    return 1;
+  }
+
+  int nlocs;
+  uint64_t dn, dp, dd;
+  vector<uint64_t> dws;
+
+  try {
+    nlocs          = parse_with_ss<int>     (argv[1]);
+    dn             = parse_with_ss<uint64_t>(argv[2]);
+    dp             = parse_with_ss<uint64_t>(argv[3]);
+    dd             = parse_with_ss<uint64_t>(argv[4]);
+    for(int i = 5; i != argc; ++i) {
+      dws.push_back( parse_with_ss<uint64_t>(argv[i]));
+    }
+  } catch(...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    std::cout << "usage: dn dp dd dws" << std::endl;
+    return 1;
+  }
+
+  cluster_t cluster = make_cluster(nlocs);
+
+  float learning_rate = 0.01;
+
+  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
+
+  auto [graph, _] = ff.mgraph.compile();
+  {
+    int mmlike_sizing = 900*900*900;
+    int min_sizing = 800*800;
+    vector<partition_t> new_partition = autopartition(
+      graph,
+      mmlike_sizing,
+      min_sizing);
+    graph.reset_annotations(new_partition);
+  }
+
+  auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+
+  {
+    forward_manager_t manager(cluster, twolayer, equal_items);
+    manager.simulate(100, 1);
+    vector<int> twolayer_locs = manager.get_best_locations();
+    DLINEOUT("---------------");
+    set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
+    auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+  }
 }

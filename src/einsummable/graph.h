@@ -80,6 +80,10 @@ struct graph_t {
 
   vector<int> get_inputs() const;
 
+  // reset all the placements to have the corresponding partitions,
+  // set all locations to zero.
+  void reset_annotations(vector<partition_t> const& new_partitions);
+
 public:
 
   struct input_t {

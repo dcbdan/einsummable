@@ -246,7 +246,11 @@ struct twolayer_join_holder_t {
   }
 };
 
-vector<int> graph_locations_to_tasklayer(
+vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
   vector<tensor_t<int>> const& g_to_tl);
 
+void set_locations_from_twolayer(
+  graph_t& graph,
+  vector<tensor_t<int>> const& g_to_tl,
+  vector<int> const& locs);
