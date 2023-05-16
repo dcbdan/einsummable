@@ -1,7 +1,6 @@
 #include "../src/matrixgraph/ff.h"
-#include "../src/einsummable/coster.h"
 #include "../src/einsummable/loadbalanceplace.h"
-//#include "../src/einsummable/antplacer.h"
+#include "../src/einsummable/cluster.h"
 
 cluster_t make_cluster(int nlocs) {
   using device_t = cluster_t::device_t;
@@ -108,7 +107,7 @@ void main01_autopart() {
   std::cout << line << std::endl;
 
   int nloc = 4;
-  load_balanced_placement(graph, nloc);
+  load_balanced_placement(graph, nloc, false);
 
   for(auto const& node: graph.nodes) {
     //std::cout << node.placement.locations.get() << std::endl;
