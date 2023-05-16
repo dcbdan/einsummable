@@ -43,7 +43,7 @@ cluster_t make_cluster(int nlocs) {
   return cluster_t::make(devices, connections);
 }
 
-void main01(int argc, char** argv) {
+int main(int argc, char** argv) {
   if(argc != 8) {
     throw std::runtime_error("usage: pi pj pk di dj dk nproc");
   }
@@ -149,9 +149,8 @@ void main01(int argc, char** argv) {
     std::cout << std::endl;
   }
 
-  std::cout << "Total elems: " << total_elems << std::endl;
-  std::cout << "Total flops: " << total_flops << std::endl;
-
+  std::cout << "Total elems:         " << total_elems << std::endl;
+  std::cout << "Total flops:         " << total_flops << std::endl;
   std::cout << "Correct total elems: " << correct_total_elems << std::endl;
   std::cout << "Correct total flops: " << correct_total_flops << std::endl;
 
@@ -161,12 +160,4 @@ void main01(int argc, char** argv) {
     int min_box_width = 30;
     timeplot(f, boxes, row_height, min_box_width);
   }
-}
-
-int main() {
-  einsummable_t e0 = einsummable_t::from_matmul(100, 101, 102);
-  DOUT(e0);
-  string bytes = e0.to_wire();
-  einsummable_t e1 = einsummable_t::from_wire(bytes);
-  DOUT(e1);
 }

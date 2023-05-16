@@ -123,6 +123,9 @@ struct taskgraph_t {
   uint64_t total_elems_moved() const;
   uint64_t total_flops() const;
 
+  string to_wire() const;
+  static taskgraph_t from_wire(string const& str);
+
 private:
   struct input_t {
     int loc;

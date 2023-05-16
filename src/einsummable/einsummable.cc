@@ -1,5 +1,4 @@
 #include "einsummable.h"
-#include "einsummable.pb.h"
 
 einsummable_t::einsummable_t(
   vector<uint64_t> join_shape,
@@ -45,11 +44,7 @@ einsummable_t::einsummable_t(
   }
 }
 
-einsummable_t einsummable_t::from_wire(string const& str)
-{
-  es_proto::Einsummable e;
-  e.ParseFromString(str);
-
+einsummable_t einsummable_t::from_proto(es_proto::Einsummable const& e) {
   vector<uint64_t> join_shape;
   {
     auto const& js = e.join_shape();
@@ -75,10 +70,16 @@ einsummable_t einsummable_t::from_wire(string const& str)
   return einsummable_t(join_shape, inns, out_rank, join, castable);
 }
 
-string einsummable_t::to_wire() const
+einsummable_t einsummable_t::from_wire(string const& str)
 {
   es_proto::Einsummable e;
+  if(!e.ParseFromString(str)) {
+    throw std::runtime_error("could not parse einsummable!");
+  }
+  return from_proto(e);
+}
 
+void einsummable_t::to_proto(es_proto::Einsummable& e) const {
   // join shape
   for(uint64_t const& n: join_shape) {
     e.add_join_shape(n);
@@ -102,7 +103,12 @@ string einsummable_t::to_wire() const
   if(castable) {
     e.set_castable(write_with_ss(castable.value()));
   }
+}
 
+string einsummable_t::to_wire() const
+{
+  es_proto::Einsummable e;
+  to_proto(e);
   string ret;
   e.SerializeToString(&ret);
   return ret;

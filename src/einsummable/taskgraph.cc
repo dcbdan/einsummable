@@ -1,6 +1,8 @@
 #include "taskgraph.h"
 #include "copyregion.h"
 
+#include "einsummable.pb.h"
+
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.
@@ -1355,6 +1357,179 @@ uint64_t taskgraph_t::total_flops() const {
       ret += product(node.op.get_apply().einsummable.join_shape);
     }
   }
+  return ret;
+}
+
+string taskgraph_t::to_wire() const {
+  es_proto::TaskGraph tg;
+
+  for(auto const& node: nodes) {
+    es_proto::TaskGraphNode* n = tg.add_nodes();
+
+    if(node.op.is_input()) {
+      auto const& [loc,size] = node.op.get_input();
+
+      es_proto::TGInput* i = n->mutable_input();
+      i->set_loc(loc);
+      i->set_size(size);
+    } else if(node.op.is_apply()) {
+      auto const& [loc, inns, einsummable] = node.op.get_apply();
+
+      es_proto::TGApply* a = n->mutable_apply();
+
+      a->set_loc(loc);
+
+      for(int const& inn: inns) {
+        a->add_inns(inn);
+      }
+
+      es_proto::Einsummable* e = a->mutable_einsummable();
+      einsummable.to_proto(*e);
+    } else if(node.op.is_move()) {
+      auto const& [src,dst,inn,size] = node.op.get_move();
+
+      es_proto::TGMove* m = n->mutable_move();
+      m->set_src(src);
+      m->set_dst(dst);
+      m->set_inn(inn);
+      m->set_size(size);
+    } else if(node.op.is_partialize()) {
+      auto const& [loc, write_shape, units] = node.op.get_partialize();
+
+      es_proto::TGPartialize* t = n->mutable_partialize();
+      t->set_loc(loc);
+
+      for(uint64_t const& d: write_shape){
+        t->add_write_shape(d);
+      }
+
+      for(auto const& [castable, out_region, inputs]: units) {
+        es_proto::TGPartialUnit* u = t->add_units();
+
+        if(castable) {
+          u->set_castable(write_with_ss(castable.value()));
+        }
+
+        for(auto const& [offset, size]: out_region) {
+          es_proto::OutRegionDim* s = u->add_out_region();
+          s->set_offset(offset);
+          s->set_size(size);
+        }
+
+        for(auto const& [id, consumable, region]: inputs) {
+          es_proto::TGPartialInn* ii = u->add_inputs();
+          ii->set_id(id);
+          ii->set_consumable(consumable);
+          for(auto const& [dim, offset]: region) {
+            es_proto::InnRegionDim* i = ii->add_region();
+            i->set_dim(dim);
+            i->set_offset(offset);
+          }
+        }
+      }
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+
+    n->set_is_save(node.is_save);
+  }
+
+  string ret;
+  tg.SerializeToString(&ret);
+  return ret;
+}
+
+taskgraph_t taskgraph_t::from_wire(string const& str) {
+  es_proto::TaskGraph tg;
+  if(!tg.ParseFromString(str)) {
+    throw std::runtime_error("could not parse taskgraph!");
+  }
+
+  taskgraph_t ret;
+
+  for(int id = 0; id != tg.nodes_size(); ++id) {
+    es_proto::TaskGraphNode const& n = tg.nodes(id);
+
+    bool is_save = n.is_save();
+
+    if(n.has_input()) {
+      auto const& i = n.input();
+      ret.insert(
+        op_t(input_t { i.loc(), i.size() }),
+        is_save);
+    } else if(n.has_apply()) {
+      auto const& a = n.apply();
+
+      auto rv = a.inns();
+      vector<int> inns(rv.begin(), rv.end());
+
+      einsummable_t e = einsummable_t::from_proto(a.einsummable());
+
+      ret.insert(
+        op_t(apply_t { a.loc(), inns, e }),
+        is_save);
+    } else if(n.has_move()) {
+      auto const& m = n.move();
+      ret.insert(
+        op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
+        is_save);
+    } else if(n.has_partialize()) {
+      auto const& p = n.partialize();
+
+      auto const& _ws = p.write_shape();
+      vector<uint64_t> write_shape(_ws.begin(), _ws.end());
+
+      vector<partialize_t::partial_unit_t> units;
+      for(auto const& u: p.units()) {
+        optional<castable_t> castable = std::nullopt;
+        if(u.has_castable()) {
+          castable = parse_with_ss<castable_t>(u.castable());
+        }
+
+        vector<partialize_t::out_regiondim_t> out_region;
+        for(auto const& o: u.out_region()) {
+          out_region.push_back(partialize_t::out_regiondim_t {
+            .offset = o.offset(),
+            .size = o.size()
+          });
+        }
+
+        vector<partialize_t::input_op_t> inputs;
+        for(auto const& ii: u.inputs()) {
+          vector<partialize_t::inn_regiondim_t> inn_region;
+          for(auto const& i: ii.region()) {
+            inn_region.push_back(partialize_t::inn_regiondim_t {
+              .dim = i.dim(),
+              .offset = i.offset()
+            });
+          }
+
+          inputs.push_back(partialize_t::input_op_t {
+            .id = ii.id(),
+            .consumable = ii.consumable(),
+            .region = inn_region
+          });
+        }
+
+        units.push_back(partialize_t::partial_unit_t {
+          .castable = castable,
+          .out_region = out_region,
+          .inputs = inputs
+        });
+      }
+
+      partialize_t partialize {
+        .loc = p.loc(),
+        .write_shape = write_shape,
+        .units = units
+      };
+      ret.insert(op_t(partialize), is_save);
+    } else {
+      throw std::runtime_error("should not happen");
+    }
+
+  }
+
   return ret;
 }
 

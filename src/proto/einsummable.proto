@@ -14,17 +14,58 @@ message Einsummable {
   optional string castable = 5;
 }
 
+message TouchDim {
+  required uint64 d_inn = 1;
+  required uint64 d_out = 2;
+  required uint64 offset_inn = 3;
+  required uint64 offset_out = 4;
+  required uint64 size = 5;
+}
+
+message Touch {
+  repeated TouchDim selection = 1;
+  optional string castable = 2;
+}
+
 message TGInput {
-  required int32 x = 1;
+  required int32 loc = 1;
+  required uint64 size = 2;
 }
 message TGApply {
-  required int32 x = 1;
+  required int32 loc = 1;
+  repeated int32 inns = 2;
+  required Einsummable einsummable = 3;
 }
 message TGMove {
-  required int32 x = 1;
+  required int32 src = 1;
+  required int32 dst = 2;
+  required int32 inn = 3;
+  required uint64 size = 4;
+}
+
+message InnRegionDim {
+  required uint64 dim = 1;
+  required uint64 offset = 2;
+}
+message OutRegionDim {
+  required uint64 offset = 1;
+  required uint64 size = 2;
+}
+
+message TGPartialInn {
+  required int32 id = 1;
+  required bool consumable = 2;
+  repeated InnRegionDim region = 3;
+}
+message TGPartialUnit {
+  optional string castable = 1;
+  repeated OutRegionDim out_region = 2;
+  repeated TGPartialInn inputs = 3;
 }
 message TGPartialize {
-  required int32 x = 1;
+  required int32 loc = 1;
+  repeated uint64 write_shape = 2;
+  repeated TGPartialUnit units = 3;
 }
 
 message TaskGraphNode {
@@ -34,8 +75,7 @@ message TaskGraphNode {
     TGMove move = 3;
     TGPartialize partialize = 4;
   }
-  repeated int32 outs = 5;
-  required bool is_save = 6;
+  required bool is_save = 5;
 }
 
 message TaskGraph {

@@ -3,6 +3,8 @@
 
 #include "scalarop.h"
 
+#include "einsummable.pb.h"
+
 struct einsummable_t {
   vector<uint64_t> join_shape;
 
@@ -34,8 +36,11 @@ struct einsummable_t {
     scalarop_t join,
     optional<castable_t> castable = std::nullopt);
 
-  static einsummable_t from_wire(string const& str);
   string to_wire() const;
+  static einsummable_t from_wire(string const& str);
+
+  void to_proto(es_proto::Einsummable& e) const;
+  static einsummable_t from_proto(es_proto::Einsummable const& e);
 
   // ij,jk->ik
   // 02 21  01
