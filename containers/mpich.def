@@ -5,4 +5,4 @@ From: ubuntu:22.04
     echo "Installing required packages..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y mpich build-essential protobuf-compiler
+    apt-get install -y mpich build-essential cmake protobuf-compiler

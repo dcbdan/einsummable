@@ -34,13 +34,12 @@ int main() {
   uint64_t sz = product(inn_shape);
 
   auto make_einsummable = [&](vector<int> const& out_permute) {
-    return einsummable_t {
-      .join_shape = permute_vector(out_permute, inn_shape),
-      .inns = { inverse_permute(out_permute) },
-      .out_rank = int(inn_shape.size()),
-      .join = scalarop_t::make_identity(),
-      .castable = optional<castable_t>()
-    };
+    return einsummable_t(
+      permute_vector(out_permute, inn_shape),
+      { inverse_permute(out_permute) },
+      int(inn_shape.size()),
+      scalarop_t::make_identity()
+    );
   };
 
   vector<int> permute(inn_shape.size());

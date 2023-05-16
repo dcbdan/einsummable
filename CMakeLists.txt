@@ -19,26 +19,13 @@ include_directories(${Protobuf_INCLUDE_DIRS})
 
 add_subdirectory(src/proto)
 
+file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
+file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
+
 add_library(einsummable
   STATIC
-  src/einsummable/cluster.cc
-  src/einsummable/copyregion.cc
-  src/einsummable/einsummable.cc
-  src/einsummable/forwardsim.cc
-  src/einsummable/graph.cc
-  src/einsummable/indexer.cc
-  src/einsummable/loadbalanceplace.cc
-  src/einsummable/memgraph.cc
-  src/einsummable/partdim.cc
-  src/einsummable/partition.cc
-  src/einsummable/reference.cc
-  src/einsummable/scalarop.cc
-  src/einsummable/setup.cc
-  src/einsummable/taskgraph.cc
-  src/einsummable/timeplot.cc
-  src/einsummable/twolayergraph.cc
-  src/matrixgraph/matrixgraph.cc
-  src/matrixgraph/ff.cc
+  ${ES_FILES}
+  ${MG_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -53,75 +40,40 @@ add_base_application("scalarop"      "exps" "scalarop")
 add_base_application("forwardsim"    "exps" "forwardsim")
 add_base_application("autograph"     "exps" "autograph")
 
-#if(${CPU_EXECUTION_ENGINE})
-#  find_package(MPI REQUIRED)
-#
-#  find_package(MKL REQUIRED)
-#
-#  include_directories(${MKL_INCLUDE})
-#
-#  include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
-#
-#  add_library(cpu_execution_engine
-#    STATIC
-#    src/execution/cpu/execute.cc
-#    src/execution/cpu/mpi_class.cc
-#    src/execution/cpu/kernels.cc
-#    src/execution/cpu/permute.cc
-#    src/einsummable/copyregion.cc
-#    src/einsummable/einsummable.cc
-#    src/einsummable/graph.cc
-#    src/einsummable/indexer.cc
-#    src/einsummable/partdim.cc
-#    src/einsummable/partition.cc
-#    src/einsummable/reference.cc
-#    src/einsummable/scalarop.cc
-#    src/einsummable/setup.cc
-#    src/einsummable/taskgraph.cc
-#    src/matrixgraph/matrixgraph.cc
-#    src/matrixgraph/ff.cc
-#    src/einsummable/einsummable.cc
-#    src/einsummable/graph.cc
-#    src/einsummable/partdim.cc
-#    src/einsummable/partition.cc
-#    src/einsummable/setup.cc
-#    src/einsummable/indexer.cc
-#    # TODO: einsummable/*.cc here fixes linking error in matgraphexp; why?
-#  )
-#
-#  add_executable(cpuexec exps/cpuexec.cc)
-#  target_link_libraries(cpuexec einsummable)
-#  target_link_libraries(cpuexec cpu_execution_engine)
-#  target_link_libraries(cpuexec ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec MKL::MKL)
-#
-#  add_executable(cpuexec_ff exps/cpuexec_ff.cc)
-#  target_link_libraries(cpuexec_ff einsummable)
-#  target_link_libraries(cpuexec_ff cpu_execution_engine)
-#  target_link_libraries(cpuexec_ff ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec_ff MKL::MKL)
-#
-#  add_executable(cpuexec_ew exps/cpuexec_ew.cc)
-#  target_link_libraries(cpuexec_ew einsummable)
-#  target_link_libraries(cpuexec_ew cpu_execution_engine)
-#  target_link_libraries(cpuexec_ew ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec_ew MKL::MKL)
-#
-#  add_executable(cpuexec_touch exps/cpuexec_touch.cc)
-#  target_link_libraries(cpuexec_touch einsummable)
-#  target_link_libraries(cpuexec_touch cpu_execution_engine)
-#  target_link_libraries(cpuexec_touch ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec_touch MKL::MKL)
-#
-#  add_executable(cpuexec_permute exps/cpuexec_permute.cc)
-#  target_link_libraries(cpuexec_permute einsummable)
-#  target_link_libraries(cpuexec_permute cpu_execution_engine)
-#  target_link_libraries(cpuexec_permute ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec_permute MKL::MKL)
-#
-#  add_executable(cpuexec_matmul exps/cpuexec_matmul.cc)
-#  target_link_libraries(cpuexec_matmul einsummable)
-#  target_link_libraries(cpuexec_matmul cpu_execution_engine)
-#  target_link_libraries(cpuexec_matmul ${MPI_CXX_LIBRARIES})
-#  target_link_libraries(cpuexec_matmul MKL::MKL)
-#endif()
+if(${CPU_EXECUTION_ENGINE})
+  find_package(MPI REQUIRED)
+
+  find_package(MKL REQUIRED)
+
+  include_directories(${MKL_INCLUDE})
+
+  include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
+
+  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
+  #       have to be rebuilt?
+  add_library(cpu_execution_engine
+    STATIC
+    ${ES_FILES}
+    ${MG_FILES}
+    ${CP_FILES}
+  )
+
+  function(add_cpu_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    MKL::MKL)
+  endfunction()
+
+  add_cpu_application("cpuexec"    "exps" "cpuexec")
+  add_cpu_application("cpuexec_ff" "exps" "cpuexec_ff")
+  add_cpu_application("cpuexec_ew" "exps" "cpuexec_ew")
+  add_cpu_application("cpuexec_touch" "exps" "cpuexec_touch")
+  add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
+  add_cpu_application("cpuexec_matmul" "exps" "cpuexec_matmul")
+endif()
