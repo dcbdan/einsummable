@@ -623,49 +623,49 @@ vector<tuple<decision_type_t, int>>
 forward_node_t::get_decisions_to_here() const
 {
   vector<tuple<decision_type_t, int>> ret;
-  get_decisions_to_here_(ret);
+
+  forward_node_t const* dwn = this;
+  forward_node_t const* upp = up;
+  while(dwn != root) {
+    int d = 0;
+    for(; d != upp->children.size(); ++d) {
+      if(upp->children[d]) {
+        forward_node_t const* child = upp->children[d].get();
+        if(child == dwn) {
+          break;
+        }
+      }
+    }
+    if(d == upp->children.size()) {
+      throw std::runtime_error("could not find self");
+    }
+    ret.emplace_back(upp->decision, d);
+
+    dwn = upp;
+    upp = upp->up;
+  }
+
   std::reverse(ret.begin(), ret.end());
   return ret;
 }
 
-
-void forward_node_t::get_decisions_to_here_(
-  vector<tuple<decision_type_t, int>>& ret) const
-{
-  if(root == this) {
-    return;
-  }
-
-  int d = 0;
-  for(; d != up->children.size(); ++d) {
-    if(up->children[d]) {
-      forward_node_t* child = up->children[d].get();
-      if(child == this) {
-        break;
+// TODO: should be easy enough to just keep track
+//       of the number of nodes
+int forward_node_t::num_nodes() const {
+  int cnt = 0;
+  vector<forward_node_t const*> ptrs;
+  ptrs.push_back(this);
+  while(ptrs.size() > 0) {
+    cnt += 1;
+    forward_node_t const* self = ptrs.back();
+    ptrs.pop_back();
+    for(auto const& child: self->children) {
+      if(child) {
+        ptrs.push_back(child.get());
       }
     }
   }
-  if(d == up->children.size()) {
-    throw std::runtime_error("could not find self");
-  }
-
-  ret.emplace_back(up->decision, d);
-
-  up->get_decisions_to_here_(ret);
-}
-
-void forward_node_t::num_nodes_(int& ret) const {
-  ret += 1;
-  for(auto& child: children) {
-    if(child) {
-      child->num_nodes_(ret);
-    }
-  }
-}
-int forward_node_t::num_nodes() const {
-  int ret = 0;
-  num_nodes_(ret);
-  return ret;
+  return cnt;
 }
 
 forward_manager_t::forward_manager_t::forward_manager_t(

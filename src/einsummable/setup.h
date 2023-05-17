@@ -192,9 +192,9 @@ template <typename T>
 void vector_remove_duplicates(vector<T>& xs) {
   std::size_t i = 0;
   std::size_t j = 0;
-  while(j < xs.size()) {
+  while(j != xs.size()) {
     xs[i++] = xs[j++];
-    while(xs[i-1] == xs[j]) {
+    while(j != xs.size() && xs[i-1] == xs[j]) {
       ++j;
     }
   }

@@ -237,8 +237,8 @@ int main(int argc, char** argv) {
 
   auto [graph, _] = ff.mgraph.compile();
   {
-    int mmlike_sizing = 900*900*900;
-    int min_sizing = 800*800;
+    uint64_t mmlike_sizing = 1000u*1000u*1000u;
+    uint64_t min_sizing = 800u*800u;
     vector<partition_t> new_partition = autopartition(
       graph,
       mmlike_sizing,
@@ -247,13 +247,16 @@ int main(int argc, char** argv) {
   }
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+  DLINEOUT("TWO LAYER SIZE " << twolayer.joins.size());
 
   {
     forward_manager_t manager(cluster, twolayer, equal_items);
-    manager.simulate(100, 1);
-    vector<int> twolayer_locs = manager.get_best_locations();
-    DLINEOUT("---------------");
-    set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
-    auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+    manager.simulate(1, 1);
+    //vector<int> twolayer_locs = manager.get_best_locations();
+    //DLINEOUT("---------------");
+    //set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
+    //auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
   }
+
+  google::protobuf::ShutdownProtobufLibrary();
 }

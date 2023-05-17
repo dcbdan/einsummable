@@ -345,8 +345,6 @@ struct forward_node_t {
   void num_nodes_(int& ret) const;
 
   vector<tuple<decision_type_t, int>> get_decisions_to_here() const;
-  void get_decisions_to_here_(vector<tuple<decision_type_t, int>>&) const;
-  // ^ the recursive get_decisions_to_here_ will be reversed
 };
 
 struct forward_manager_t {
