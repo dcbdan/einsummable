@@ -5,39 +5,29 @@
 #include "../src/einsummable/scalarop.cc"
 
 int main() {
-  std::cout << "trying to test new allocator_t" << std::endl;
+std::cout << "trying to test new allocator_t" << std::endl;
 
   /*Take an example that we have a device with 100 bytes memory*/
   allocator_t allocator = allocator_t(100);
 
   allocator.print();
+  DOUT("");
 
-
-  allocator.try_to_allocate(6);
-  allocator.try_to_allocate(4);
-  allocator.try_to_allocate(2);
-  allocator.try_to_allocate(7);
-  
-  allocator.try_to_allocate(81);
-
-  std::cout << "After initial allocation: " << std::endl << std::endl;
+  auto [o0, _0] = allocator.allocate(6);
+  auto [o1, _1] = allocator.allocate(4);
+  auto [o2, _2] = allocator.allocate(2);
+  auto [o3, _3] = allocator.allocate(7);
+  DOUT("_0" << _0);
+  DOUT("_1" << _1);
+  DOUT("_2" << _2);
+  DOUT("_3" << _3);
+  allocator.free(o0,0);
+  allocator.free(o1,0);
+  allocator.free(o2,0);
+  allocator.free(o3,0);
   allocator.print();
-
-
-  allocator.free(6, 0);
-  allocator.free(10, 1);
-  allocator.free(0, 2);
-  std::cout << "After free: " << std::endl << std::endl;
-
+  auto [o5, _4] = allocator.allocate(10);
+  DOUT("_4 " << _4);
   allocator.print();
-
-  std::cout<< "after reallocation:" << std::endl << std::endl;
-  allocator.try_to_allocate(6);
-  allocator.print();
-
-
-
-
-
 
 }

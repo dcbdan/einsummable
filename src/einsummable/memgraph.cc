@@ -784,21 +784,24 @@ allocator_t::find_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
   optional<return_t> return_block;
   int min_dep = std::numeric_limits<int>::max();
+  int block_idx = 0;
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
     block_t& block = *iter;
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz = 0;
       int inner_max_dep = -1;
-      for(; iter != blocks.end() && iter->available(); ++iter) {
-        inner_max_dep = std::max(inner_max_dep,iter->dep.value());
-        sz += iter->size();
+      for(iter_t inner_iter = iter; inner_iter != blocks.end() && inner_iter->available(); ++inner_iter) {
+        inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
+        sz += inner_iter->size();
         if(sz >= size && inner_max_dep <= min_dep) {
-          return_block = {ret, iter + 1, sz};
+          min_dep = inner_max_dep;
+          return_block = {ret, inner_iter + 1, sz};
           break;
         }
       }
     }
+    block_idx += 1;
   }
   return return_block;
 }
