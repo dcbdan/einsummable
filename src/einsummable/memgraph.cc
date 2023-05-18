@@ -23,6 +23,17 @@ memgraph_t::memgraph_t(
 void memgraph_t::print_graphviz(std::ostream& out) const {
   using std::endl;
 
+  vector<string> colors{
+    "#61B292",
+    "#AED09E",
+    "#F1E8A7",
+    "#A8896C",
+    "#A8D8EA",
+    "#AA96DA",
+    "#FCBAD3",
+    "#FFFFD2"
+  };
+
   string tab = "  ";
   out << "digraph {" << endl;
 
@@ -37,6 +48,9 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       string memloc = write_with_ss(
         memloc_t { input.offset, input.size, input.loc });
       label = "input@" + memloc;
+      if(input.loc < colors.size()) {
+        color = colors[input.loc];
+      }
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
       auto const& aop = apply.op;
@@ -56,6 +70,9 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       for(mem_t const& mem: apply.mems) {
         label += "|" + write_with_ss(mem);
       }
+      if(apply.loc < colors.size()) {
+        color = colors[apply.loc];
+      }
     } else if(op.is_move()) {
       move_t const& move = op.get_move();
 
@@ -74,34 +91,43 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         write_with_ss(memloc_t { evict.offset, evict.size, evict.loc }) +
         "->cid" +
         write_with_ss(evict.cache_id);
+      if(evict.loc < colors.size()) {
+        color = colors[evict.loc];
+      }
     } else if(op.is_load()) {
       load_t const& load = op.get_load();
       label = "load@" +
         write_with_ss(memloc_t { load.offset, load.size, load.loc }) +
         "->cid" +
         write_with_ss(load.cache_id);
+      if(load.loc < colors.size()) {
+        color = colors[load.loc];
+      }
     } else if(op.is_del()) {
       del_t const& del = op.get_del();
       string memloc = write_with_ss(
         memloc_t { del.offset, del.size, del.loc });
       label = "del@" + memloc;
+      if(del.loc < colors.size()) {
+        color = colors[del.loc];
+      }
     } else {
       throw std::runtime_error("memgraph print should not happen");
     }
 
-    auto memlocs = op.get_memlocs();
-    for(int i = 1; i != memlocs.size(); ++i) {
-      if(memlocs[0].offset == memlocs[i].offset) {
-        // this argument is donated
-        color = "green";
-      }
-    }
+    //auto memlocs = op.get_memlocs();
+    //for(int i = 1; i != memlocs.size(); ++i) {
+    //  if(memlocs[0].offset == memlocs[i].offset) {
+    //    // this argument is donated
+    //    color = "green";
+    //  }
+    //}
 
     out << tab
       << "n" << id
-      << " [label=\"" << label << "\"";
+      << " [style=filled,label=\"" << label << "\"";
     if(color != "") {
-      out << ", color=" << color;
+      out << ", color=\"" << color << "\"";
     }
     out << "]" << endl;
 
@@ -298,7 +324,9 @@ tuple<
   memgraph_t>
 memgraph_t::make_without_evict(
   taskgraph_t const& taskgraph,
-  vector<int> const& which_cache)
+  vector<int> const& which_cache,
+  vector<uint64_t> mem_sizes,
+  allocator_strat_t strat)
 {
   int const n_compute_locs = taskgraph.num_locs();
   if(which_cache.size() != n_compute_locs) {
@@ -320,11 +348,22 @@ memgraph_t::make_without_evict(
     }
   }
 
-  // set up an allocator for each loc,
-  // each with a very large amount of available memory
-  vector<allocator_t> allocators(
-    n_compute_locs,
-    std::numeric_limits<uint64_t>::max());
+  vector<allocator_t> allocators;
+  if(mem_sizes.size() == 0) {
+    // set up an allocator for each loc,
+    // each with a very large amount of available memory
+    allocators = vector<allocator_t>(
+      n_compute_locs,
+      allocator_t(std::numeric_limits<uint64_t>::max(), strat));
+  } else {
+    if(mem_sizes.size() != n_compute_locs) {
+      throw std::runtime_error("must have mem sizes for each device");
+    }
+    allocators.reserve(mem_sizes.size());
+    for(auto const& m: mem_sizes) {
+      allocators.emplace_back(m, strat);
+    }
+  }
 
   memgraph_make_state_t state(
     taskgraph,
@@ -760,7 +799,8 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 
-allocator_t::allocator_t(uint64_t memsize)
+allocator_t::allocator_t(uint64_t memsize, allocator_strat_t s)
+  : strat(s)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");
@@ -780,7 +820,27 @@ void allocator_t::block_t::free(int d) {
 }
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
-allocator_t::find_available(uint64_t size) {
+allocator_t::find_first_available(uint64_t size) {
+  using return_t = tuple<iter_t, iter_t, uint64_t>;
+
+  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    if(iter->available()) {
+      iter_t ret = iter;
+      uint64_t sz = 0;
+      for(; iter != blocks.end() && iter->available(); ++iter) {
+        sz += iter->size();
+        if(sz >= size) {
+          return optional<return_t>({ret, iter + 1, sz});
+        }
+      }
+    }
+  }
+
+  return optional<return_t>();
+}
+
+optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
+allocator_t::find_lowest_dependency_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
   optional<return_t> return_block;
   int min_dep = std::numeric_limits<int>::max();
@@ -811,7 +871,14 @@ allocator_t::try_to_allocate(uint64_t size)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
-  auto maybe_info = find_available(size);
+  optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
+  if(strat == allocator_strat_t::lowest_dependency) {
+    maybe_info = find_lowest_dependency_available(size);
+  } else if(strat == allocator_strat_t::first) {
+    maybe_info = find_first_available(size);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
   if(maybe_info) {
     auto const& [beg,end,sz] = maybe_info.value();
 

@@ -25,6 +25,8 @@ std::ostream& operator<<(std::ostream&, memloc_t const&);
 
 struct memgraph_make_state_t;
 
+enum class allocator_strat_t { lowest_dependency, first };
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
@@ -50,7 +52,9 @@ struct memgraph_t {
     memgraph_t>
   make_without_evict(
     taskgraph_t const& graph,
-    vector<int> const& which_cache);
+    vector<int> const& which_cache,
+    vector<uint64_t> mem_sizes = {},
+    allocator_strat_t strat = allocator_strat_t::lowest_dependency);
 
   void print_graphviz(std::ostream& out) const;
 
@@ -222,7 +226,9 @@ private:
 struct allocator_t {
   allocator_t() = delete;
 
-  allocator_t(uint64_t memsize_t);
+  allocator_t(
+    uint64_t memsize_t,
+    allocator_strat_t s = allocator_strat_t::lowest_dependency);
 
   // Allocate this much memory if possible and return
   // the offset and all dependents. If there is not
@@ -232,6 +238,9 @@ struct allocator_t {
 
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
+
+  void set_strategy(allocator_strat_t s) { strat = s; };
+  allocator_strat_t get_strategy() const { return strat; }
 
   // delete this memory, storing the delete dependent
   // for future use of this memory block
@@ -261,11 +270,15 @@ private:
   };
 
   vector<block_t> blocks;
+  allocator_strat_t strat;
 
   using iter_t = vector<block_t>::iterator;
 
   optional<tuple<iter_t, iter_t, uint64_t>>
-  find_available(uint64_t size);
+  find_lowest_dependency_available(uint64_t size);
+
+  optional<tuple<iter_t, iter_t, uint64_t>>
+  find_first_available(uint64_t size);
 };
 
 struct _which_node_t {
