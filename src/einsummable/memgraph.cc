@@ -782,21 +782,25 @@ void allocator_t::block_t::free(int d) {
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
 allocator_t::find_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
-
+  optional<return_t> return_block;
+  int min_dep = std::numeric_limits<int>::max();
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    block_t& block = *iter;
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz = 0;
+      int inner_max_dep = -1;
       for(; iter != blocks.end() && iter->available(); ++iter) {
+        inner_max_dep = std::max(inner_max_dep,iter->dep.value());
         sz += iter->size();
-        if(sz >= size) {
-          return optional<return_t>({ret, iter + 1, sz});
+        if(sz >= size && inner_max_dep <= min_dep) {
+          return_block = {ret, iter + 1, sz};
+          break;
         }
       }
     }
   }
-
-  return optional<return_t>();
+  return return_block;
 }
 
 optional< tuple<uint64_t, vector<int>> >
