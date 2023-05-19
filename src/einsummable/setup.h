@@ -241,6 +241,39 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
   return ret;
 }
 
+template <typename Iter, typename F>
+Iter max_element_transform(
+  Iter first,
+  Iter last,
+  F f)
+{
+  // TODO: create a transform iterator instead of
+  //       copying everything into scores
+  vector<decltype(f(*first))> scores;
+  scores.reserve(last-first);
+  for(Iter iter = first; iter != last; ++iter) {
+    scores.push_back(f(*iter));
+  }
+  int offset = std::max_element(scores.begin(), scores.end()) - scores.begin();
+  return first + offset;
+}
+
+template <typename Iter, typename F>
+Iter min_element_transform(
+  Iter first,
+  Iter last,
+  F f)
+{
+  // TODO: same as max_element_transform
+  vector<decltype(f(*first))> scores;
+  scores.reserve(last-first);
+  for(Iter iter = first; iter != last; ++iter) {
+    scores.push_back(f(*iter));
+  }
+  int offset = std::min_element(scores.begin(), scores.end()) - scores.begin();
+  return first + offset;
+}
+
 template <typename T>
 vector<T> _reverse_variadic_to_vec(T i) {
   vector<T> x(1, i);

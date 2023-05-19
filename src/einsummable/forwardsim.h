@@ -310,10 +310,72 @@ private:
   map<tuple<int,int>, int> refis_in_progress;
 };
 
-// TODO
-//struct forward_tree_t {
-//
-//};
+////////////////////////////////////////////////////
+
+struct forward_mcts_tree_t {
+  forward_mcts_tree_t(
+    cluster_t const& c,
+    twolayergraph_t const& tl,
+    equal_items_t<int> const& ecl);
+
+  struct node_t {
+    // have all leaf nodes be negative 1
+    // otherwise they should always contain the decision the
+    // children will take
+    int jid;
+
+    int up;
+    vector<int> children;
+    double cumul_makespan;
+    int num_sim;
+
+    bool can_expand() const {
+      return children.size() == 0;
+    }
+    int get_which(int child) const {
+      auto iter = std::find(children.begin(), children.end(), child);
+      if(iter == children.end()) {
+        throw std::runtime_error("get_which in forward_node in forward_tree");
+      }
+      return iter - children.begin();
+    }
+  };
+
+  struct sim_info_t {
+    double makespan;
+    vector<tuple<int, int>> locs;
+  };
+
+  cluster_t const& cluster;
+  twolayergraph_t const& twolayer;
+  equal_items_t<int> const& equal_compute_locations;
+  // TODO vector<int> const fixed_compute_locations;
+
+  vector<node_t> nodes;
+  optional<sim_info_t> best;
+
+  forward_state_t new_state() const;
+
+  inline double selection_score(double c, int id) const;
+
+  // it could be the case that the selection picks a leaf
+  // node
+  optional<int> selection(double c = 0.0);
+
+  void expand_simulate_backprop(int id);
+
+  // TODO: should not finishing because the route is so
+  //       much worse than the best makespan be allowed?
+  tuple<sim_info_t, int> simulate(int id, int loc);
+  // Return the sim_info_t and the next id to choose after id
+
+  // get all ids (excluding the root id and including
+  //              the chosen id)
+  vector<int> path_to(int id) const;
+
+  // get all jid,loc pairs to get to here
+  vector<tuple<int, int>> locations_to(int id) const;
+};
 
 struct forward_node_t;
 

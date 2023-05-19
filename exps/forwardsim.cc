@@ -201,6 +201,89 @@ void main02(int argc, char** argv) {
   manager.simulate(100, 1);
 }
 
+void main03(int argc, char** argv) {
+  if(argc < 5) {
+    std::cout << "usage: nlocs dn dp dd dws" << std::endl;
+    return;
+  }
+
+  int nlocs;
+  uint64_t dn, dp, dd;
+  vector<uint64_t> dws;
+
+  try {
+    nlocs          = parse_with_ss<int>     (argv[1]);
+    dn             = parse_with_ss<uint64_t>(argv[2]);
+    dp             = parse_with_ss<uint64_t>(argv[3]);
+    dd             = parse_with_ss<uint64_t>(argv[4]);
+    for(int i = 5; i != argc; ++i) {
+      dws.push_back( parse_with_ss<uint64_t>(argv[i]));
+    }
+  } catch(...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    std::cout << "usage: dn dp dd dws" << std::endl;
+    return;
+  }
+
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
+
+  float learning_rate = 0.01;
+
+  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
+
+  auto [graph, _] = ff.mgraph.compile();
+  //auto graph = three_dimensional_matrix_multiplication(
+  //  4,4,4,
+  //  4000,4000,4000,
+  //  nlocs);
+
+  {
+    uint64_t mmlike_sizing = 1000u*1000u*1000u;
+    uint64_t min_sizing = 800u*800u;
+    vector<partition_t> new_partition = autopartition(
+      graph,
+      mmlike_sizing,
+      min_sizing);
+    graph.reset_annotations(new_partition);
+  }
+
+  auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+
+  {
+    /////////////vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
+    vector<int> locations(twolayer.joins.size(), 0);
+    forward_state_t sim_state(cluster, twolayer, equal_items, locations);
+    decision_interface_t interface = decision_interface_t::random(nlocs);
+    double finish;
+    while(!sim_state.all_done()) {
+      auto [_0,finish_,_1] = sim_state.step(interface);
+      finish = finish_;
+    }
+    std::cout << "Time all at loc 0: " << finish << std::endl;
+    DOUT("Num locations to choose: " << locations.size());
+  }
+
+  forward_manager_t manager(cluster, twolayer, equal_items);
+
+  manager.merge_line(manager.simulate_once());
+
+  for(int i = 0; i != 10; ++i) {
+    //manager.simulate(20, 1);
+    manager.step(20, 0.95, 1.0);
+    DOUT(manager.best_stats.makespan << "   " << manager.root->num_nodes());
+    //vector<int> twolayer_locs = manager.get_best_locations();
+    //DOUT(twolayer_locs);
+    //set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
+    //auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+
+    //uint64_t correct_total_elems = taskgraph.total_elems_moved();
+    //uint64_t correct_total_flops = taskgraph.total_flops();
+
+    //DLINEOUT(correct_total_elems << " " << manager.best_stats.elems_total);
+    //DLINEOUT(correct_total_flops << " " << manager.best_stats.flops_total);
+  }
+}
+
 int main(int argc, char** argv) {
   if(argc < 5) {
     std::cout << "usage: nlocs dn dp dd dws" << std::endl;
@@ -231,17 +314,27 @@ int main(int argc, char** argv) {
 
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
 
-  auto [graph, _] = ff.mgraph.compile();
-  //auto graph = three_dimensional_matrix_multiplication(
-  //  4,4,4,
-  //  4000,4000,4000,
-  //  nlocs);
+  //auto [graph, _] = ff.mgraph.compile();
+  auto graph = three_dimensional_matrix_multiplication(
+    2,2,2,
+    4000,4000,4000,
+    nlocs);
+
+  //{
+  //  uint64_t mmlike_sizing = 1000u*1000u*1000u;
+  //  uint64_t min_sizing = 800u*800u;
+  //  vector<partition_t> new_partition = autopartition(
+  //    graph,
+  //    mmlike_sizing,
+  //    min_sizing);
+  //  graph.reset_annotations(new_partition);
+  //}
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
 
   {
-    /////////////vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
-    vector<int> locations(twolayer.joins.size(), 0);
+    vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
+    //vector<int> locations(twolayer.joins.size(), 0);
     forward_state_t sim_state(cluster, twolayer, equal_items, locations);
     decision_interface_t interface = decision_interface_t::random(nlocs);
     double finish;
@@ -249,37 +342,26 @@ int main(int argc, char** argv) {
       auto [_0,finish_,_1] = sim_state.step(interface);
       finish = finish_;
     }
-    std::cout << "Time all at loc 0: " << finish << std::endl;
+    //std::cout << "Time all at loc 0: " << finish << std::endl;
+    std::cout << "Time 3D: " << finish << std::endl;
     DOUT("Num locations to choose: " << locations.size());
   }
 
-  {
-    uint64_t mmlike_sizing = 1000u*1000u*1000u;
-    uint64_t min_sizing = 800u*800u;
-    vector<partition_t> new_partition = autopartition(
-      graph,
-      mmlike_sizing,
-      min_sizing);
-    graph.reset_annotations(new_partition);
-  }
+  forward_mcts_tree_t mcts(cluster, twolayer, equal_items);
 
-  forward_manager_t manager(cluster, twolayer, equal_items);
-
-  manager.merge_line(manager.simulate_once());
-
-  for(int i = 0; i != 100; ++i) {
-    //manager.simulate(20, 1);
-    manager.step(20, 0.95, 0.1);
-    DOUT(manager.best_stats.makespan << "   " << manager.root->num_nodes());
-    //vector<int> twolayer_locs = manager.get_best_locations();
-    //DOUT(twolayer_locs);
-    //set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
-    //auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
-
-    //uint64_t correct_total_elems = taskgraph.total_elems_moved();
-    //uint64_t correct_total_flops = taskgraph.total_flops();
-
-    //DLINEOUT(correct_total_elems << " " << manager.best_stats.elems_total);
-    //DLINEOUT(correct_total_flops << " " << manager.best_stats.flops_total);
+  DOUT("............");
+  for(int i = 0; i != 40; ++i) {
+    for(int j = 0; j != 1000; ++j) {
+      optional<int> mcts_leaf = mcts.selection(4.0);
+      if(mcts_leaf) {
+        mcts.expand_simulate_backprop(mcts_leaf.value());
+      } else {
+        DOUT("couldn't get anything!");
+      }
+    }
+    DOUT(mcts.best.value().makespan);
   }
 }
+
+
+
