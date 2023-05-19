@@ -314,27 +314,27 @@ int main(int argc, char** argv) {
 
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
 
-  //auto [graph, _] = ff.mgraph.compile();
-  auto graph = three_dimensional_matrix_multiplication(
-    2,2,2,
-    4000,4000,4000,
-    nlocs);
+  auto [graph, _] = ff.mgraph.compile();
+  //auto graph = three_dimensional_matrix_multiplication(
+  //  2,2,2,
+  //  4000,4000,4000,
+  //  nlocs);
 
-  //{
-  //  uint64_t mmlike_sizing = 1000u*1000u*1000u;
-  //  uint64_t min_sizing = 800u*800u;
-  //  vector<partition_t> new_partition = autopartition(
-  //    graph,
-  //    mmlike_sizing,
-  //    min_sizing);
-  //  graph.reset_annotations(new_partition);
-  //}
+  {
+    uint64_t mmlike_sizing = 1000u*1000u*1000u;
+    uint64_t min_sizing = 800u*800u;
+    vector<partition_t> new_partition = autopartition(
+      graph,
+      mmlike_sizing,
+      min_sizing);
+    graph.reset_annotations(new_partition);
+  }
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
 
   {
-    vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
-    //vector<int> locations(twolayer.joins.size(), 0);
+    //vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
+    vector<int> locations(twolayer.joins.size(), 0);
     forward_state_t sim_state(cluster, twolayer, equal_items, locations);
     decision_interface_t interface = decision_interface_t::random(nlocs);
     double finish;
@@ -342,8 +342,8 @@ int main(int argc, char** argv) {
       auto [_0,finish_,_1] = sim_state.step(interface);
       finish = finish_;
     }
-    //std::cout << "Time all at loc 0: " << finish << std::endl;
-    std::cout << "Time 3D: " << finish << std::endl;
+    std::cout << "Time all at loc 0: " << finish << std::endl;
+    //std::cout << "Time 3D: " << finish << std::endl;
     DOUT("Num locations to choose: " << locations.size());
   }
 
@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
   DOUT("............");
   for(int i = 0; i != 40; ++i) {
     for(int j = 0; j != 1000; ++j) {
-      optional<int> mcts_leaf = mcts.selection(4.0);
+      optional<int> mcts_leaf = mcts.selection();
       if(mcts_leaf) {
         mcts.expand_simulate_backprop(mcts_leaf.value());
       } else {

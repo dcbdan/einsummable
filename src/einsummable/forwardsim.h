@@ -210,7 +210,7 @@ struct forward_state_t {
     return compute_locations;
   }
 
-  // count the number of bytes from the input refinements
+  // count the number of elems from the input refinements
   // that setting this location would increase
   // (assumes all input jids are avialable)
   uint64_t extra_elems_to(int jid, int loc) const;

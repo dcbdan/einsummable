@@ -1155,19 +1155,29 @@ forward_mcts_tree_t::simulate(
   int next_id = -1; // this will be -1 if start_id has the last decision
   int const& start_jid = nodes[start_id].jid;
 
+  forward_state_t state = new_state();
+
   decision_interface_t interface {
     .choose_apply = [](int,      vector<int> const&      ) { return 0; },
     .choose_move  = [](int, int, vector<tl_move_t> const&) { return 0; },
     .choose_location = [&](int jid) {
-      if(cnt == -2) {
-        int loc = runif(num_locs);
+      if(cnt == -2 || cnt == -1) {
+        int loc;
+        if(runif(2) == 1) {
+          loc = runif(num_locs);
+        } else {
+          vector<uint64_t> cnts;
+          cnts.reserve(num_locs);
+          for(int l = 0; l != num_locs; ++l) {
+            cnts.push_back(state.extra_elems_to(jid, loc));
+          }
+          loc = std::min_element(cnts.begin(), cnts.end()) - cnts.begin();
+        }
         choices.emplace_back(jid, loc);
-        return loc;
-      } else if(cnt == -1) {
-        int loc = runif(num_locs);
-        choices.emplace_back(jid, loc);
-        next_id = jid;
-        cnt -= 1;
+        if(cnt == -1) {
+          next_id = jid;
+          cnt -= 1;
+        }
         return loc;
       } else if(cnt == 0) {
         if(start_jid != jid) {
@@ -1188,7 +1198,6 @@ forward_mcts_tree_t::simulate(
   };
 
   double makespan = 0.0;
-  forward_state_t state = new_state();
   while(!state.all_done()) {
     makespan = std::get<1>(state.step(interface));
   }
