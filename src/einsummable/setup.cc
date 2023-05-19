@@ -63,6 +63,19 @@ int runif(int beg, int end) {
 int runif(int n) {
   return runif(0, n);
 }
+int runif(vector<double> probs) {
+  if(probs.size() == 0) {
+    throw std::runtime_error("invalid runif props");
+  }
+  std::inclusive_scan(probs.begin(), probs.end(), probs.begin());
+  double v = std::uniform_real_distribution<double>(0.0, probs.back())(random_gen());
+  int ret = std::lower_bound(probs.begin(), probs.end(), v) - probs.begin();
+  if(ret == probs.size()) {
+    // This shouldnt happen often
+    ret -= 1;
+  }
+  return ret;
+}
 
 bool in_range(int val, int beg, int end) {
   return val >= beg && val < end;

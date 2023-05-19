@@ -209,6 +209,11 @@ struct forward_state_t {
   vector<int> const& get_compute_locations() const {
     return compute_locations;
   }
+
+  // count the number of bytes from the input refinements
+  // that setting this location would increase
+  // (assumes all input jids are avialable)
+  uint64_t extra_elems_to(int jid, int loc) const;
 private:
   // Find the earliest finish time of work currently
   // being processed, set that worker to no longer busy
@@ -305,6 +310,11 @@ private:
   map<tuple<int,int>, int> refis_in_progress;
 };
 
+// TODO
+//struct forward_tree_t {
+//
+//};
+
 struct forward_node_t;
 
 using forward_node_ptr_t = std::unique_ptr<forward_node_t>;
@@ -314,19 +324,21 @@ struct forward_node_t {
     root(this), up(nullptr)
   {}
   forward_node_t(int n):
-    root(this), up(nullptr), children(n)
+    root(this), up(nullptr), children(n), taus(1.0, n), etas(1.0, n)
   {}
   forward_node_t(forward_node_t* up):
     root(up->root), up(up)
   {}
   forward_node_t(forward_node_t* up, int n):
-    root(up->root), up(up), children(n)
+    root(up->root), up(up), children(n), taus(1.0, n), etas(1.0, n)
   {}
 
   decision_type_t decision;
   forward_node_t* root;
   forward_node_t* up;
   vector<forward_node_ptr_t> children;
+  vector<double> taus;
+  vector<double> etas;
 
   // merge other (which is a line) into this node
   // and return the leaf of other after having been merged
@@ -342,9 +354,11 @@ struct forward_node_t {
   int singleton_child() const;
 
   int num_nodes() const;
-  void num_nodes_(int& ret) const;
 
   vector<tuple<decision_type_t, int>> get_decisions_to_here() const;
+
+  void increment_tau_to_here(double delta);
+  void shrink_all_tau(double shrink);
 };
 
 struct forward_manager_t {
@@ -386,14 +400,15 @@ struct forward_manager_t {
   // merge the new_node starting at new_root and return the
   // leaf node after merge. (new_root is a line, not a tree, so
   // there is only one leaf node)
-  void merge_line(forward_node_ptr_t && new_root, stats_t const& stats);
-  void merge_line(tuple<forward_node_ptr_t, stats_t> && info);
+  forward_node_t* merge_line(forward_node_ptr_t && new_root, stats_t const& stats);
+  forward_node_t* merge_line(tuple<forward_node_ptr_t, stats_t> && info);
 
   tuple<forward_node_ptr_t, stats_t> simulate_once();
 
   // TODO: this may need to be batched or divided evenly;
   //       not sure how much work there really is per simulation
   void simulate(int num_times, int num_threads = 1);
+  void step(int num_times, double shrink, double qq);
 
   vector<int> get_best_locations() const;
 };

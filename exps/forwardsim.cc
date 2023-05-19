@@ -6,18 +6,14 @@
 
 #include <fstream>
 
-cluster_t make_cluster(int nlocs) {
+cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communicate_score = 1) {
   using device_t = cluster_t::device_t;
   using connection_t = cluster_t::connection_t;
 
-  // nvidia tesla p100 9.3 Teraflops single precision
   uint64_t giga = 1e9;
-  uint64_t tera = 1e12;
-  uint64_t nvidia_tesla_p100 = (tera * 93) / 10;
 
-
-  uint64_t compute_on_device = nvidia_tesla_p100;
-  uint64_t bandwidth_between_device = 20 * giga;
+  uint64_t compute_on_device = 100 * compute_score * giga;
+  uint64_t bandwidth_between_device = communicate_score * giga;
 
   int capacity = 1; // all kernels have a utilization of 1 for now,
                     // so  give all devices a capacity of 1
@@ -229,13 +225,34 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  cluster_t cluster = make_cluster(nlocs);
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   float learning_rate = 0.01;
 
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
 
   auto [graph, _] = ff.mgraph.compile();
+  //auto graph = three_dimensional_matrix_multiplication(
+  //  4,4,4,
+  //  4000,4000,4000,
+  //  nlocs);
+
+  auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+
+  {
+    /////////////vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
+    vector<int> locations(twolayer.joins.size(), 0);
+    forward_state_t sim_state(cluster, twolayer, equal_items, locations);
+    decision_interface_t interface = decision_interface_t::random(nlocs);
+    double finish;
+    while(!sim_state.all_done()) {
+      auto [_0,finish_,_1] = sim_state.step(interface);
+      finish = finish_;
+    }
+    std::cout << "Time all at loc 0: " << finish << std::endl;
+    DOUT("Num locations to choose: " << locations.size());
+  }
+
   {
     uint64_t mmlike_sizing = 1000u*1000u*1000u;
     uint64_t min_sizing = 800u*800u;
@@ -246,17 +263,23 @@ int main(int argc, char** argv) {
     graph.reset_annotations(new_partition);
   }
 
-  auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
-  DLINEOUT("TWO LAYER SIZE " << twolayer.joins.size());
+  forward_manager_t manager(cluster, twolayer, equal_items);
 
-  {
-    forward_manager_t manager(cluster, twolayer, equal_items);
-    manager.simulate(1, 1);
+  manager.merge_line(manager.simulate_once());
+
+  for(int i = 0; i != 100; ++i) {
+    //manager.simulate(20, 1);
+    manager.step(20, 0.95, 0.1);
+    DOUT(manager.best_stats.makespan << "   " << manager.root->num_nodes());
     //vector<int> twolayer_locs = manager.get_best_locations();
-    //DLINEOUT("---------------");
+    //DOUT(twolayer_locs);
     //set_locations_from_twolayer(graph, g_to_tl, twolayer_locs);
     //auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
-  }
 
-  google::protobuf::ShutdownProtobufLibrary();
+    //uint64_t correct_total_elems = taskgraph.total_elems_moved();
+    //uint64_t correct_total_flops = taskgraph.total_flops();
+
+    //DLINEOUT(correct_total_elems << " " << manager.best_stats.elems_total);
+    //DLINEOUT(correct_total_flops << " " << manager.best_stats.flops_total);
+  }
 }

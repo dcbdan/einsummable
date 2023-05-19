@@ -312,6 +312,8 @@ int runif(int beg, int end);
 // random number in [0,n)
 int runif(int n);
 
+int runif(vector<double> probs);
+
 template <typename T>
 T vector_random_pop(vector<T>& xs) {
   int idx = runif(xs.size());

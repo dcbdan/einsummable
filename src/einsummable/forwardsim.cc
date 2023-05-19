@@ -649,6 +649,46 @@ forward_node_t::get_decisions_to_here() const
   return ret;
 }
 
+void forward_node_t::increment_tau_to_here(double delta) {
+  forward_node_t* dwn = this;
+  forward_node_t* upp = up;
+  while(dwn != root) {
+    int d = 0;
+    for(; d != upp->children.size(); ++d) {
+      if(upp->children[d]) {
+        forward_node_t* child = upp->children[d].get();
+        if(child == dwn) {
+          break;
+        }
+      }
+    }
+    if(d == upp->children.size()) {
+      throw std::runtime_error("could not find self");
+    }
+    upp->taus[d] += delta;
+
+    dwn = upp;
+    upp = upp->up;
+  }
+}
+
+void forward_node_t::shrink_all_tau(double shrink) {
+  vector<forward_node_t*> ptrs;
+  ptrs.push_back(this);
+  while(ptrs.size() > 0) {
+    forward_node_t* self = ptrs.back();
+    ptrs.pop_back();
+    for(double& tau: self->taus) {
+      tau *= shrink;
+    }
+    for(auto& child: self->children) {
+      if(child) {
+        ptrs.push_back(child.get());
+      }
+    }
+  }
+}
+
 // TODO: should be easy enough to just keep track
 //       of the number of nodes
 int forward_node_t::num_nodes() const {
@@ -710,7 +750,7 @@ forward_manager_t::forward_manager_t(
       _forward_manager_to_vector(cl, tl.joins.size()))
 {}
 
-void forward_manager_t::merge_line(
+forward_node_t* forward_manager_t::merge_line(
   forward_node_ptr_t && new_root,
   forward_manager_t::stats_t const& new_stats)
 {
@@ -720,19 +760,21 @@ void forward_manager_t::merge_line(
       best = leaf;
       best_stats = new_stats;
     }
+    return leaf;
   } else {
     root = std::move(new_root);
     forward_node_t* leaf = root->singleton_leaf();
     best = leaf;
     best_stats = new_stats;
+    return leaf;
   }
 }
 
-void forward_manager_t::merge_line(
+forward_node_t* forward_manager_t::merge_line(
   tuple<forward_node_ptr_t, forward_manager_t::stats_t> && info)
 {
   auto && [a,b] = info;
-  merge_line(std::move(a), b);
+  return merge_line(std::move(a), b);
 }
 
 forward_state_t forward_manager_t::new_state() const {
@@ -758,7 +800,22 @@ forward_manager_t::simulate_once()
   auto update_choice = [&](decision_type_t decision, int which, int num_options) {
     node->decision = decision;
     node->children = vector<forward_node_ptr_t>(num_options);
+    node->taus     = vector<double>(num_options, 1.0);
+    node->etas     = vector<double>(num_options, 1.0);
     node->children[which] = std::make_unique<forward_node_t>(node);
+
+    if(decision.is_choose_location()) {
+      int const& jid = decision.get_choose_location();
+      vector<uint64_t> scores;
+      for(int loc = 0; loc != num_options; ++loc) {
+        scores.push_back(state.extra_elems_to(jid, loc));
+      }
+      for(int loc = 0; loc != num_options; ++loc) {
+        if(scores[loc] == 0) {
+          node->etas[loc] = 2.0;
+        }
+      }
+    }
 
     if(base) {
       if(base->children[which]) {
@@ -787,7 +844,16 @@ forward_manager_t::simulate_once()
       return 0;
     },
     .choose_location = [&](int id) {
-      int loc = runif(nloc);
+      int loc;
+      if(base) {
+        vector<double> scores = base->taus;
+        for(int i = 0; i != scores.size(); ++i) {
+          scores[i] *= base->etas[i];
+        }
+        loc = runif(scores);
+      } else {
+        loc = runif(nloc);
+      }
       update_choice(
         decision_type_t::choose_location(id),
         loc,
@@ -809,18 +875,35 @@ forward_manager_t::simulate_once()
     }
   }
 
-  DLINEOUT("Makespan: " << stats.makespan);
+  //DLINEOUT("Makespan: " << stats.makespan);
 
   return std::make_tuple(std::move(line), stats);
+}
+
+void forward_manager_t::step(int num_times, double shrink, double qq) {
+  vector<tuple<forward_node_ptr_t, stats_t>> items;
+  items.reserve(num_times);
+  for(int i = 0; i != num_times; ++i) {
+    items.push_back(simulate_once());
+  }
+  if(root) {
+    root->shrink_all_tau(shrink);
+  } else {
+    throw std::runtime_error("root must be setup");
+  }
+  for(auto && [line,stats]: items) {
+    auto save_line = merge_line(std::move(line), stats);
+    save_line->increment_tau_to_here(qq/stats.makespan);
+  }
 }
 
 void forward_manager_t::simulate(int num_times, int num_threads) {
   if(num_threads == 1) {
     for(int i = 0; i != num_times; ++i) {
-      DLINEOUT(i + 1 << " / " << num_times);
+      //DLINEOUT(i + 1 << " / " << num_times);
       auto [line, stats] = simulate_once();
       merge_line(std::move(line), stats);
-      DLINEOUT("  num nodes: " << root->num_nodes());
+      //DLINEOUT("  num nodes: " << root->num_nodes());
     }
     return;
   }
@@ -894,3 +977,44 @@ vector<int> forward_manager_t::get_best_locations() const
 
   return state.get_compute_locations();
 }
+
+uint64_t forward_state_t::extra_elems_to(int jid, int loc) const
+{
+  // A refi contains agg units.
+  // An agg unit is broadcast to all locations it get used and
+  // from all locations its inputs are from
+  uint64_t total = 0;
+
+  auto const& join = joins[jid];
+  for(auto const& rid: join.deps) {
+    auto const& refi = refis[rid];
+
+    set<int> out_locs;
+    for(auto const& out_jid: refi.outs) {
+      int const& out_loc = compute_locations[out_jid];
+      if(out_jid != jid && out_loc != -1) {
+        out_locs.insert(out_loc);
+      }
+    }
+    if(out_locs.count(loc) == 1) {
+      // all agg units will be broadcast to this location
+      // already so nothing to add
+      continue;
+    }
+
+    for(auto const& [size, inn_jids]: refi.units) {
+      set<int> inn_locs;
+      for(auto const& inn_jid: inn_jids) {
+        int const& inn_loc = compute_locations[inn_jid];
+        // don't add inn_loc == loc since that move is free
+        if(inn_loc != -1 && inn_loc != loc) {
+          inn_locs.insert(inn_loc);
+        }
+      }
+      int n = inn_locs.size();
+      total += n*size;
+    }
+  }
+  return total;
+}
+
