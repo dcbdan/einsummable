@@ -590,3 +590,5 @@ inline set<T> const& set_in_order(set<T> const& items) {
   return items;
 }
 
+void hash_combine_impl(std::size_t& seed, std::size_t value);
+

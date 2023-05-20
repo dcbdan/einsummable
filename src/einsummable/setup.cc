@@ -80,3 +80,11 @@ int runif(vector<double> probs) {
 bool in_range(int val, int beg, int end) {
   return val >= beg && val < end;
 }
+
+// Stolen from http://myeyesareblind.com/2017/02/06/Combine-hash-values/
+// where this is the boost implementation
+void hash_combine_impl(std::size_t& seed, std::size_t value)
+{
+    seed ^= value + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+

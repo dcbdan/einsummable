@@ -350,17 +350,33 @@ int main(int argc, char** argv) {
   forward_mcts_tree_t mcts(cluster, twolayer, equal_items);
 
   DOUT("............");
-  for(int i = 0; i != 40; ++i) {
-    for(int j = 0; j != 1000; ++j) {
+  bool fini = false;
+  for(int i = 0; i != 10 && !fini; ++i) {
+    for(int j = 0; j != 10 && !fini; ++j) {
       optional<int> mcts_leaf = mcts.selection();
       if(mcts_leaf) {
         mcts.expand_simulate_backprop(mcts_leaf.value());
       } else {
-        DOUT("couldn't get anything!");
+        fini = true;
+        DOUT("fini!");
       }
     }
     DOUT(mcts.best.value().makespan);
   }
+  for(int i = 0; i != 40 && !fini; ++i) {
+    for(int j = 0; j != 1000 && !fini; ++j) {
+      optional<int> mcts_leaf = mcts.selection();
+      if(mcts_leaf) {
+        mcts.expand_simulate_backprop(mcts_leaf.value());
+      } else {
+        fini = true;
+        DOUT("fini!");
+      }
+    }
+    DOUT(mcts.best.value().makespan);
+  }
+
+  google::protobuf::ShutdownProtobufLibrary();
 }
 
 

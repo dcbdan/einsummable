@@ -1061,16 +1061,21 @@ forward_state_t forward_mcts_tree_t::new_state() const {
 }
 
 double forward_mcts_tree_t::selection_score(double c, int id) const {
-  // fraction_computing =  total_compute / (n_devices * makespan)
-  //                    pp 1 / makespan
-  //
-  // avg_c / best_c pp (1 / avg_m) / (1 / best_m)
-  //                    pp best_m / avg_m
   auto const& node = nodes[id];
   double num_sim = double(node.num_sim);
   double up_num_sim = double(nodes[node.up].num_sim);
-  double value = best.value().makespan / (node.cumul_makespan / num_sim);
-  return value + c * std::sqrt(
+
+  double value = 0.0;
+  double cases = node.jid == -1 ? 1.0 : 2.0 ;
+  if(node.jid != -1) {
+    auto const& [cumul,n] = eq_classes[node.eq_class];
+    double avg_m = cumul / double(n);
+    value += best.value().makespan / avg_m;
+  }
+
+  value += best.value().makespan / (node.cumul_makespan / num_sim);
+
+  return value / cases + c * std::sqrt(
     std::log( up_num_sim ) / node.num_sim
   );
 }
@@ -1079,14 +1084,14 @@ optional<int> forward_mcts_tree_t::selection(double c) {
   if(c == 0.0) {
     c = 1.4142135623730951;
   }
-  vector<int> ret;
   int id = 0;
   while(true) {
     auto const& node = nodes[id];
     if(node.can_expand()) {
       return id;
+    } else if(node.jid == -1) {
+      return std::nullopt;
     } else {
-      auto const& node = nodes[id];
       auto iter = max_element_transform(
         node.children.begin(),
         node.children.end(),
@@ -1094,7 +1099,9 @@ optional<int> forward_mcts_tree_t::selection(double c) {
           return this->selection_score(c, id);
         });
       id = *iter;
-      ret.push_back(id);
+      if(id < 0 || id >= nodes.size()) {
+        throw std::runtime_error("__________________");
+      }
     }
   }
 }
@@ -1111,7 +1118,7 @@ void forward_mcts_tree_t::expand_simulate_backprop(int top)
 
   int n_locs = cluster.devices.size();
   for(int loc = 0; loc != n_locs; ++loc) {
-    auto [info, next_jid] = simulate(top, loc);
+    auto [info, next_jid, eq_class] = simulate(top, loc);
 
     if(!best || info.makespan < best.value().makespan) {
       best = info;
@@ -1122,9 +1129,16 @@ void forward_mcts_tree_t::expand_simulate_backprop(int top)
       .jid = next_jid,
       .up = top,
       .children = {},
+      .eq_class = eq_class,
       .cumul_makespan = info.makespan,
       .num_sim = 1
     });
+
+    if(next_jid != -1) {
+      auto& [v,n] = eq_classes[eq_class];
+      v += info.makespan;
+      n += 1;
+    }
   }
 
   int const& best_child = *min_element_transform(
@@ -1140,11 +1154,21 @@ void forward_mcts_tree_t::expand_simulate_backprop(int top)
   while(id != 0) {
     auto& node = nodes[id];
     node.cumul_makespan += best_child_makespan;
+
+    if(node.jid == -1) {
+      DOUT(id << " <id  it's jid> " << node.jid);
+      throw std::runtime_error("this id has a -1 jid in backprop");
+    }
+
+    auto& [v,n] = eq_classes[node.eq_class];
+    v += best_child_makespan;
+    n += 1;
+
     id = node.up;
   }
 }
 
-tuple<forward_mcts_tree_t::sim_info_t, int>
+tuple<forward_mcts_tree_t::sim_info_t, int, int>
 forward_mcts_tree_t::simulate(
   int start_id,
   int start_loc)
@@ -1153,6 +1177,7 @@ forward_mcts_tree_t::simulate(
   int cnt = choices.size();
   int num_locs = cluster.devices.size();
   int next_id = -1; // this will be -1 if start_id has the last decision
+  int eq_class = -1;
   int const& start_jid = nodes[start_id].jid;
 
   forward_state_t state = new_state();
@@ -1160,7 +1185,7 @@ forward_mcts_tree_t::simulate(
   decision_interface_t interface {
     .choose_apply = [](int,      vector<int> const&      ) { return 0; },
     .choose_move  = [](int, int, vector<tl_move_t> const&) { return 0; },
-    .choose_location = [&](int jid) {
+    .choose_location = [&, this](int jid) {
       if(cnt == -2 || cnt == -1) {
         int loc;
         if(runif(2) == 1) {
@@ -1169,13 +1194,43 @@ forward_mcts_tree_t::simulate(
           vector<uint64_t> cnts;
           cnts.reserve(num_locs);
           for(int l = 0; l != num_locs; ++l) {
-            cnts.push_back(state.extra_elems_to(jid, loc));
+            cnts.push_back(state.extra_elems_to(jid, l));
           }
           loc = std::min_element(cnts.begin(), cnts.end()) - cnts.begin();
         }
         choices.emplace_back(jid, loc);
         if(cnt == -1) {
           next_id = jid;
+
+          mcts_eq_t eq_item { .jid = jid, .ls = {} };
+          {
+            int center_cnt = 0;
+            map<int, int> to_centered_loc;
+            auto const& join = twolayer.joins[jid];
+            for(auto const& rid: join.deps) {
+              auto const& refi = twolayer.refinements[rid];
+              for(auto const& [_, deps]: refi.units) {
+                for(auto const& inn_jid: deps) {
+                  int const& loc = state.get_compute_locations()[inn_jid];
+                  if(to_centered_loc.count(loc) == 0) {
+                    to_centered_loc[loc] = center_cnt;
+                    center_cnt += 1;
+                  }
+                  eq_item.ls.push_back(to_centered_loc.at(loc));
+                }
+              }
+            }
+          }
+          auto iter = eq_class_to_id.find(eq_item);
+          if(iter == eq_class_to_id.end()) {
+            eq_class = eq_classes.size();
+            eq_class_to_id.insert({eq_item, eq_class});
+            eq_classes.emplace_back(0.0, 0);
+          } else {
+            auto const& [_0, ii] = *iter;
+            eq_class = ii;
+          }
+
           cnt -= 1;
         }
         return loc;
@@ -1202,7 +1257,7 @@ forward_mcts_tree_t::simulate(
     makespan = std::get<1>(state.step(interface));
   }
 
-  return { sim_info_t { makespan, choices }, next_id };
+  return { sim_info_t { makespan, choices }, next_id, eq_class };
 }
 
 vector<int> forward_mcts_tree_t::path_to(int id) const {
@@ -1227,5 +1282,9 @@ vector<tuple<int, int>> forward_mcts_tree_t::locations_to(int id) const {
   }
 
   return ret;
+}
+
+bool operator==(mcts_eq_t const& lhs, mcts_eq_t const& rhs) {
+  return two_tuple_eq(lhs, rhs);
 }
 

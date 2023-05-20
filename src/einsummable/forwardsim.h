@@ -4,6 +4,8 @@
 #include "cluster.h"
 #include "twolayergraph.h"
 
+#include <unordered_map>
+
 template <typename T>
 struct worker_t {
   worker_t() {}
@@ -312,6 +314,28 @@ private:
 
 ////////////////////////////////////////////////////
 
+struct mcts_eq_t {
+  int jid;
+  vector<int> ls;
+};
+
+template <> struct std::hash<mcts_eq_t> {
+  inline std::size_t operator()(mcts_eq_t const& v) const
+  {
+    auto const& [j,ls] = v;
+    std::size_t ret = h_int(j);
+    for(auto const& l: ls) {
+      hash_combine_impl(ret, h_int(l));
+    }
+    return ret;
+  }
+
+private:
+  std::hash<int> h_int;
+};
+
+bool operator==(mcts_eq_t const& lhs, mcts_eq_t const& rhs);
+
 struct forward_mcts_tree_t {
   forward_mcts_tree_t(
     cluster_t const& c,
@@ -325,12 +349,16 @@ struct forward_mcts_tree_t {
     int jid;
 
     int up;
+
     vector<int> children;
+
+    int eq_class;
+
     double cumul_makespan;
     int num_sim;
 
     bool can_expand() const {
-      return children.size() == 0;
+      return jid != -1 && children.size() == 0;
     }
     int get_which(int child) const {
       auto iter = std::find(children.begin(), children.end(), child);
@@ -351,12 +379,15 @@ struct forward_mcts_tree_t {
   equal_items_t<int> const& equal_compute_locations;
   // TODO vector<int> const fixed_compute_locations;
 
+  std::unordered_map<mcts_eq_t, int> eq_class_to_id;
+  vector<tuple<double, int>> eq_classes;
+
   vector<node_t> nodes;
   optional<sim_info_t> best;
 
   forward_state_t new_state() const;
 
-  inline double selection_score(double c, int id) const;
+  double selection_score(double c, int id) const;
 
   // it could be the case that the selection picks a leaf
   // node
@@ -366,8 +397,9 @@ struct forward_mcts_tree_t {
 
   // TODO: should not finishing because the route is so
   //       much worse than the best makespan be allowed?
-  tuple<sim_info_t, int> simulate(int id, int loc);
-  // Return the sim_info_t and the next id to choose after id
+  tuple<sim_info_t, int, int> simulate(int id, int loc);
+  // Return the sim_info_t, the next id and the classes of
+  // next id
 
   // get all ids (excluding the root id and including
   //              the chosen id)
