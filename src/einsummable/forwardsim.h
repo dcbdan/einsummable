@@ -390,13 +390,15 @@ struct forward_mcts_tree_t {
   vector<node_t> nodes;
   optional<sim_info_t> best;
 
+  int max_depth;
+
   forward_state_t new_state() const;
 
   double selection_score(double c, int id) const;
 
   // it could be the case that the selection picks a leaf
   // node
-  optional<int> selection(double c = 0.0);
+  optional<int> selection(double c = -1.0);
 
   void expand_simulate_backprop(int id);
 
@@ -414,6 +416,8 @@ struct forward_mcts_tree_t {
   vector<tuple<int, int>> locations_to(int id) const;
 
   int depth(int id) const;
+
+  vector<int> get_best_locations() const;
 };
 
 struct forward_node_t;

@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
   for(int jid = 0; jid != twolayer.joins.size(); ++jid) {
     auto const& join = twolayer.joins[jid];
     if(join.deps.size() == 0) {
-      //fixed_locations[jid] = runif(nlocs);
+      fixed_locations[jid] = runif(nlocs);
     }
   }
 
@@ -360,21 +360,21 @@ int main(int argc, char** argv) {
 
   DOUT("............");
   bool fini = false;
-  for(int i = 0; i != 10 && !fini; ++i) {
-    for(int j = 0; j != 10 && !fini; ++j) {
-      optional<int> mcts_leaf = mcts.selection();
-      if(mcts_leaf) {
-        mcts.expand_simulate_backprop(mcts_leaf.value());
-      } else {
-        fini = true;
-        DOUT("fini!");
-      }
-    }
-    DOUT(mcts.best.value().makespan);
-  }
+  //for(int i = 0; i != 10 && !fini; ++i) {
+  //  for(int j = 0; j != 10 && !fini; ++j) {
+  //    optional<int> mcts_leaf = mcts.selection();
+  //    if(mcts_leaf) {
+  //      mcts.expand_simulate_backprop(mcts_leaf.value());
+  //    } else {
+  //      fini = true;
+  //      DOUT("fini!");
+  //    }
+  //  }
+  //  DOUT(mcts.best.value().makespan);
+  //}
   for(int i = 0; i != 40 && !fini; ++i) {
     for(int j = 0; j != 1000 && !fini; ++j) {
-      optional<int> mcts_leaf = mcts.selection();
+      optional<int> mcts_leaf = mcts.selection(0.1);
       if(mcts_leaf) {
         mcts.expand_simulate_backprop(mcts_leaf.value());
       } else {
@@ -382,7 +382,28 @@ int main(int argc, char** argv) {
         DOUT("fini!");
       }
     }
-    DOUT(mcts.best.value().makespan);
+    DOUT(mcts.best.value().makespan << "  " << mcts.max_depth);
+  }
+
+  {
+    vector<int> locs = mcts.get_best_locations();
+    vector<string> colors{
+      "#61B292",
+      "#AED09E",
+      "#F1E8A7",
+      "#A8896C",
+      "#A8D8EA",
+      "#AA96DA",
+      "#FCBAD3",
+      "#FFFFD2"
+    };
+    std::ofstream f("tl.gv");
+    twolayer.print_graphviz(f,
+      [&locs, &colors](int jid) {
+        return colors[locs[jid]];
+      }
+    );
+    DOUT("Printed to tl.gv");
   }
 
   google::protobuf::ShutdownProtobufLibrary();

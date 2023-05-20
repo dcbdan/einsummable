@@ -1032,7 +1032,8 @@ forward_mcts_tree_t::forward_mcts_tree_t(
   vector<int> const& f)
   : cluster(c), twolayer(tl),
     equal_compute_locations(ecl),
-    fixed_compute_locations(f)
+    fixed_compute_locations(f),
+    max_depth(0)
 {
   if(fixed_compute_locations.size() != twolayer.joins.size()) {
     throw std::runtime_error("invalid fixed compute locations given");
@@ -1081,23 +1082,27 @@ double forward_mcts_tree_t::selection_score(double c, int id) const {
   double up_num_sim = double(nodes[node.up].num_sim);
 
   double value = 0.0;
-  double cases = node.jid == -1 ? 1.0 : 2.0 ;
+  double f = 0.0;
+  double cases = node.jid == -1 ? 1.0 : (1.0 + f) ;
   if(node.jid != -1) {
     auto const& [cumul,n] = eq_classes[node.eq_class];
     double avg_m = cumul / double(n);
-    value += best.value().makespan / avg_m;
+    value += f * (best.value().makespan / avg_m);
   }
 
   value += best.value().makespan / (node.cumul_makespan / num_sim);
 
-  return value / cases + c * std::sqrt(
-    std::log( up_num_sim ) / node.num_sim
+  double ret = value / cases + c * std::sqrt(
+    std::log( up_num_sim ) / num_sim
   );
+  if(std::isnan(ret)) {
+    throw std::runtime_error("is nan score");
+  }
+  return ret;
 }
 
 optional<int> forward_mcts_tree_t::selection(double c) {
-  static int max_depth = 0;
-  if(c == 0.0) {
+  if(c < 0.0) {
     c = 1.4142135623730951;
   }
   int id = 0;
@@ -1107,7 +1112,6 @@ optional<int> forward_mcts_tree_t::selection(double c) {
       int d = depth(id);
       if(d > max_depth) {
         max_depth = d;
-        DOUT("MAX DEPTH " << max_depth);
       }
       return id;
     } else if(node.jid == -1) {
@@ -1175,6 +1179,7 @@ void forward_mcts_tree_t::expand_simulate_backprop(int top)
   while(id != 0) {
     auto& node = nodes[id];
     node.cumul_makespan += best_child_makespan;
+    node.num_sim += 1;
 
     if(node.jid == -1) {
       DOUT(id << " <id  it's jid> " << node.jid);
@@ -1187,6 +1192,9 @@ void forward_mcts_tree_t::expand_simulate_backprop(int top)
 
     id = node.up;
   }
+
+  nodes[0].cumul_makespan += best_child_makespan;
+  nodes[0].num_sim += 1;
 }
 
 tuple<forward_mcts_tree_t::sim_info_t, int, int>
@@ -1209,7 +1217,7 @@ forward_mcts_tree_t::simulate(
     .choose_location = [&, this](int jid) {
       if(cnt == -2 || cnt == -1) {
         int loc;
-        if(runif(2) == 1) {
+        if(runif(100) < 25) {
           loc = runif(num_locs);
         } else {
           vector<uint64_t> cnts;
@@ -1312,6 +1320,30 @@ int forward_mcts_tree_t::depth(int id) const {
     id = nodes[id].up;
   }
   return ret;
+}
+
+vector<int> forward_mcts_tree_t::get_best_locations() const {
+  auto const& choices = best.value().locs;
+  int i = 0;
+
+  decision_interface_t interface {
+    .choose_apply = [](int,      vector<int> const&      ) { return 0; },
+    .choose_move  = [](int, int, vector<tl_move_t> const&) { return 0; },
+    .choose_location = [&](int jid) {
+      auto const& [jid_, loc] = choices[i];
+      if(jid != jid_) {
+        throw std::runtime_error("invliad jid path");
+      }
+      i += 1;
+      return loc;
+    }
+  };
+
+  auto state = new_state();
+  while(!state.all_done()) {
+    state.step(interface);
+  }
+  return state.get_compute_locations();
 }
 
 bool operator==(mcts_eq_t const& lhs, mcts_eq_t const& rhs) {
