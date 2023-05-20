@@ -308,7 +308,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  cluster_t cluster = make_cluster(nlocs, 10, 1);
+  cluster_t cluster = make_cluster(nlocs, 3, 1);
 
   float learning_rate = 0.01;
 
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
 
   auto [graph, _] = ff.mgraph.compile();
   //auto graph = three_dimensional_matrix_multiplication(
-  //  2,2,2,
+  //  4,4,4,
   //  4000,4000,4000,
   //  nlocs);
 
@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
   for(int jid = 0; jid != twolayer.joins.size(); ++jid) {
     auto const& join = twolayer.joins[jid];
     if(join.deps.size() == 0) {
-      fixed_locations[jid] = runif(nlocs);
+      //fixed_locations[jid] = 0; // runif(nlocs);
     }
   }
 
@@ -373,8 +373,8 @@ int main(int argc, char** argv) {
   //  DOUT(mcts.best.value().makespan);
   //}
   for(int i = 0; i != 40 && !fini; ++i) {
-    for(int j = 0; j != 1000 && !fini; ++j) {
-      optional<int> mcts_leaf = mcts.selection(0.1);
+    for(int j = 0; j != 500 && !fini; ++j) {
+      optional<int> mcts_leaf = mcts.selection(0.03);
       if(mcts_leaf) {
         mcts.expand_simulate_backprop(mcts_leaf.value());
       } else {

@@ -1225,7 +1225,17 @@ forward_mcts_tree_t::simulate(
           for(int l = 0; l != num_locs; ++l) {
             cnts.push_back(state.extra_elems_to(jid, l));
           }
-          loc = std::min_element(cnts.begin(), cnts.end()) - cnts.begin();
+          // don't just pick the first min element, pick one of
+          // the min elements
+          uint64_t const& m = *std::min_element(cnts.begin(), cnts.end());
+          vector<int> idxs;
+          for(int l = 0; l != num_locs; ++l) {
+            if(cnts[l] == m) {
+              idxs.push_back(l);
+            }
+          }
+          loc = idxs[runif(idxs.size())];
+          //loc = std::min_element(cnts.begin(), cnts.end()) - cnts.begin();
         }
         choices.emplace_back(jid, loc);
         if(cnt == -1) {
