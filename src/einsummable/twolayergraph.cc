@@ -390,6 +390,16 @@ void twolayergraph_t::print_graphviz(
   out << "}" << endl;
 }
 
+int twolayergraph_t::num_input_joins() const {
+  int ret = 0;
+  for(auto const& join: joins) {
+    if(join.deps.size() == 0) {
+      ret += 1;
+    }
+  }
+  return ret;
+}
+
 vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
   vector<tensor_t<int>> const& g_to_tl)

@@ -331,6 +331,7 @@ int main(int argc, char** argv) {
   }
 
   auto [g_to_tl, equal_items, twolayer] = twolayergraph_t::make(graph);
+  DOUT("Number of input joins: " << twolayer.num_input_joins());
 
   {
     //vector<int> locations = graph_locations_to_twolayer(graph, g_to_tl);
@@ -347,7 +348,15 @@ int main(int argc, char** argv) {
     DOUT("Num locations to choose: " << locations.size());
   }
 
-  forward_mcts_tree_t mcts(cluster, twolayer, equal_items);
+  vector<int> fixed_locations(twolayer.joins.size(), -1);
+  for(int jid = 0; jid != twolayer.joins.size(); ++jid) {
+    auto const& join = twolayer.joins[jid];
+    if(join.deps.size() == 0) {
+      //fixed_locations[jid] = runif(nlocs);
+    }
+  }
+
+  forward_mcts_tree_t mcts(cluster, twolayer, equal_items, fixed_locations);
 
   DOUT("............");
   bool fini = false;

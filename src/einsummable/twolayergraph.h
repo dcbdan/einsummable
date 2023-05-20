@@ -91,6 +91,8 @@ struct twolayergraph_t {
     std::ostream&,
     std::function<string(int)> const& jid_to_color);
 
+  int num_input_joins() const;
+
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
   rid_t insert_empty_refinement();

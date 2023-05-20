@@ -1022,8 +1022,22 @@ forward_mcts_tree_t::forward_mcts_tree_t(
   cluster_t const& c,
   twolayergraph_t const& tl,
   equal_items_t<int> const& ecl)
-  : cluster(c), twolayer(tl), equal_compute_locations(ecl)
+  : forward_mcts_tree_t(c,tl,ecl, vector<int>(tl.joins.size(), -1))
+{}
+
+forward_mcts_tree_t::forward_mcts_tree_t(
+  cluster_t const& c,
+  twolayergraph_t const& tl,
+  equal_items_t<int> const& ecl,
+  vector<int> const& f)
+  : cluster(c), twolayer(tl),
+    equal_compute_locations(ecl),
+    fixed_compute_locations(f)
 {
+  if(fixed_compute_locations.size() != twolayer.joins.size()) {
+    throw std::runtime_error("invalid fixed compute locations given");
+  }
+
   forward_state_t state = new_state();
 
   int jid0 = -1;
@@ -1057,7 +1071,8 @@ forward_state_t forward_mcts_tree_t::new_state() const {
   return forward_state_t(
     cluster,
     twolayer,
-    equal_compute_locations);
+    equal_compute_locations,
+    fixed_compute_locations);
 }
 
 double forward_mcts_tree_t::selection_score(double c, int id) const {
@@ -1081,6 +1096,7 @@ double forward_mcts_tree_t::selection_score(double c, int id) const {
 }
 
 optional<int> forward_mcts_tree_t::selection(double c) {
+  static int max_depth = 0;
   if(c == 0.0) {
     c = 1.4142135623730951;
   }
@@ -1088,6 +1104,11 @@ optional<int> forward_mcts_tree_t::selection(double c) {
   while(true) {
     auto const& node = nodes[id];
     if(node.can_expand()) {
+      int d = depth(id);
+      if(d > max_depth) {
+        max_depth = d;
+        DOUT("MAX DEPTH " << max_depth);
+      }
       return id;
     } else if(node.jid == -1) {
       return std::nullopt;
@@ -1281,6 +1302,15 @@ vector<tuple<int, int>> forward_mcts_tree_t::locations_to(int id) const {
     ret.emplace_back(upp.jid, upp.get_which(id));
   }
 
+  return ret;
+}
+
+int forward_mcts_tree_t::depth(int id) const {
+  int ret = 0;
+  while(id != 0) {
+    ret += 1;
+    id = nodes[id].up;
+  }
   return ret;
 }
 

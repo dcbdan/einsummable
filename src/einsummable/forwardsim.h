@@ -341,6 +341,11 @@ struct forward_mcts_tree_t {
     cluster_t const& c,
     twolayergraph_t const& tl,
     equal_items_t<int> const& ecl);
+  forward_mcts_tree_t(
+    cluster_t const& c,
+    twolayergraph_t const& tl,
+    equal_items_t<int> const& ecl,
+    vector<int> const& fixed_locs);
 
   struct node_t {
     // have all leaf nodes be negative 1
@@ -377,7 +382,7 @@ struct forward_mcts_tree_t {
   cluster_t const& cluster;
   twolayergraph_t const& twolayer;
   equal_items_t<int> const& equal_compute_locations;
-  // TODO vector<int> const fixed_compute_locations;
+  vector<int> const fixed_compute_locations;
 
   std::unordered_map<mcts_eq_t, int> eq_class_to_id;
   vector<tuple<double, int>> eq_classes;
@@ -407,6 +412,8 @@ struct forward_mcts_tree_t {
 
   // get all jid,loc pairs to get to here
   vector<tuple<int, int>> locations_to(int id) const;
+
+  int depth(int id) const;
 };
 
 struct forward_node_t;
