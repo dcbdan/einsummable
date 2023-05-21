@@ -37,7 +37,7 @@ add_base_application("make_3dmatmul" "exps" "make_3dmatmul")
 add_base_application("reference"     "exps" "reference")
 add_base_application("copyregion"    "exps" "copyregion")
 add_base_application("scalarop"      "exps" "scalarop")
-add_base_application("forwardsim"    "exps" "forwardsim")
+add_base_application("forwardsim1"   "exps" "forwardsim1")
 add_base_application("autograph"     "exps" "autograph")
 
 if(${CPU_EXECUTION_ENGINE})
