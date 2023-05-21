@@ -1217,7 +1217,7 @@ forward_mcts_tree_t::simulate(
     .choose_location = [&, this](int jid) {
       if(cnt == -2 || cnt == -1) {
         int loc;
-        if(runif(100) < 25) {
+        if(runif(100) < 5) {
           loc = runif(num_locs);
         } else {
           vector<uint64_t> cnts;

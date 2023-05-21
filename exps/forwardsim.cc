@@ -308,7 +308,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  cluster_t cluster = make_cluster(nlocs, 3, 1);
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   float learning_rate = 0.01;
 
@@ -374,7 +374,7 @@ int main(int argc, char** argv) {
   //}
   for(int i = 0; i != 40 && !fini; ++i) {
     for(int j = 0; j != 500 && !fini; ++j) {
-      optional<int> mcts_leaf = mcts.selection(0.03);
+      optional<int> mcts_leaf = mcts.selection(0.05);
       if(mcts_leaf) {
         mcts.expand_simulate_backprop(mcts_leaf.value());
       } else {
