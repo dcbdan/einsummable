@@ -14,6 +14,12 @@ struct tensor_t {
 
   tensor_t(
     vector<int> const& shape,
+    T const& val):
+      tensor_t(shape, vector<T>(product(shape), val))
+  {}
+
+  tensor_t(
+    vector<int> const& shape,
     vector<T> const& vec):
       shape(shape), vec(vec)
   {

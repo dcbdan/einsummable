@@ -125,7 +125,6 @@ twolayergraph_t::make(graph_t const& graph)
     auto const& node = graph.nodes[graph_id];
 
     partition_t const& join_partition = node.placement.partition;
-    auto const& join_locations = node.placement.locations;
 
     auto join_block_shape = join_partition.block_shape();
     all_jids[graph_id] = tensor_t<int>(join_block_shape);
