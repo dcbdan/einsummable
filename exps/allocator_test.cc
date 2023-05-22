@@ -64,6 +64,10 @@ int main(int argc, char** argv) {
     pi,pj,pk, di,dj,dk, np);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+  // it could be the case that not all locs are actually used,
+  // for example 1 1 2 100 100 100 88
+  // Here only 2 locs will really be used, not all 88...
+  np = taskgraph.num_locs();
 
   // have everyone share the same cache
   vector<int> compute_loc_to_cache(np, 0);
