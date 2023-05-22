@@ -145,6 +145,12 @@ public:
     uint64_t size;
   };
 
+  struct partialize_t {
+    int loc;
+    uint64_t offset;
+    uint64_t size;
+  };
+
   struct del_t {
     int loc;
     uint64_t offset;
@@ -155,46 +161,54 @@ public:
   private:
     using _op_t = std::variant<
       input_t, apply_t, move_t,
-      evict_t, load_t, del_t>;
+      evict_t, load_t,
+      partialize_t, del_t>;
   public:
     op_t(_op_t op): op(op) { check_op(); }
 
-    op_t(input_t  x): op_t(_op_t(x)) {}
-    op_t(apply_t  x): op_t(_op_t(x)) {}
-    op_t(move_t   x): op_t(_op_t(x)) {}
-    op_t(evict_t  x): op_t(_op_t(x)) {}
-    op_t(load_t   x): op_t(_op_t(x)) {}
-    op_t(del_t    x): op_t(_op_t(x)) {}
+    op_t(input_t      x): op_t(_op_t(x)) {}
+    op_t(apply_t      x): op_t(_op_t(x)) {}
+    op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(evict_t      x): op_t(_op_t(x)) {}
+    op_t(load_t       x): op_t(_op_t(x)) {}
+    op_t(partialize_t x): op_t(_op_t(x)) {}
+    op_t(del_t        x): op_t(_op_t(x)) {}
 
-    bool is_input() const { return std::holds_alternative<input_t>(op); }
-    bool is_apply() const { return std::holds_alternative<apply_t>(op); }
-    bool is_move()  const { return std::holds_alternative<move_t>(op);  }
-    bool is_evict() const { return std::holds_alternative<evict_t>(op); }
-    bool is_load()  const { return std::holds_alternative<load_t>(op);  }
-    bool is_del()   const { return std::holds_alternative<del_t>(op);   }
+    bool is_input()      const { return std::holds_alternative<input_t>(op);      }
+    bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
+    bool is_move()       const { return std::holds_alternative<move_t>(op);       }
+    bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
+    bool is_load()       const { return std::holds_alternative<load_t>(op);       }
+    bool is_partialize() const { return std::holds_alternative<partialize_t>(op); }
+    bool is_del()        const { return std::holds_alternative<del_t>(op);        }
 
-    input_t const& get_input() const { return std::get<input_t>(op); }
-    apply_t const& get_apply() const { return std::get<apply_t>(op); }
-    move_t  const& get_move()  const { return std::get<move_t>(op);  }
-    evict_t const& get_evict() const { return std::get<evict_t>(op); }
-    load_t  const& get_load()  const { return std::get<load_t>(op);  }
-    del_t   const& get_del()   const { return std::get<del_t>(op);   }
+    input_t      const& get_input()      const { return std::get<input_t>(op);      }
+    apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
+    move_t       const& get_move()       const { return std::get<move_t>(op);       }
+    evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
+    load_t       const& get_load()       const { return std::get<load_t>(op);       }
+    partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+    del_t        const& get_del()        const { return std::get<del_t>(op);        }
 
     // get all the memlocs touched by
     // this operation
     vector<memloc_t> get_memlocs() const;
 
+    memloc_t get_output_memloc() const;
+    mem_t    get_output_mem() const;
+
   private:
     _op_t op;
 
-    void check_op()    const;
+    void check_op()         const;
 
-    void check_input() const;
-    void check_apply() const;
-    void check_move()  const;
-    void check_evict() const;
-    void check_load()  const;
-    void check_del()   const;
+    void check_input()      const;
+    void check_apply()      const;
+    void check_move()       const;
+    void check_evict()      const;
+    void check_load()       const;
+    void check_partialize() const;
+    void check_del()        const;
   };
 
   struct node_t {
@@ -301,18 +315,21 @@ struct memgraph_make_state_t {
     int num_compute,
     int num_cache);
 
-  using op_t    = memgraph_t::op_t;
-  using input_t = memgraph_t::input_t;
-  using apply_t = memgraph_t::apply_t;
-  using move_t  = memgraph_t::move_t;
-  using del_t   = memgraph_t::del_t;
+  using op_t         = memgraph_t::op_t;
+  using input_t      = memgraph_t::input_t;
+  using apply_t      = memgraph_t::apply_t;
+  using move_t       = memgraph_t::move_t;
+  using partialize_t = memgraph_t::partialize_t;
+  using del_t        = memgraph_t::del_t;
 
   void allocate_inputs();
 
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);
 
-  vector<int> task_to_mem(int task_id) const;
+  // This function will insert dummy partialize nodes
+  // if necessary.
+  int task_to_mem(int task_id);
 
   int get_group_at(int task_id, int unit_id);
 
@@ -327,8 +344,6 @@ struct memgraph_make_state_t {
 
   taskgraph_t const& taskgraph;
 
-  map<int, mem_t> input_to_mem;
-  map<int, mem_t> save_to_mem;
   memgraph_t memgraph;
 
   vector<allocator_t> allocators;
