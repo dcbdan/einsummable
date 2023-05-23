@@ -50,7 +50,6 @@ set<int> const& forward_state_t::can_assign_partition() const {
 }
 
 void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
-  DOUT("ASSIGN PARTITION " << gid);
   if(new_part.total_shape() != graph.nodes[gid].op.shape()) {
     throw std::runtime_error("given partition has incorrect total shape");
   }
@@ -109,6 +108,24 @@ void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
   worker.start_work(which, time, move_time);
 }
 
+void forward_state_t::enqueue_all() {
+  for(int loc = 0; loc != cluster.devices.size(); ++loc) {
+    int n = apply_workers[loc].get_pending().size();
+    for(int i = 0; i != n; ++i) {
+      enqueue_apply_worker(loc, 0);
+    }
+  }
+
+  for(auto const& connection: cluster.connections) {
+    int src = connection.src;
+    int dst = connection.dst;
+    int n = get_move_worker(src, dst).get_pending().size();
+    for(int i = 0; i != n; ++i) {
+      enqueue_move_worker(src, dst, 0);
+    }
+  }
+}
+
 forward_state_t::completed_t
 forward_state_t::pop_work()
 {
@@ -135,7 +152,7 @@ forward_state_t::pop_work()
   }
 
   if(items.size() == 0) {
-    throw std::runtime_error("pop work: not work to pop");
+    throw std::runtime_error("pop work: no work to pop");
   }
 
   auto const& [_, is_apply, which] = *std::min_element(items.begin(), items.end());
@@ -151,6 +168,9 @@ forward_state_t::pop_work()
     uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
 
     apply_worker.finish_work();
+
+    ec_join(jid);
+
     return completed_t(start, finish, loc, gid, bid, flops);
   } else {
     auto& move_worker = move_workers[which];
@@ -166,6 +186,8 @@ forward_state_t::pop_work()
 
     move_worker.finish_work();
 
+    ec_move(rid, uid, dst);
+
     return completed_t(start, finish, src, dst, gid, bid, uid, size);
   }
 }
@@ -177,13 +199,13 @@ void forward_state_t::ec_assign_location(jid_t jid) {
   // if the join objects haven't been setup, then no
   // computation can get started and the src can't
   // be setup
-  if(ginfo.joins) {
+  if(!ginfo.joins) {
     return;
   }
 
   int const& loc = ginfo.locs.value()[bid];
+  join_t const& join = ginfo.joins.value()[bid];
   if(ginfo.refis) {
-    join_t const& join = ginfo.joins.value()[bid];
     vector<refinement_t> const& refis = ginfo.refis.value();
 
     // we may now be able to setup outgoing units
@@ -198,15 +220,17 @@ void forward_state_t::ec_assign_location(jid_t jid) {
         }
       }
     }
+  }
 
-    // add a dst to the dependent refinements
-    for(auto const& rid: join.deps) {
-      if(can_add_refi_dst(rid, loc)) {
-        add_refi_dst(rid, loc);
-      }
+  // add a dst to the dependent refinements
+  for(auto const& rid: join.deps) {
+    if(can_add_refi_dst(rid, loc)) {
+      add_refi_dst(rid, loc);
     }
   }
 
+  // Note: the schedule join may have been triggered from above,
+  //       but can be called multiple times
   vector<int> const& compute_status = ginfo.compute_status.value();
   if(compute_status[bid] == 0) {
     int const& loc = ginfo.locs.value()[bid];
@@ -226,7 +250,7 @@ void forward_state_t::ec_assign_partition(int gid) {
   // setup the compute locations to all contain -1 initially
   auto const& node = graph.nodes[gid];
   ginfo.locs = vector<int>(
-    product(ginfo.partition.value().block_shape())
+    product(ginfo.partition.value().block_shape()),
     -1);
 
   // see if the input refinements can be setup
@@ -293,7 +317,6 @@ partition_t union_partitions(vector<partition_t> const& ps)
 }
 
 void forward_state_t::setup_refinement_partition(int join_id) {
-  DOUT("SETUP REFINEMENT PARTITION " << join_id);
   auto const& join_node = graph.nodes[join_id];
   vector<partition_t> usage_partitions;
   usage_partitions.reserve(2*join_node.outs.size());
@@ -339,7 +362,6 @@ bool forward_state_t::can_setup_refis(int gid) const {
 }
 
 void forward_state_t::setup_refis(int graph_id) {
-  DOUT("SETUP REFIS " << graph_id);
   auto const& node = graph.nodes[graph_id];
   auto& ginfo = ginfos[graph_id];
 
@@ -459,7 +481,6 @@ bool forward_state_t::can_setup_joins(int gid) const {
 }
 
 void forward_state_t::setup_joins(int graph_id) {
-  DOUT("SETUP JOIN " << graph_id);
   auto const& node = graph.nodes[graph_id];
   auto& ginfo = ginfos[graph_id];
 
@@ -701,7 +722,7 @@ void forward_state_t::ec_refinement(rid_t rid, int dst) {
       if(cnt < 0) {
         throw std::runtime_error("how can count go below zero: ec_refinement");
       } else if(cnt == 0) {
-        apply_workers[loc].add_to_pending(jid_t {out_gid, out_bid});
+        schedule_join(jid_t { out_gid, out_bid }, loc);
       }
     }
   }
@@ -712,6 +733,16 @@ void forward_state_t::ec_join(jid_t jid) {
 
   auto const& [gid,bid] = jid;
   auto& ginfo = ginfos[gid];
+
+  // Update the compute status
+  {
+    vector<int>& compute_status = ginfo.compute_status.value();
+    int& cnt = compute_status[bid];
+    cnt -= 1;
+    if(cnt != -1) {
+      throw std::runtime_error("invalid compute status in ec_join");
+    }
+  }
 
   if(!ginfo.joins || !ginfo.refis || !ginfo.move_status) {
     return;
@@ -767,7 +798,7 @@ void forward_state_t::add_refi_dst(rid_t rid, int dst) {
     for(int uid = 0; uid != refi.units.size(); ++uid) {
       unit_status_t& unit_status = move_status.unit_status[uid];
       if(unit_status.is_setup) {
-        int num_srcs = unit_status.num_move_rem.size();
+        int num_srcs = unit_status.num_join_rem.size();
         unit_status.num_move_rem[dst] = num_srcs;
 
         for(auto const& [src,num_rem]: unit_status.num_join_rem) {
@@ -782,8 +813,8 @@ void forward_state_t::add_refi_dst(rid_t rid, int dst) {
 
 void forward_state_t::schedule_join(jid_t jid, int loc) {
   auto const& [gid, bid] = jid;
-  if(graph.nodes[gid].op.is_input()) {
-    // inputs happen immediately
+  if(!graph.nodes[gid].op.is_einsummable()) {
+    // inputs and formations happen immediately
     ec_join(jid);
     return;
   }
@@ -822,3 +853,13 @@ bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const&
   return two_tuple_lt(lhs, rhs);
 }
 
+std::ostream& operator<<(std::ostream& out, forward_state_t::jid_t const& jid) {
+  auto const& [gid,bid] = jid;
+  out << "jid{" << gid << "," << bid << "}";
+  return out;
+}
+std::ostream& operator<<(std::ostream& out, forward_state_t::rid_t const& rid) {
+  auto const& [gid,bid] = rid;
+  out << "rid{" << gid << "," << bid << "}";
+  return out;
+}

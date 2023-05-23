@@ -20,6 +20,10 @@ struct worker_t {
     return pending;
   }
 
+  T const& get_pending(int which) const {
+    return pending[which];
+  }
+
   void finish_work() {
     in_progress.pop();
   }
@@ -47,8 +51,6 @@ struct worker_t {
 
     pending.erase(pending.begin() + which_pending);
   }
-
-  T const& get_pending(int which) const { return pending[which]; }
 
 private:
   // all of these things will happen in fifo order
@@ -133,6 +135,9 @@ struct forward_state_t {
   void enqueue_move_worker(int src, int dst, int which);
 
   completed_t pop_work();
+
+  ////////////
+  void enqueue_all();
 
 private:
   // ec = Event Completed
@@ -326,3 +331,5 @@ bool operator< (forward_state_t::jid_t const& lhs, forward_state_t::jid_t const&
 bool operator==(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
 bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
 
+std::ostream& operator<<(std::ostream&, forward_state_t::jid_t const&);
+std::ostream& operator<<(std::ostream&, forward_state_t::rid_t const&);
