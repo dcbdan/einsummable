@@ -48,12 +48,14 @@ int main() {
 
   int nlocs = 4;
 
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
+
   auto graph = three_dimensional_matrix_multiplication(
     4,4,4,
     4000,4000,4000,
     nlocs);
 
-  forward_state_t state(graph);
+  forward_state_t state(cluster, graph);
 
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];

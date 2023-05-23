@@ -4,6 +4,58 @@
 #include "graph.h"
 #include "cluster.h"
 
+template <typename T>
+struct worker_t {
+  worker_t() {}
+
+  bool is_in_progress() const {
+    return in_progress.size() > 0;
+  }
+
+  tuple<double, double, T> const& get_in_progress() const {
+    return in_progress.front();
+  }
+
+  vector<T> const& get_pending() const {
+    return pending;
+  }
+
+  void finish_work() {
+    in_progress.pop();
+  }
+
+  void add_to_pending(T const& new_work) {
+    for(auto const& pending_work: pending) {
+      if(new_work == pending_work) {
+        return;
+      }
+    }
+    pending.push_back(new_work);
+  }
+
+  void start_work(int which_pending, double time_now, double total_work_time) {
+    double start_time;
+    if(is_in_progress()) {
+      double const& last_finish = std::get<1>(in_progress.back());
+      start_time = std::max(time_now, last_finish);
+    } else {
+      start_time = time_now;
+    }
+
+    T const& work = pending[which_pending];
+    in_progress = {start_time, start_time + total_work_time, work};
+
+    pending.erase(pending.begin() + which_pending);
+  }
+
+private:
+  // all of these things will happen in fifo order
+  std::queue<tuple<double, double, T>> in_progress;
+
+  // these things can happen
+  vector<T> pending;
+};
+
 // Actions:
 //   partition
 //   enqueue worker
@@ -63,19 +115,16 @@ struct forward_state_t {
     std::variant<done_move_t, done_apply_t> c;
   };
 
-  forward_state_t(graph_t const& g);
+  forward_state_t(cluster_t const& cl, graph_t const& g);
+
+  bool all_done() const; // TODO
 
   // get all gids that can currently be given a partition
   set<int> const& can_assign_partition() const;
 
-  // get all bids at graph node gid that can currently be given a location
-  vector<int> can_assign_location(int gid);
-  // TODO
-
   void assign_partition(int gid, partition_t const& part);
 
   void assign_location(jid_t jid, int loc);
-  // TODO
 
   void enqueue_apply_worker(int loc, int which);
   // TODO
@@ -99,15 +148,15 @@ private:
   // graph node can have the the joins setup
   void ec_setup_refinement(int gid);
 
-  // Setup these joins once the usage partition of gid can be
-  // established
+  // Once the joins are setup, it may be possible to add
+  // them to the things that can be computed
+  // Once the joins are setup, the refis may be setup
   void ec_setup_joins(int gid);
-  // TODO
 
   // Once a location has been assigned, it may
   // be the case that an agg unit is now available
+  // or if this is an input, the computation can be completed
   void ec_assign_location(jid_t jid);
-  // TODO
 
   // Once a move is completed, an agg unit at dst is that
   // move closer to being complete.
@@ -128,11 +177,12 @@ private:
 
   // Once a join completes, the outgoing agg units at
   // the computed location have one less dependent
-  void ec_join(int jid);
-  // TODO
+  void ec_join(jid_t jid);
+
+  // TODO: schedule_move  ; (for loc->loc, bypass)
+  // TODO: schedule_apply ? (if input,     bypass)
 
 private:
-
   // An agg unit is something that will get summed.
   // So if Y = X1 + X2 + X3 + X4 at locations
   //       0    0   1    1    2
@@ -144,7 +194,7 @@ private:
   // The size variable how much of each input it takes.
   struct agg_unit_t {
     uint64_t size;
-    vector<int> deps; // these are the bids of the graph node that
+    vector<int> deps; // these are the join bids of the graph node that
                       // this agg unit belongs to
   };
 
@@ -182,33 +232,94 @@ private:
   };
 
 private:
+  cluster_t const& cluster;
   graph_t const& graph;
+
+  // TODO: Find wherever you are inserting a dependency and check that
+  //       all relevant metadata is being updated.
+  // TODO: whenever assigning a location, go to each input unit and potentially
+  //       setup the new destination
+  // TODO: whenever assigning a location, go to each output unit and setup the
+  //       unit
+
+  struct unit_status_t {
+    unit_status_t();
+
+    bool is_setup;
+
+    // src -> # of joins left until move from
+    //        src can occur
+    map<int, int> num_join_rem;
+    // if is_setup, num_join_rem.keys() contains all src
+    // this relies on
+
+    // dst -> # of moves from each src left
+    map<int, int> num_move_rem;
+    // num_move_rem.keys() contains all dst that this should
+    // end up at. It should be updated whenever a new dst is added
+    // (if is_setup is true)
+
+    set<int> dsts() const;
+  };
+  struct move_status_t {
+    move_status_t(int n);
+
+    vector<unit_status_t> us;
+
+    // dst -> number of agg units remaining
+    map<int, int> num_unit_rem;
+    // num_unit_rem.keys() contains all dst that this
+    // should eventually end up at. It should be updated
+    // whenever a new dst is added.
+  };
 
   struct graph_node_info_t {
     graph_node_info_t();
 
     optional<partition_t> partition;
-    optional<tensor_t<int>> locs;
+    optional<vector<int>> locs;
 
-    optional<tensor_t<join_t>> joins;
+    // -1 = has been comptued
+    //  0 = can be computed or is being computed
+    // >0 = this many tensor fractions must be moved or computed
+    optional<vector<int>> compute_status;
+
+    optional<vector<join_t>> joins;
 
     optional<partition_t> refinement_partition;
-    optional<tensor_t<refinement_t>> refis;
+    optional<vector<refinement_t>> refis;
+    optional<vector<move_status_t>> move_status;
   };
 
   vector<graph_node_info_t> ginfos;
 
   set<int> can_partition;
 
+  vector<worker_t<jid_t>> apply_workers;
+
+  // each worker processes rid,uid pairs
+  vector<worker_t<tuple<rid_t,int>>> move_workers;
+
+  // map src,dst to an index
+  map<tuple<int,int>, int> const& to_move_worker;
+
+  int num_join_remaining; // TODO
+
+  float time;
+
 private:
   bool can_setup_joins(int gid) const;
   void setup_joins(int gid);
+  void setup_compute_status(int gid); // triggerd by setup_joins
 
   bool can_setup_refinement_partition(int gid) const;
   void setup_refinement_partition(int gid);
 
   bool can_setup_refis(int gid) const;
   void setup_refis(int gid);
+
+  bool can_setup_unit_status(rid_t rid, int uid) const;
+  void setup_unit_status(rid_t rid, int uid);
 };
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);

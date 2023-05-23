@@ -1,21 +1,44 @@
 #include "forwardsim.h"
 #include "copyregion.h"
 
-forward_state_t::forward_state_t(graph_t const& g)
-  : graph(g),
-    ginfos(g.nodes.size())
+forward_state_t::forward_state_t(cluster_t const& c, graph_t const& g)
+  : cluster(c), graph(g),
+    ginfos(g.nodes.size()),
+    apply_workers(c.devices.size()),
+    move_workers(c.connections.size()),
+    to_move_worker(cluster.to_connection),
+    num_join_remaining(0),
+    time(0.0)
 {
   vector<int> cs(g.nodes.size());
   std::iota(cs.begin(), cs.end(), 0);
   can_partition.insert(cs.begin(), cs.end());
 }
 
+forward_state_t::unit_status_t::unit_status_t()
+  : is_setup(false)
+{}
+
+set<int> forward_state_t::unit_status_t::dsts() const {
+  set<int> ret;
+  for(auto const& [dst,_]: num_move_rem) {
+    ret.insert(dst);
+  }
+  return ret;
+};
+
+forward_state_t::move_status_t::move_status_t(int n)
+  : us(n)
+{}
+
 forward_state_t::graph_node_info_t::graph_node_info_t()
   : partition(std::nullopt),
     joins(std::nullopt),
+    compute_status(std::nullopt),
     locs(std::nullopt),
     refinement_partition(std::nullopt),
-    refis(std::nullopt)
+    refis(std::nullopt),
+    move_status(std::nullopt)
 {}
 
 set<int> const& forward_state_t::can_assign_partition() const {
@@ -28,6 +51,10 @@ void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
     throw std::runtime_error("given partition has incorrect total shape");
   }
 
+  if(can_partition.count(gid) == 0) {
+    throw std::runtime_error("cannot partition: not in can_partition");
+  }
+
   auto& partition = ginfos[gid].partition;
   if(partition) {
     throw std::runtime_error("this has already been given a partition");
@@ -38,11 +65,66 @@ void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
   ec_assign_partition(gid);
 }
 
+void forward_state_t::assign_location(jid_t jid, int loc) {
+  auto const& [gid,bid] = jid;
+
+  if(loc < 0 || loc >= cluster.devices.size()) {
+    throw std::runtime_error("cannot assign with this loc");
+  }
+
+  auto& ginfo = ginfos[gid];
+  if(!ginfo.locs) {
+    throw std::runtime_error("must assign partition before assigning location");
+  }
+
+  vector<int>& locs = ginfo.locs.value();
+  if(locs[bid] != -1) {
+    throw std::runtime_error("this location has already been assigned");
+  }
+
+  locs[bid] = loc;
+
+  ec_assign_location(jid);
+}
+
+void forward_state_t::ec_assign_location(jid_t jid) {
+  auto const& [gid,bid] = jid;
+  auto const& ginfo = ginfos[gid];
+
+  // if the join objects haven't been setup, then no
+  // computation can get started
+  if(ginfo.joins) {
+    return;
+  }
+
+  vector<int> const& compute_status = ginfo.compute_status.value();
+  if(compute_status[bid] == 0) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      // for input nodes, just finish the computation right away
+      ec_join(jid);
+    } else {
+      // otherwise, give the work to the worker
+      int const& loc = ginfo.locs.value()[bid];
+      apply_workers[loc].add_to_pending({gid, bid});
+    }
+  }
+}
+
 void forward_state_t::ec_assign_partition(int gid) {
+  auto& ginfo = ginfos[gid];
+
+  // can partition update
+  can_partition.erase(gid);
+
+  // num_join_remaining must get incremented
+  num_join_remaining += product(ginfo.partition.value().block_shape());
+
   // setup the compute locations to all contain -1 initially
   auto const& node = graph.nodes[gid];
-  auto& ginfo = ginfos[gid];
-  ginfo.locs = tensor_t<int>(ginfo.partition.value().block_shape(), -1);
+  ginfo.locs = vector<int>(
+    product(ginfo.partition.value().block_shape())
+    -1);
 
   // see if refinements can be setup
   auto inns = node.get_inns_set();
@@ -181,8 +263,9 @@ void forward_state_t::setup_refis(int graph_id) {
 
   // set up the refinement nodes
   auto refi_shape = refi_partition.block_shape();
-  ginfo.refis = tensor_t<refinement_t>(refi_shape);
-  tensor_t<refinement_t>& refis = ginfo.refis.value();
+
+  ginfo.refis = vector<refinement_t>(product(refi_shape));
+  vector<refinement_t>& refis = ginfo.refis.value();
 
   auto& joins = ginfo.joins.value();
 
@@ -196,7 +279,7 @@ void forward_state_t::setup_refis(int graph_id) {
       vector<uint64_t> read_shape = vector_from_each_member(
         get_regions.info, uint64_t, size);
 
-      auto& refi = refis.at(refi_index);
+      auto& refi = refis[idxs_to_index(refi_shape, refi_index)];
       refi.units.push_back(agg_unit_t {
         .size = product(read_shape),
         .deps = {}
@@ -224,10 +307,27 @@ void forward_state_t::setup_refis(int graph_id) {
       // joins know they have an output here
       int refi_bid = idxs_to_index(refi_shape, refi_index);
       for(auto const& dep_join_bid: deps) {
-        joins.get()[dep_join_bid].outs.insert(refi_bid);
+        joins[dep_join_bid].outs.insert(refi_bid);
       }
     } while(get_regions.increment());
   } while(increment_idxs(out_shape, out_index));
+
+  // Now setup move_status where possible
+  ginfo.move_status = vector<move_status_t>();
+  vector<move_status_t>& move_status = ginfo.move_status.value();
+  int n_bid = product(refi_shape);
+  move_status.reserve(n_bid);
+  for(int bid = 0; bid != n_bid; ++bid) {
+    auto const& refi = refis[bid];
+    int n_uid = refi.units.size();
+    move_status.emplace_back(n_uid);
+    rid_t rid { graph_id, bid };
+    for(int uid = 0; uid != n_uid; ++uid) {
+      if(can_setup_unit_status(rid, uid)) {
+        setup_unit_status(rid, uid);
+      }
+    }
+  }
 }
 
 bool forward_state_t::can_setup_joins(int gid) const {
@@ -262,14 +362,14 @@ void forward_state_t::setup_joins(int graph_id) {
 
   auto join_block_shape = join_partition.block_shape();
 
-  ginfo.joins = tensor_t<join_t>(join_block_shape);
-  tensor_t<join_t>& join_infos = ginfo.joins.value();
+  ginfo.joins = vector<join_t>(product(join_block_shape));
+  vector<join_t>& join_infos = ginfo.joins.value();
 
   vector<int> join_index(join_block_shape.size(), 0);
 
   do {
     int join_bid = idxs_to_index(join_block_shape, join_index);
-    join_t& join_info = join_infos.at(join_index);
+    join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
 
     // flops
     //   input nodes: 0
@@ -328,7 +428,7 @@ void forward_state_t::setup_joins(int graph_id) {
         do {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
           join_info.deps.push_back(rid_t { inn, inn_refi_bid });
-          inn_refis.get()[inn_refi_bid].outs.insert(jid_t { graph_id, join_bid });
+          inn_refis[inn_refi_bid].outs.insert(jid_t { graph_id, join_bid });
         } while(increment_idxs_region(inn_region, inn_index));
       }
     }
@@ -337,10 +437,117 @@ void forward_state_t::setup_joins(int graph_id) {
   ec_setup_joins(graph_id);
 }
 
+void forward_state_t::setup_compute_status(int gid) {
+  // TODO: besides inputs, can the compute status be zero?
+
+  auto& ginfo = ginfos[gid];
+
+  auto const& joins = ginfo.joins.value();
+
+  ginfo.compute_status = vector<int>(joins.size());
+  vector<int>& compute_status = ginfo.compute_status.value();
+
+  for(int bid = 0; bid != joins.size(); ++bid) {
+    compute_status[bid] = joins[bid].deps.size();
+  }
+}
+
 void forward_state_t::ec_setup_joins(int gid) {
+  setup_compute_status(gid);
+
   if(can_setup_refis(gid)) {
     setup_refis(gid);
   }
+
+  auto const& node = graph.nodes[gid];
+  auto const& ginfo = ginfos[gid];
+  vector<int> const& locs = ginfo.locs.value();
+  if(node.op.is_input()) {
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      if(locs[bid] >= 0) {
+        ec_join(jid_t { gid, bid });
+      }
+    }
+  } else {
+    vector<int> const& status = ginfo.compute_status.value();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      int const& loc = locs[bid];
+      if(loc >= 0 && status[bid] == 0) {
+        apply_workers[loc].add_to_pending({gid, bid});
+      }
+    }
+
+  }
+}
+
+bool forward_state_t::can_setup_unit_status(rid_t rid, int uid) const {
+  auto const& [gid, bid] = rid;
+
+  auto const& ginfo = ginfos[gid];
+  if(!ginfo.move_status) {
+    // got to set up the refinements first
+    return false;
+  }
+
+  move_status_t const& ms = ginfo.move_status.value()[bid];
+  unit_status_t const& us = ms.us[uid];
+  if(us.is_setup) {
+    // already setup, can't do it again
+    return false;
+  }
+
+  refinement_t const& refi = ginfo.refis.value()[bid];
+  auto const& unit = refi.units[uid];
+  vector<int> const& locs = ginfo.locs.value();
+  for(int const& inn_join_bid: unit.deps) {
+    if(locs[inn_join_bid] == -1) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void forward_state_t::setup_unit_status(rid_t rid, int uid) {
+  auto const& [gid,bid] = rid;
+  auto& ginfo = ginfos[gid];
+
+  refinement_t const& refi = ginfo.refis.value()[bid];
+  agg_unit_t const& unit = refi.units[uid];
+  vector<int> const& locs = ginfo.locs.value();
+  vector<int> const& compute_status = ginfo.compute_status.value();
+
+  move_status_t& move_status = ginfo.move_status.value()[bid];
+  unit_status_t& unit_status = move_status.us[uid];
+
+  for(int const& join_bid: unit.deps) {
+    int const& src = locs[join_bid];
+    int& cnt = unit_status.num_join_rem[src];
+    if(compute_status[join_bid] != -1) {
+      cnt += 1;
+    }
+  }
+  int num_srcs = unit_status.num_join_rem.size();
+
+  for(auto const& [out_gid, out_bid]: refi.outs) {
+    int const& dst = ginfos[out_gid].locs.value()[out_bid];
+    unit_status.num_move_rem.insert({dst, num_srcs});
+  }
+
+  for(auto const& [src,num_rem]: unit_status.num_join_rem) {
+    if(num_rem == 0) {
+      for(int const& dst: unit_status.dsts()) {
+        // TODO: schedule the move
+      }
+    }
+  }
+
+  unit_status.is_setup = true;
+}
+
+void forward_state_t::ec_join(jid_t jid) {
+  auto const& [gid,bid] = jid;
+  // TODO
 }
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
