@@ -117,7 +117,7 @@ struct forward_state_t {
 
   forward_state_t(cluster_t const& cl, graph_t const& g);
 
-  bool all_done() const; // TODO
+  bool all_done() const;
 
   // get all gids that can currently be given a partition
   set<int> const& can_assign_partition() const;
@@ -163,21 +163,19 @@ private:
   // (This should be called even when the src location
   //  is dst and thus a physical move didn't actually happen)
   void ec_move(rid_t rid, int uid, int dst);
-  // TODO
 
   // Once an agg unit at some dst has completed,
   // the corresponding refinement has one less dependent
-  void ec_agg_unit(rid_t rid, int uid, int dst);
-  // TODO
+  void ec_agg_unit(rid_t rid, int dst);
 
   // Once a refinment at dst has completed, the outgoing joins at
   // dst have one less dependency to wait for
   void ec_refinement(rid_t rid, int dst);
-  // TODO
 
   // Once a join completes, the outgoing agg units at
   // the computed location have one less dependent
   void ec_join(jid_t jid);
+  // TODO
 
   // TODO: schedule_move  ; (for loc->loc, bypass)
   // TODO: schedule_apply ? (if input,     bypass)
@@ -264,7 +262,7 @@ private:
   struct move_status_t {
     move_status_t(int n);
 
-    vector<unit_status_t> us;
+    vector<unit_status_t> unit_status;
 
     // dst -> number of agg units remaining
     map<int, int> num_unit_rem;
@@ -303,7 +301,7 @@ private:
   // map src,dst to an index
   map<tuple<int,int>, int> const& to_move_worker;
 
-  int num_join_remaining; // TODO
+  int num_join_remaining;
 
   float time;
 

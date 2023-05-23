@@ -28,7 +28,7 @@ set<int> forward_state_t::unit_status_t::dsts() const {
 };
 
 forward_state_t::move_status_t::move_status_t(int n)
-  : us(n)
+  : unit_status(n)
 {}
 
 forward_state_t::graph_node_info_t::graph_node_info_t()
@@ -40,6 +40,10 @@ forward_state_t::graph_node_info_t::graph_node_info_t()
     refis(std::nullopt),
     move_status(std::nullopt)
 {}
+
+bool forward_state_t::all_done() const {
+  return can_partition.size() == 0 && num_join_remaining == 0;
+}
 
 set<int> const& forward_state_t::can_assign_partition() const {
   return can_partition;
@@ -473,7 +477,7 @@ void forward_state_t::ec_setup_joins(int gid) {
     for(int bid = 0; bid != locs.size(); ++bid) {
       int const& loc = locs[bid];
       if(loc >= 0 && status[bid] == 0) {
-        apply_workers[loc].add_to_pending({gid, bid});
+        apply_workers[loc].add_to_pending(jid_t {gid, bid});
       }
     }
 
@@ -490,7 +494,7 @@ bool forward_state_t::can_setup_unit_status(rid_t rid, int uid) const {
   }
 
   move_status_t const& ms = ginfo.move_status.value()[bid];
-  unit_status_t const& us = ms.us[uid];
+  unit_status_t const& us = ms.unit_status[uid];
   if(us.is_setup) {
     // already setup, can't do it again
     return false;
@@ -518,7 +522,7 @@ void forward_state_t::setup_unit_status(rid_t rid, int uid) {
   vector<int> const& compute_status = ginfo.compute_status.value();
 
   move_status_t& move_status = ginfo.move_status.value()[bid];
-  unit_status_t& unit_status = move_status.us[uid];
+  unit_status_t& unit_status = move_status.unit_status[uid];
 
   for(int const& join_bid: unit.deps) {
     int const& src = locs[join_bid];
@@ -545,8 +549,67 @@ void forward_state_t::setup_unit_status(rid_t rid, int uid) {
   unit_status.is_setup = true;
 }
 
+void forward_state_t::ec_move(rid_t rid, int uid, int dst) {
+  auto const& [gid, bid] = rid;
+
+  auto& ginfo = ginfos[gid];
+
+  move_status_t& move_status = ginfo.move_status.value()[bid];
+  unit_status_t& unit_status = move_status.unit_status[uid];
+
+  int& cnt = unit_status.num_move_rem[dst];
+  cnt -= 1;
+  if(cnt < 0) {
+    throw std::runtime_error("how can count go below zero: ec_move");
+  } else if(cnt == 0) {
+    ec_agg_unit(rid, dst);
+  }
+}
+
+void forward_state_t::ec_agg_unit(rid_t rid, int dst) {
+  auto const& [gid, bid] = rid;
+
+  auto& ginfo = ginfos[gid];
+
+  move_status_t& move_status = ginfo.move_status.value()[bid];
+
+  int& cnt = move_status.num_unit_rem[dst];
+  cnt -= 1;
+  if(cnt < 0) {
+    throw std::runtime_error("how can count go below zero: ec_agg_unit");
+  } else if(cnt == 0) {
+    ec_refinement(rid, dst);
+  }
+}
+
+void forward_state_t::ec_refinement(rid_t rid, int dst) {
+  auto const& [gid, bid] = rid;
+
+  auto& ginfo = ginfos[gid];
+
+  refinement_t const& refi = ginfo.refis.value()[bid];
+  for(auto const& [out_gid, out_bid]: refi.outs) {
+    auto& out_ginfo = ginfos[out_gid];
+    vector<int> const& locs = out_ginfo.locs.value();
+    int const& loc = locs[out_bid];
+    if(loc == dst) {
+      vector<int>& compute_status = out_ginfo.compute_status.value();
+      int& cnt = compute_status[out_bid];
+      cnt -= 1;
+      if(cnt < 0) {
+        throw std::runtime_error("how can count go below zero: ec_refinement");
+      } else if(cnt == 0) {
+        apply_workers[loc].add_to_pending(jid_t {out_gid, out_bid});
+      }
+    }
+  }
+}
+
 void forward_state_t::ec_join(jid_t jid) {
+  num_join_remaining -= 1;
+
   auto const& [gid,bid] = jid;
+
   // TODO
 }
 
