@@ -91,6 +91,24 @@ void forward_state_t::assign_location(jid_t jid, int loc) {
   ec_assign_location(jid);
 }
 
+void forward_state_t::enqueue_apply_worker(int loc, int which) {
+  auto& worker = apply_workers[loc];
+  auto const& [gid,bid] = worker.get_pending(which);
+  uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
+  double compute_time = cluster.compute(loc, flops);
+  worker.start_work(which, time, compute_time);
+}
+
+void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
+  auto& worker = get_move_worker(src, dst);
+  auto const& [rid,uid] = worker.get_pending(which);
+  auto const& [gid, bid] = rid;
+  auto const& refi = ginfos[gid].refis.value()[bid];
+  uint64_t const& elems = refi.units[uid].size;
+  double move_time = cluster.move(src, dst, sizeof(float)*elems);
+  worker.start_work(which, time, move_time);
+}
+
 void forward_state_t::ec_assign_location(jid_t jid) {
   auto const& [gid,bid] = jid;
   auto const& ginfo = ginfos[gid];

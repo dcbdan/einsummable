@@ -43,10 +43,12 @@ struct worker_t {
     }
 
     T const& work = pending[which_pending];
-    in_progress = {start_time, start_time + total_work_time, work};
+    in_progress.push({start_time, start_time + total_work_time, work});
 
     pending.erase(pending.begin() + which_pending);
   }
+
+  T const& get_pending(int which) const { return pending[which]; }
 
 private:
   // all of these things will happen in fifo order
@@ -127,10 +129,8 @@ struct forward_state_t {
   void assign_location(jid_t jid, int loc);
 
   void enqueue_apply_worker(int loc, int which);
-  // TODO
 
   void enqueue_move_worker(int src, int dst, int which);
-  // TODO
 
   completed_t pop_work();
   // TODO
