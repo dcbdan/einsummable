@@ -228,9 +228,6 @@ private:
   cluster_t const& cluster;
   graph_t const& graph;
 
-  // TODO: Find wherever you are inserting a dependency and check that
-  //       all relevant metadata is being updated.
-
   struct unit_status_t {
     unit_status_t();
 
@@ -298,10 +295,11 @@ private:
 
   float time;
 
+  // TODO: go through and add access methods to refis given rid
+  //       and joins given jid and so on
 private:
   bool can_setup_joins(int gid) const;
   void setup_joins(int gid);
-  void setup_compute_status(int gid); // triggerd by setup_joins
 
   bool can_setup_refinement_partition(int gid) const;
   void setup_refinement_partition(int gid);
@@ -319,6 +317,8 @@ private:
   worker_t<tuple<rid_t, int>>& get_move_worker(int src, int dst);
 
   void schedule_join(jid_t jid, int loc);
+
+  void insert_refi_out(rid_t rid, jid_t jid);
 };
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);

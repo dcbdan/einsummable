@@ -229,7 +229,7 @@ void forward_state_t::ec_assign_partition(int gid) {
     product(ginfo.partition.value().block_shape())
     -1);
 
-  // see if refinements can be setup
+  // see if the input refinements can be setup
   auto inns = node.get_inns_set();
   if(inns.size() == 0) {
     setup_joins(gid);
@@ -237,6 +237,8 @@ void forward_state_t::ec_assign_partition(int gid) {
     for(auto const& gid_inn: node.get_inns_set()) {
       if(can_setup_refinement_partition(gid_inn)) {
         setup_refinement_partition(gid_inn);
+        // this will in turn call setup_joins for this gid
+        // if applicable
       }
     }
   }
@@ -517,7 +519,6 @@ void forward_state_t::setup_joins(int graph_id) {
         int const& inn = node.inns[which_inn];
 
         auto& inn_ginfo = ginfos[inn];
-        auto& inn_refis = inn_ginfo.refis.value();
 
         partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
 
@@ -530,8 +531,9 @@ void forward_state_t::setup_joins(int graph_id) {
         vector<int> inn_index = vector_mapfst(inn_region);
         do {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-          join_info.deps.push_back(rid_t { inn, inn_refi_bid });
-          inn_refis[inn_refi_bid].outs.insert(jid_t { graph_id, join_bid });
+          rid_t dep_rid { inn, inn_refi_bid };
+          join_info.deps.push_back(dep_rid);
+          insert_refi_out(dep_rid, jid_t { graph_id, join_bid });
         } while(increment_idxs_region(inn_region, inn_index));
       }
     }
@@ -540,31 +542,39 @@ void forward_state_t::setup_joins(int graph_id) {
   ec_setup_joins(graph_id);
 }
 
-void forward_state_t::setup_compute_status(int gid) {
-  // TODO: besides inputs, can the compute status be zero?
+void forward_state_t::insert_refi_out(rid_t rid, jid_t jid) {
+  auto const& [r_gid, r_bid] = rid;
+  auto const& [j_gid, j_bid] = jid;
 
-  auto& ginfo = ginfos[gid];
+  refinement_t& refi = ginfos[r_gid].refis.value()[r_bid];
+  refi.outs.insert(jid);
 
-  auto const& joins = ginfo.joins.value();
-
-  ginfo.compute_status = vector<int>(joins.size());
-  vector<int>& compute_status = ginfo.compute_status.value();
-
-  for(int bid = 0; bid != joins.size(); ++bid) {
-    compute_status[bid] = joins[bid].deps.size();
+  int const& loc = ginfos[j_gid].locs.value()[j_bid];
+  if(loc != -1) {
+    add_refi_dst(rid, loc);
   }
 }
 
 void forward_state_t::ec_setup_joins(int gid) {
-  setup_compute_status(gid);
+  auto& ginfo = ginfos[gid];
+  auto const& joins = ginfo.joins.value();
+
+  // setup the compute status
+  {
+    ginfo.compute_status = vector<int>(joins.size());
+    vector<int>& compute_status = ginfo.compute_status.value();
+
+    for(int bid = 0; bid != joins.size(); ++bid) {
+      compute_status[bid] = joins[bid].deps.size();
+    }
+  }
 
   if(can_setup_refis(gid)) {
     setup_refis(gid);
   }
 
-  auto const& ginfo = ginfos[gid];
+  // schedule what can be scheduled
   vector<int> const& locs = ginfo.locs.value();
-
   vector<int> const& status = ginfo.compute_status.value();
   for(int bid = 0; bid != locs.size(); ++bid) {
     int const& loc = locs[bid];
