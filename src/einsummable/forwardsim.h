@@ -177,9 +177,6 @@ private:
   void ec_join(jid_t jid);
   // TODO
 
-  // TODO: schedule_move  ; (for loc->loc, bypass)
-  // TODO: schedule_apply ? (if input,     bypass)
-
 private:
   // An agg unit is something that will get summed.
   // So if Y = X1 + X2 + X3 + X4 at locations
@@ -235,14 +232,12 @@ private:
 
   // TODO: Find wherever you are inserting a dependency and check that
   //       all relevant metadata is being updated.
-  // TODO: whenever assigning a location, go to each input unit and potentially
-  //       setup the new destination
-  // TODO: whenever assigning a location, go to each output unit and setup the
-  //       unit
 
   struct unit_status_t {
     unit_status_t();
 
+    // this should be true once all input
+    // joins have been assigned a location
     bool is_setup;
 
     // src -> # of joins left until move from
@@ -318,6 +313,14 @@ private:
 
   bool can_setup_unit_status(rid_t rid, int uid) const;
   void setup_unit_status(rid_t rid, int uid);
+
+  bool can_add_refi_dst(rid_t rid, int dst) const;
+  void add_refi_dst(rid_t rid, int dst);
+
+  void schedule_move(rid_t rid, int uid, int src, int dst);
+  worker_t<tuple<rid_t, int>>& get_move_worker(int src, int dst);
+
+  void schedule_join(jid_t jid, int loc);
 };
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);

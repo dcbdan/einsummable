@@ -96,22 +96,42 @@ void forward_state_t::ec_assign_location(jid_t jid) {
   auto const& ginfo = ginfos[gid];
 
   // if the join objects haven't been setup, then no
-  // computation can get started
+  // computation can get started and the src can't
+  // be setup
   if(ginfo.joins) {
     return;
   }
 
+  int const& loc = ginfo.locs.value()[bid];
+  if(ginfo.refis) {
+    join_t const& join = ginfo.joins.value()[bid];
+    vector<refinement_t> const& refis = ginfo.refis.value();
+
+    // we may now be able to setup outgoing units
+    for(int const& rid_bid: join.outs) {
+      refinement_t const& refi = refis[rid_bid];
+      for(int uid = 0; uid != refi.units.size(); ++uid) {
+        if(vector_has(refi.units[uid].deps, bid)) {
+          rid_t rid { gid, rid_bid };
+          if(can_setup_unit_status(rid, uid)) {
+            setup_unit_status(rid, uid);
+          }
+        }
+      }
+    }
+
+    // add a dst to the dependent refinements
+    for(auto const& rid: join.deps) {
+      if(can_add_refi_dst(rid, loc)) {
+        add_refi_dst(rid, loc);
+      }
+    }
+  }
+
   vector<int> const& compute_status = ginfo.compute_status.value();
   if(compute_status[bid] == 0) {
-    auto const& node = graph.nodes[gid];
-    if(node.op.is_input()) {
-      // for input nodes, just finish the computation right away
-      ec_join(jid);
-    } else {
-      // otherwise, give the work to the worker
-      int const& loc = ginfo.locs.value()[bid];
-      apply_workers[loc].add_to_pending({gid, bid});
-    }
+    int const& loc = ginfo.locs.value()[bid];
+    schedule_join(jid_t {gid, bid}, loc);
   }
 }
 
@@ -463,24 +483,15 @@ void forward_state_t::ec_setup_joins(int gid) {
     setup_refis(gid);
   }
 
-  auto const& node = graph.nodes[gid];
   auto const& ginfo = ginfos[gid];
   vector<int> const& locs = ginfo.locs.value();
-  if(node.op.is_input()) {
-    for(int bid = 0; bid != locs.size(); ++bid) {
-      if(locs[bid] >= 0) {
-        ec_join(jid_t { gid, bid });
-      }
-    }
-  } else {
-    vector<int> const& status = ginfo.compute_status.value();
-    for(int bid = 0; bid != locs.size(); ++bid) {
-      int const& loc = locs[bid];
-      if(loc >= 0 && status[bid] == 0) {
-        apply_workers[loc].add_to_pending(jid_t {gid, bid});
-      }
-    }
 
+  vector<int> const& status = ginfo.compute_status.value();
+  for(int bid = 0; bid != locs.size(); ++bid) {
+    int const& loc = locs[bid];
+    if(loc >= 0 && status[bid] == 0) {
+      schedule_join(jid_t {gid, bid}, loc);
+    }
   }
 }
 
@@ -535,13 +546,15 @@ void forward_state_t::setup_unit_status(rid_t rid, int uid) {
 
   for(auto const& [out_gid, out_bid]: refi.outs) {
     int const& dst = ginfos[out_gid].locs.value()[out_bid];
-    unit_status.num_move_rem.insert({dst, num_srcs});
+    if(dst >= 0) {
+      unit_status.num_move_rem.insert({dst, num_srcs});
+    }
   }
 
   for(auto const& [src,num_rem]: unit_status.num_join_rem) {
     if(num_rem == 0) {
       for(int const& dst: unit_status.dsts()) {
-        // TODO: schedule the move
+        schedule_move(rid, uid, src, dst);
       }
     }
   }
@@ -611,6 +624,70 @@ void forward_state_t::ec_join(jid_t jid) {
   auto const& [gid,bid] = jid;
 
   // TODO
+}
+
+bool forward_state_t::can_add_refi_dst(rid_t rid, int dst) const {
+  auto const& [gid, bid] = rid;
+  auto const& ginfo = ginfos[gid];
+  return bool(ginfo.refis);
+}
+
+void forward_state_t::add_refi_dst(rid_t rid, int dst) {
+  auto const& [gid, bid] = rid;
+  auto& ginfo = ginfos[gid];
+  vector<move_status_t>& move_statuses = ginfo.move_status.value();
+  move_status_t& move_status = move_statuses[bid];
+
+  refinement_t const& refi = ginfo.refis.value()[bid];
+
+  if(move_status.num_unit_rem.count(dst) == 0) {
+    // this many units need to be completed at this new dst
+    move_status.num_unit_rem[dst] = refi.units.size();
+
+    // each unit needs to have done this many moves
+    for(int uid = 0; uid != refi.units.size(); ++uid) {
+      unit_status_t& unit_status = move_status.unit_status[uid];
+      if(unit_status.is_setup) {
+        int num_srcs = unit_status.num_move_rem.size();
+        unit_status.num_move_rem[dst] = num_srcs;
+
+        for(auto const& [src,num_rem]: unit_status.num_join_rem) {
+          if(num_rem == 0) {
+            schedule_move(rid, uid, src, dst);
+          }
+        }
+      }
+    }
+  }
+}
+
+void forward_state_t::schedule_join(jid_t jid, int loc) {
+  auto const& [gid, bid] = jid;
+  if(graph.nodes[gid].op.is_input()) {
+    // inputs happen immediately
+    ec_join(jid);
+    return;
+  }
+
+  apply_workers[loc].add_to_pending(jid);
+}
+
+void forward_state_t::schedule_move(rid_t rid, int uid, int src, int dst) {
+  auto const& [gid, bid] = rid;
+
+  if(src == dst) {
+    // this "move" is immediate and triggers the event completion
+    ec_move(rid, uid, dst);
+    return;
+  }
+
+  auto& worker = get_move_worker(src, dst);
+  worker.add_to_pending({rid, uid});
+}
+
+worker_t<tuple<forward_state_t::rid_t, int>>&
+forward_state_t::get_move_worker(int src, int dst) {
+  return move_workers[to_move_worker.at({src,dst})];
 }
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
