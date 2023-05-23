@@ -133,7 +133,6 @@ struct forward_state_t {
   void enqueue_move_worker(int src, int dst, int which);
 
   completed_t pop_work();
-  // TODO
 
 private:
   // ec = Event Completed

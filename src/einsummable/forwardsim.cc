@@ -109,6 +109,67 @@ void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
   worker.start_work(which, time, move_time);
 }
 
+forward_state_t::completed_t
+forward_state_t::pop_work()
+{
+  vector<tuple<double, bool, int>> items;
+
+  for(int i = 0; i != apply_workers.size(); ++i) {
+    auto const& apply_worker = apply_workers[i];
+    if(apply_worker.is_in_progress()) {
+      items.emplace_back(
+        std::get<1>(apply_worker.get_in_progress()),
+        true,
+        i);
+    }
+  }
+
+  for(int i = 0; i != move_workers.size(); ++i) {
+    auto const& move_worker = move_workers[i];
+    if(move_worker.is_in_progress()) {
+      items.emplace_back(
+        std::get<1>(move_worker.get_in_progress()),
+        false,
+        i);
+    }
+  }
+
+  if(items.size() == 0) {
+    throw std::runtime_error("pop work: not work to pop");
+  }
+
+  auto const& [_, is_apply, which] = *std::min_element(items.begin(), items.end());
+
+  if(is_apply) {
+    auto& apply_worker = apply_workers[which];
+
+    int const& loc = which;
+
+    auto [start,finish,jid] = apply_worker.get_in_progress();
+    auto const& [gid, bid] = jid;
+
+    uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
+
+    apply_worker.finish_work();
+    return completed_t(start, finish, loc, gid, bid, flops);
+  } else {
+    auto& move_worker = move_workers[which];
+
+    auto const& connection  = cluster.connections[which];
+    int const& src = connection.src;
+    int const& dst = connection.dst;
+
+    auto [start,finish,move_info] = move_worker.get_in_progress();
+    auto const& [rid, uid] = move_info;
+    auto const& [gid, bid] = rid;
+    uint64_t const& size = ginfos[gid].refis.value()[bid].units[uid].size;
+
+    move_worker.finish_work();
+
+    return completed_t(start, finish, src, dst, gid, bid, uid, size);
+  }
+}
+
 void forward_state_t::ec_assign_location(jid_t jid) {
   auto const& [gid,bid] = jid;
   auto const& ginfo = ginfos[gid];
