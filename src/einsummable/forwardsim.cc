@@ -622,8 +622,38 @@ void forward_state_t::ec_join(jid_t jid) {
   num_join_remaining -= 1;
 
   auto const& [gid,bid] = jid;
+  auto& ginfo = ginfos[gid];
 
-  // TODO
+  if(!ginfo.joins || !ginfo.refis || !ginfo.move_status) {
+    return;
+  }
+
+  auto const& join  = ginfo.joins.value()[bid];
+  int const& loc    = ginfo.locs.value()[bid];
+
+  auto const& refis = ginfo.refis.value();
+
+  vector<move_status_t>& move_statuses = ginfo.move_status.value();
+  for(int const& rid_bid: join.outs) {
+    auto const& refi = refis[rid_bid];
+    move_status_t& move_status = move_statuses[rid_bid];
+    for(int uid = 0; uid != refi.units.size(); ++uid) {
+      auto const& unit = refi.units[uid];
+      unit_status_t& unit_status = move_status.unit_status[uid];
+
+      if(unit_status.is_setup && vector_has(unit.deps, bid)) {
+        int& cnt = unit_status.num_join_rem[loc];
+        cnt -= 1;
+        if(cnt < 0) {
+          throw std::runtime_error("how can count go below zero: ec_join");
+        } else if(cnt == 0) {
+          for(int const& dst: unit_status.dsts()) {
+            schedule_move(rid_t {gid, rid_bid}, uid, loc, dst);
+          }
+        }
+      }
+    }
+  }
 }
 
 bool forward_state_t::can_add_refi_dst(rid_t rid, int dst) const {

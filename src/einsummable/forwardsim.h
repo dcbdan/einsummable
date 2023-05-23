@@ -175,7 +175,6 @@ private:
   // Once a join completes, the outgoing agg units at
   // the computed location have one less dependent
   void ec_join(jid_t jid);
-  // TODO
 
 private:
   // An agg unit is something that will get summed.
