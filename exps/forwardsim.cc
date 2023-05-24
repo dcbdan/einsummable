@@ -49,12 +49,13 @@ int main() {
   //      pop work
   // ?. compare to forwardsim1
 
-  int nlocs = 4;
+  int nlocs = 1;//2;//4;
 
   cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   auto graph = three_dimensional_matrix_multiplication(
-    1,1,1,
+    2,2,2,
+    //2,1,1,
     4000,4000,4000,
     nlocs);
 
@@ -73,11 +74,17 @@ int main() {
     }
   }
 
+  {
+    std::ofstream f("tl.gv");
+    state.print_twolayer_graphviz(f);
+    DOUT("Printed to tl.gv");
+  }
+  DOUT("-----------------------------------------");
   double makespan;
   while(!state.all_done()) {
     state.enqueue_all();
     makespan = state.pop_work().finish;
-    DOUT(makespan);
+    DOUT(makespan << "   ----------------------");
   }
   DOUT("Finished in " << makespan);
 }

@@ -224,8 +224,10 @@ void forward_state_t::ec_assign_location(jid_t jid) {
 
   // add a dst to the dependent refinements
   for(auto const& rid: join.deps) {
-    if(can_add_refi_dst(rid, loc)) {
-      add_refi_dst(rid, loc);
+    auto const& [inn_gid, _] = rid;
+    auto const& inn_ginfo = ginfos[inn_gid];
+    if(inn_ginfo.refis) {
+      add_refi_dst(rid, jid, loc);
     }
   }
 
@@ -233,7 +235,6 @@ void forward_state_t::ec_assign_location(jid_t jid) {
   //       but can be called multiple times
   vector<int> const& compute_status = ginfo.compute_status.value();
   if(compute_status[bid] == 0) {
-    int const& loc = ginfo.locs.value()[bid];
     schedule_join(jid_t {gid, bid}, loc);
   }
 }
@@ -572,7 +573,7 @@ void forward_state_t::insert_refi_out(rid_t rid, jid_t jid) {
 
   int const& loc = ginfos[j_gid].locs.value()[j_bid];
   if(loc != -1) {
-    add_refi_dst(rid, loc);
+    add_refi_dst(rid, jid, loc);
   }
 }
 
@@ -776,13 +777,7 @@ void forward_state_t::ec_join(jid_t jid) {
   }
 }
 
-bool forward_state_t::can_add_refi_dst(rid_t rid, int dst) const {
-  auto const& [gid, bid] = rid;
-  auto const& ginfo = ginfos[gid];
-  return bool(ginfo.refis);
-}
-
-void forward_state_t::add_refi_dst(rid_t rid, int dst) {
+void forward_state_t::add_refi_dst(rid_t rid, jid_t jid, int dst) {
   auto const& [gid, bid] = rid;
   auto& ginfo = ginfos[gid];
   vector<move_status_t>& move_statuses = ginfo.move_status.value();
@@ -806,6 +801,16 @@ void forward_state_t::add_refi_dst(rid_t rid, int dst) {
             schedule_move(rid, uid, src, dst);
           }
         }
+      }
+    }
+  } else {
+    // This dst was already scheduled. Is it already done?
+    if(move_status.num_unit_rem.at(dst) == 0) {
+      auto const& [out_gid, out_bid] = jid;
+      int& cnt = ginfos[out_gid].compute_status.value()[out_bid];
+      cnt -= 1;
+      if(cnt == 0) {
+        schedule_join(jid, dst);
       }
     }
   }
@@ -838,6 +843,49 @@ void forward_state_t::schedule_move(rid_t rid, int uid, int src, int dst) {
 worker_t<tuple<forward_state_t::rid_t, int>>&
 forward_state_t::get_move_worker(int src, int dst) {
   return move_workers[to_move_worker.at({src,dst})];
+}
+
+void forward_state_t::print_twolayer_graphviz(std::ostream& out) const {
+  using std::endl;
+
+  auto xstr = [](string x, int gid, int bid) {
+    return x + "_" + write_with_ss(gid) + "_" + write_with_ss(bid);
+  };
+  auto jstr = [&xstr](int gid, int bid) { return xstr("j", gid, bid); };
+  auto rstr = [&xstr](int gid, int bid) { return xstr("r", gid, bid); };
+
+  string tab = "  ";
+  out << "digraph {" << endl;
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& ginfo = ginfos[gid];
+    if(ginfo.joins) {
+      auto const& joins = ginfo.joins.value();
+      for(int bid = 0; bid != joins.size(); ++bid) {
+        out << tab << jstr(gid, bid) << endl;
+
+        auto const& join = joins[bid];
+        for(auto const& [inn_gid, inn_bid]: join.deps) {
+          out << tab << rstr(inn_gid, inn_bid) << " -> "
+            << jstr(gid, bid) << endl;
+        }
+      }
+    }
+    if(ginfo.refis) {
+      auto const& refis = ginfo.refis.value();
+      for(int bid = 0; bid != refis.size(); ++bid) {
+        out << tab << rstr(gid, bid) << endl;
+
+        auto const& refi = refis[bid];
+        for(auto const& unit: refi.units) {
+          for(auto const& inn_bid: unit.deps) {
+            out << tab << jstr(gid, inn_bid) << " -> "
+              << rstr(gid, bid) << endl;
+          }
+        }
+      }
+    }
+  }
+  out << "}" << endl;
 }
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {

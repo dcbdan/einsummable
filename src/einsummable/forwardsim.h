@@ -139,6 +139,8 @@ struct forward_state_t {
   ////////////
   void enqueue_all();
 
+  void print_twolayer_graphviz(std::ostream&) const;
+
 private:
   // ec = Event Completed
 
@@ -315,8 +317,9 @@ private:
   bool can_setup_unit_status(rid_t rid, int uid) const;
   void setup_unit_status(rid_t rid, int uid);
 
-  bool can_add_refi_dst(rid_t rid, int dst) const;
-  void add_refi_dst(rid_t rid, int dst);
+  // Add to the refinement a new dst. If the dst is complete,
+  // update the out join.
+  void add_refi_dst(rid_t rid, jid_t jid, int dst);
 
   void schedule_move(rid_t rid, int uid, int src, int dst);
   worker_t<tuple<rid_t, int>>& get_move_worker(int src, int dst);
