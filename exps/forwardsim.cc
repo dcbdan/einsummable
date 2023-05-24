@@ -73,9 +73,9 @@ void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_lo
   }
 
   auto settings = state.random_step_settings(get_partition, get_location);
-  settings.priority_assign_partition = true;
-  settings.priority_assign_location = true;
-  settings.always_enqueue_all = true;
+  //settings.priority_assign_partition = true;
+  //settings.priority_assign_location = true;
+  //settings.always_enqueue_all = true;
 
   DOUT("-----------------------------------------");
   vector<timeplot_ns::box_t> boxes;
@@ -117,7 +117,7 @@ void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_lo
   }
   {
     std::ofstream f("tp.svg");
-    timeplot(f, boxes, 50, 1, makespan);
+    timeplot(f, boxes, 50, 50, makespan);
     DOUT("Printed to tp.svg");
   }
 
@@ -219,7 +219,7 @@ void main01() {
 int main() {
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 1, 1);
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
   //  4,8,3,
@@ -229,8 +229,7 @@ int main() {
   //bool random_loc = false;
 
   float learning_rate = 0.1;
-  //uint64_t dn = 10000;
-  uint64_t dn = 1000;
+  uint64_t dn = 10000;
   uint64_t dp = 1000;
   uint64_t dd = 100;
   vector<uint64_t> dws{3000,3000,3000,3000};
@@ -239,10 +238,10 @@ int main() {
   auto [graph, _] = ff.mgraph.compile();
 
   {
-    //uint64_t mmlike_sizing = 1000u*1000u*1000u;
-    uint64_t mmlike_sizing = 10000u*10000u*10000u;
+    uint64_t mmlike_sizing = 1000u*1000u*1000u;
+    //uint64_t mmlike_sizing = 10000u*10000u*10000u;
 
-    uint64_t min_sizing = 5000u*5000u;
+    uint64_t min_sizing = 800u*800u;
 
     vector<partition_t> new_partition = autopartition(
       graph,
@@ -253,7 +252,7 @@ int main() {
 
   bool random_loc = true;
 
-  for(int i = 0; i != 10; ++i) {
+  for(int i = 0; i != 100; ++i) {
     set_seed(i);
     random_walk_through(graph, cluster, random_loc);
   }
