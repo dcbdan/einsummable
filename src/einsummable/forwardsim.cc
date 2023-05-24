@@ -477,7 +477,8 @@ bool forward_state_t::can_setup_joins(int gid) const {
   // see if each input has the refinement partition setup
   auto const& node = graph.nodes[gid];
   for(auto const& gid_inn: node.get_inns_set()) {
-    if(!ginfos[gid_inn].refinement_partition) {
+    auto const& ginfo_inn = ginfos[gid_inn];
+    if(!ginfo_inn.refinement_partition || !ginfo_inn.refis) {
       return false;
     }
   }
@@ -890,6 +891,144 @@ void forward_state_t::print_twolayer_graphviz(std::ostream& out) const {
     }
   }
   out << "}" << endl;
+}
+
+forward_state_t::random_settings_t
+forward_state_t::random_step_settings(
+  std::function<partition_t(int)> get_part,
+  std::function<int(forward_state_t::jid_t)> get_loc)
+{
+  return random_settings_t {
+    .get_part = get_part,
+    .get_loc = get_loc,
+    .always_enqueue_all = false,
+    .priority_assign_partition = false,
+    .priority_assign_location = false,
+    .assign_partition = 0.1,
+    .assign_location = 0.1,
+    .enqueue_apply = 0.5,
+    .enqueue_move = 0.5,
+    .pop_work = 1.0
+  };
+}
+
+optional<forward_state_t::completed_t>
+forward_state_t::random_step(
+  forward_state_t::random_settings_t const& s)
+{
+  if(s.priority_assign_partition) {
+    set<int> cs = can_partition;
+    for(int gid: cs) {
+      assign_partition(gid, s.get_part(gid));
+      if(s.priority_assign_location) {
+        int n_bid = ginfos[gid].locs.value().size();
+        for(int bid = 0; bid != n_bid; ++bid) {
+          jid_t jid {gid, bid};
+          assign_location(jid, s.get_loc(jid));
+        }
+      }
+    }
+  }
+
+  if(s.always_enqueue_all) {
+    enqueue_all();
+  }
+
+  vector<jid_t> remaining_jids;
+  for(int gid = 0; gid != ginfos.size(); ++gid) {
+    auto const& ginfo = ginfos[gid];
+    if(!ginfo.partition) {
+      continue;
+    }
+    vector<int> const& locs = ginfo.locs.value();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      if(locs[bid] == -1) {
+        remaining_jids.push_back(jid_t{gid, bid});
+      }
+    }
+  }
+
+  bool can_pop = false;
+
+  vector<int> can_enqueue_apply;
+  for(int loc = 0; loc != apply_workers.size(); ++loc) {
+    auto const& apply_worker = apply_workers[loc];
+    if(apply_worker.get_pending().size() > 0) {
+      can_enqueue_apply.push_back(loc);
+    }
+    if(apply_worker.is_in_progress()) {
+      can_pop = true;
+    }
+  }
+
+  vector<int> can_enqueue_move;
+  for(int i = 0; i != cluster.connections.size(); ++i) {
+    auto const& connection = cluster.connections[i];
+    auto const& move_worker = get_move_worker(connection.src, connection.dst);
+    if(move_worker.get_pending().size() > 0) {
+      can_enqueue_move.push_back(i);
+    }
+    if(move_worker.is_in_progress()) {
+      can_pop = true;
+    }
+  }
+
+  vector<double> scores {
+    can_partition.size()     > 0 ? s.assign_partition : 0.0,
+    remaining_jids.size()    > 0 ? s.assign_location  : 0.0,
+    can_enqueue_apply.size() > 0 ? s.enqueue_apply    : 0.0,
+    can_enqueue_move.size()  > 0 ? s.enqueue_move     : 0.0,
+    can_pop                      ? s.pop_work         : 0.0
+  };
+
+  // maybe this can happen
+  if(*std::max_element(scores.begin(), scores.end()) == 0.0) {
+    if(all_done()) {
+      return std::nullopt;
+    } else {
+      throw std::runtime_error("unsure");
+    }
+  }
+
+  int which = runif(scores);
+
+  if(which == 0) {
+    vector<int> cs(can_partition.begin(), can_partition.end());
+    int gid = cs[runif(cs.size())];
+    assign_partition(gid, s.get_part(gid));
+    if(s.priority_assign_location) {
+      int n_bid = ginfos[gid].locs.value().size();
+      for(int bid = 0; bid != n_bid; ++bid) {
+        jid_t jid {gid, bid};
+        assign_location(jid, s.get_loc(jid));
+      }
+    }
+    return std::nullopt;
+  } else if(which == 1) {
+    jid_t jid = remaining_jids[runif(remaining_jids.size())];
+    assign_location(jid, s.get_loc(jid));
+    return std::nullopt;
+  } else if(which == 2) {
+    int which_worker = runif(can_enqueue_apply.size());
+    int loc = can_enqueue_apply[which_worker];
+    auto const& worker = apply_workers[loc];
+    auto const& pending = worker.get_pending();
+    enqueue_apply_worker(loc, runif(pending.size()));
+    return std::nullopt;
+  } else if(which == 3) {
+    int which_worker = runif(can_enqueue_move.size());
+    auto const& connection = cluster.connections[which_worker];
+    int const& src = connection.src;
+    int const& dst = connection.dst;
+    auto const& worker = get_move_worker(src, dst);
+    auto const& pending = worker.get_pending();
+    enqueue_move_worker(src, dst, runif(pending.size()));
+    return std::nullopt;
+  } else if(which == 4) {
+    return pop_work();
+  } else {
+    throw std::runtime_error("should not reach in random step");
+  }
 }
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {

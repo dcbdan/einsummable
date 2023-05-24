@@ -141,6 +141,24 @@ struct forward_state_t {
 
   void print_twolayer_graphviz(std::ostream&) const;
 
+  struct random_settings_t {
+    std::function<partition_t(int)> get_part;
+    std::function<int(jid_t)> get_loc;
+    bool always_enqueue_all;
+    bool priority_assign_partition;
+    bool priority_assign_location;
+    double assign_partition;
+    double assign_location;
+    double enqueue_apply;
+    double enqueue_move;
+    double pop_work;
+  };
+  static random_settings_t random_step_settings(
+    std::function<partition_t(int)> get_part,
+    std::function<int(jid_t)> get_loc);
+
+  optional<completed_t> random_step(random_settings_t const& settings);
+
 private:
   // ec = Event Completed
 
