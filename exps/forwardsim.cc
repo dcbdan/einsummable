@@ -49,13 +49,12 @@ int main() {
   //      pop work
   // ?. compare to forwardsim1
 
-  int nlocs = 1;//2;//4;
+  int nlocs = 64;
 
-  cluster_t cluster = make_cluster(nlocs, 10, 1);
+  cluster_t cluster = make_cluster(nlocs, 100, 1);
 
   auto graph = three_dimensional_matrix_multiplication(
-    2,2,2,
-    //2,1,1,
+    4,4,4,
     4000,4000,4000,
     nlocs);
 
@@ -80,11 +79,29 @@ int main() {
     DOUT("Printed to tl.gv");
   }
   DOUT("-----------------------------------------");
+  vector<timeplot_ns::box_t> boxes;
   double makespan;
   while(!state.all_done()) {
     state.enqueue_all();
-    makespan = state.pop_work().finish;
-    DOUT(makespan << "   ----------------------");
+    auto completed = state.pop_work();
+    makespan = completed.finish;
+    DOUT(makespan);
+
+    if(completed.did_apply()) {
+      auto const& [loc,gid,bid,flops] = completed.get_apply_info();
+      DOUT("             " << loc << " | " << completed.start << ", " << completed.finish);
+      boxes.push_back(timeplot_ns::box_t {
+        .row = loc,
+        .start = completed.start,
+        .stop  = completed.finish,
+        .text = write_with_ss(jid_t { gid, bid })
+      });
+    }
   }
   DOUT("Finished in " << makespan);
+  {
+    std::ofstream f("tp.svg");
+    timeplot(f, boxes, 50, 50, makespan);
+    DOUT("Printed to tp.svg");
+  }
 }

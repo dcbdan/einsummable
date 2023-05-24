@@ -171,6 +171,8 @@ forward_state_t::pop_work()
 
     ec_join(jid);
 
+    time = finish;
+
     return completed_t(start, finish, loc, gid, bid, flops);
   } else {
     auto& move_worker = move_workers[which];
@@ -187,6 +189,8 @@ forward_state_t::pop_work()
     move_worker.finish_work();
 
     ec_move(rid, uid, dst);
+
+    time = finish;
 
     return completed_t(start, finish, src, dst, gid, bid, uid, size);
   }
