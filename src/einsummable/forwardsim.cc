@@ -50,6 +50,7 @@ set<int> const& forward_state_t::can_assign_partition() const {
 }
 
 void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
+  DOUT("assign partition " << gid);
   if(new_part.total_shape() != graph.nodes[gid].op.shape()) {
     throw std::runtime_error("given partition has incorrect total shape");
   }
@@ -69,6 +70,7 @@ void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
 }
 
 void forward_state_t::assign_location(jid_t jid, int loc) {
+  DOUT("assign location " << jid);
   auto const& [gid,bid] = jid;
 
   if(loc < 0 || loc >= cluster.devices.size()) {
@@ -91,6 +93,7 @@ void forward_state_t::assign_location(jid_t jid, int loc) {
 }
 
 void forward_state_t::enqueue_apply_worker(int loc, int which) {
+  DOUT("enqueue apply");
   auto& worker = apply_workers[loc];
   auto const& [gid,bid] = worker.get_pending(which);
   uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
@@ -99,6 +102,7 @@ void forward_state_t::enqueue_apply_worker(int loc, int which) {
 }
 
 void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
+  DOUT("enqueue move");
   auto& worker = get_move_worker(src, dst);
   auto const& [rid,uid] = worker.get_pending(which);
   auto const& [gid, bid] = rid;
@@ -129,6 +133,7 @@ void forward_state_t::enqueue_all() {
 forward_state_t::completed_t
 forward_state_t::pop_work()
 {
+  DOUT("pop work");
   vector<tuple<double, bool, int>> items;
 
   for(int i = 0; i != apply_workers.size(); ++i) {
@@ -244,6 +249,7 @@ void forward_state_t::ec_assign_location(jid_t jid) {
 }
 
 void forward_state_t::ec_assign_partition(int gid) {
+  DOUT("ec_assign_partition " << gid);
   auto& ginfo = ginfos[gid];
 
   // can partition update
@@ -348,11 +354,10 @@ void forward_state_t::setup_refinement_partition(int join_id) {
   if(can_setup_refis(join_id)) {
     setup_refis(join_id);
   }
-
-  ec_setup_refinement(join_id);
 }
 
 void forward_state_t::ec_setup_refinement(int gid) {
+  DOUT("ec_setup_refinement " << gid);
   auto const& node = graph.nodes[gid];
   for(auto const& out_id: node.outs) {
     if(can_setup_joins(out_id)) {
@@ -460,6 +465,8 @@ void forward_state_t::setup_refis(int graph_id) {
       }
     }
   }
+
+  ec_setup_refinement(graph_id);
 }
 
 bool forward_state_t::can_setup_joins(int gid) const {
@@ -583,6 +590,7 @@ void forward_state_t::insert_refi_out(rid_t rid, jid_t jid) {
 }
 
 void forward_state_t::ec_setup_joins(int gid) {
+  DOUT("ec_setup joins " << gid);
   auto& ginfo = ginfos[gid];
   auto const& joins = ginfo.joins.value();
 
@@ -986,7 +994,7 @@ forward_state_t::random_step(
     if(all_done()) {
       return std::nullopt;
     } else {
-      throw std::runtime_error("unsure");
+      throw std::runtime_error("if there is no work to do, should be all done!");
     }
   }
 
@@ -1016,7 +1024,7 @@ forward_state_t::random_step(
     enqueue_apply_worker(loc, runif(pending.size()));
     return std::nullopt;
   } else if(which == 3) {
-    int which_worker = runif(can_enqueue_move.size());
+    int which_worker = can_enqueue_move[runif(can_enqueue_move.size())];
     auto const& connection = cluster.connections[which_worker];
     int const& src = connection.src;
     int const& dst = connection.dst;

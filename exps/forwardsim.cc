@@ -80,6 +80,12 @@ void random_walk_through(graph_t const& graph, cluster_t cluster) {
     }
 
     auto const& completed = maybe_completed.value();
+    // you could have (10.5, 11.5) and
+    //                (10.9, 11.1)
+    // be the last two objects but
+    //   makespan = completed.finish
+    // would have you believe that 11.1 is the makespan
+    makespan = std::max(makespan, completed.finish);
     if(completed.did_apply()) {
       auto const& [loc,gid,bid,flops] = completed.get_apply_info();
       total_flops += flops;
@@ -159,7 +165,7 @@ void main01() {
   while(!state.all_done()) {
     state.enqueue_all();
     auto completed = state.pop_work();
-    makespan = completed.finish;
+    makespan = std::max(makespan, completed.finish);
 
     if(completed.did_apply()) {
       auto const& [loc,gid,bid,flops] = completed.get_apply_info();

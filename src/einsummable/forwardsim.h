@@ -171,6 +171,7 @@ private:
   // Once a refinement is setup, it may the case that an output
   // graph node can have the the joins setup
   void ec_setup_refinement(int gid);
+  // TODO: ec_setup_refis should be the name
 
   // Once the joins are setup, it may be possible to add
   // them to the things that can be computed
