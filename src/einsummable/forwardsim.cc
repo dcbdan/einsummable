@@ -197,6 +197,7 @@ forward_state_t::pop_work()
 }
 
 void forward_state_t::ec_assign_location(jid_t jid) {
+  //DOUT("ec_assign_location " << jid);
   auto const& [gid,bid] = jid;
   auto const& ginfo = ginfos[gid];
 
@@ -244,6 +245,7 @@ void forward_state_t::ec_assign_location(jid_t jid) {
 }
 
 void forward_state_t::ec_assign_partition(int gid) {
+  //DOUT("ec_assign_partition " << gid);
   auto& ginfo = ginfos[gid];
 
   // can partition update
@@ -351,6 +353,7 @@ void forward_state_t::setup_refinement_partition(int join_id) {
 }
 
 void forward_state_t::ec_setup_refis(int gid) {
+  //DOUT("ec_setup_refis " << gid);
   auto const& node = graph.nodes[gid];
   for(auto const& out_id: node.outs) {
     if(can_setup_joins(out_id)) {
@@ -487,6 +490,7 @@ bool forward_state_t::can_setup_joins(int gid) const {
 }
 
 void forward_state_t::setup_joins(int graph_id) {
+  //DOUT("setup_joins " << graph_id);
   auto const& node = graph.nodes[graph_id];
   auto& ginfo = ginfos[graph_id];
 
@@ -560,7 +564,6 @@ void forward_state_t::setup_joins(int graph_id) {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
           rid_t dep_rid { inn, inn_refi_bid };
           join_info.deps.push_back(dep_rid);
-          insert_refi_out(dep_rid, jid_t { graph_id, join_bid });
         } while(increment_idxs_region(inn_region, inn_index));
       }
     }
@@ -583,6 +586,7 @@ void forward_state_t::insert_refi_out(rid_t rid, jid_t jid) {
 }
 
 void forward_state_t::ec_setup_joins(int gid) {
+  //DOUT("ec_setup_joins " << gid);
   auto& ginfo = ginfos[gid];
   auto const& joins = ginfo.joins.value();
 
@@ -593,6 +597,15 @@ void forward_state_t::ec_setup_joins(int gid) {
 
     for(int bid = 0; bid != joins.size(); ++bid) {
       compute_status[bid] = joins[bid].deps.size();
+    }
+  }
+
+  // tell all the dependents of each join they have a new
+  // out
+  for(int bid = 0; bid != joins.size(); ++bid) {
+    auto const& join = joins[bid];
+    for(auto const& dep_rid: join.deps) {
+      insert_refi_out(dep_rid, jid_t { gid, bid });
     }
   }
 
@@ -679,6 +692,7 @@ void forward_state_t::setup_unit_status(rid_t rid, int uid) {
 }
 
 void forward_state_t::ec_move(rid_t rid, int uid, int dst) {
+  //DOUT("ec_move " << rid << "  uid " << uid << "  dst " << dst);
   auto const& [gid, bid] = rid;
 
   auto& ginfo = ginfos[gid];
@@ -696,6 +710,7 @@ void forward_state_t::ec_move(rid_t rid, int uid, int dst) {
 }
 
 void forward_state_t::ec_agg_unit(rid_t rid, int dst) {
+  //DOUT("ec_agg_unit " << rid << "  dst " << dst);
   auto const& [gid, bid] = rid;
 
   auto& ginfo = ginfos[gid];
@@ -712,6 +727,7 @@ void forward_state_t::ec_agg_unit(rid_t rid, int dst) {
 }
 
 void forward_state_t::ec_refinement(rid_t rid, int dst) {
+  //DOUT("ec_refinement " << rid << "  dst " << dst);
   auto const& [gid, bid] = rid;
 
   auto& ginfo = ginfos[gid];
@@ -719,6 +735,9 @@ void forward_state_t::ec_refinement(rid_t rid, int dst) {
   refinement_t const& refi = ginfo.refis.value()[bid];
   for(auto const& [out_gid, out_bid]: refi.outs) {
     auto& out_ginfo = ginfos[out_gid];
+    if(!out_ginfo.compute_status) {
+      continue;
+    }
     vector<int> const& locs = out_ginfo.locs.value();
     int const& loc = locs[out_bid];
     if(loc == dst) {
@@ -735,6 +754,7 @@ void forward_state_t::ec_refinement(rid_t rid, int dst) {
 }
 
 void forward_state_t::ec_join(jid_t jid) {
+  //DOUT("ec_join " << jid);
   num_join_remaining -= 1;
 
   auto const& [gid,bid] = jid;
