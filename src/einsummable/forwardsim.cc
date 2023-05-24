@@ -50,7 +50,6 @@ set<int> const& forward_state_t::can_assign_partition() const {
 }
 
 void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
-  DOUT("assign partition " << gid);
   if(new_part.total_shape() != graph.nodes[gid].op.shape()) {
     throw std::runtime_error("given partition has incorrect total shape");
   }
@@ -70,7 +69,6 @@ void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
 }
 
 void forward_state_t::assign_location(jid_t jid, int loc) {
-  DOUT("assign location " << jid);
   auto const& [gid,bid] = jid;
 
   if(loc < 0 || loc >= cluster.devices.size()) {
@@ -93,7 +91,6 @@ void forward_state_t::assign_location(jid_t jid, int loc) {
 }
 
 void forward_state_t::enqueue_apply_worker(int loc, int which) {
-  DOUT("enqueue apply");
   auto& worker = apply_workers[loc];
   auto const& [gid,bid] = worker.get_pending(which);
   uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
@@ -102,7 +99,6 @@ void forward_state_t::enqueue_apply_worker(int loc, int which) {
 }
 
 void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
-  DOUT("enqueue move");
   auto& worker = get_move_worker(src, dst);
   auto const& [rid,uid] = worker.get_pending(which);
   auto const& [gid, bid] = rid;
@@ -133,7 +129,6 @@ void forward_state_t::enqueue_all() {
 forward_state_t::completed_t
 forward_state_t::pop_work()
 {
-  DOUT("pop work");
   vector<tuple<double, bool, int>> items;
 
   for(int i = 0; i != apply_workers.size(); ++i) {
@@ -249,7 +244,6 @@ void forward_state_t::ec_assign_location(jid_t jid) {
 }
 
 void forward_state_t::ec_assign_partition(int gid) {
-  DOUT("ec_assign_partition " << gid);
   auto& ginfo = ginfos[gid];
 
   // can partition update
@@ -356,8 +350,7 @@ void forward_state_t::setup_refinement_partition(int join_id) {
   }
 }
 
-void forward_state_t::ec_setup_refinement(int gid) {
-  DOUT("ec_setup_refinement " << gid);
+void forward_state_t::ec_setup_refis(int gid) {
   auto const& node = graph.nodes[gid];
   for(auto const& out_id: node.outs) {
     if(can_setup_joins(out_id)) {
@@ -466,7 +459,7 @@ void forward_state_t::setup_refis(int graph_id) {
     }
   }
 
-  ec_setup_refinement(graph_id);
+  ec_setup_refis(graph_id);
 }
 
 bool forward_state_t::can_setup_joins(int gid) const {
@@ -590,7 +583,6 @@ void forward_state_t::insert_refi_out(rid_t rid, jid_t jid) {
 }
 
 void forward_state_t::ec_setup_joins(int gid) {
-  DOUT("ec_setup joins " << gid);
   auto& ginfo = ginfos[gid];
   auto const& joins = ginfo.joins.value();
 
@@ -912,10 +904,10 @@ forward_state_t::random_step_settings(
     .always_enqueue_all = false,
     .priority_assign_partition = false,
     .priority_assign_location = false,
-    .assign_partition = 0.1,
-    .assign_location = 0.1,
-    .enqueue_apply = 0.5,
-    .enqueue_move = 0.5,
+    .assign_partition = 0.4,
+    .assign_location = 0.4,
+    .enqueue_apply = 3.0,
+    .enqueue_move = 3.0,
     .pop_work = 1.0
   };
 }

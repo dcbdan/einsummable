@@ -41,7 +41,7 @@ cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communica
   return cluster_t::make(devices, connections);
 }
 
-void random_walk_through(graph_t const& graph, cluster_t cluster) {
+void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_loc) {
   uint64_t correct_total_elems;
   uint64_t correct_total_flops;
   {
@@ -51,6 +51,7 @@ void random_walk_through(graph_t const& graph, cluster_t cluster) {
   }
 
   forward_state_t state(cluster, graph);
+  int nloc = cluster.devices.size();
 
   using jid_t = forward_state_t::jid_t;
   using rid_t = forward_state_t::rid_t;
@@ -60,13 +61,21 @@ void random_walk_through(graph_t const& graph, cluster_t cluster) {
     return graph.nodes[gid].placement.partition;
   };
 
-  std::function<int(jid_t)> get_location = [&](jid_t jid)
-  {
-    auto const& [gid,bid] = jid;
-    return graph.nodes[gid].placement.locations.get()[bid];
-  };
+  std::function<int(jid_t)> get_location;
+  if(random_loc) {
+    get_location = [&](jid_t) { return runif(nloc); };
+  } else {
+    get_location = [&](jid_t jid)
+    {
+      auto const& [gid,bid] = jid;
+      return graph.nodes[gid].placement.locations.get()[bid];
+    };
+  }
 
   auto settings = state.random_step_settings(get_partition, get_location);
+  settings.priority_assign_partition = true;
+  settings.priority_assign_location = true;
+  settings.always_enqueue_all = true;
 
   DOUT("-----------------------------------------");
   vector<timeplot_ns::box_t> boxes;
@@ -107,11 +116,19 @@ void random_walk_through(graph_t const& graph, cluster_t cluster) {
     DOUT("Printed to tp.svg");
   }
 
-  std::cout << "Total elems:         " << total_elems << std::endl;
-  std::cout << "Correct total elems: " << correct_total_elems << std::endl;
-  std::cout << std::endl;
-  std::cout << "Total flops:         " << total_flops << std::endl;
-  std::cout << "Correct total flops: " << correct_total_flops << std::endl;
+  if(!random_loc) {
+    if(total_elems != correct_total_elems) {
+      throw std::runtime_error("incorrect number of total_elems");
+    }
+  }
+  if(total_flops != correct_total_flops) {
+    throw std::runtime_error("incorrect number of flops");
+  }
+  //std::cout << "Total elems:         " << total_elems << std::endl;
+  //std::cout << "Correct total elems: " << correct_total_elems << std::endl;
+  //std::cout << std::endl;
+  //std::cout << "Total flops:         " << total_flops << std::endl;
+  //std::cout << "Correct total flops: " << correct_total_flops << std::endl;
 }
 
 void main01() {
@@ -197,14 +214,17 @@ void main01() {
 int main() {
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 100, 1);
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   auto graph = three_dimensional_matrix_multiplication(
-    2,2,2,
+    4,8,3,
     4000,4000,4000,
     nlocs);
 
-  set_seed(0);
+  bool random_loc = true;
 
-  random_walk_through(graph, cluster);
+  for(int i = 0; i != 10; ++i) {
+    set_seed(i);
+    random_walk_through(graph, cluster, random_loc);
+  }
 }
