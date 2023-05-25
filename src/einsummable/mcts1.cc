@@ -405,9 +405,40 @@ tree_t::partition_choices(
   }
 
   if(node.op.is_formation()) {
+    vector<partition_t> ret;
+
     auto const& pds_inn = inn_parts[0].partdims;
     vector<partdim_t> partdims(pds_inn.begin(), pds_inn.begin() + shape.size());
-    return vector<partition_t>(1, partition_t(partdims));
+    ret.emplace_back(partdims);
+
+    if(pds_inn.begin() + shape.size() != pds_inn.end()) {
+      int n_aggd;
+      {
+        int n_total = inn_parts[0].num_parts();
+        partition_t _p(vector<partdim_t>(
+          pds_inn.begin() + shape.size(),
+          pds_inn.end()));
+        n_aggd = n_total / _p.num_parts();
+        int nloc = cluster.devices.size();
+        n_aggd = std::min(n_aggd, nloc);
+      }
+
+      if(n_aggd > 1) {
+        for(int d = 0; d != shape.size(); ++d) {
+          auto const& pd = partdims[d];
+          auto szs = pd.sizes();
+          uint64_t sz = *std::min_element(szs.begin(), szs.end());
+          if(sz >= n_aggd) {
+            vector<partdim_t> ps = partdims;
+            ps[d] = partdim_t::split_each(pd, n_aggd);
+            ret.emplace_back(ps);
+            break;
+          }
+        }
+      }
+    }
+
+    return ret;
   }
 
   throw std::runtime_error("should not reach: partition_choices");

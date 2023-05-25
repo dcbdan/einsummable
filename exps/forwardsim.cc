@@ -300,7 +300,7 @@ void main04() {
 void main03() {
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 10, 1);
+  cluster_t cluster = make_cluster(nlocs, 3, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
   //  4,4,4,
@@ -321,7 +321,7 @@ void main03() {
   tree_t tree(graph, cluster);
   double base = tree.get_best_makespan();
 
-  for(int i = 0; i != 1000; ++i) {
+  for(int i = 0; i != 100000; ++i) {
     tree.step();
     double speedup = base / tree.get_best_makespan();
     DOUT( (tree.get_best_makespan() / base) );
