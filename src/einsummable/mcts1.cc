@@ -1,8 +1,10 @@
 #include "mcts1.h"
+#include "locsetter.h"
 
 namespace mcts1_ns {
 
 vector<locset_t> make_locsets(int n) {
+  // TODO
   if(n == 1) {
     return { {0,1} };
   }
@@ -284,31 +286,7 @@ tree_t::get_path_from_leaf(int id) const
 }
 
 double tree_t::simulate(int leaf_id) const {
-  vector<tuple<int,int>> choices = get_path_from_leaf(leaf_id);
-
-  forward_state_t state(cluster, graph);
-
-  // assign all partitions
-  for(int w = 0; w != ordered_gids.size(); ++w) {
-    int const& gid = ordered_gids[w];
-    auto const& [id, choice] = choices[2*w];
-    auto const& node = nodes[id];
-    if(w != node.which) {
-      throw std::runtime_error("simulate: w != node.which");
-    }
-    state.assign_partition(gid, node.child_parts()[choice]);
-  }
-
-  // assign all placements
-  for(int w = 0; w != ordered_gids.size(); ++w) {
-    int const& gid = ordered_gids[w];
-    auto const& [id, choice] = choices[2*w + 1];
-    auto const& node = nodes[id];
-    if(w != node.which) {
-      throw std::runtime_error("simulate: w != node.which");
-    }
-    assign_locations(state, gid, node.child_places()[choice]);
-  }
+  forward_state_t state = construct_state(leaf_id);
 
   // do the entire simulation
   double makespan = 0.0;
@@ -440,20 +418,104 @@ void tree_t::assign_locations(
   int gid,
   place_choice_t const& p) const
 {
-  // TODO: implement this proper
+  // Assumption: all partitions have been assigned to state
+  // Assumption: all dependents of gid have been placed
 
+  // TODO: implement these versions and incorporate into mcts1, maybe
   if(p.by_agg_group == true || p.with_load_balance == false) {
     throw std::runtime_error("no implemented assign locations");
   }
 
   auto const& [mn,mx] = p.locset;
   int nl = mx-mn;
-
-  int l = 0;
   int nbid = state.num_join_bid(gid).value();
-  for(int bid = 0; bid != nbid; ++bid) {
-    state.assign_location({gid, bid}, mn+l);
-    l = (l + 1) % nl;
+
+  if(nl == 1) {
+    for(int bid = 0; bid != nbid; ++bid) {
+      state.assign_location({gid, bid}, mn);
+    }
+    return;
+  }
+
+  auto const& node = graph.nodes[gid];
+
+  //if(node.outs.size() == 0) {
+  //  int l = 0;
+  //  int nbid = state.num_join_bid(gid).value();
+  //  for(int bid = 0; bid != nbid; ++bid) {
+  //    state.assign_location({gid, bid}, mn+l);
+  //    l = (l + 1) % nl;
+  //  }
+  //  return;
+  //}
+
+  if(node.op.is_input()) {
+    auto const& ginfo = state.get_ginfo(gid);
+    auto const& joins = ginfo.joins.value();
+    auto const& refis = ginfo.refis.value();
+    auto const& locs = ginfo.locs.value();
+
+    using jid_t = forward_state_t::jid_t;
+
+    map<jid_t, vector<int>> items;
+    for(int bid = 0; bid != nbid; ++bid) {
+      auto const& join = joins[bid];
+      for(auto const& refi_bid: join.outs) {
+        auto const& refi = refis[refi_bid];
+        for(auto const& out_jid: refi.outs) {
+          items[out_jid].push_back(bid);
+        }
+      }
+    }
+
+    loc_setter_t loc_setter(nbid, nl);
+    vector<char> is_set(nbid, 0);
+    for(auto const& [_, bids]: items) {
+      vector<int> cnts(nl, 0);
+      for(int const& bid: bids) {
+        int const& loc = locs[bid];
+        if(loc >= 0) {
+          cnts[loc-mn] += 1;
+        }
+      }
+
+      vector<std::size_t> locs_order = argsort(cnts.begin(), cnts.end());
+
+      auto iter = locs_order.begin();
+      auto get_loc_minus_mn = [&]() {
+        while(!loc_setter.is_avail(*iter)) {
+          iter++;
+        }
+        return *iter;
+      };
+
+      for(int const& bid: bids) {
+        if(locs[bid] == -1) {
+          int l = get_loc_minus_mn();
+          state.assign_location({gid,bid}, mn+l);
+          loc_setter.decrement(l);
+        }
+      }
+    }
+  } else {
+    loc_setter_t loc_setter(nbid, nl);
+
+    for(int bid = 0; bid != nbid; ++bid) {
+      vector<uint64_t> scores;
+      scores.reserve(nl);
+      for(int l = mn; l != mx; ++l) {
+        scores.push_back(state.extra_elems_to({gid, bid}, l));
+      }
+      vector<std::size_t> locs_order = argsort(
+        scores.begin(), scores.end());
+      for(auto const& l: locs_order) {
+        if(loc_setter.is_avail(l)) {
+          state.assign_location({gid,bid}, mn+l);
+          loc_setter.decrement(l);
+          break;
+        }
+      }
+    }
   }
 }
 
@@ -470,6 +532,40 @@ void tree_t::update_from_leaf(int leaf_id, double found_makespan)
   if(found_makespan < node.best_makespan) {
     node.best_makespan = found_makespan;
   }
+}
+
+forward_state_t tree_t::construct_best() const {
+  return construct_state(best_leaf);
+}
+
+forward_state_t tree_t::construct_state(int leaf_id) const {
+  vector<tuple<int,int>> choices = get_path_from_leaf(leaf_id);
+
+  forward_state_t state(cluster, graph);
+
+  // assign all partitions
+  for(int w = 0; w != ordered_gids.size(); ++w) {
+    int const& gid = ordered_gids[w];
+    auto const& [id, choice] = choices[2*w];
+    auto const& node = nodes[id];
+    if(w != node.which) {
+      throw std::runtime_error("simulate: w != node.which");
+    }
+    state.assign_partition(gid, node.child_parts()[choice]);
+  }
+
+  // assign all placements
+  for(int w = 0; w != ordered_gids.size(); ++w) {
+    int const& gid = ordered_gids[w];
+    auto const& [id, choice] = choices[2*w + 1];
+    auto const& node = nodes[id];
+    if(w != node.which) {
+      throw std::runtime_error("simulate: w != node.which");
+    }
+    assign_locations(state, gid, node.child_places()[choice]);
+  }
+
+  return state;
 }
 
 }

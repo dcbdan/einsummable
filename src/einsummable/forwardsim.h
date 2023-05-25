@@ -119,90 +119,6 @@ struct forward_state_t {
     std::variant<done_move_t, done_apply_t> c;
   };
 
-  forward_state_t(cluster_t const& cl, graph_t const& g);
-
-  bool all_done() const;
-
-  // get all gids that can currently be given a partition
-  set<int> const& can_assign_partition() const;
-
-  void assign_partition(int gid, partition_t const& part);
-
-  void assign_location(jid_t jid, int loc);
-
-  void enqueue_apply_worker(int loc, int which);
-
-  void enqueue_move_worker(int src, int dst, int which);
-
-  completed_t pop_work();
-
-  ////////////
-  void enqueue_all();
-
-  void print_twolayer_graphviz(std::ostream&) const;
-
-  struct random_settings_t {
-    std::function<partition_t(int)> get_part;
-    std::function<int(jid_t)> get_loc;
-    bool always_enqueue_all;
-    bool priority_assign_partition;
-    bool priority_assign_location;
-    double assign_partition;
-    double assign_location;
-    double enqueue_apply;
-    double enqueue_move;
-    double pop_work;
-  };
-  static random_settings_t random_step_settings(
-    std::function<partition_t(int)> get_part,
-    std::function<int(jid_t)> get_loc);
-
-  optional<completed_t> random_step(random_settings_t const& settings);
-
-  optional<int> num_join_bid(int gid) const;
-
-private:
-  // ec = Event Completed
-
-  // Once a partition is assigned, it may be the case that
-  // a refinement partition of one of the inputs can be setup.
-  // Once a partition is assigned, those locations can also
-  // be assigned
-  void ec_assign_partition(int gid);
-
-  // Once refis (and refinement_partition) is setup, it may the
-  // case that an output graph node can have the the joins setup
-  void ec_setup_refis(int gid);
-
-  // Once the joins are setup, it may be possible to add
-  // them to the things that can be computed
-  // Once the joins are setup, the refis may be setup
-  void ec_setup_joins(int gid);
-
-  // Once a location has been assigned, it may
-  // be the case that an agg unit is now available
-  // or if this is an input, the computation can be completed
-  void ec_assign_location(jid_t jid);
-
-  // Once a move is completed, an agg unit at dst is that
-  // move closer to being complete.
-  // (This should be called even when the src location
-  //  is dst and thus a physical move didn't actually happen)
-  void ec_move(rid_t rid, int uid, int dst);
-
-  // Once an agg unit at some dst has completed,
-  // the corresponding refinement has one less dependent
-  void ec_agg_unit(rid_t rid, int dst);
-
-  // Once a refinment at dst has completed, the outgoing joins at
-  // dst have one less dependency to wait for
-  void ec_refinement(rid_t rid, int dst);
-
-  // Once a join completes, the outgoing agg units at
-  // the computed location have one less dependent
-  void ec_join(jid_t jid);
-
-private:
   // An agg unit is something that will get summed.
   // So if Y = X1 + X2 + X3 + X4 at locations
   //       0    0   1    1    2
@@ -251,10 +167,6 @@ private:
     set<int> outs; // get all refinement bids that depend on this join
   };
 
-private:
-  cluster_t const& cluster;
-  graph_t const& graph;
-
   struct unit_status_t {
     unit_status_t();
 
@@ -276,6 +188,7 @@ private:
 
     set<int> dsts() const;
   };
+
   struct move_status_t {
     move_status_t(int n);
 
@@ -305,6 +218,97 @@ private:
     optional<vector<refinement_t>> refis;
     optional<vector<move_status_t>> move_status;
   };
+
+  forward_state_t(cluster_t const& cl, graph_t const& g);
+
+  bool all_done() const;
+
+  // get all gids that can currently be given a partition
+  set<int> const& can_assign_partition() const;
+
+  void assign_partition(int gid, partition_t const& part);
+
+  void assign_location(jid_t jid, int loc);
+
+  void enqueue_apply_worker(int loc, int which);
+
+  void enqueue_move_worker(int src, int dst, int which);
+
+  completed_t pop_work();
+
+  ////////////
+  void enqueue_all();
+
+  void print_twolayer_graphviz(std::ostream&) const;
+
+  struct random_settings_t {
+    std::function<partition_t(int)> get_part;
+    std::function<int(jid_t)> get_loc;
+    bool always_enqueue_all;
+    bool priority_assign_partition;
+    bool priority_assign_location;
+    double assign_partition;
+    double assign_location;
+    double enqueue_apply;
+    double enqueue_move;
+    double pop_work;
+  };
+  static random_settings_t random_step_settings(
+    std::function<partition_t(int)> get_part,
+    std::function<int(jid_t)> get_loc);
+
+  optional<completed_t> random_step(random_settings_t const& settings);
+
+  optional<int> num_join_bid(int gid) const;
+
+  graph_node_info_t const& get_ginfo(int gid) const;
+
+  uint64_t extra_elems_to(jid_t jid, int loc) const;
+
+private:
+  // ec = Event Completed
+
+  // Once a partition is assigned, it may be the case that
+  // a refinement partition of one of the inputs can be setup.
+  // Once a partition is assigned, those locations can also
+  // be assigned
+  void ec_assign_partition(int gid);
+
+  // Once refis (and refinement_partition) is setup, it may the
+  // case that an output graph node can have the the joins setup
+  void ec_setup_refis(int gid);
+
+  // Once the joins are setup, it may be possible to add
+  // them to the things that can be computed
+  // Once the joins are setup, the refis may be setup
+  void ec_setup_joins(int gid);
+
+  // Once a location has been assigned, it may
+  // be the case that an agg unit is now available
+  // or if this is an input, the computation can be completed
+  void ec_assign_location(jid_t jid);
+
+  // Once a move is completed, an agg unit at dst is that
+  // move closer to being complete.
+  // (This should be called even when the src location
+  //  is dst and thus a physical move didn't actually happen)
+  void ec_move(rid_t rid, int uid, int dst);
+
+  // Once an agg unit at some dst has completed,
+  // the corresponding refinement has one less dependent
+  void ec_agg_unit(rid_t rid, int dst);
+
+  // Once a refinment at dst has completed, the outgoing joins at
+  // dst have one less dependency to wait for
+  void ec_refinement(rid_t rid, int dst);
+
+  // Once a join completes, the outgoing agg units at
+  // the computed location have one less dependent
+  void ec_join(jid_t jid);
+
+private:
+  cluster_t const& cluster;
+  graph_t const& graph;
 
   vector<graph_node_info_t> ginfos;
 
@@ -350,8 +354,10 @@ private:
 };
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
+bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
 bool operator< (forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
 bool operator==(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
+bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
 bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
 
 std::ostream& operator<<(std::ostream&, forward_state_t::jid_t const&);

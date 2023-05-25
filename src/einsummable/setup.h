@@ -285,6 +285,16 @@ bool vector_has(vector<T> const& xs, T const& value)
   return std::find(xs.begin(), xs.end(), value) != xs.end();
 }
 
+template <typename RandomIter>
+vector<std::size_t> argsort(RandomIter beg, RandomIter end) {
+  vector<std::size_t> ret(end-beg);
+  std::iota(ret.begin(), ret.end(), 0);
+  std::sort(ret.begin(), ret.end(), [&](int const& lhs, int const& rhs) {
+    return *(beg + lhs) < *(beg + rhs);
+  });
+  return ret;
+}
+
 template <typename T>
 set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
 {

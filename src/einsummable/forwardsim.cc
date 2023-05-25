@@ -329,8 +329,9 @@ void forward_state_t::setup_refinement_partition(int join_id) {
   usage_partitions.reserve(2*join_node.outs.size());
   for(auto const& out_id: join_node.outs) {
     auto const& out_node = graph.nodes[out_id];
+    auto const& out_part = ginfos[out_id].partition.value();
     if(out_node.op.is_formation()) {
-      usage_partitions.push_back(out_node.placement.partition);
+      usage_partitions.push_back(out_part);
     } else {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect
@@ -338,7 +339,7 @@ void forward_state_t::setup_refinement_partition(int join_id) {
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_id) {
           usage_partitions.emplace_back(einsummable.get_input_from_join(
-            out_node.placement.partition.partdims,
+            out_part.partdims,
             which_input));
         }
       }
@@ -1060,14 +1061,74 @@ optional<int> forward_state_t::num_join_bid(int gid) const {
   }
 }
 
+forward_state_t::graph_node_info_t const&
+forward_state_t::get_ginfo(int gid) const
+{
+  return ginfos[gid];
+}
+
+uint64_t forward_state_t::extra_elems_to(jid_t jid, int loc) const
+{
+  // A refi contains agg units.
+  // An agg unit is broadcast to all locations it get used and
+  // from all locations its inputs are from
+  uint64_t total = 0;
+
+  auto const& [gid,bid] = jid;
+  auto const& ginfo = ginfos[gid];
+  vector<int> const& locs = ginfo.locs.value();
+  auto const& join = ginfo.joins.value()[bid];
+
+  for(auto const& [rid_gid, rid_bid]: join.deps) {
+    auto const& refi = ginfos[rid_gid].refis.value()[rid_bid];
+
+    set<int> out_locs;
+    for(auto const& out_jid: refi.outs) {
+      auto const& [out_gid, out_bid] = out_jid;
+      int const& out_loc = ginfos[out_gid].locs.value()[out_bid];
+      if(out_jid != jid && out_loc != -1) {
+        out_locs.insert(out_loc);
+      }
+    }
+    if(out_locs.count(loc) == 1) {
+      // all agg units will be broadcast to this location
+      // already so nothing to add
+      continue;
+    }
+
+    for(auto const& [size, inn_jids]: refi.units) {
+      set<int> inn_locs;
+      for(auto const& inn_jid_bid: inn_jids) {
+        if(inn_jid_bid == bid) {
+          continue;
+        }
+        int const& inn_loc = locs[inn_jid_bid];
+        // don't add inn_loc == loc since that move is free
+        if(inn_loc != -1 && inn_loc != loc) {
+          inn_locs.insert(inn_loc);
+        }
+      }
+      int n = inn_locs.size();
+      total += n*size;
+    }
+  }
+  return total;
+}
+
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
   return two_tuple_eq(lhs, rhs);
+}
+bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
+  return !(lhs == rhs);
 }
 bool operator< (forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
   return two_tuple_lt(lhs, rhs);
 }
 bool operator==(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
   return two_tuple_eq(lhs, rhs);
+}
+bool operator!=(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
+  return !(lhs == rhs);
 }
 bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
   return two_tuple_lt(lhs, rhs);

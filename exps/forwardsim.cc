@@ -5,6 +5,7 @@
 #include "../src/matrixgraph/ff.h"
 
 #include "../src/einsummable/mcts1.h"
+#include "../src/einsummable/twolayergraph.h"
 
 #include <fstream>
 
@@ -262,25 +263,58 @@ void main02() {
   }
 }
 
-int main() {
-  int nlocs = 2;
+void main04() {
+  int nlocs = 1;
 
-  cluster_t cluster = make_cluster(nlocs, 2, 1);
+  cluster_t cluster = make_cluster(nlocs, 1, 1);
+
+  graph_t graph;
+  int inn = graph.insert_input({1000,1000});
+  int out = graph.insert_formation(inn, true);
+
+  forward_state_t state(cluster, graph);
+
+  vector<partdim_t> pds {
+    partdim_t::split(1000, 2),
+    partdim_t::split(1000, 2)
+  };
+  state.assign_partition(inn, partition_t(pds));
+  state.assign_partition(out, partition_t(pds));
+
+  {
+    std::ofstream f("tl.gv");
+    state.print_twolayer_graphviz(f);
+    DOUT("Printed to tl.gv");
+  }
+
+  {
+    graph.nodes[inn].placement = placement_t(partition_t(pds));
+    graph.nodes[out].placement = placement_t(partition_t(pds));
+    auto [_0, _1, twolayer] = twolayergraph_t::make(graph);
+    std::ofstream f("tl2.gv");
+    twolayer.print_graphviz(f);
+    DOUT("Printed to tl2.gv");
+  }
+}
+
+void main03() {
+  int nlocs = 4;
+
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
-  //  4,8,3,
+  //  4,4,4,
   //  4000,4000,4000,
   //  nlocs);
 
   float learning_rate = 0.1;
-  uint64_t dn = 3000;
-  uint64_t dp = 1000;
-  uint64_t dd = 100;
-  vector<uint64_t> dws{3000,3000,3000,3000};
+  uint64_t dn = 1500;
+  uint64_t dp = 1500;
+  uint64_t dd = 1500;
+  vector<uint64_t> dws{2000,2000};
 
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
   auto [graph, _] = ff.mgraph.compile();
-
 
   using namespace mcts1_ns;
 
@@ -290,6 +324,37 @@ int main() {
   for(int i = 0; i != 1000; ++i) {
     tree.step();
     double speedup = base / tree.get_best_makespan();
-    DOUT(speedup << "x");
+    DOUT( (tree.get_best_makespan() / base) );
+    //DOUT(speedup << "x");
+    //DOUT(tree.size());
   }
+
+  forward_state_t state = tree.construct_best();
+  {
+    std::ofstream f("tl.gv");
+    state.print_twolayer_graphviz(f);
+    DOUT("Printed to tl.gv");
+  }
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_einsummable()) {
+      DOUT(gid << ": " << node.op.get_einsummable());
+    }
+    DOUT(gid << ": " << state.get_ginfo(gid).partition.value());
+  }
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_einsummable()) {
+      DOUT(gid << ": " << node.op.get_einsummable());
+    } else if(node.op.is_input()) {
+      DOUT(gid << ": input");
+    } else if(node.op.is_formation()) {
+      DOUT(gid << ": formation");
+    }
+  }
+}
+
+int main() {
+  main03();
 }

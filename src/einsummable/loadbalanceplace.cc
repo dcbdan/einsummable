@@ -1,4 +1,5 @@
 #include "loadbalanceplace.h"
+#include "locsetter.h"
 
 struct _lbp_count_t {
   uint64_t size;
@@ -22,61 +23,6 @@ vector<_lbp_count_t> compute_loc_scores(
   int gid,
   vector<int> const& bids);
 
-struct _loc_setter_t {
-  _loc_setter_t(int n_items, int n_locs) {
-    avail_locs = vector<int>(n_locs);
-    std::iota(avail_locs.begin(), avail_locs.end(), 0);
-
-    int cnt = (n_items / n_locs) + 1;
-    remainder = n_items % n_locs;
-    num_remaining = vector<int>(n_locs, cnt);
-  }
-
-  // return whether or not this loc is still available
-  bool decrement(int loc) {
-    auto al_iter = std::find(avail_locs.begin(), avail_locs.end(), loc);
-    if(al_iter == avail_locs.end()) {
-      throw std::runtime_error("invalid decrement: this loc isn't here");
-    }
-    int which = al_iter - avail_locs.begin();
-
-    auto nr_iter = num_remaining.begin() + which;
-
-    int& nr = *nr_iter;
-    nr -= 1;
-
-    if(nr == 0 && remainder == 0) {
-      throw std::runtime_error("should not happen: loc setter");
-    } else if(nr == 0 && remainder > 0) {
-      remainder -= 1;
-      num_remaining.erase(nr_iter);
-      avail_locs.erase(al_iter);
-      if(remainder == 0) {
-        // remove all locs with nr == 1 now that the remainder
-        // has run out
-        for(int i = avail_locs.size() - 1; i >= 0; --i) {
-          if(num_remaining[i] == 1) {
-            num_remaining.erase(num_remaining.begin() + i);
-            avail_locs.erase(avail_locs.begin() + i);
-          }
-        }
-      }
-      return false;
-    } else if(nr == 1 && remainder == 0) {
-      num_remaining.erase(nr_iter);
-      avail_locs.erase(al_iter);
-      return false;
-    } else {
-      return true;
-    }
-  }
-
-  vector<int> num_remaining;
-  int remainder;
-
-  vector<int> avail_locs;
-};
-
 vector<tensor_t<int>> load_balanced_placement(
   graph_t const& graph,
   int nlocs,
@@ -99,9 +45,8 @@ vector<tensor_t<int>> load_balanced_placement(
         vector<int> const& jids = placements.g_to_tl[graph_id].get();
 
         for(int const& jid: jids) {
-          _loc_setter_t setter(jids.size(), nlocs);
-          int which_loc = runif(setter.avail_locs.size());
-          int loc = setter.avail_locs[which_loc];
+          loc_setter_t setter(jids.size(), nlocs);
+          int loc = setter.runif();
           placements.items[jid] = loc;
           setter.decrement(loc);
         }
@@ -170,7 +115,7 @@ vector<tensor_t<int>> load_balanced_placement(
     vector<int> remaining(num_parts);
     std::iota(remaining.begin(), remaining.end(), 0);
 
-    _loc_setter_t setter(num_parts, nlocs);
+    loc_setter_t setter(num_parts, nlocs);
 
     while(remaining.size() > 0) {
       // compute a three tuple of
@@ -178,7 +123,7 @@ vector<tensor_t<int>> load_balanced_placement(
       //   2. location
       //   3. blockid
       vector<_lbp_count_t> loc_scores = compute_loc_scores(
-        setter.avail_locs,
+        setter.get_avail_locs(),
         twolayer,
         placements,
         graph_id,
@@ -243,18 +188,4 @@ vector<_lbp_count_t> compute_loc_scores(
 
   return ret;
 }
-
-bool is_balanced(vector<int> const& locs) {
-  vector<int> cnts;
-  for(auto const& loc: locs) {
-    if(cnts.size() <= loc) {
-      cnts.resize(loc + 1);
-    }
-    cnts[loc] += 1;
-  }
-  int const& mx = *(std::max_element(cnts.begin(), cnts.end()));
-  int const& mn = *(std::min_element(cnts.begin(), cnts.end()));
-  return mx-mn <= 1;
-}
-
 

@@ -74,11 +74,15 @@ struct tree_t {
   // were added to the tree
   bool step();
 
+  forward_state_t construct_best() const;
+
   double get_best_makespan() const;
 
   bool is_leaf(int id) const;
 
   double simulate(int leaf_id) const;
+
+  int size() const { return nodes.size(); }
 
 private:
   graph_t const& graph;
@@ -119,6 +123,8 @@ private:
   partition_choices(
     int gid,
     vector<partition_t> const& inn_parts) const;
+
+  forward_state_t construct_state(int leaf_id) const;
 };
 
 }

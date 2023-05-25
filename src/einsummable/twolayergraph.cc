@@ -49,7 +49,7 @@ void twolayergraph_t::add_agg_unit(int rid, uint64_t size, vector<jid_t> deps)
 }
 
 // Note: Almost a copy of union_partition_holders in src/taskgraph.cc
-partition_t union_partitions(vector<partition_t> const& ps)
+partition_t union_partitions__(vector<partition_t> const& ps)
 {
   if(ps.size() == 0) {
     throw std::runtime_error("union partitions: input is empty");
@@ -118,7 +118,7 @@ twolayergraph_t::make(graph_t const& graph)
       }
     }
 
-    all_refinement_partitions.insert({join_id, union_partitions(usage_partitions)});
+    all_refinement_partitions.insert({join_id, union_partitions__(usage_partitions)});
   }
 
   for(auto const& graph_id: graph.get_order()) {
