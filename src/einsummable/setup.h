@@ -201,6 +201,62 @@ void vector_remove_duplicates(vector<T>& xs) {
   xs.resize(i);
 }
 
+template <typename T>
+void vector_uniqueify_inplace(vector<T>& xs) {
+  if(xs.size() <= 1) {
+    return;
+  }
+
+  set<std::size_t> discard;
+  for(std::size_t i = 0; i != xs.size()-1; ++i) {
+    for(std::size_t j = i+1; j != xs.size(); ++j) {
+      if(xs[i] == xs[j]) {
+        discard.insert(j);
+      }
+    }
+  }
+
+  auto s = discard.begin();
+  std::size_t j = 0;
+  for(int i = 0; i != xs.size(); ++i) {
+    if(s == discard.end() || *s != i) {
+      xs[j++] = xs[i];
+    } else {
+      s++;
+    }
+  }
+  xs.resize(j);
+}
+
+template <typename T>
+[[nodiscard]] vector<T> vector_uniqueify(vector<T> const& xs)
+{
+  if(xs.size() <= 1) {
+    return xs;
+  }
+
+  set<std::size_t> discard;
+  for(std::size_t i = 0; i != xs.size()-1; ++i) {
+    for(std::size_t j = i+1; j != xs.size(); ++j) {
+      if(xs[i] == xs[j]) {
+        discard.insert(j);
+      }
+    }
+  }
+
+  auto s = discard.begin();
+  vector<T> ret;
+  ret.reserve(xs.size() - discard.size());
+  for(int i = 0; i != xs.size(); ++i) {
+    if(s == discard.end() || *s != i) {
+      ret.push_back(xs[i]);
+    } else {
+      s++;
+    }
+  }
+  return ret;
+}
+
 // Take a bunch of sorted lists and merge em into a single sorted list
 template <typename T>
 vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {

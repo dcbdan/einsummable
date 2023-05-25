@@ -1051,6 +1051,15 @@ forward_state_t::random_step(
   }
 }
 
+optional<int> forward_state_t::num_join_bid(int gid) const {
+  auto const& ginfo = ginfos[gid];
+  if(ginfo.partition) {
+    return ginfo.partition.value().num_parts();
+  } else {
+    return std::nullopt;
+  }
+}
+
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
   return two_tuple_eq(lhs, rhs);
 }

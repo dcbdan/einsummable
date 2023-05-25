@@ -4,6 +4,8 @@
 
 #include "../src/matrixgraph/ff.h"
 
+#include "../src/einsummable/mcts1.h"
+
 #include <fstream>
 
 cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communicate_score = 1) {
@@ -216,7 +218,7 @@ void main01() {
   std::cout << "Correct total flops: " << correct_total_flops << std::endl;
 }
 
-int main() {
+void main02() {
   int nlocs = 4;
 
   cluster_t cluster = make_cluster(nlocs, 10, 1);
@@ -229,7 +231,7 @@ int main() {
   //bool random_loc = false;
 
   float learning_rate = 0.1;
-  uint64_t dn = 10000;
+  uint64_t dn = 3000;
   uint64_t dp = 1000;
   uint64_t dd = 100;
   vector<uint64_t> dws{3000,3000,3000,3000};
@@ -238,10 +240,12 @@ int main() {
   auto [graph, _] = ff.mgraph.compile();
 
   {
-    uint64_t mmlike_sizing = 1000u*1000u*1000u;
-    //uint64_t mmlike_sizing = 10000u*10000u*10000u;
+    //uint64_t mmlike_sizing = 1000u*1000u*1000u;
+    uint64_t mmlike_sizing = 10000u*10000u*10000u;
 
-    uint64_t min_sizing = 800u*800u;
+    //uint64_t min_sizing = 800u*800u;
+    uint64_t min_sizing = 10000u*9000u;
+
 
     vector<partition_t> new_partition = autopartition(
       graph,
@@ -255,5 +259,37 @@ int main() {
   for(int i = 0; i != 100; ++i) {
     set_seed(i);
     random_walk_through(graph, cluster, random_loc);
+  }
+}
+
+int main() {
+  int nlocs = 2;
+
+  cluster_t cluster = make_cluster(nlocs, 2, 1);
+
+  //auto graph = three_dimensional_matrix_multiplication(
+  //  4,8,3,
+  //  4000,4000,4000,
+  //  nlocs);
+
+  float learning_rate = 0.1;
+  uint64_t dn = 3000;
+  uint64_t dp = 1000;
+  uint64_t dd = 100;
+  vector<uint64_t> dws{3000,3000,3000,3000};
+
+  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
+  auto [graph, _] = ff.mgraph.compile();
+
+
+  using namespace mcts1_ns;
+
+  tree_t tree(graph, cluster);
+  double base = tree.get_best_makespan();
+
+  for(int i = 0; i != 1000; ++i) {
+    tree.step();
+    double speedup = base / tree.get_best_makespan();
+    DOUT(speedup << "x");
   }
 }

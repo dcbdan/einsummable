@@ -159,6 +159,8 @@ struct forward_state_t {
 
   optional<completed_t> random_step(random_settings_t const& settings);
 
+  optional<int> num_join_bid(int gid) const;
+
 private:
   // ec = Event Completed
 

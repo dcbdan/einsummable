@@ -214,7 +214,7 @@ struct forward_state_t {
 
   // count the number of elems from the input refinements
   // that setting this location would increase
-  // (assumes all input jids are avialable)
+  // (assumes all input jids are available)
   uint64_t extra_elems_to(int jid, int loc) const;
 private:
   // Find the earliest finish time of work currently
