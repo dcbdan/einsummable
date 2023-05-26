@@ -34,10 +34,13 @@ vector<locset_t> make_locsets(int n) {
 
 tree_t::tree_t(
   graph_t const& g,
-  cluster_t const& c)
-  : graph(g), cluster(c), ordered_gids(g.get_order()),
+  cluster_t const& c,
+  double pc)
+  : graph(g), cluster(c), param_c(pc), ordered_gids(g.get_order()),
     locsets(make_locsets(c.devices.size()))
 {
+  nodes.reserve(1000000);
+
   // insert the root node
   {
     int const& gid0 = ordered_gids[0];
@@ -47,7 +50,9 @@ tree_t::tree_t(
       .children = {},
       .which = 0,
       .choice = choices,
-      .best_makespan = std::numeric_limits<double>::max()
+      .best_makespan = std::numeric_limits<double>::max(),
+      .cumul = 0.0,
+      .n = 0
     });
   }
 
@@ -57,7 +62,7 @@ tree_t::tree_t(
   best_leaf = leaf;
 }
 
-bool tree_t::step() {
+tuple<double,bool> tree_t::step() {
   int n_before = nodes.size();
 
   auto [makespan, leaf] = _step();
@@ -66,7 +71,7 @@ bool tree_t::step() {
     best_leaf = leaf;
   }
 
-  return n_before != nodes.size();
+  return {makespan, n_before != nodes.size()};
 }
 
 double tree_t::get_best_makespan() const {
@@ -155,23 +160,41 @@ int tree_t::_step_select_which_choice(int id) {
   auto const& node = nodes[id];
   int n_children = node.num_possible_children();
 
-  vector<double> scores;
-  scores.reserve(n_children);
-  for(int i = 0; i != n_children; ++i) {
-    auto iter = node.children.find(i);
-    if(iter == node.children.end()) {
-      scores.push_back(1.0);
-    } else {
-      auto const& child_node = nodes[iter->second];
-      if(child_node.best_makespan < 2.0 * best_makespan) {
-        scores.push_back(0.5);
+  if(n_children != node.children.size()) {
+    vector<double> scores;
+    scores.reserve(n_children);
+    for(int i = 0; i != n_children; ++i) {
+      auto iter = node.children.find(i);
+      if(iter == node.children.end()) {
+        scores.push_back(1.0);
       } else {
-        scores.push_back(2.0);
+        auto const& child_node = nodes[iter->second];
+        if(child_node.best_makespan < 2.0 * best_makespan) {
+          scores.push_back(0.0);
+        } else {
+          scores.push_back(0.0);
+        }
       }
+    }
+
+    return runif(scores);
+  }
+
+  int best_choice = -1;
+  double best_score = 0.0;
+  for(auto const& [choice,child]: node.children) {
+    double n_here = 1.0 * node.n;
+    double n_child = 1.0 * nodes[child].n;
+    double avg_makespan = nodes[child].cumul / n_child;
+    double score = avg_makespan / best_makespan + param_c * std::sqrt(
+               std::log( n_here ) / n_child );
+    if(score > best_score) {
+      best_choice = choice;
+      best_score = score;
     }
   }
 
-  return runif(scores);
+  return best_choice;
 }
 
 int tree_t::get_part_child(
@@ -185,13 +208,37 @@ int tree_t::get_part_child(
     return iter->second;
   }
 
+  vector<char> in_schemes;
+  {
+    int const& gid = ordered_gids[node.which];
+    auto const& gnode = graph.nodes[gid];
+    if(gnode.op.is_input()) {
+      in_schemes.push_back(0);
+    } else if(gnode.outs.size() == 0) {
+      in_schemes.push_back(1);
+    } else {
+      in_schemes.push_back(0);
+      in_schemes.push_back(1);
+    }
+  }
+
   vector<place_choice_t> choices;
   for(auto const& locset: locsets) {
-    choices.push_back(place_choice_t {
-      .locset = locset,
-      .by_agg_group = false,
-      .with_load_balance = true
-    });
+    auto const& [mn,mx] = locset;
+    int nl = mx-mn;
+    if(nl == 1) {
+      choices.push_back(place_choice_t {
+        .locset = locset,
+        .in_scheme = true // not used
+      });
+    } else {
+      for(char s: in_schemes) {
+        choices.push_back(place_choice_t {
+          .locset = locset,
+          .in_scheme = bool(s)
+        });
+      }
+    }
   }
 
   nodes.push_back(node_t {
@@ -199,7 +246,9 @@ int tree_t::get_part_child(
     .children = {},
     .which = node.which,
     .choice = choices,
-    .best_makespan = std::numeric_limits<double>::max()
+    .best_makespan = std::numeric_limits<double>::max(),
+    .cumul = 0.0,
+    .n = 0
 
   });
 
@@ -226,7 +275,9 @@ int tree_t::get_place_child(
       .children = {},
       .which = -1,
       .choice = leaf_t {},
-      .best_makespan = std::numeric_limits<double>::max()
+      .best_makespan = std::numeric_limits<double>::max(),
+      .cumul = 0.0,
+      .n = 0
     });
     int ret = nodes.size() - 1;
     node_t& node = nodes[id];
@@ -250,7 +301,9 @@ int tree_t::get_place_child(
     .children = {},
     .which = node.which + 1,
     .choice = parts,
-    .best_makespan = std::numeric_limits<double>::max()
+    .best_makespan = std::numeric_limits<double>::max(),
+    .cumul = 0.0,
+    .n = 0
   });
 
   int ret = nodes.size() - 1;
@@ -452,11 +505,6 @@ void tree_t::assign_locations(
   // Assumption: all partitions have been assigned to state
   // Assumption: all dependents of gid have been placed
 
-  // TODO: implement these versions and incorporate into mcts1, maybe
-  if(p.by_agg_group == true || p.with_load_balance == false) {
-    throw std::runtime_error("no implemented assign locations");
-  }
-
   auto const& [mn,mx] = p.locset;
   int nl = mx-mn;
   int nbid = state.num_join_bid(gid).value();
@@ -470,6 +518,13 @@ void tree_t::assign_locations(
 
   auto const& node = graph.nodes[gid];
 
+  if(node.op.is_input() && p.in_scheme) {
+    throw std::runtime_error("is input, must use output scheme");
+  }
+  if(node.outs.size() == 0 && !p.in_scheme) {
+    throw std::runtime_error("is output, must use input scheme");
+  }
+
   //if(node.outs.size() == 0) {
   //  int l = 0;
   //  int nbid = state.num_join_bid(gid).value();
@@ -480,7 +535,7 @@ void tree_t::assign_locations(
   //  return;
   //}
 
-  if(node.op.is_input()) {
+  if(!p.in_scheme) {
     auto const& ginfo = state.get_ginfo(gid);
     auto const& joins = ginfo.joins.value();
     auto const& refis = ginfo.refis.value();
@@ -554,12 +609,16 @@ void tree_t::update_from_leaf(int leaf_id, double found_makespan)
 {
   for(auto const& [id,_]: get_path_from_leaf(leaf_id)) {
     node_t& node = nodes[id];
+    node.cumul += found_makespan;
+    node.n += 1;
     if(found_makespan < node.best_makespan) {
       node.best_makespan = found_makespan;
     }
   }
 
   node_t& node = nodes[leaf_id];
+  node.cumul += found_makespan;
+  node.n += 1;
   if(found_makespan < node.best_makespan) {
     node.best_makespan = found_makespan;
   }

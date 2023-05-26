@@ -13,8 +13,9 @@ struct locset_t {
 
 struct place_choice_t {
   locset_t locset;
-  bool by_agg_group;
-  bool with_load_balance;
+  bool in_scheme;
+  //bool by_agg_group;
+  //bool with_load_balance;
 };
 
 struct leaf_t {};
@@ -63,16 +64,19 @@ struct node_t {
   }
 
   double best_makespan;
+  double cumul;
+  int n;
 };
 
 struct tree_t {
   tree_t(
     graph_t const& graph,
-    cluster_t const& cluster);
+    cluster_t const& cluster,
+    double param_c = 1.414);
 
-  // simulate and return true if nodes
-  // were added to the tree
-  bool step();
+  // simulate and return the makespan
+  // and true if nodes were added to the tree
+  tuple<double,bool> step();
 
   forward_state_t construct_best() const;
 
@@ -87,6 +91,7 @@ struct tree_t {
 private:
   graph_t const& graph;
   cluster_t const& cluster;
+  double param_c;
 
   vector<int> const ordered_gids;
 

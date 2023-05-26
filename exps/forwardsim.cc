@@ -300,7 +300,7 @@ void main04() {
 void main03() {
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 3, 1);
+  cluster_t cluster = make_cluster(nlocs, 10, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
   //  4,4,4,
@@ -318,41 +318,71 @@ void main03() {
 
   using namespace mcts1_ns;
 
-  tree_t tree(graph, cluster);
+  double c = 1.5;
+  tree_t tree(graph, cluster, c);
   double base = tree.get_best_makespan();
 
-  for(int i = 0; i != 100000; ++i) {
-    tree.step();
+  for(int i = 0; i != 4000; ++i) {
+    auto [makespan,_] = tree.step();
     double speedup = base / tree.get_best_makespan();
-    DOUT( (tree.get_best_makespan() / base) );
+    DOUT((tree.get_best_makespan() / base) << "             | " << (makespan / base) << "");
     //DOUT(speedup << "x");
     //DOUT(tree.size());
   }
 
   forward_state_t state = tree.construct_best();
   {
-    std::ofstream f("tl.gv");
-    state.print_twolayer_graphviz(f);
-    DOUT("Printed to tl.gv");
+    {
+      std::ofstream f("tl.gv");
+      state.print_twolayer_graphviz(f);
+      DOUT("Printed to tl.gv");
+    }
+
+    vector<timeplot_ns::box_t> boxes;
+    double makespan = 0.0;
+    using jid_t = forward_state_t::jid_t;
+    while(!state.all_done()) {
+      state.enqueue_all();
+      auto completed = state.pop_work();
+      makespan = std::max(makespan, completed.finish);
+      if(completed.did_apply()) {
+        auto const& [loc,gid,bid,flops] = completed.get_apply_info();
+        boxes.push_back(timeplot_ns::box_t {
+          .row = loc,
+          .start = completed.start,
+          .stop  = completed.finish,
+          .text = write_with_ss(jid_t { gid, bid })
+        });
+      }
+    }
+
+    {
+      std::ofstream f("tp.svg");
+      timeplot(f, boxes, 50, 50, makespan);
+      DOUT("Printed to tp.svg");
+    }
   }
 
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    if(node.op.is_einsummable()) {
-      DOUT(gid << ": " << node.op.get_einsummable());
-    }
-    DOUT(gid << ": " << state.get_ginfo(gid).partition.value());
-  }
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    if(node.op.is_einsummable()) {
-      DOUT(gid << ": " << node.op.get_einsummable());
-    } else if(node.op.is_input()) {
-      DOUT(gid << ": input");
-    } else if(node.op.is_formation()) {
-      DOUT(gid << ": formation");
-    }
-  }
+  //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //  auto const& node = graph.nodes[gid];
+  //  if(node.op.is_einsummable()) {
+  //    DOUT(gid << ": " << node.op.get_einsummable());
+  //  }
+  //  DOUT(gid << ": " << state.get_ginfo(gid).partition.value());
+  //}
+  //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //  auto const& node = graph.nodes[gid];
+  //  if(node.op.is_einsummable()) {
+  //    DOUT(gid << ": " << node.op.get_einsummable());
+  //  } else if(node.op.is_input()) {
+  //    DOUT(gid << ": input");
+  //  } else if(node.op.is_formation()) {
+  //    DOUT(gid << ": formation");
+  //  }
+  //}
+}
+
+void main05() {
 }
 
 int main() {
