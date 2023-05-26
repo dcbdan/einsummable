@@ -1762,7 +1762,18 @@ void taskgraph_t::print() const {
 }
 
 void taskgraph_t::print_graphviz(std::ostream& out) const {
-  print_graphviz(out, {});
+  vector<string> colors{
+    "#61B292",
+    "#AED09E",
+    "#F1E8A7",
+    "#A8896C",
+    "#A8D8EA",
+    "#AA96DA",
+    "#FCBAD3",
+    "#FFFFD2"
+  };
+
+  print_graphviz(out, colors);
 }
 void taskgraph_t::print_graphviz(
   std::ostream& out,
