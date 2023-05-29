@@ -287,6 +287,8 @@ void reference_compute_memgraph(
       std::copy(cache_buffer->data, cache_buffer->data + size, loc_buffer->data);
 
       caches[loc].erase(cache_id);
+    } else if(op.is_partialize()) {
+      // nothing to do
     } else if(op.is_del()) {
       // nothing to do
     } else {

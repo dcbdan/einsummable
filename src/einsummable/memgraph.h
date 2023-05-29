@@ -25,6 +25,8 @@ std::ostream& operator<<(std::ostream&, memloc_t const&);
 
 struct memgraph_make_state_t;
 
+enum class allocator_strat_t { lowest_dependency, first };
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
@@ -50,7 +52,9 @@ struct memgraph_t {
     memgraph_t>
   make_without_evict(
     taskgraph_t const& graph,
-    vector<int> const& which_cache);
+    vector<int> const& which_cache,
+    vector<uint64_t> mem_sizes = {},
+    allocator_strat_t strat = allocator_strat_t::lowest_dependency);
 
   void print_graphviz(std::ostream& out) const;
 
@@ -141,6 +145,12 @@ public:
     uint64_t size;
   };
 
+  struct partialize_t {
+    int loc;
+    uint64_t offset;
+    uint64_t size;
+  };
+
   struct del_t {
     int loc;
     uint64_t offset;
@@ -151,46 +161,54 @@ public:
   private:
     using _op_t = std::variant<
       input_t, apply_t, move_t,
-      evict_t, load_t, del_t>;
+      evict_t, load_t,
+      partialize_t, del_t>;
   public:
     op_t(_op_t op): op(op) { check_op(); }
 
-    op_t(input_t  x): op_t(_op_t(x)) {}
-    op_t(apply_t  x): op_t(_op_t(x)) {}
-    op_t(move_t   x): op_t(_op_t(x)) {}
-    op_t(evict_t  x): op_t(_op_t(x)) {}
-    op_t(load_t   x): op_t(_op_t(x)) {}
-    op_t(del_t    x): op_t(_op_t(x)) {}
+    op_t(input_t      x): op_t(_op_t(x)) {}
+    op_t(apply_t      x): op_t(_op_t(x)) {}
+    op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(evict_t      x): op_t(_op_t(x)) {}
+    op_t(load_t       x): op_t(_op_t(x)) {}
+    op_t(partialize_t x): op_t(_op_t(x)) {}
+    op_t(del_t        x): op_t(_op_t(x)) {}
 
-    bool is_input() const { return std::holds_alternative<input_t>(op); }
-    bool is_apply() const { return std::holds_alternative<apply_t>(op); }
-    bool is_move()  const { return std::holds_alternative<move_t>(op);  }
-    bool is_evict() const { return std::holds_alternative<evict_t>(op); }
-    bool is_load()  const { return std::holds_alternative<load_t>(op);  }
-    bool is_del()   const { return std::holds_alternative<del_t>(op);   }
+    bool is_input()      const { return std::holds_alternative<input_t>(op);      }
+    bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
+    bool is_move()       const { return std::holds_alternative<move_t>(op);       }
+    bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
+    bool is_load()       const { return std::holds_alternative<load_t>(op);       }
+    bool is_partialize() const { return std::holds_alternative<partialize_t>(op); }
+    bool is_del()        const { return std::holds_alternative<del_t>(op);        }
 
-    input_t const& get_input() const { return std::get<input_t>(op); }
-    apply_t const& get_apply() const { return std::get<apply_t>(op); }
-    move_t  const& get_move()  const { return std::get<move_t>(op);  }
-    evict_t const& get_evict() const { return std::get<evict_t>(op); }
-    load_t  const& get_load()  const { return std::get<load_t>(op);  }
-    del_t   const& get_del()   const { return std::get<del_t>(op);   }
+    input_t      const& get_input()      const { return std::get<input_t>(op);      }
+    apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
+    move_t       const& get_move()       const { return std::get<move_t>(op);       }
+    evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
+    load_t       const& get_load()       const { return std::get<load_t>(op);       }
+    partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+    del_t        const& get_del()        const { return std::get<del_t>(op);        }
 
     // get all the memlocs touched by
     // this operation
     vector<memloc_t> get_memlocs() const;
 
+    memloc_t get_output_memloc() const;
+    mem_t    get_output_mem() const;
+
   private:
     _op_t op;
 
-    void check_op()    const;
+    void check_op()         const;
 
-    void check_input() const;
-    void check_apply() const;
-    void check_move()  const;
-    void check_evict() const;
-    void check_load()  const;
-    void check_del()   const;
+    void check_input()      const;
+    void check_apply()      const;
+    void check_move()       const;
+    void check_evict()      const;
+    void check_load()       const;
+    void check_partialize() const;
+    void check_del()        const;
   };
 
   struct node_t {
@@ -222,7 +240,9 @@ private:
 struct allocator_t {
   allocator_t() = delete;
 
-  allocator_t(uint64_t memsize_t);
+  allocator_t(
+    uint64_t memsize_t,
+    allocator_strat_t s = allocator_strat_t::lowest_dependency);
 
   // Allocate this much memory if possible and return
   // the offset and all dependents. If there is not
@@ -232,6 +252,9 @@ struct allocator_t {
 
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
+
+  void set_strategy(allocator_strat_t s) { strat = s; };
+  allocator_strat_t get_strategy() const { return strat; }
 
   // delete this memory, storing the delete dependent
   // for future use of this memory block
@@ -261,11 +284,15 @@ private:
   };
 
   vector<block_t> blocks;
+  allocator_strat_t strat;
 
   using iter_t = vector<block_t>::iterator;
 
   optional<tuple<iter_t, iter_t, uint64_t>>
-  find_available(uint64_t size);
+  find_lowest_dependency_available(uint64_t size);
+
+  optional<tuple<iter_t, iter_t, uint64_t>>
+  find_first_available(uint64_t size);
 };
 
 struct _which_node_t {
@@ -288,18 +315,21 @@ struct memgraph_make_state_t {
     int num_compute,
     int num_cache);
 
-  using op_t    = memgraph_t::op_t;
-  using input_t = memgraph_t::input_t;
-  using apply_t = memgraph_t::apply_t;
-  using move_t  = memgraph_t::move_t;
-  using del_t   = memgraph_t::del_t;
+  using op_t         = memgraph_t::op_t;
+  using input_t      = memgraph_t::input_t;
+  using apply_t      = memgraph_t::apply_t;
+  using move_t       = memgraph_t::move_t;
+  using partialize_t = memgraph_t::partialize_t;
+  using del_t        = memgraph_t::del_t;
 
   void allocate_inputs();
 
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);
 
-  vector<int> task_to_mem(int task_id) const;
+  // This function will insert dummy partialize nodes
+  // if necessary.
+  int task_to_mem(int task_id);
 
   int get_group_at(int task_id, int unit_id);
 
@@ -314,8 +344,6 @@ struct memgraph_make_state_t {
 
   taskgraph_t const& taskgraph;
 
-  map<int, mem_t> input_to_mem;
-  map<int, mem_t> save_to_mem;
   memgraph_t memgraph;
 
   vector<allocator_t> allocators;

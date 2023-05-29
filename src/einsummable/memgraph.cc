@@ -23,6 +23,17 @@ memgraph_t::memgraph_t(
 void memgraph_t::print_graphviz(std::ostream& out) const {
   using std::endl;
 
+  vector<string> colors{
+    "#61B292",
+    "#AED09E",
+    "#F1E8A7",
+    "#A8896C",
+    "#A8D8EA",
+    "#AA96DA",
+    "#FCBAD3",
+    "#FFFFD2"
+  };
+
   string tab = "  ";
   out << "digraph {" << endl;
 
@@ -37,6 +48,9 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       string memloc = write_with_ss(
         memloc_t { input.offset, input.size, input.loc });
       label = "input@" + memloc;
+      if(input.loc < colors.size()) {
+        color = colors[input.loc];
+      }
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
       auto const& aop = apply.op;
@@ -56,6 +70,9 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       for(mem_t const& mem: apply.mems) {
         label += "|" + write_with_ss(mem);
       }
+      if(apply.loc < colors.size()) {
+        color = colors[apply.loc];
+      }
     } else if(op.is_move()) {
       move_t const& move = op.get_move();
 
@@ -74,34 +91,51 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         write_with_ss(memloc_t { evict.offset, evict.size, evict.loc }) +
         "->cid" +
         write_with_ss(evict.cache_id);
+      if(evict.loc < colors.size()) {
+        color = colors[evict.loc];
+      }
     } else if(op.is_load()) {
       load_t const& load = op.get_load();
       label = "load@" +
         write_with_ss(memloc_t { load.offset, load.size, load.loc }) +
         "->cid" +
         write_with_ss(load.cache_id);
+      if(load.loc < colors.size()) {
+        color = colors[load.loc];
+      }
+    } else if(op.is_partialize()) {
+      partialize_t const& par = op.get_partialize();
+      string memloc = write_with_ss(
+        memloc_t { par.offset, par.size, par.loc });
+      label = "partialize@" + memloc;
+      if(par.loc < colors.size()) {
+        color = colors[par.loc];
+      }
     } else if(op.is_del()) {
       del_t const& del = op.get_del();
       string memloc = write_with_ss(
         memloc_t { del.offset, del.size, del.loc });
       label = "del@" + memloc;
+      if(del.loc < colors.size()) {
+        color = colors[del.loc];
+      }
     } else {
       throw std::runtime_error("memgraph print should not happen");
     }
 
-    auto memlocs = op.get_memlocs();
-    for(int i = 1; i != memlocs.size(); ++i) {
-      if(memlocs[0].offset == memlocs[i].offset) {
-        // this argument is donated
-        color = "green";
-      }
-    }
+    //auto memlocs = op.get_memlocs();
+    //for(int i = 1; i != memlocs.size(); ++i) {
+    //  if(memlocs[0].offset == memlocs[i].offset) {
+    //    // this argument is donated
+    //    color = "green";
+    //  }
+    //}
 
     out << tab
       << "n" << id
-      << " [label=\"" << label << "\"";
+      << " [style=filled,label=\"" << label << "\"";
     if(color != "") {
-      out << ", color=" << color;
+      out << ", color=\"" << color << "\"";
     }
     out << "]" << endl;
 
@@ -209,6 +243,8 @@ void memgraph_t::op_t::check_op() const {
     check_evict();
   } else if(is_load()) {
     check_load();
+  } else if(is_partialize()) {
+    check_partialize();
   } else if(is_del()) {
     check_del();
   } else {
@@ -226,53 +262,104 @@ void memgraph_t::op_t::check_move()  const {
     throw std::runtime_error("move cannot be to same location; that's an apply");
   }
 }
-void memgraph_t::op_t::check_evict() const {}
-void memgraph_t::op_t::check_load()  const {}
-void memgraph_t::op_t::check_del()   const {}
+void memgraph_t::op_t::check_evict()      const {}
+void memgraph_t::op_t::check_load()       const {}
+void memgraph_t::op_t::check_partialize() const {}
+void memgraph_t::op_t::check_del()        const {}
 
 vector<memloc_t> memgraph_t::op_t::get_memlocs() const
 {
-  using std::holds_alternative;
-  using std::get;
-
-  if(holds_alternative<input_t>(op)) {
-    auto const& input = get<input_t>(op);
+  if(is_input()) {
+    auto const& input = get_input();
     return {
       memloc_t { .offset = input.offset, .size = input.size, .loc = input.loc }
     };
-  } else if(holds_alternative<apply_t>(op)) {
-    auto const& apply = get<apply_t>(op);
+  } else if(is_apply()) {
+    auto const& apply = get_apply();
     vector<memloc_t> ret;
     for(mem_t const& mem: apply.mems) {
       ret.push_back(mem.as_memloc(apply.loc));
     }
     return ret;
-  } else if(holds_alternative<move_t>(op)) {
-    auto const& move = get<move_t>(op);
+  } else if(is_move()) {
+    auto const& move = get_move();
     auto const& [src_loc, src_offset] = move.src;
     auto const& [dst_loc, dst_offset] = move.dst;
     return {
       memloc_t { .offset = src_offset, .size = move.size, .loc = src_loc },
       memloc_t { .offset = dst_offset, .size = move.size, .loc = dst_loc }
     };
-  } else if(holds_alternative<evict_t>(op)) {
-    auto const& evict = get<evict_t>(op);
+  } else if(is_evict()) {
+    auto const& evict = get_evict();
     return {
       memloc_t { .offset = evict.offset, .size = evict.size, .loc = evict.loc }
     };
-  } else if(holds_alternative<load_t>(op)) {
-    auto const& load = get<load_t>(op);
+  } else if(is_load()) {
+    auto const& load = get_load();
     return {
       memloc_t { .offset = load.offset, .size = load.size, .loc = load.loc }
     };
-  } else if(holds_alternative<del_t>(op)) {
-    auto const& del = get<del_t>(op);
+  } else if(is_partialize()) {
+    auto const& par = get_partialize();
+    return {
+      memloc_t { .offset = par.offset, .size = par.size, .loc = par.loc }
+    };
+  } else if(is_del()) {
+    auto const& del = get_del();
     return {
       memloc_t { .offset = del.offset, .size = del.size, .loc = del.loc }
     };
   } else {
     throw std::runtime_error("get_memlocs should not reach");
   }
+}
+
+memloc_t memgraph_t::op_t::get_output_memloc() const
+{
+  if(is_input()) {
+    auto const& input = get_input();
+    return memloc_t {
+      .offset = input.offset,
+      .size = input.size,
+      .loc = input.loc
+    };
+  } else if(is_apply()) {
+    auto const& apply = get_apply();
+    auto const& out_mem = apply.mems[0];
+    return out_mem.as_memloc(apply.loc);
+  } else if(is_move()) {
+    auto const& move = get_move();
+    auto const& [dst_loc, dst_offset] = move.dst;
+    return memloc_t {
+      .offset = dst_offset,
+      .size = move.size,
+      .loc = dst_loc
+    };
+  } else if(is_evict()) {
+    throw std::runtime_error("evict has no output mem_t");
+  } else if(is_load()) {
+    auto const& load = get_load();
+    return memloc_t {
+      .offset = load.offset,
+      .size = load.size,
+      .loc = load.loc
+    };
+  } else if(is_partialize()) {
+    auto const& par = get_partialize();
+    return memloc_t {
+      .offset = par.offset,
+      .size = par.size,
+      .loc = par.loc
+    };
+  } else if(is_del()) {
+    throw std::runtime_error("del has no output mem_t");
+  } else {
+    throw std::runtime_error("get_output_memloc should not reach");
+  }
+}
+
+mem_t memgraph_t::op_t::get_output_mem() const {
+  return get_output_memloc().as_mem();
 }
 
 // Get all (inn, which_touch_t) from partialize node out
@@ -298,7 +385,9 @@ tuple<
   memgraph_t>
 memgraph_t::make_without_evict(
   taskgraph_t const& taskgraph,
-  vector<int> const& which_cache)
+  vector<int> const& which_cache,
+  vector<uint64_t> mem_sizes,
+  allocator_strat_t strat)
 {
   int const n_compute_locs = taskgraph.num_locs();
   if(which_cache.size() != n_compute_locs) {
@@ -320,11 +409,22 @@ memgraph_t::make_without_evict(
     }
   }
 
-  // set up an allocator for each loc,
-  // each with a very large amount of available memory
-  vector<allocator_t> allocators(
-    n_compute_locs,
-    std::numeric_limits<uint64_t>::max());
+  vector<allocator_t> allocators;
+  if(mem_sizes.size() == 0) {
+    // set up an allocator for each loc,
+    // each with a very large amount of available memory
+    allocators = vector<allocator_t>(
+      n_compute_locs,
+      allocator_t(std::numeric_limits<uint64_t>::max(), strat));
+  } else {
+    if(mem_sizes.size() != n_compute_locs) {
+      throw std::runtime_error("must have mem sizes for each device");
+    }
+    allocators.reserve(mem_sizes.size());
+    for(auto const& m: mem_sizes) {
+      allocators.emplace_back(m, strat);
+    }
+  }
 
   memgraph_make_state_t state(
     taskgraph,
@@ -339,9 +439,43 @@ memgraph_t::make_without_evict(
     state.add_to_memgraph(which_op);
   }
 
+  // Collect the input to memory and save to memory
+  map<int, mem_t> input_to_mem;
+  map<int, mem_t> save_to_mem;
+  for(int id = 0; id != taskgraph.nodes.size(); ++id) {
+    auto const& node = taskgraph.nodes[id];
+
+    optional<mem_t> mem;
+
+    // Regardless of whether or not this is a save node,
+    // call task_to_mem for all partializes so that
+    // dummy partialize ops are correctly inserted
+    // (any node that is not used and not a save
+    //  really should not be in the taskgraph, but this
+    //  function is not worrying about that)
+    if(node.op.is_partialize()) {
+      int mem_id = state.task_to_mem(id);
+      mem = state.memgraph.nodes[mem_id].op.get_output_mem();
+    }
+
+    if(node.op.is_input()) {
+      int mem_id = state.task_to_mem(id);
+      mem = state.memgraph.nodes[mem_id].op.get_output_mem();
+      input_to_mem.insert({id, mem.value()});
+    }
+
+    if(node.is_save) {
+      if(!mem) {
+        int mem_id = state.task_to_mem(id);
+        mem = state.memgraph.nodes[mem_id].op.get_output_mem();
+      }
+      save_to_mem.insert({id, mem.value()});
+    }
+  }
+
   return {
-    state.input_to_mem,
-    state.save_to_mem,
+    input_to_mem,
+    save_to_mem,
     state.memgraph
   };
 }
@@ -388,10 +522,6 @@ void memgraph_make_state_t::allocate_inputs() {
         .offset = offset,
         .size = sz
       };
-      input_to_mem.insert({id, mem});
-      if(node.is_save) {
-        save_to_mem.insert({id, mem});
-      }
 
       current_tensors.insert({id, offset});
 
@@ -436,8 +566,7 @@ void memgraph_make_state_t::add_to_memgraph(
         .size = sz
       };
 
-      vector<int> inn_deps = task_to_mem(task_inn);
-      deps.insert(inn_deps.begin(), inn_deps.end());
+      deps.insert(task_to_mem(task_inn));
 
       used_task_tensors.push_back(task_inn);
     }
@@ -461,8 +590,7 @@ void memgraph_make_state_t::add_to_memgraph(
   } else if(node.op.is_move()) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();
 
-    vector<int> inn_deps = task_to_mem(task_inn);
-    deps.insert(inn_deps.begin(), inn_deps.end());
+    deps.insert(task_to_mem(task_inn));
 
     used_task_tensors.push_back(task_inn);
 
@@ -480,8 +608,7 @@ void memgraph_make_state_t::add_to_memgraph(
     auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
-    vector<int> inn_deps = task_to_mem(task_inn);
-    deps.insert(inn_deps.begin(), inn_deps.end());
+    deps.insert(task_to_mem(task_inn));
 
     used_task_tensors.push_back(task_inn);
 
@@ -537,19 +664,52 @@ int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
   }
 }
 
-vector<int> memgraph_make_state_t::task_to_mem(int task_id) const
+int memgraph_make_state_t::task_to_mem(int task_id)
 {
   auto const& node = taskgraph.nodes[task_id];
   if(node.op.is_partialize()) {
-    vector<int> ret;
-    auto const which_touches =
-      get_which_touches_from(taskgraph, task_id);
-    for(auto const& [_, which_touch]: which_touches) {
-      ret.push_back(task_touch_to_mem.at(which_touch));
+    // There are two cases of partialize nodes:
+    //   1. there is only one touch to the partialize
+    //   2. there is more than one touch to the partialize
+    // For case 1, the task_id is just the singleton touch input and no
+    //             dummy partialize node is inserted
+    // For case 2, task_id may already exist in task_node and the the corresponding
+    //             mem node is a dummy partialize node. In this case, if the dummy
+    //             node doesn't exist, create it.
+    auto iter = task_node_to_mem.find(task_id);
+    if(iter == task_node_to_mem.end()) {
+      set<int> deps;
+      auto const which_touches =
+        get_which_touches_from(taskgraph, task_id);
+      for(auto const& [_, which_touch]: which_touches) {
+        deps.insert(task_touch_to_mem.at(which_touch));
+      }
+
+      if(deps.size() == 1) {
+        // case 1: this is a singleton partialize
+        int const& ret = *deps.begin();
+        task_node_to_mem.insert({task_id, ret});
+        return ret;
+      }
+
+      // case 2: create a dummy partialize node
+      partialize_t op;
+      {
+        auto const& an_touch_node = memgraph.nodes[*deps.begin()];
+        auto const& [loc, mems, _0, _1] = an_touch_node.op.get_apply();
+        op.loc    = loc;
+        op.offset = mems[0].offset;
+        op.size   = mems[0].size;
+      }
+
+      int ret = memgraph.insert(op, deps);
+      task_node_to_mem.insert({task_id, ret});
+      return ret;
+    } else {
+      return iter->second;
     }
-    return ret;
   } else if(node.op.is_input() || node.op.is_apply() || node.op.is_move()) {
-    return {task_node_to_mem.at(task_id)};
+    return task_node_to_mem.at(task_id);
   } else {
     throw std::runtime_error("task_to_mem should not reach");
   }
@@ -668,10 +828,6 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
 
   current_tensors.insert({task_id, output_mem.offset});
 
-  if(node.is_save) {
-    save_to_mem.insert({task_id, output_mem});
-  }
-
   return output_mem.offset;
 }
 
@@ -760,7 +916,8 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 
-allocator_t::allocator_t(uint64_t memsize)
+allocator_t::allocator_t(uint64_t memsize, allocator_strat_t s)
+  : strat(s)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");
@@ -780,7 +937,7 @@ void allocator_t::block_t::free(int d) {
 }
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
-allocator_t::find_available(uint64_t size) {
+allocator_t::find_first_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
 
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
@@ -799,12 +956,43 @@ allocator_t::find_available(uint64_t size) {
   return optional<return_t>();
 }
 
+optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
+allocator_t::find_lowest_dependency_available(uint64_t size) {
+  using return_t = tuple<iter_t, iter_t, uint64_t>;
+  optional<return_t> return_block;
+  int min_dep = std::numeric_limits<int>::max();
+  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    if(iter->available()) {
+      iter_t ret = iter;
+      uint64_t sz = 0;
+      int inner_max_dep = -1;
+      for(iter_t inner_iter = iter; inner_iter != blocks.end() && inner_iter->available(); ++inner_iter) {
+        inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
+        sz += inner_iter->size();
+        if(sz >= size && inner_max_dep <= min_dep) {
+          min_dep = inner_max_dep;
+          return_block = {ret, inner_iter + 1, sz};
+          break;
+        }
+      }
+    }
+  }
+  return return_block;
+}
+
 optional< tuple<uint64_t, vector<int>> >
 allocator_t::try_to_allocate(uint64_t size)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
-  auto maybe_info = find_available(size);
+  optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
+  if(strat == allocator_strat_t::lowest_dependency) {
+    maybe_info = find_lowest_dependency_available(size);
+  } else if(strat == allocator_strat_t::first) {
+    maybe_info = find_first_available(size);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
   if(maybe_info) {
     auto const& [beg,end,sz] = maybe_info.value();
 
