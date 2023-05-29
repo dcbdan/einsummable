@@ -14,6 +14,11 @@ double simulate(
 
 vector<placement_t> single_loc_placements(graph_t const& graph);
 
+vector<partition_t> autopartition(
+  graph_t const& graph,
+  equal_items_t<int> eqs,
+  int nloc);
+
 equal_items_t<int> construct_equal_placements(graph_t const& graph);
 void construct_equal_placements_inplace(graph_t const& graph, equal_items_t<int>&);
 
@@ -26,6 +31,11 @@ struct mcmc_t {
     vector<placement_t> const& initial_placements);
 
   static mcmc_t init_with_single_loc(
+    cluster_t const& cl,
+    graph_t const& gr,
+    double bt,
+    equal_items_t<int> eqs = {});
+  static mcmc_t init_balanced(
     cluster_t const& cl,
     graph_t const& gr,
     double bt,

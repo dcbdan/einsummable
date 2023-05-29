@@ -1,4 +1,6 @@
 #include "autoplace.h"
+#include "loadbalanceplace.h"
+#include "autopart.h"
 
 double simulate(
   cluster_t const& cluster,
@@ -102,6 +104,38 @@ mcmc_t mcmc_t::init_with_single_loc(
     eqs,
     single_loc_placements(graph));
 }
+
+mcmc_t mcmc_t::init_balanced(
+  cluster_t const& cluster,
+  graph_t const& graph,
+  double beta,
+  equal_items_t<int> eqs)
+{
+  construct_equal_placements_inplace(graph, eqs);
+
+  int nloc = cluster.devices.size();
+  vector<partition_t> parts = autopartition(graph, nloc, 4*nloc, eqs);
+
+  auto locs = load_balanced_placement(
+    graph, parts, cluster.devices.size(), false);
+
+  vector<placement_t> pls;
+  for(int gid = 0; gid != parts.size(); ++gid) {
+    pls.emplace_back(parts[gid], locs[gid]);
+  }
+
+  for(auto const& gid: eqs.candidates()) {
+    auto const& pl = pls[gid];
+    for(auto const& other_gid: eqs.get_at(gid)) {
+      if(gid != other_gid) {
+        pls[other_gid] = pl;
+      }
+    }
+  }
+
+  return mcmc_t(cluster, graph, beta, eqs, pls);
+}
+
 
 bool mcmc_t::step() {
   vector<placement_t> pls = random_change();

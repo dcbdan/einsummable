@@ -1,5 +1,6 @@
 #include "../src/autoplace/forwardsim.h"
 #include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/autopart.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/base/timeplot.h"
 
@@ -252,17 +253,9 @@ void main02() {
 
   vector<placement_t> placements;
   {
-    //uint64_t mmlike_sizing = 1000u*1000u*1000u;
-    uint64_t mmlike_sizing = 10000u*10000u*10000u;
-
-    //uint64_t min_sizing = 800u*800u;
-    uint64_t min_sizing = 10000u*9000u;
-
-
     vector<partition_t> new_partition = autopartition(
-      graph,
-      mmlike_sizing,
-      min_sizing);
+      graph, nlocs, 8*nlocs);
+
     for(auto const& part: new_partition) {
       placements.emplace_back(part);
     }
@@ -389,13 +382,14 @@ void main05() {
     eqs.insert(inn, out);
   }
 
-  mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 600.1, eqs);
+  double base = simulate(cluster, graph, single_loc_placements(graph));
 
-  double base = mcmc.current_makespan;
+  //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 600.1, eqs);
+  mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 600.1, eqs);
 
   for(int i = 0; i != 20000; ++i) {
     mcmc.step();
-    if(i % 25 == 0) {
+    if(i % 100 == 0) {
       double speedup = base / mcmc.best_makespan;
       DOUT((mcmc.best_makespan / base) << "             | "
             << (mcmc.current_makespan / base) << "");

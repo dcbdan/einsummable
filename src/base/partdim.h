@@ -9,6 +9,7 @@ struct partdim_t {
   static partdim_t split(uint64_t total_size, int n_split);
   static partdim_t unions(vector<partdim_t> const& ps);
   static partdim_t split_each(partdim_t const& p, int n_split_each);
+  static partdim_t merge_each(partdim_t const& p, int n_merge_each);
 
   uint64_t total() const { return spans.back(); }
 
