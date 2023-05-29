@@ -1,7 +1,7 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
-#include "twolayergraph.h"
+#include "../einsummable/twolayergraph.h"
 
 // In graph order, for each node:
 //   If this is an elementwise node with the

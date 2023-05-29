@@ -2,7 +2,6 @@
 
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/scalarop.h"
-#include "../src/einsummable/scalarop.cc"
 
 #include <fstream>
 

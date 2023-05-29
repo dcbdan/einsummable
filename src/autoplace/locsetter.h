@@ -1,5 +1,5 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
 // A load balanced setter
 struct loc_setter_t {

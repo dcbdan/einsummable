@@ -1,5 +1,5 @@
 #include "forwardsim.h"
-#include "copyregion.h"
+#include "../base/copyregion.h"
 
 forward_state_t::forward_state_t(cluster_t const& c, graph_t const& g)
   : cluster(c), graph(g),

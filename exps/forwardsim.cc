@@ -1,10 +1,10 @@
-#include "../src/einsummable/forwardsim.h"
+#include "../src/autoplace/forwardsim.h"
 #include "../src/einsummable/taskgraph.h"
-#include "../src/einsummable/timeplot.h"
+#include "../src/base/timeplot.h"
 
 #include "../src/matrixgraph/ff.h"
 
-#include "../src/einsummable/mcts1.h"
+#include "../src/autoplace/mcts1.h"
 #include "../src/einsummable/twolayergraph.h"
 
 #include <fstream>

@@ -1,7 +1,7 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
-#include "placement.h"
+#include "../base/placement.h"
 #include "einsummable.h"
 
 struct graph_t {

@@ -1,5 +1,5 @@
 #pragma once
-#include "../../einsummable/setup.h"
+#include "../../base/setup.h"
 
 // This is an out of place tensor permute that attempts to be cache-oblivious by
 // generalizing the cache-oblivious tensor transpose algorithm.

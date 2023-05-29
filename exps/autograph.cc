@@ -1,6 +1,6 @@
 #include "../src/matrixgraph/ff.h"
-#include "../src/einsummable/loadbalanceplace.h"
-#include "../src/einsummable/cluster.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/cluster.h"
 
 cluster_t make_cluster(int nlocs) {
   using device_t = cluster_t::device_t;

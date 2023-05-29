@@ -1,5 +1,5 @@
 #include "taskgraph.h"
-#include "copyregion.h"
+#include "../base/copyregion.h"
 
 #include "einsummable.pb.h"
 

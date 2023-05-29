@@ -1,5 +1,5 @@
 #pragma once
-#include "../../einsummable/setup.h"
+#include "../../base/setup.h"
 
 #include "../../einsummable/taskgraph.h"
 #include "../../einsummable/reference.h" // buffer_t

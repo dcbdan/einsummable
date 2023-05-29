@@ -1,8 +1,8 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
 #include "cluster.h"
-#include "twolayergraph.h"
+#include "../einsummable/twolayergraph.h"
 
 #include <unordered_map>
 

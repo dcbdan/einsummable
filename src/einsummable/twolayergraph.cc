@@ -1,5 +1,5 @@
 #include "twolayergraph.h"
-#include "copyregion.h"
+#include "../base/copyregion.h"
 
 int twolayergraph_t::insert_join(uint64_t flops, vector<rid_t> const& deps)
 {

@@ -1,6 +1,6 @@
 #include "../src/einsummable/forwardsim1.h"
 #include "../src/einsummable/taskgraph.h"
-#include "../src/einsummable/timeplot.h"
+#include "../src/base/timeplot.h"
 
 #include "../src/matrixgraph/ff.h"
 

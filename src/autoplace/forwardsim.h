@@ -1,7 +1,7 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
-#include "graph.h"
+#include "../einsummable/graph.h"
 #include "cluster.h"
 
 template <typename T>
