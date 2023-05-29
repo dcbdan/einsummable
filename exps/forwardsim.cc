@@ -45,11 +45,16 @@ cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communica
   return cluster_t::make(devices, connections);
 }
 
-void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_loc) {
+void random_walk_through(
+  graph_t const& graph,
+  vector<placement_t> const& placements,
+  cluster_t cluster,
+  bool random_loc)
+{
   uint64_t correct_total_elems;
   uint64_t correct_total_flops;
   {
-    auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+    auto [_0, _1, taskgraph] = taskgraph_t::make(graph, placements);
     correct_total_elems = taskgraph.total_elems_moved();
     correct_total_flops = taskgraph.total_flops();
   }
@@ -62,7 +67,7 @@ void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_lo
 
   std::function<partition_t(int)> get_partition = [&](int gid)
   {
-    return graph.nodes[gid].placement.partition;
+    return placements[gid].partition;
   };
 
   std::function<int(jid_t)> get_location;
@@ -72,7 +77,7 @@ void random_walk_through(graph_t const& graph, cluster_t cluster, bool random_lo
     get_location = [&](jid_t jid)
     {
       auto const& [gid,bid] = jid;
-      return graph.nodes[gid].placement.locations.get()[bid];
+      return placements[gid].locations.get()[bid];
     };
   }
 
@@ -150,15 +155,19 @@ void main01() {
 
   cluster_t cluster = make_cluster(nlocs, 100, 1);
 
-  auto graph = three_dimensional_matrix_multiplication(
+  auto g = three_dimensional_matrix_multiplication(
     3,8,5,
     4000,4000,4000,
     nlocs);
+  auto const& graph = g.graph;
+  auto placements = g.get_placements();
 
   uint64_t correct_total_elems;
   uint64_t correct_total_flops;
   {
-    auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+    auto [_0, _1, taskgraph] = taskgraph_t::make(
+      graph,
+      placements);
     correct_total_elems = taskgraph.total_elems_moved();
     correct_total_flops = taskgraph.total_flops();
   }
@@ -170,8 +179,8 @@ void main01() {
 
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
-    state.assign_partition(gid, node.placement.partition);
-    vector<int> const& locs = node.placement.locations.get();
+    state.assign_partition(gid, placements[gid].partition);
+    vector<int> const& locs = placements[gid].locations.get();
     for(int bid = 0; bid != locs.size(); ++bid) {
       int const& loc = locs[bid];
       state.assign_location(jid_t{gid, bid}, loc);
@@ -241,6 +250,7 @@ void main02() {
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
   auto [graph, _] = ff.mgraph.compile();
 
+  vector<placement_t> placements;
   {
     //uint64_t mmlike_sizing = 1000u*1000u*1000u;
     uint64_t mmlike_sizing = 10000u*10000u*10000u;
@@ -253,48 +263,16 @@ void main02() {
       graph,
       mmlike_sizing,
       min_sizing);
-    graph.reset_annotations(new_partition);
+    for(auto const& part: new_partition) {
+      placements.emplace_back(part);
+    }
   }
 
   bool random_loc = true;
 
   for(int i = 0; i != 100; ++i) {
     set_seed(i);
-    random_walk_through(graph, cluster, random_loc);
-  }
-}
-
-void main04() {
-  int nlocs = 1;
-
-  cluster_t cluster = make_cluster(nlocs, 1, 1);
-
-  graph_t graph;
-  int inn = graph.insert_input({1000,1000});
-  int out = graph.insert_formation(inn, true);
-
-  forward_state_t state(cluster, graph);
-
-  vector<partdim_t> pds {
-    partdim_t::split(1000, 2),
-    partdim_t::split(1000, 2)
-  };
-  state.assign_partition(inn, partition_t(pds));
-  state.assign_partition(out, partition_t(pds));
-
-  {
-    std::ofstream f("tl.gv");
-    state.print_twolayer_graphviz(f);
-    DOUT("Printed to tl.gv");
-  }
-
-  {
-    graph.nodes[inn].placement = placement_t(partition_t(pds));
-    graph.nodes[out].placement = placement_t(partition_t(pds));
-    auto [_0, _1, twolayer] = twolayergraph_t::make(graph);
-    std::ofstream f("tl2.gv");
-    twolayer.print_graphviz(f);
-    DOUT("Printed to tl2.gv");
+    random_walk_through(graph, placements, cluster, random_loc);
   }
 }
 
@@ -426,12 +404,7 @@ void main05() {
   }
 
   {
-    auto const& pls = mcmc.best_placements;
-    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      graph.nodes[gid].placement = pls[gid];
-    }
-
-    auto const& [_0, _1, taskgraph] = taskgraph_t::make(graph);
+    auto const& [_0, _1, taskgraph] = taskgraph_t::make(graph, mcmc.best_placements);
     std::ofstream f("tg.gv");
     taskgraph.print_graphviz(f);
     DOUT("Printed to tg.gv");

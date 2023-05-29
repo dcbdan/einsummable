@@ -25,13 +25,14 @@ vector<_lbp_count_t> compute_loc_scores(
 
 vector<tensor_t<int>> load_balanced_placement(
   graph_t const& graph,
+  vector<partition_t> const& parts,
   int nlocs,
   bool random_input)
 {
   tuple<
     vector<tensor_t<int>>,
     equal_items_t<int>,
-    twolayergraph_t> _info = twolayergraph_t::make(graph);
+    twolayergraph_t> _info = twolayergraph_t::make(graph, parts);
   auto& [to_join_id, _, twolayer] = _info;
 
   twolayer_join_holder_t<int> placements =
@@ -39,6 +40,7 @@ vector<tensor_t<int>> load_balanced_placement(
 
   for(int graph_id: graph.get_order()) {
     auto& node = graph.nodes[graph_id];
+    auto const& part = parts[graph_id];
 
     if(node.op.is_input()) {
       if(random_input) {
@@ -70,8 +72,7 @@ vector<tensor_t<int>> load_balanced_placement(
 
     if(node.op.is_formation()) {
       int const& id_inn = node.inns[0];
-      auto const& node_inn = graph.nodes[id_inn];
-      if(node.placement.partition == node_inn.placement.partition) {
+      if(part == parts[id_inn]) {
         // This is a formation node with an equivalently placed input,
         // so there is no other reasonable location than this one
         vector<int> locs = placements.get_vector_at_gid(id_inn);
@@ -87,10 +88,7 @@ vector<tensor_t<int>> load_balanced_placement(
       auto const& e = node.op.get_einsummable();
 
       int const& id_inn = node.inns[0];
-      auto const& node_inn = graph.nodes[id_inn];
-
-      auto const& part     = node.placement.partition;
-      auto const& part_inn = node_inn.placement.partition;
+      auto const& part_inn = parts[id_inn];
 
       auto partdims_with_respect_to_inn =
         e.get_input_from_join(part.partdims, 0);

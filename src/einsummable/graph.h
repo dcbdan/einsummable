@@ -8,32 +8,12 @@ struct graph_t {
   // Methods to construct a graph object
   // {{{
   int insert_input(
-    placement_t placement);
-  int insert_input(
-    partition_t partition);
-  int insert_input(
     vector<uint64_t> shape);
 
   int insert_einsummable(
-    placement_t placement,
-    einsummable_t e,
-    vector<int> inns);
-  int insert_einsummable(
-    partition_t partition,
-    einsummable_t e,
-    vector<int> inns);
-  int insert_einsummable(
     einsummable_t e,
     vector<int> inns);
 
-  int insert_formation(
-    placement_t placement,
-    int inn,
-    bool is_save = true);
-  int insert_formation(
-    partition_t partition,
-    int inn,
-    bool is_save = true);
   int insert_formation(
     int inn,
     bool is_save = true);
@@ -70,19 +50,9 @@ struct graph_t {
 
   vector<int> get_order() const;
 
-  // Assumption: if location i is used in a placement,
-  // then all locations 0, ..., i-1 are also used.
-  // Put another way, location i is the ith plus 1 processor.
-  // As such, return the maximum location value used plus 1.
-  int num_locs() const;
-
   void print() const;
 
   vector<int> get_inputs() const;
-
-  // reset all the placements to have the corresponding partitions,
-  // set all locations to zero.
-  void reset_annotations(vector<partition_t> const& new_partitions);
 
 public:
 
@@ -173,7 +143,6 @@ public:
     op_t op;
     vector<int> inns;
     set<int> outs;
-    placement_t placement;
 
     set<int> get_inns_set() const {
       return set<int>(inns.begin(), inns.end());
@@ -181,30 +150,64 @@ public:
     int num_distinct_inputs() const {
       return get_inns_set().size();
     }
-    int num_locs() const {
-      auto const& locs = placement.locations.get();
-      return 1 + *std::max_element(locs.begin(), locs.end());
-    }
   };
 
   vector<node_t> nodes;
 
 private:
-  int insert(op_t const& op, vector<int> inns, placement_t placement);
+  int insert(op_t const& op, vector<int> inns);
+};
+
+struct graph_constructor_t {
+  int insert_input(
+    placement_t placement);
+  int insert_input(
+    partition_t partition);
+  int insert_input(
+    vector<uint64_t> shape);
+
+  int insert_einsummable(
+    placement_t placement,
+    einsummable_t e,
+    vector<int> inns);
+  int insert_einsummable(
+    partition_t partition,
+    einsummable_t e,
+    vector<int> inns);
+  int insert_einsummable(
+    einsummable_t e,
+    vector<int> inns);
+
+  int insert_formation(
+    placement_t placement,
+    int inn,
+    bool is_save = true);
+  int insert_formation(
+    partition_t partition,
+    int inn,
+    bool is_save = true);
+  int insert_formation(
+    int inn,
+    bool is_save = true);
+
+  vector<placement_t> get_placements() const;
+
+  graph_t graph;
+  map<int, placement_t> placements;
 };
 
 // Construct a 3D matmul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj
 //   shape rhs: dj*pj x dk*pk
 //   shape out: di*pi x dk*pk
-graph_t three_dimensional_matrix_multiplication(
+graph_constructor_t three_dimensional_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk,
   int num_processors);
 
 // Same tensor dimensions as 3d matmul
 // Does not explicitly set locations
-graph_t straight_matrix_multiplication(
+graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk);
 

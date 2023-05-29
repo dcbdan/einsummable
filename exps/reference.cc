@@ -86,18 +86,20 @@ void reblock_test(
   buffer_t inn_buffer = std::make_shared<buffer_holder_t>(20);
   inn_buffer->iota(0);
 
-  graph_t graph;
+  graph_constructor_t graph;
   int gid_inn = graph.insert_input(placement_start);
   int gid_out = graph.insert_formation(placement_finish, gid_inn);
 
-  buffer_t out_buffer = reference_compute_graph(graph, { {gid_inn, inn_buffer} })[gid_out];
+  buffer_t out_buffer = reference_compute_graph(graph.graph, { {gid_inn, inn_buffer} })[gid_out];
 
   std::cout << "-- graph " << std::endl;
   std::cout << "inn " << inn_buffer << std::endl;
   std::cout << "out " << out_buffer << std::endl;
   std::cout << std::endl;
 
-  auto [input_gid_to_tids, output_gid_to_tids, taskgraph] = taskgraph_t::make(graph);
+  auto [input_gid_to_tids, output_gid_to_tids, taskgraph] = taskgraph_t::make(
+    graph.graph,
+    graph.get_placements());
 
   taskgraph.print();
 
@@ -170,14 +172,14 @@ void main05() {
 }
 
 void test_make_taskgraph(
-  graph_t const& graph,
+  graph_constructor_t const& graph,
   map<int, buffer_t> full_inns)
 {
   tuple<
     map<int, tensor_t<int> >,
     map<int, tensor_t<int> >,
     taskgraph_t>
-    _info = taskgraph_t::make(graph);
+    _info = taskgraph_t::make(graph.graph, graph.get_placements());
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
   //taskgraph.print();
@@ -185,19 +187,19 @@ void test_make_taskgraph(
   map<int, buffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
     tensor_t<buffer_t> pbuffer = partition_buffer(
-      graph.nodes[gid].placement.partition,
+      graph.placements.at(gid).partition,
       full_buffer);
     fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
   }
 
-  map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
+  map<int, buffer_t> full_outs = reference_compute_graph(graph.graph, full_inns);
   map<int, buffer_t> task_outs = reference_compute_taskgraph(taskgraph, task_inns);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
     tensor_t<buffer_t> t_part_buffer =
       get_partitioned_buffer(task_outs, out_to_blocks.at(gid));
     tensor_t<buffer_t> part_buffer =
-      partition_buffer(graph.nodes[gid].placement.partition, full_buffer_via_graph);
+      partition_buffer(graph.placements.at(gid).partition, full_buffer_via_graph);
 
     auto const& tids  = out_to_blocks.at(gid).get();
     auto const& t_vec = t_part_buffer.get();
@@ -213,7 +215,7 @@ void test_make_taskgraph(
     }
     // Alternatively:
     //   buffer_t full_buffer_via_taskgraph =
-    //     unpartition_buffer(graph.nodes[gid].placement.partition, part_buffer);
+    //     unpartition_buffer(graph.placements.at(gid).partition, part_buffer);
     //   if(!is_close(full_buffer_via_graph, full_buffer_via_taskgraph)) {
     //     throw std::runtime_error("make_taskgraph_test fail");
     //   }
@@ -221,14 +223,14 @@ void test_make_taskgraph(
 }
 
 void test_make_memgraph_without_evict(
-  graph_t const& graph,
+  graph_constructor_t const& graph,
   map<int, buffer_t> full_inns)
 {
   tuple<
     map<int, tensor_t<int> >,
     map<int, tensor_t<int> >,
     taskgraph_t>
-    _info0 = taskgraph_t::make(graph);
+    _info0 = taskgraph_t::make(graph.graph, graph.get_placements());
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
   //{
@@ -262,7 +264,7 @@ void test_make_memgraph_without_evict(
     map<int, buffer_t> task_inns;
     for(auto [gid, full_buffer]: full_inns) {
       tensor_t<buffer_t> pbuffer = partition_buffer(
-        graph.nodes[gid].placement.partition,
+        graph.placements.at(gid).partition,
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
     }
@@ -280,7 +282,7 @@ void test_make_memgraph_without_evict(
   }
 
   // compute the reference implementation
-  map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
+  map<int, buffer_t> full_outs = reference_compute_graph(graph.graph, full_inns);
 
   //{
   //  std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
@@ -292,7 +294,7 @@ void test_make_memgraph_without_evict(
 
   for(auto const& [gid, full_buffer]: full_outs) {
     tensor_t<buffer_t> part_buffer =
-      partition_buffer(graph.nodes[gid].placement.partition, full_buffer);
+      partition_buffer(graph.placements.at(gid).partition, full_buffer);
 
     auto const& tids = out_to_blocks.at(gid).get();
     auto const& vec  = part_buffer.get();
@@ -321,7 +323,7 @@ void test_make_memgraph_without_evict(
 // 2. join i,j,k and do matmul at each block
 // 3. agg out j to i,k
 void test_obvious_matmul(int pi, int pj, int pk) {
-  graph_t graph;
+  graph_constructor_t graph;
 
   uint64_t ni = 10;
   uint64_t nj = 10;
@@ -347,8 +349,6 @@ void test_obvious_matmul(int pi, int pj, int pk) {
     id_join,
     true);
 
-  //graph.print();
-
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
 
@@ -357,14 +357,11 @@ void test_obvious_matmul(int pi, int pj, int pk) {
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
 
-  // TODO uncomment
-  //test_make_taskgraph(graph, inns);
-
   test_make_memgraph_without_evict(graph, inns);
 }
 
 void test_obvious_same_input_matmul(int pi, int pj, int pk) {
-  graph_t graph;
+  graph_constructor_t graph;
 
   uint64_t ni = 10;
   uint64_t nj = ni;
@@ -389,8 +386,6 @@ void test_obvious_same_input_matmul(int pi, int pj, int pk) {
     id_join,
     true);
 
-  graph.print();
-
   buffer_t buffer_inn = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_inn->iota(-10);
 
@@ -399,7 +394,7 @@ void test_obvious_same_input_matmul(int pi, int pj, int pk) {
 }
 
 void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
-  graph_t graph;
+  graph_constructor_t graph;
 
   uint64_t ni = 10;
   uint64_t nj = 10;
@@ -425,8 +420,6 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
     id_join,
     true);
 
-  //graph.print();
-
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(1); //-10);
 
@@ -434,7 +427,6 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
   buffer_rhs->iota(7); // -20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-  //test_make_taskgraph(graph, inns);
   test_make_memgraph_without_evict(graph, inns);
 }
 
@@ -451,7 +443,7 @@ void test_random_matmul() {
     return placement_t::random(part, nloc);
   };
 
-  graph_t graph;
+  graph_constructor_t graph;
 
   uint64_t ni = 10;
   uint64_t nj = 10;
@@ -472,8 +464,6 @@ void test_random_matmul() {
     random_placement({ni,nk}),
     id_join,
     true);
-
-  //graph.print();
 
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
@@ -505,7 +495,7 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
     return placement_t::random(part, nloc);
   };
 
-  graph_t graph;
+  graph_constructor_t graph;
 
   uint64_t ni = 10;
   uint64_t nj = 10;
@@ -528,7 +518,7 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
     2,
     unary_scalar_op);
 
-  auto const& pds = graph.nodes[id_join].placement.partition;
+  auto const& pds = graph.placements.at(id_join).partition;
   partition_t part_unary(vector<partdim_t>(
     pds.partdims.begin(),
     pds.partdims.begin() + 2));
@@ -543,8 +533,6 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
     id_unary,
     true);
 
-  //graph.print();
-
   buffer_t buffer_lhs = std::make_shared<buffer_holder_t>(ni*nj);
   buffer_lhs->iota(-10);
 
@@ -552,8 +540,6 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
   buffer_rhs->iota(-20);
 
   map<int, buffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-
-  //test_make_taskgraph(graph, inns);
 
   test_make_memgraph_without_evict(graph, inns);
 }
@@ -624,7 +610,7 @@ void test_3d_matmul(int pi, int pj, int pk, int nloc)
   uint64_t nj = pj*dj;
   uint64_t nk = pk*dk;
 
-  graph_t graph = three_dimensional_matrix_multiplication(pi,pj,pk,di,dj,dk,nloc);
+  graph_constructor_t graph = three_dimensional_matrix_multiplication(pi,pj,pk,di,dj,dk,nloc);
 
   buffer_t buffer0 = std::make_shared<buffer_holder_t>(ni*nj);
   buffer0->iota(-10);
@@ -632,7 +618,7 @@ void test_3d_matmul(int pi, int pj, int pk, int nloc)
   buffer_t buffer1 = std::make_shared<buffer_holder_t>(nj*nk);
   buffer1->iota(-20);
 
-  vector<int> inputs = graph.get_inputs();
+  vector<int> inputs = graph.graph.get_inputs();
   map<int, buffer_t> inns{ {inputs[0], buffer0}, {inputs[1], buffer1} };
 
   test_make_memgraph_without_evict(graph, inns);

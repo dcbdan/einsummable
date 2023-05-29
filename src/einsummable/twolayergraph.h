@@ -13,7 +13,9 @@ struct twolayergraph_t {
     vector<tensor_t<int>>,
     equal_items_t<int>,
     twolayergraph_t>
-  make(graph_t const& graph);
+  make(
+    graph_t const& graph,
+    vector<partition_t> const& parts);
 
   using rid_t = int; // refinement ids
   using jid_t = int; // join ids
@@ -250,9 +252,6 @@ struct twolayer_join_holder_t {
 
 vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
+  vector<placement_t> const& placements,
   vector<tensor_t<int>> const& g_to_tl);
 
-void set_locations_from_twolayer(
-  graph_t& graph,
-  vector<tensor_t<int>> const& g_to_tl,
-  vector<int> const& locs);

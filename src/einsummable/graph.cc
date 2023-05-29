@@ -1,29 +1,64 @@
 #include "graph.h"
 
-int graph_t::insert_input(
+int graph_constructor_t::insert_input(
   placement_t placement)
 {
-  return this->insert(
-    input_t{ .shape = placement.total_shape()},
-    {},
-    placement);
+  int ret = graph.insert_input(placement.total_shape());
+  placements.insert({ret, placement});
+  return ret;
 }
 
-int graph_t::insert_input(
+int graph_constructor_t::insert_input(
   partition_t partition)
 {
-  return this->insert_input(
-    placement_t(placement_t(partition)));
+  return insert_input(placement_t(partition));
+}
+
+int graph_constructor_t::insert_input(
+  vector<uint64_t> shape)
+{
+  return insert_input(partition_t::singleton(shape));
 }
 
 int graph_t::insert_input(
   vector<uint64_t> shape)
 {
-  return this->insert_input(partition_t::singleton(shape));
+  return this->insert(
+    input_t { .shape = shape },
+    {});
+}
+
+int graph_constructor_t::insert_einsummable(
+  placement_t placement,
+  einsummable_t e,
+  vector<int> inns)
+{
+  if(placement.total_shape() != e.join_shape) {
+    throw std::runtime_error("graph constructor: invalid insert_einsummable inputs");
+  }
+
+  int ret = graph.insert_einsummable(e, inns);
+  placements.insert({ret, placement});
+  return ret;
+}
+
+int graph_constructor_t::insert_einsummable(
+  partition_t partition,
+  einsummable_t e,
+  vector<int> inns)
+{
+  return insert_einsummable(placement_t(partition), e, inns);
+}
+
+int graph_constructor_t::insert_einsummable(
+  einsummable_t e,
+  vector<int> inns)
+{
+  auto const& shape = e.join_shape;
+  return insert_einsummable(partition_t::singleton(shape), e, inns);
 }
 
 int graph_t::insert_einsummable(
-  placement_t placement,
   einsummable_t e,
   vector<int> inns)
 {
@@ -38,48 +73,26 @@ int graph_t::insert_einsummable(
     }
   }
 
-  return this->insert(
-    e,
-    inns,
-    placement);
-}
-
-int graph_t::insert_einsummable(
-  partition_t partition,
-  einsummable_t e,
-  vector<int> inns)
-{
-  return this->insert_einsummable(placement_t(partition), e, inns);
-}
-
-int graph_t::insert_einsummable(
-  einsummable_t e,
-  vector<int> inns)
-{
   return this->insert_einsummable(
-    partition_t::singleton(e.join_shape),
     e,
     inns);
 }
 
-int graph_t::insert_formation(
+int graph_constructor_t::insert_formation(
   placement_t placement,
   int inn,
   bool is_save)
 {
-  if(!vector_equal(placement.total_shape(), out_shape(inn))) {
-    throw std::runtime_error("invalid shape: insert_formation");
+  if(!vector_equal(placement.total_shape(), graph.out_shape(inn))) {
+    throw std::runtime_error("invalid shape: insert_formation (constructing)");
   }
 
-  return this->insert(
-    formation_t {
-      .shape = placement.total_shape(),
-      .is_save = is_save },
-    {inn},
-    placement);
+  int ret = graph.insert_formation(inn, is_save);
+  placements.insert({ret, placement});
+  return ret;
 }
 
-int graph_t::insert_formation(
+int graph_constructor_t::insert_formation(
   partition_t partition,
   int inn,
   bool is_save)
@@ -87,13 +100,33 @@ int graph_t::insert_formation(
   return this->insert_formation(placement_t(partition), inn, is_save);
 }
 
+int graph_constructor_t::insert_formation(
+  int inn,
+  bool is_save)
+{
+  auto const& inn_node = graph.nodes[inn];
+  auto shape = inn_node.op.out_shape();
+  return this->insert_formation(partition_t::singleton(shape), inn, is_save);
+}
+
 int graph_t::insert_formation(
   int inn,
   bool is_save)
 {
-  auto const& inn_node = nodes[inn];
-  auto shape = inn_node.op.out_shape();
-  return this->insert_formation(partition_t::singleton(shape), inn, is_save);
+  return this->insert(
+    formation_t {
+      .shape = out_shape(inn),
+      .is_save = is_save },
+    {inn});
+}
+
+vector<placement_t> graph_constructor_t::get_placements() const {
+  vector<placement_t> ret;
+  ret.reserve(graph.nodes.size());
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    ret.push_back(placements.at(gid));
+  }
+  return ret;
 }
 
 void graph_t::set_saves() {
@@ -106,7 +139,6 @@ void graph_t::set_saves() {
         n.op.get_formation().is_save = true;
       } else {
         this->insert_formation(
-          placement_t::join_to_out(n.placement, n.op.out_rank()),
           i,
           true);
       }
@@ -127,26 +159,15 @@ vector<int> graph_t::get_order() const {
   return ret;
 }
 
-int graph_t::num_locs() const {
-  int ret = 1;
-  for(auto const& node: nodes) {
-    ret = std::max(ret, node.num_locs());
-  }
-
-  return ret;
-}
-
 int graph_t::insert(
   op_t const& op,
-  vector<int> inns,
-  placement_t placement)
+  vector<int> inns)
 {
   int ret = nodes.size();
   nodes.push_back(node_t {
     .op = op,
     .inns = inns,
-    .outs = {},
-    .placement = placement
+    .outs = {}
   });
 
   for(auto inn: inns) {
@@ -158,8 +179,7 @@ int graph_t::insert(
 
 void graph_t::print() const {
   std::cout <<
-    "graph[num nodes = " << nodes.size() << ", " <<
-          "num locs = " << num_locs() << "]" << std::endl;
+    "graph[num nodes = " << nodes.size() << "]" << std::endl;
   std::cout << std::endl;
 
   for(int id = 0; id != nodes.size(); ++id) {
@@ -168,7 +188,6 @@ void graph_t::print() const {
     std::cout << "node id: " << id
       << " with out shape " << node.op.out_shape() << std::endl;
     std::cout << "inputs: " << node.inns << std::endl;
-    std::cout << "partition: " << node.placement.partition << std::endl;
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;
     } else if(node.op.is_einsummable()) {
@@ -192,25 +211,12 @@ vector<int> graph_t::get_inputs() const {
   return ret;
 }
 
-void graph_t::reset_annotations(
-  vector<partition_t> const& new_partitions)
-{
-  if(new_partitions.size() != nodes.size()) {
-    throw std::runtime_error("incorrect number of partitions");
-  }
-
-  for(int id = 0; id != nodes.size(); ++id) {
-    node_t& node = nodes[id];
-    partition_t const& new_part = new_partitions[id];
-    nodes[id].placement = placement_t(new_part);
-  }
-}
-
 // Construct a 3D matmul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj
 //   shape rhs: dj*pj x dk*pk
 //   shape out: di*pi x dk*pk
-graph_t three_dimensional_matrix_multiplication(
+graph_constructor_t
+three_dimensional_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk,
   int num_processors)
@@ -338,7 +344,7 @@ graph_t three_dimensional_matrix_multiplication(
     );
   };
 
-  graph_t ret;
+  graph_constructor_t ret;
 
   int id_lhs = ret.insert_input(make_matrix_placement(rcp_t::ijk));
   int id_rhs = ret.insert_input(make_matrix_placement(rcp_t::jki));
@@ -373,11 +379,11 @@ graph_t three_dimensional_matrix_multiplication(
   return ret;
 }
 
-graph_t straight_matrix_multiplication(
+graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk)
 {
-  graph_t graph;
+  graph_constructor_t graph;
 
   partdim_t pdi = partdim_t::repeat(pi, di);
   partdim_t pdj = partdim_t::repeat(pj, dj);

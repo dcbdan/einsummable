@@ -25,6 +25,7 @@
 vector<tensor_t<int>>
 load_balanced_placement(
   graph_t const& graph,
+  vector<partition_t> const& parts,
   int nlocs,
   bool random_input);
 

@@ -79,7 +79,9 @@ tuple<
   vector<tensor_t<int>>,
   equal_items_t<int>,
   twolayergraph_t>
-twolayergraph_t::make(graph_t const& graph)
+twolayergraph_t::make(
+  graph_t const& graph,
+  vector<partition_t> const& parts)
 {
   twolayergraph_t ret;
 
@@ -102,8 +104,9 @@ twolayergraph_t::make(graph_t const& graph)
     usage_partitions.reserve(2*join_node.outs.size());
     for(auto const& out_id: join_node.outs) {
       auto const& out_node = graph.nodes[out_id];
+      auto const& out_part = parts[out_id];
       if(out_node.op.is_formation()) {
-        usage_partitions.push_back(out_node.placement.partition);
+        usage_partitions.push_back(out_part);
       } else {
         // Note that an einsummable node can use an input multiple times
         // and therefore there may be multiple usage partitions to collect
@@ -111,7 +114,7 @@ twolayergraph_t::make(graph_t const& graph)
         for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
           if(out_node.inns[which_input] == join_id) {
             usage_partitions.emplace_back(einsummable.get_input_from_join(
-              out_node.placement.partition.partdims,
+              out_part.partdims,
               which_input));
           }
         }
@@ -124,7 +127,7 @@ twolayergraph_t::make(graph_t const& graph)
   for(auto const& graph_id: graph.get_order()) {
     auto const& node = graph.nodes[graph_id];
 
-    partition_t const& join_partition = node.placement.partition;
+    partition_t const& join_partition = parts[graph_id];
 
     auto join_block_shape = join_partition.block_shape();
     all_jids[graph_id] = tensor_t<int>(join_block_shape);
@@ -219,8 +222,8 @@ twolayergraph_t::make(graph_t const& graph)
         auto const& node_inn = graph.nodes[id_inn];
         auto const& inn_join_ids = all_jids[id_inn];
 
-        auto const& part     = node.placement.partition;
-        auto const& part_inn = node_inn.placement.partition;
+        auto const& part     = parts[graph_id];
+        auto const& part_inn = parts[id_inn];
 
         auto const& e = maybe_einsummable.value();
         auto partdims_with_respect_to_inn =
@@ -401,6 +404,7 @@ int twolayergraph_t::num_input_joins() const {
 
 vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
+  vector<placement_t> const& placements,
   vector<tensor_t<int>> const& g_to_tl)
 {
   vector<tuple<int,int>> tl_to_g =
@@ -410,22 +414,9 @@ vector<int> graph_locations_to_twolayer(
 
   for(int jid = 0; jid != tl_to_g.size(); ++jid) {
     auto const& [gid,bid] = tl_to_g[jid];
-    items[jid] = graph.nodes[gid].placement.locations.get()[bid];
+    items[jid] = placements[gid].locations.get()[bid];
   }
 
   return items;
 }
 
-void set_locations_from_twolayer(
-  graph_t& graph,
-  vector<tensor_t<int>> const& g_to_tl,
-  vector<int> const& locs)
-{
-  auto tl_to_g = twolayer_join_holder_t<int>::make_tl_to_g(g_to_tl);
-
-  for(int tid = 0; tid != locs.size(); ++tid) {
-    auto const& [gid,bid] = tl_to_g[tid];
-    int const& loc = locs[tid];
-    graph.nodes[gid].placement.locations.get()[bid] = loc;
-  }
-}

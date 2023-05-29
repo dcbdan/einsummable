@@ -59,10 +59,10 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  graph_t graph = three_dimensional_matrix_multiplication(
+  auto g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, np);
 
-  auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
   // it could be the case that not all locs are actually used,
   // for example 1 1 2 100 100 100 88
   // Here only 2 locs will really be used, not all 88...
