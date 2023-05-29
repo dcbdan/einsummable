@@ -14,21 +14,28 @@ double simulate(
 
 vector<placement_t> single_loc_placements(graph_t const& graph);
 
+equal_items_t<int> construct_equal_placements(graph_t const& graph);
+void construct_equal_placements_inplace(graph_t const& graph, equal_items_t<int>&);
+
 struct mcmc_t {
   mcmc_t(
     cluster_t const& cl,
     graph_t const& gr,
     double bt,
-    vector<placement_t> placements);
+    equal_items_t<int> const& equal_placements,
+    vector<placement_t> const& initial_placements);
 
-  mcmc_t(
+  static mcmc_t init_with_single_loc(
     cluster_t const& cl,
     graph_t const& gr,
-    double bt);
+    double bt,
+    equal_items_t<int> eqs = {});
 
   bool step();
 
   vector<placement_t> random_change() const;
+
+  int random_gid() const;
 
   static placement_t make_finer(placement_t const& pl);
 
@@ -37,6 +44,8 @@ struct mcmc_t {
   cluster_t const& cluster;
   graph_t const& graph;
   double beta;
+  equal_items_t<int> const equal_placements;
+  vector<int> candidates;
 
   double best_makespan;
   vector<placement_t> best_placements;

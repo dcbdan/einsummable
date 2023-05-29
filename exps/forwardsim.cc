@@ -394,6 +394,7 @@ void main05() {
   //  4,4,4,
   //  4000,4000,4000,
   //  nlocs);
+  //equal_items_t<int> eqs = {};
 
   float learning_rate = 0.1;
   uint64_t dn = 1500;
@@ -402,9 +403,15 @@ void main05() {
   vector<uint64_t> dws{2000, 2000};
 
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
-  auto [graph, _] = ff.mgraph.compile();
+  auto [graph, m_to_g] = ff.mgraph.compile();
+  equal_items_t<int> eqs;
+  for(int i = 0; i != ff.wsinn.size(); ++i) {
+    auto const& inn = m_to_g.at(ff.wsinn[i]);
+    auto const& out = m_to_g.at(ff.wsout[i]);
+    eqs.insert(inn, out);
+  }
 
-  mcmc_t mcmc(cluster, graph, 600.1);
+  mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 600.1, eqs);
 
   double base = mcmc.current_makespan;
 

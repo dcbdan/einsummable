@@ -35,25 +35,73 @@ vector<placement_t> single_loc_placements(graph_t const& graph) {
   return pls;
 }
 
+equal_items_t<int> construct_equal_placements(graph_t const& graph) {
+  equal_items_t<int> ret;
+  construct_equal_placements_inplace(graph, ret);
+  return ret;
+}
+void construct_equal_placements_inplace(
+  graph_t const& graph,
+  equal_items_t<int>& ret)
+{
+  // Given (up,dwn), if
+  // (1) dwn is elementwise straight or a formation and
+  // (2) up has no aggregation,
+  // then up,dwn should have the same placement
+  for(int id = 0; id != graph.nodes.size(); ++id) {
+    auto const& dwn = graph.nodes[id];
+    if(dwn.inns.size() == 1) {
+      int const& upp_id = dwn.inns[0];
+      auto const& upp = graph.nodes[upp_id];
+      if(!upp.op.has_aggregation()) {
+        if(dwn.op.is_einsummable()) {
+          auto const& e = dwn.op.get_einsummable();
+          if(e.is_straight_elementwise()) {
+            ret.insert(id, upp_id);
+          }
+        } else if(dwn.op.is_formation()) {
+          ret.insert(id, upp_id);
+        }
+      }
+    }
+  }
+}
+
 mcmc_t::mcmc_t(
   cluster_t const& cl,
   graph_t const& gr,
   double bt,
-  vector<placement_t> placements):
-  cluster(cl), graph(gr), beta(bt), current_placements(placements)
+  equal_items_t<int> const& eq_pls,
+  vector<placement_t> const& init_placements):
+  cluster(cl), graph(gr), beta(bt),
+  equal_placements(eq_pls),
+  current_placements(init_placements),
+  candidates(eq_pls.candidates())
 {
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    if(!equal_placements.has(gid)) {
+      candidates.push_back(gid);
+    }
+  }
+
   current_makespan = simulate(cluster, graph, current_placements);
 
   best_makespan = current_makespan;
   best_placements = current_placements;
 }
 
-mcmc_t::mcmc_t(
-  cluster_t const& cl,
-  graph_t const& gr,
-  double bt)
-  : mcmc_t(cl, gr, bt, single_loc_placements(gr))
-{}
+mcmc_t mcmc_t::init_with_single_loc(
+  cluster_t const& cluster,
+  graph_t const& graph,
+  double beta,
+  equal_items_t<int> eqs)
+{
+  construct_equal_placements_inplace(graph, eqs);
+
+  return mcmc_t(cluster, graph, beta,
+    eqs,
+    single_loc_placements(graph));
+}
 
 bool mcmc_t::step() {
   vector<placement_t> pls = random_change();
@@ -80,16 +128,20 @@ bool mcmc_t::step() {
   }
 }
 
+int mcmc_t::random_gid() const {
+  return candidates[runif(candidates.size())];
+}
+
 vector<placement_t> mcmc_t::random_change() const {
   int prob_change_partition = 10;
 
   vector<placement_t> ret = current_placements;
 
   int n_locs = cluster.devices.size();
-  int n_gids = graph.nodes.size();
+  int gid = random_gid();
   if(runif(100) < prob_change_partition) {
     // change the partition: either make it coarser or finer
-    placement_t& pl = ret[runif(n_gids)];
+    placement_t& pl = ret[gid];
     int n_parts = pl.partition.num_parts();
     if(n_parts == 1) {
       pl = make_finer(pl);
@@ -103,7 +155,7 @@ vector<placement_t> mcmc_t::random_change() const {
       }
     }
   } else {
-    placement_t& pl = ret[runif(n_gids)];
+    placement_t& pl = ret[gid];
     vector<int>& locs = pl.locations.get();
     int bid = runif(locs.size());
 
@@ -128,6 +180,14 @@ vector<placement_t> mcmc_t::random_change() const {
     //}
 
     locs[bid] = loc;
+  }
+
+  if(equal_placements.has(gid)) {
+    for(int const& other_gid: equal_placements.get_at(gid)) {
+      if(gid != other_gid) {
+        ret[other_gid] = ret[gid];
+      }
+    }
   }
 
   return ret;
