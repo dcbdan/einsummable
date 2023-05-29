@@ -136,7 +136,8 @@ __global__ void touch2_max(float* out, const float* in, uint64_t t0_offset_inn, 
     }
 }
 
-__global__ void touch3_none(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out) {
+
+__global__ void touch3_none(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t1_d_inn,uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out) {
     uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
     uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
@@ -150,13 +151,13 @@ __global__ void touch3_none(float* out, const float* in, uint64_t t0_offset_inn,
     uint64_t outZ = t2_offset_out + zDim;
 
     if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
-        uint64_t inIndex = inZ * t1_d_inn *t0_d_inn+ inY*t0_d_inn+inX;
-        uint64_t outIndex = outZ * t1_d_out *t0_d_out+ outY*t0_d_out+outX;
+        uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
+        uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
         out[outIndex] = in[inIndex];
     }
 }
 
-__global__ void touch3_add(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out) {
+__global__ void touch3_add(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t1_d_inn,uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out) {
     uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
     uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
@@ -170,13 +171,13 @@ __global__ void touch3_add(float* out, const float* in, uint64_t t0_offset_inn, 
     uint64_t outZ = t2_offset_out + zDim;
 
     if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
-        uint64_t inIndex = inZ * t1_d_inn *t0_d_inn+ inY*t0_d_inn+inX;
-        uint64_t outIndex = outZ * t1_d_out *t0_d_out+ outY*t0_d_out+outX;
+        uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
+        uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
         out[outIndex] += in[inIndex];
     }
 }
 
-__global__ void touch3_mul(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out) {
+__global__ void touch3_mul(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t1_d_inn,uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out) {
     uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
     uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
@@ -190,13 +191,13 @@ __global__ void touch3_mul(float* out, const float* in, uint64_t t0_offset_inn, 
     uint64_t outZ = t2_offset_out + zDim;
 
     if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
-        uint64_t inIndex = inZ * t1_d_inn *t0_d_inn+ inY*t0_d_inn+inX;
-        uint64_t outIndex = outZ * t1_d_out *t0_d_out+ outY*t0_d_out+outX;
+        uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
+        uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
         out[outIndex] *= in[inIndex];
     }
 }
 
-__global__ void touch3_min(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out) {
+__global__ void touch3_min(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t1_d_inn,uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out) {
     uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
     uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
@@ -210,13 +211,13 @@ __global__ void touch3_min(float* out, const float* in, uint64_t t0_offset_inn, 
     uint64_t outZ = t2_offset_out + zDim;
 
     if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
-        uint64_t inIndex = inZ * t1_d_inn *t0_d_inn+ inY*t0_d_inn+inX;
-        uint64_t outIndex = outZ * t1_d_out *t0_d_out+ outY*t0_d_out+outX;
+        uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
+        uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
         out[outIndex] = fminf(out[outIndex],in[inIndex]);
     }
 }
 
-__global__ void touch3_max(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out) {
+__global__ void touch3_max(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t1_d_inn,uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out) {
     uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
     uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
@@ -230,11 +231,12 @@ __global__ void touch3_max(float* out, const float* in, uint64_t t0_offset_inn, 
     uint64_t outZ = t2_offset_out + zDim;
 
     if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
-        uint64_t inIndex = inZ * t1_d_inn *t0_d_inn+ inY*t0_d_inn+inX;
-        uint64_t outIndex = outZ * t1_d_out *t0_d_out+ outY*t0_d_out+outX;
+        uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
+        uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
         out[outIndex] = fmaxf(out[outIndex],in[inIndex]);
     }
 }
+
 
 void touch1_dispatch(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t0_offset_out, uint64_t t0_size, uint64_t t0_d_inn,uint64_t t0_d_out,cudaStream_t stream,uint64_t choice){
     dim3 blockSize(256); 
@@ -281,23 +283,23 @@ void touch2_dispatch(float* out, const float* in, uint64_t t0_offset_inn, uint64
 }
 
 void touch3_dispatch(float* out, const float* in, uint64_t t0_offset_inn, uint64_t t1_offset_inn, uint64_t t2_offset_inn,uint64_t t0_offset_out, uint64_t t1_offset_out, uint64_t t2_offset_out,uint64_t t0_size,uint64_t t1_size,uint64_t t2_size,uint64_t t0_d_inn,uint64_t t0_d_out,uint64_t t1_d_inn,uint64_t t1_d_out,cudaStream_t stream,uint64_t choice){
-    dim3 blockSize(16, 16,16); 
+    dim3 blockSize(8, 8, 8); 
     dim3 gridSize((t0_size + blockSize.x - 1) / blockSize.x, (t1_size + blockSize.y - 1) / blockSize.y, (t2_size + blockSize.z - 1) / blockSize.z);
-
+    
     if(choice==0){
-        touch3_none<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t0_d_inn, t0_d_out,t1_d_inn, t1_d_out);
+        touch3_none<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out);
     }
     else if(choice==1){
-        touch3_add<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t0_d_inn, t0_d_out,t1_d_inn, t1_d_out);
+        touch3_add<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out);
     }
     else if(choice==2){
-        touch3_mul<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t0_d_inn, t0_d_out,t1_d_inn, t1_d_out);
+        touch3_mul<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out);
     }
     else if(choice==3){
-        touch3_min<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t0_d_inn, t0_d_out,t1_d_inn, t1_d_out);
+        touch3_min<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out);
     }
     else if(choice==4){
-        touch3_max<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t0_d_inn, t0_d_out,t1_d_inn, t1_d_out);
+        touch3_max<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn, t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size, t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out);
     }
 
 }
