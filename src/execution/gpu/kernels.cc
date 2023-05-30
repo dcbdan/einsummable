@@ -1,22 +1,37 @@
-#include "gpu_kernels.h"
+#include "kernels.h"
 #include "cuda_kernels.h"
 
 
 
 
 
-void touch1(touchdim_t const& t0, float* out, float const* inn, cudaStream_t stream, uint64_t choice) {
-  touch1_dispatch(out, inn, t0.offset_inn, t0.offset_out, t0.size, t0.d_inn, t0.d_out, stream, choice);
+void touch1(touchdim_t const& t0, float* out,
+            float const* inn, cudaStream_t stream,
+            int choice) {
+  touch1_dispatch(out, inn, t0.offset_inn,
+  t0.offset_out, t0.size, t0.d_inn, t0.d_out,
+  stream, choice);
 
 }
 
-void touch2(touchdim_t const& t0, touchdim_t const& t1, float* out, float const* inn, cudaStream_t stream, uint64_t choice) {
-  touch2_dispatch(out, inn, t0.offset_inn, t1.offset_inn, t0.offset_out, t1.offset_out, t0.size, t1.size, t1.d_inn, t1.d_out, stream, choice);
+void touch2(touchdim_t const& t0, touchdim_t const& t1,
+            float* out, float const* inn, cudaStream_t stream,
+            int choice) {
+  touch2_dispatch(out, inn, t0.offset_inn,
+  t1.offset_inn, t0.offset_out, t1.offset_out,
+  t0.size, t1.size, t1.d_inn, t1.d_out,
+  stream, choice);
 
 }
 
-void touch3(touchdim_t const& t0, touchdim_t const& t1, touchdim_t const& t2, float* out, float const* inn, cudaStream_t stream, uint64_t choice) {
-  touch3_dispatch(out, inn, t0.offset_inn, t1.offset_inn, t2.offset_inn, t0.offset_out, t1.offset_out, t2.offset_out,t0.size, t1.size, t2.size, t1.d_inn, t1.d_out, t2.d_inn, t2.d_out, stream, choice);
+void touch3(touchdim_t const& t0, touchdim_t const& t1,
+            touchdim_t const& t2, float* out, float const* inn,
+            cudaStream_t stream, int choice) {
+  touch3_dispatch(out, inn, t0.offset_inn,
+  t1.offset_inn, t2.offset_inn, t0.offset_out,
+  t1.offset_out, t2.offset_out,t0.size,
+  t1.size, t2.size, t1.d_inn, t1.d_out,
+  t2.d_inn, t2.d_out, stream, choice);
 
 }
 
@@ -62,7 +77,8 @@ void touch3(touchdim_t const& t0, touchdim_t const& t1, touchdim_t const& t2, fl
   }()
 
 
-std::function<void(cudaStream_t, float*, float const*)> build_touch(touch_t const& touch)
+std::function<void(cudaStream_t, float*, float const*)>
+build_touch(touch_t const& touch)
 {
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
