@@ -46,8 +46,10 @@ int main(int argc, char** argv) {
 
   int num_processors = mpi.world_size;
 
-  graph_t graph = three_dimensional_matrix_multiplication(
+  graph_constructor_t g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
+  auto const& graph = g.graph;
+  auto placements = g.get_placements();
 
   //if(mpi.this_rank == 0) {
   //  graph.print();
@@ -60,7 +62,7 @@ int main(int argc, char** argv) {
   //  std::cout << line << std::endl << std::endl;
   //}
 
-  auto [input_blocks, output_blocks, taskgraph] = taskgraph_t::make(graph);
+  auto [input_blocks, output_blocks, taskgraph] = taskgraph_t::make(graph, placements);
 
   //if(mpi.this_rank == 0) {
   //  taskgraph.print();

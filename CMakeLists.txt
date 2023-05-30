@@ -77,7 +77,7 @@ if(${CPU_EXECUTION_ENGINE})
   endfunction()
 
   add_cpu_application("cpuexec"    "exps" "cpuexec")
-  add_cpu_application("cpuexec_ff" "exps" "cpuexec_ff")
+  #add_cpu_application("cpuexec_ff" "exps" "cpuexec_ff")
   add_cpu_application("cpuexec_ew" "exps" "cpuexec_ew")
   add_cpu_application("cpuexec_touch" "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
