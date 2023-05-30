@@ -575,6 +575,21 @@ bool scalarop_t::is_castable() const {
   return false;
 }
 
+bool scalarop_t::is_mul() const {
+  string self = write_with_ss(*this);
+  vector<string> xs {
+    "*[hole@0,hole@1]",
+    "*[hole@1,hole@0]"};
+
+    for(auto const& x: xs) {
+    if(self == x) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool scalarop_t::is_constant_of(float val) const {
   return node.op.is_constant() && node.op.get_constant() == val;
 }

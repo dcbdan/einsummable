@@ -121,6 +121,8 @@ struct scalarop_t {
 
   bool is_castable() const;
 
+  bool is_mul() const;
+
   bool is_constant_of(float val) const;
 
   string to_cppstr() const;
