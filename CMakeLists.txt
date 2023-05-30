@@ -83,3 +83,31 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_matmul" "exps" "cpuexec_matmul")
 endif()
+
+if(${GPU_EXECUTION_ENGINE})
+  enable_language(CUDA)
+
+  find_package(CUDA REQUIRED)
+  find_package(CUDAToolkit)
+  include_directories("${CUDA_INCLUDE_DIRS}")
+
+  add_library(gpu_execution_engine
+    STATIC
+    ${BA_FILES}
+    ${ES_FILES}
+    ${MG_FILES}
+    ${AP_FILES}
+  )
+
+  function(add_gpu_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    gpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    ${CUDA_LIBRARIES}
+    -lcutensor)
+  endfunction()
+
+  # call add_gpu_application here
+endif()
