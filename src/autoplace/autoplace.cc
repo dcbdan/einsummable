@@ -139,7 +139,7 @@ mcmc_t mcmc_t::init_balanced(
 
 bool mcmc_t::step() {
   vector<placement_t> pls = random_change();
-  double makespan = simulate(cluster,  graph, pls);
+  double makespan = simulate(cluster, graph, pls);
 
   if(makespan < best_makespan) {
     best_makespan = makespan;
@@ -166,20 +166,34 @@ int mcmc_t::random_gid() const {
   return candidates[runif(candidates.size())];
 }
 
+int mcmc_t::num_locs() const {
+  return cluster.devices.size();
+}
+
+int mcmc_t::num_workers() const {
+  int ret = 0;
+  for(auto const& dev: cluster.devices) {
+    ret += dev.capacity;
+  }
+  return ret;
+}
+
 vector<placement_t> mcmc_t::random_change() const {
   int prob_change_partition = 10;
 
   vector<placement_t> ret = current_placements;
 
-  int n_locs = cluster.devices.size();
+  int n_locs = num_locs();
+  int n_workers = num_workers();
+
   int gid = random_gid();
-  if(runif(100) < prob_change_partition) {
+  if(n_locs == 1 || runif(100) < prob_change_partition) {
     // change the partition: either make it coarser or finer
     placement_t& pl = ret[gid];
     int n_parts = pl.partition.num_parts();
     if(n_parts == 1) {
       pl = make_finer(pl);
-    } else if(n_parts > n_locs + n_locs/2) {
+    } else if(n_parts > n_workers + n_workers/2) {
       pl = make_coarser(pl);
     } else {
       if(runif(2) < 1) {

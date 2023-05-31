@@ -7,6 +7,8 @@
 #include "../src/execution/cpu/execute.h"
 #include "../src/execution/cpu/mpi_class.h"
 
+#include "../src/autoplace/autoplace.h"
+
 void usage() {
   std::cout << "Usage: niter dn dp dd {dws}\n"
             << "\n"
@@ -42,7 +44,8 @@ void ff(
   vector<int> outs = wsnew;
   outs.push_back(sqdiff);
   auto [graph, m_to_g] = mgraph.compile(outs);
-  auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph);
+  auto pls = single_loc_placements(graph);
+  auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph, pls);
 
   //////////
   // REWRITE ALL IDS FROM MATRIX GRAPH TO TASKGRAPH
@@ -95,9 +98,9 @@ void ff(
     execute(taskgraph, settings, mpi, buffers);
 
     float loss = buffers.at(sqdiff)->sum();
-    if(i % 75 == 0) {
+    //if(i % 75 == 0) {
       std::cout << "loss: " << loss << std::endl;
-    }
+    //}
 
     for(int i = 0; i != ws.size(); ++i) {
       int const& w    = ws[i];
@@ -134,5 +137,5 @@ int main(int argc, char** argv) {
     throw std::runtime_error("This program is not distributed");
   }
 
-  ff(mpi, dn, dp, dd, dws, niter, 0.3);
+  ff(mpi, dn, dp, dd, dws, niter, 0.001);
 }
