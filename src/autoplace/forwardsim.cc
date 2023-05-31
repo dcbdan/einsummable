@@ -1,6 +1,214 @@
 #include "forwardsim.h"
 #include "../base/copyregion.h"
 
+capacity_scheduler_t::capacity_scheduler_t(int c)
+  : capacity(c)
+{
+  blocks.push_back(block_t {
+    .beg = 0.0,
+    .end = std::numeric_limits<double>::max(),
+    .cnt = 0
+  });
+}
+
+double capacity_scheduler_t::schedule(int util, double min_start, double compute_time)
+{
+  auto [beg,end] = find_available(util, min_start, compute_time);
+  vector<block_t> new_blocks;
+  new_blocks.reserve(blocks.size() + 2);
+
+  auto iter = blocks.begin();
+
+  for(; iter != beg; ++iter) {
+    new_blocks.push_back(*iter);
+  }
+
+  double start;
+  double finish;
+  {
+    // iter is beg
+
+    if(min_start < beg->beg) {
+      start = beg->beg;
+    } else {
+      start = min_start;
+    }
+    finish = start + compute_time;
+
+    if(start == beg->beg) {
+      if(finish < beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = finish,
+          .cnt = beg->cnt + util
+        });
+        new_blocks.push_back(block_t {
+          .beg = finish,
+          .end = beg->end,
+          .cnt = beg->cnt
+        });
+      } else if(finish >= beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = beg->end,
+          .cnt = beg->cnt + util
+        });
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+    } else {
+      new_blocks.push_back(block_t {
+        .beg = beg->beg,
+        .end = start,
+        .cnt = beg->cnt
+      });
+      if(finish < beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = finish,
+          .cnt = beg->cnt + util
+        });
+        new_blocks.push_back(block_t {
+          .beg = finish,
+          .end = beg->end,
+          .cnt = beg->cnt
+        });
+      } else if(finish >= beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = beg->end,
+          .cnt = beg->cnt + util
+        });
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+    }
+
+    iter++;
+  }
+
+  for(; iter != end; ++iter) {
+    if(finish < iter->end) {
+      new_blocks.push_back(block_t {
+        .beg = iter->beg,
+        .end = finish,
+        .cnt = iter->cnt + util
+      });
+      new_blocks.push_back(block_t {
+        .beg = finish,
+        .end = iter->end,
+        .cnt = iter->cnt
+      });
+    } else if(finish >= iter->end) {
+      new_blocks.push_back(block_t {
+        .beg = iter->beg,
+        .end = iter->end,
+        .cnt = iter->cnt + util
+      });
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  }
+
+  for(; iter != blocks.end(); ++iter) {
+    new_blocks.push_back(*iter);
+  }
+
+  blocks = new_blocks;
+  return start;
+}
+
+void capacity_scheduler_t::complete(int util, double start, double finish)
+{
+  auto iter = get_exact_start(start);
+  auto end = get_exact_finish(finish) + 1;
+  for(; iter != end; ++iter) {
+    int& cnt = iter->cnt;
+    cnt -= util;
+  }
+
+  merge_zeros();
+}
+
+tuple<capacity_scheduler_t::iter_t, capacity_scheduler_t::iter_t>
+capacity_scheduler_t::find_available(int util, double min_start, double time)
+{
+  for(auto iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    if(iter->end > min_start) {
+      double start = std::max(min_start, iter->beg);
+      auto [max_util, end] = get_avail(iter, start + time);
+      if(max_util + util <= capacity) {
+        return {iter, end};
+      }
+    }
+  }
+  throw std::runtime_error("did not find available: should not happen");
+}
+
+tuple<int, capacity_scheduler_t::iter_t>
+capacity_scheduler_t::get_avail(capacity_scheduler_t::iter_t iter, double end)
+{
+  int ret = 0;
+  for(; iter != blocks.end(); ++iter) {
+    ret = std::max(ret, iter->cnt);
+    if(end <= iter->end) {
+      break;
+    }
+  }
+  if(iter == blocks.end()) {
+    throw std::runtime_error("did not find end");
+  }
+  return {ret, iter + 1};
+}
+
+capacity_scheduler_t::iter_t
+capacity_scheduler_t::get_exact_start(double t)
+{
+  auto iter = std::lower_bound(blocks.begin(), blocks.end(), t,
+    [](block_t const& lhs, double const& rhs) {
+      return lhs.beg < rhs;
+    });
+  if(iter == blocks.end() || iter->beg != t) {
+    DOUT(std::boolalpha << (iter == blocks.end()));
+    throw std::runtime_error("failed get_exact_start");
+  }
+  return iter;
+}
+
+capacity_scheduler_t::iter_t
+capacity_scheduler_t::get_exact_finish(double t)
+{
+  auto iter = std::lower_bound(blocks.begin(), blocks.end(), t,
+    [](block_t const& lhs, double const& rhs) {
+      return lhs.end < rhs;
+    });
+  if(iter == blocks.end() || iter->end != t) {
+    throw std::runtime_error("failed get_exact_finish");
+  }
+  return iter;
+}
+
+void capacity_scheduler_t::merge_zeros() {
+  vector<block_t> new_blocks;
+  new_blocks.reserve(blocks.size());
+
+  iter_t iter = blocks.begin();
+  while(iter != blocks.end()) {
+    new_blocks.push_back(*iter);
+    iter += 1;
+    if(new_blocks.back().cnt == 0) {
+      for(; iter != blocks.end(); ++iter) {
+        if(iter->cnt != 0) {
+          break;
+        }
+        new_blocks.back().end = iter->end;
+      }
+    }
+  }
+
+  blocks = new_blocks;
+}
+
 forward_state_t::forward_state_t(cluster_t const& c, graph_t const& g)
   : cluster(c), graph(g),
     ginfos(g.nodes.size()),

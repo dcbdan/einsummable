@@ -4,6 +4,122 @@
 #include "../einsummable/graph.h"
 #include "cluster.h"
 
+// Assumption: all time >= 0; all util >= 1
+struct capacity_scheduler_t {
+  capacity_scheduler_t(int c);
+
+  double schedule(int util, double min_start, double compute_time);
+
+  void complete(int util, double start, double finish);
+
+  int const capacity;
+
+private:
+  struct block_t {
+    double beg;
+    double end;
+    int cnt;
+  };
+
+  // Invariant: holds interval [0,max double)
+  vector<block_t> blocks;
+
+  using iter_t = vector<block_t>::iterator;
+
+  tuple<iter_t, iter_t>
+  find_available(int util, double min_start, double time);
+
+  tuple<int, iter_t> get_avail(iter_t iter, double end);
+
+  iter_t get_exact_start(double t);
+  iter_t get_exact_finish(double t);
+
+  void merge_zeros();
+};
+
+template <typename T>
+struct in_progress_t {
+  int capacity;
+  double beg;
+  double end;
+  T payload;
+};
+
+template <typename T>
+bool operator>(
+  in_progress_t<T> const& lhs,
+  in_progress_t<T> const& rhs)
+{
+  return lhs.end > rhs.end;
+}
+
+template <typename T>
+struct capacity_worker_t {
+  capacity_worker_t(int capacity)
+    : scheduler(capacity)
+  {}
+
+  bool is_in_progress() const {
+    return in_progress.size() > 0;
+  }
+
+  in_progress_t<T> const& get_in_progress() const {
+    return in_progress.top();
+  }
+
+  vector<T> const& get_pending() const {
+    return pending;
+  }
+
+  T const& get_pending(int which) const {
+    return pending[which];
+  }
+
+  void finish_work() {
+    auto const& p = get_in_progress();
+    scheduler.complete(p.capacity, p.beg, p.end);
+    in_progress.pop();
+  }
+
+  void add_to_pending(T const& new_work) {
+    for(auto const& pending_work: pending) {
+      if(new_work == pending_work) {
+        return;
+      }
+    }
+    pending.push_back(new_work);
+  }
+
+  void start_work(
+    int which_pending,
+    int capacity,
+    double time_now,
+    double total_work_time)
+  {
+    double start_time = scheduler.schedule(
+      capacity, time_now, total_work_time);
+
+    T const& work = pending[which_pending];
+
+    in_progress.push(in_progress_t<T> {
+      .capacity = capacity,
+      .beg = start_time,
+      .end = start_time + total_work_time,
+      .payload = work
+    });
+
+    pending.erase(pending.begin() + which_pending);
+  }
+
+private:
+  capacity_scheduler_t scheduler;
+
+  priority_queue_least<in_progress_t<T>> in_progress;
+
+  // these things can happen
+  vector<T> pending;
+};
+
 template <typename T>
 struct worker_t {
   worker_t() {}

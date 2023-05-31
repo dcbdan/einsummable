@@ -20,15 +20,9 @@ cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communica
   uint64_t compute_on_device = 100 * compute_score * giga;
   uint64_t bandwidth_between_device = communicate_score * giga;
 
-  int capacity = 1; // all kernels have a utilization of 1 for now,
-                    // so  give all devices a capacity of 1
-
   vector<device_t> devices;
   for(int loc = 0; loc != nlocs; ++loc) {
-    devices.push_back(device_t {
-      .compute = compute_on_device / capacity,
-      .capacity = capacity
-    });
+    devices.emplace_back(compute_on_device);
   }
 
   vector<connection_t> connections;

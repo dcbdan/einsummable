@@ -684,5 +684,5 @@ build_einsummable(
     return batch_matmul.value();
   }
 
-  throw std::runtime_error("could not acrquire kernel for " + write_with_ss(einsummable));
+  throw std::runtime_error("could not acquire kernel for " + write_with_ss(einsummable));
 }

@@ -1,10 +1,21 @@
 #pragma once
 #include "../base/setup.h"
+#include "../einsummable/einsummable.h"
 
 struct cluster_t {
   struct device_t {
+    device_t(uint64_t compute);
+
+    device_t(
+      uint64_t compute,
+      int capacity,
+      std::function<int(einsummable_t const&)>);
+
     uint64_t compute; // flop per second per capacity
-    int capacity;     // the number of workers or streams
+    int capacity;     // the number of workers
+
+    // the amount of capacity a kernel uses up
+    std::function<int(einsummable_t const&)> get_util;
   };
 
   struct connection_t {
@@ -25,7 +36,7 @@ struct cluster_t {
 
   double compute(int loc, uint64_t flops) const;
 
-  // TODO: add utilization given an einsummable
+  int util(int loc, einsummable_t const& e) const;
 
   vector<device_t> const devices;
   vector<connection_t> const connections;
