@@ -378,8 +378,8 @@ void main05() {
 
   double base = simulate(cluster, graph, single_loc_placements(graph));
 
-  //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 600.1, eqs);
-  mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 600.1, eqs);
+  mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
+  //mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 
   for(int i = 0; i != 20000; ++i) {
     mcmc.step();

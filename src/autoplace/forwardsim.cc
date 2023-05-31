@@ -212,12 +212,16 @@ void capacity_scheduler_t::merge_zeros() {
 forward_state_t::forward_state_t(cluster_t const& c, graph_t const& g)
   : cluster(c), graph(g),
     ginfos(g.nodes.size()),
-    apply_workers(c.devices.size()),
     move_workers(c.connections.size()),
     to_move_worker(cluster.to_connection),
     num_join_remaining(0),
     time(0.0)
 {
+  apply_workers.reserve(cluster.devices.size());
+  for(auto const& dev: cluster.devices) {
+    apply_workers.emplace_back(dev.capacity);
+  }
+
   vector<int> cs(g.nodes.size());
   std::iota(cs.begin(), cs.end(), 0);
   can_partition.insert(cs.begin(), cs.end());
@@ -301,9 +305,9 @@ void forward_state_t::assign_location(jid_t jid, int loc) {
 void forward_state_t::enqueue_apply_worker(int loc, int which) {
   auto& worker = apply_workers[loc];
   auto const& [gid,bid] = worker.get_pending(which);
-  uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
-  double compute_time = cluster.compute(loc, flops);
-  worker.start_work(which, time, compute_time);
+  einsummable_t const& e = ginfos[gid].joins.value()[bid].einsummable.value();
+  auto [util, compute_time] = cluster.compute(loc, e);
+  worker.start_work(which, util, time, compute_time);
 }
 
 void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
@@ -342,8 +346,9 @@ forward_state_t::pop_work()
   for(int i = 0; i != apply_workers.size(); ++i) {
     auto const& apply_worker = apply_workers[i];
     if(apply_worker.is_in_progress()) {
+      auto const& progress = apply_worker.get_in_progress();
       items.emplace_back(
-        std::get<1>(apply_worker.get_in_progress()),
+        progress.end,
         true,
         i);
     }
@@ -370,10 +375,16 @@ forward_state_t::pop_work()
 
     int const& loc = which;
 
-    auto [start,finish,jid] = apply_worker.get_in_progress();
+    auto [_,start,finish,jid] = apply_worker.get_in_progress();
     auto const& [gid, bid] = jid;
 
-    uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
+    uint64_t flops = 0;
+    {
+      auto const& e = ginfos[gid].joins.value()[bid].einsummable;
+      if(e) {
+        flops = product(e.value().join_shape);
+      }
+    }
 
     apply_worker.finish_work();
 
@@ -712,6 +723,11 @@ void forward_state_t::setup_joins(int graph_id) {
 
   vector<int> join_index(join_block_shape.size(), 0);
 
+  optional<einsummable_t> base_einsummable;
+  if(node.op.is_einsummable()) {
+    base_einsummable = node.op.get_einsummable();
+  }
+
   do {
     int join_bid = idxs_to_index(join_block_shape, join_index);
     join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
@@ -720,10 +736,13 @@ void forward_state_t::setup_joins(int graph_id) {
     //   input nodes: 0
     //   formation nodes: 0
     //   join nodes: the tensor block size
-    if(node.op.is_einsummable()) {
-      join_info.flops = product(join_partition.tensor_shape_at(join_index));
+    // (the join_t stores an optional einsummable_t)
+    if(base_einsummable) {
+      join_info.einsummable = einsummable_t::with_new_shape(
+        base_einsummable.value(),
+        join_partition.tensor_shape_at(join_index));
     } else {
-      join_info.flops = 0;
+      join_info.einsummable = std::nullopt;
     }
 
     // deps

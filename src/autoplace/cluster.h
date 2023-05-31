@@ -7,15 +7,13 @@ struct cluster_t {
     device_t(uint64_t compute);
 
     device_t(
-      uint64_t compute,
       int capacity,
-      std::function<int(einsummable_t const&)>);
+      std::function<tuple<int,double>(einsummable_t const&)> f_cost);
 
-    uint64_t compute; // flop per second per capacity
     int capacity;     // the number of workers
 
-    // the amount of capacity a kernel uses up
-    std::function<int(einsummable_t const&)> get_util;
+    // the amount of capacity and time a kernel uses up
+    std::function<tuple<int,double>(einsummable_t const&)> f_cost;
   };
 
   struct connection_t {
@@ -34,9 +32,7 @@ struct cluster_t {
 
   double move(int src, int dst, uint64_t bytes) const;
 
-  double compute(int loc, uint64_t flops) const;
-
-  int util(int loc, einsummable_t const& e) const;
+  tuple<int, double> compute(int loc, einsummable_t const& e) const;
 
   vector<device_t> const devices;
   vector<connection_t> const connections;

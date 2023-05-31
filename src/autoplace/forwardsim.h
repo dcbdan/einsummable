@@ -39,7 +39,7 @@ private:
 
 template <typename T>
 struct in_progress_t {
-  int capacity;
+  int util;
   double beg;
   double end;
   T payload;
@@ -77,7 +77,7 @@ struct capacity_worker_t {
 
   void finish_work() {
     auto const& p = get_in_progress();
-    scheduler.complete(p.capacity, p.beg, p.end);
+    scheduler.complete(p.util, p.beg, p.end);
     in_progress.pop();
   }
 
@@ -92,17 +92,17 @@ struct capacity_worker_t {
 
   void start_work(
     int which_pending,
-    int capacity,
+    int util,
     double time_now,
     double total_work_time)
   {
     double start_time = scheduler.schedule(
-      capacity, time_now, total_work_time);
+      util, time_now, total_work_time);
 
     T const& work = pending[which_pending];
 
     in_progress.push(in_progress_t<T> {
-      .capacity = capacity,
+      .util = util,
       .beg = start_time,
       .end = start_time + total_work_time,
       .payload = work
@@ -278,7 +278,7 @@ struct forward_state_t {
   };
 
   struct join_t {
-    uint64_t flops;
+    optional<einsummable_t> einsummable;
     vector<rid_t> deps;
     set<int> outs; // get all refinement bids that depend on this join
   };
@@ -430,7 +430,7 @@ private:
 
   set<int> can_partition;
 
-  vector<worker_t<jid_t>> apply_workers;
+  vector<capacity_worker_t<jid_t>> apply_workers;
 
   // each worker processes rid,uid pairs
   vector<worker_t<tuple<rid_t,int>>> move_workers;
