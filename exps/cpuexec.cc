@@ -170,7 +170,8 @@ taskgraph_t solve(
 
 int main(int argc, char** argv)
 {
-  DLINE;
+  set_seed(0);
+
   mpi_t mpi(argc, argv);
 
   int num_threads_per_node = 4;
@@ -213,30 +214,27 @@ int main(int argc, char** argv)
       mpi.send_str(taskgraph_str, dst);
     }
   } else {
-    DLINE;
     string taskgraph_str = mpi.recv_str(0);
-    DLINE;
     taskgraph = taskgraph_t::from_wire(taskgraph_str);
-    DLINE;
   }
 
-  //map<int, buffer_t> tensors;
-  //for(int id = 0; id != taskgraph.nodes.size(); ++id) {
-  //  auto const& node = taskgraph.nodes[id];
-  //  if(node.op.is_input()) {
-  //    auto const& [rank, size] = node.op.get_input();
-  //    if(mpi.this_rank == rank) {
-  //      buffer_t buffer = std::make_shared<buffer_holder_t>(size);
-  //      buffer->random(-0.0003, 0.003);
-  //      tensors.insert({id, buffer});
-  //    }
-  //  }
-  //}
+  map<int, buffer_t> tensors;
+  for(int id = 0; id != taskgraph.nodes.size(); ++id) {
+    auto const& node = taskgraph.nodes[id];
+    if(node.op.is_input()) {
+      auto const& [rank, size] = node.op.get_input();
+      if(mpi.this_rank == rank) {
+        buffer_t buffer = std::make_shared<buffer_holder_t>(size);
+        buffer->random(-0.0003, 0.003);
+        tensors.insert({id, buffer});
+      }
+    }
+  }
 
-  //{
-  //  raii_print_time_elapsed_t gremlin("cpuexec time");
-  //  mpi.barrier();
-  //  execute(taskgraph, execute_settings, mpi, tensors);
-  //  mpi.barrier();
-  //}
+  {
+    raii_print_time_elapsed_t gremlin("cpuexec time");
+    mpi.barrier();
+    execute(taskgraph, execute_settings, mpi, tensors);
+    mpi.barrier();
+  }
 }

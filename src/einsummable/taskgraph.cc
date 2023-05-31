@@ -1461,7 +1461,7 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
     if(n.has_input()) {
       auto const& i = n.input();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(input_t { i.loc(), i.size() }),
         is_save);
     } else if(n.has_apply()) {
@@ -1472,12 +1472,12 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
       einsummable_t e = einsummable_t::from_proto(a.einsummable());
 
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(apply_t { a.loc(), inns, e }),
         is_save);
     } else if(n.has_move()) {
       auto const& m = n.move();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
         is_save);
     } else if(n.has_partialize()) {
@@ -1530,11 +1530,23 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         .write_shape = write_shape,
         .units = units
       };
-      ret.insert(op_t(partialize), is_save);
+      ret.nodes.emplace_back(op_t(partialize), is_save);
     } else {
       throw std::runtime_error("should not happen");
     }
+  }
 
+  // Note: The nodes are sent over the wire in order,
+  //       but that order is not necc a graph order.
+  //       Therefore, don't call insert.
+  //       Instead, directly put in all the nodes and then
+  //       add all outgoing edges
+
+  for(int id = 0; id != ret.nodes.size(); ++id) {
+    auto const& op = ret.nodes[id].op;
+    for(auto inn: op.inputs()) {
+      ret.nodes[inn].outs.insert(id);
+    }
   }
 
   return ret;
