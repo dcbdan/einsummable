@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../einsummable/setup.h"
+#include "../../base/setup.h"
 
 #include "../../einsummable/scalarop.h"
 

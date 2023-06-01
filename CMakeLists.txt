@@ -92,12 +92,26 @@ if(${GPU_EXECUTION_ENGINE})
   find_package(CUDAToolkit)
   include_directories("${CUDA_INCLUDE_DIRS}")
 
+  # set the right architecture
+  include(FindCUDA/select_compute_arch)
+  CUDA_DETECT_INSTALLED_GPUS(INSTALLED_GPU_CCS_1)
+  string(STRIP "${INSTALLED_GPU_CCS_1}" INSTALLED_GPU_CCS_2)
+  string(REPLACE " " ";" INSTALLED_GPU_CCS_3 "${INSTALLED_GPU_CCS_2}")
+  string(REPLACE "." "" CUDA_ARCH_LIST "${INSTALLED_GPU_CCS_3}")
+  SET(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_LIST})
+  set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
+
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
+  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
+
   add_library(gpu_execution_engine
     STATIC
     ${BA_FILES}
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${CP_FILES}
+    ${CU_FILES}
   )
 
   function(add_gpu_application exec dir filename)
@@ -106,9 +120,10 @@ if(${GPU_EXECUTION_ENGINE})
     gpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
-    ${CUDA_LIBRARIES}
-    -lcutensor)
+    ${CUDA_LIBRARIES})
+    #-lcutensor
   endfunction()
 
   # call add_gpu_application here
+  add_gpu_application("gpuexec_touch"  "exps" "gpuexec_touch")
 endif()

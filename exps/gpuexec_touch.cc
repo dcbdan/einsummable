@@ -8,10 +8,10 @@ touch_t example_touch() {
   touchdim_t dm3 = {10000,10000,598,1972,5000};
   touchdim_t dm4 = {10,10,1,2,5};
   vector<touchdim_t> selection;
-  selection.push_back(t0);
-  selection.push_back(t1);
-  selection.push_back(t2);
-  selection.push_back(t3);
+  selection.push_back(dm1);
+  selection.push_back(dm2);
+  selection.push_back(dm3);
+  selection.push_back(dm4);
 
   return touch_t {
     .selection = selection,
@@ -39,13 +39,14 @@ int main(){
     cudaMalloc(&d_in, totalSize  * sizeof(float));
     cudaMalloc(&d_out, totalSize * sizeof(float));
 
-    cudaMemcpy(d_in, in, totalSize  * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_in, array, totalSize  * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_out, out1, totalSize * sizeof(float), cudaMemcpyHostToDevice);
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    auto built_gpu = build_touch(touch);
+    touch_t exp_touch = example_touch();
+    auto built_gpu = build_touch(exp_touch);
 
     built_gpu(stream,d_out,d_in);
 
