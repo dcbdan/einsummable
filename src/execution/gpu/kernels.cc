@@ -103,3 +103,75 @@ build_touch(touch_t const& touch)
 
   throw std::runtime_error("touch kernel not implemented");
 }
+
+std::function<void(cudaStream_t, cutensorHandle_t const*, float*, vector<float const*>)>
+build_einsummable(einsummable_t const& e)
+{
+  if(is_contraction(e)) {
+    throw std::runtime_error("build_einsummable must not be given a constraction");
+  }
+
+  // TODO: is this a reduction?
+  // TODO: is this something that cutensor elementwise can do?
+  // TODO: is this straight elementwise?
+
+  string msg =
+    "could not build a kernel for einsummable_t: " + write_with_ss(e);
+  throw std::runtime_error(msg);
+}
+
+void build_contraction(
+  cutensorContractionDescriptor_t* desc,
+  einsummable_t const& einsummable)
+{
+  // TODO
+}
+
+void execute_contraction(
+  cudaStream_t,
+  cutensorHandle_t const*,
+  cutensorContractionDescriptor_t const*,
+  float* out,
+  float const* lhs,
+  float const* rhs)
+{
+  // TODO
+}
+
+bool is_contraction(einsummable_t const& e)
+{
+  // TODO
+  return false;
+}
+
+cutensor_kernel_t
+build_reduction(
+  castable_t castable,
+  vector<uint64_t> shape,
+  int out_rank)
+{
+  // TODO
+  return {};
+}
+
+cutensor_kernel_t
+build_cutensor_elementwise(cutensor_elementwise_op_t op)
+{
+  // TODO
+  return {};
+}
+
+optional<cutensor_elementwise_op_t>
+make_cutensor_elementwise_op(
+  einsummable_t const& e)
+{
+  // TODO
+  return std::nullopt;
+}
+
+cutensor_kernel_t
+build_straight_elementwise(einsummable_t const& e)
+{
+  // TODO: dispatch to canned elementwise kernels here
+  return {};
+}

@@ -120,8 +120,8 @@ if(${GPU_EXECUTION_ENGINE})
     gpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
-    ${CUDA_LIBRARIES})
-    -lcutensor
+    ${CUDA_LIBRARIES}
+    -lcutensor)
   endfunction()
 
   # call add_gpu_application here
