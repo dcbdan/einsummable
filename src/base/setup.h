@@ -192,13 +192,69 @@ template <typename T>
 void vector_remove_duplicates(vector<T>& xs) {
   std::size_t i = 0;
   std::size_t j = 0;
-  while(j < xs.size()) {
+  while(j != xs.size()) {
     xs[i++] = xs[j++];
-    while(xs[i-1] == xs[j]) {
+    while(j != xs.size() && xs[i-1] == xs[j]) {
       ++j;
     }
   }
   xs.resize(i);
+}
+
+template <typename T>
+void vector_uniqueify_inplace(vector<T>& xs) {
+  if(xs.size() <= 1) {
+    return;
+  }
+
+  set<std::size_t> discard;
+  for(std::size_t i = 0; i != xs.size()-1; ++i) {
+    for(std::size_t j = i+1; j != xs.size(); ++j) {
+      if(xs[i] == xs[j]) {
+        discard.insert(j);
+      }
+    }
+  }
+
+  auto s = discard.begin();
+  std::size_t j = 0;
+  for(int i = 0; i != xs.size(); ++i) {
+    if(s == discard.end() || *s != i) {
+      xs[j++] = xs[i];
+    } else {
+      s++;
+    }
+  }
+  xs.resize(j);
+}
+
+template <typename T>
+[[nodiscard]] vector<T> vector_uniqueify(vector<T> const& xs)
+{
+  if(xs.size() <= 1) {
+    return xs;
+  }
+
+  set<std::size_t> discard;
+  for(std::size_t i = 0; i != xs.size()-1; ++i) {
+    for(std::size_t j = i+1; j != xs.size(); ++j) {
+      if(xs[i] == xs[j]) {
+        discard.insert(j);
+      }
+    }
+  }
+
+  auto s = discard.begin();
+  vector<T> ret;
+  ret.reserve(xs.size() - discard.size());
+  for(int i = 0; i != xs.size(); ++i) {
+    if(s == discard.end() || *s != i) {
+      ret.push_back(xs[i]);
+    } else {
+      s++;
+    }
+  }
+  return ret;
 }
 
 // Take a bunch of sorted lists and merge em into a single sorted list
@@ -229,6 +285,16 @@ bool vector_has(vector<T> const& xs, T const& value)
   return std::find(xs.begin(), xs.end(), value) != xs.end();
 }
 
+template <typename RandomIter>
+vector<std::size_t> argsort(RandomIter beg, RandomIter end) {
+  vector<std::size_t> ret(end-beg);
+  std::iota(ret.begin(), ret.end(), 0);
+  std::sort(ret.begin(), ret.end(), [&](int const& lhs, int const& rhs) {
+    return *(beg + lhs) < *(beg + rhs);
+  });
+  return ret;
+}
+
 template <typename T>
 set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
 {
@@ -239,6 +305,39 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
     }
   }
   return ret;
+}
+
+template <typename Iter, typename F>
+Iter max_element_transform(
+  Iter first,
+  Iter last,
+  F f)
+{
+  // TODO: create a transform iterator instead of
+  //       copying everything into scores
+  vector<decltype(f(*first))> scores;
+  scores.reserve(last-first);
+  for(Iter iter = first; iter != last; ++iter) {
+    scores.push_back(f(*iter));
+  }
+  int offset = std::max_element(scores.begin(), scores.end()) - scores.begin();
+  return first + offset;
+}
+
+template <typename Iter, typename F>
+Iter min_element_transform(
+  Iter first,
+  Iter last,
+  F f)
+{
+  // TODO: same as max_element_transform
+  vector<decltype(f(*first))> scores;
+  scores.reserve(last-first);
+  for(Iter iter = first; iter != last; ++iter) {
+    scores.push_back(f(*iter));
+  }
+  int offset = std::min_element(scores.begin(), scores.end()) - scores.begin();
+  return first + offset;
 }
 
 template <typename T>
@@ -311,6 +410,8 @@ int runif(int beg, int end);
 
 // random number in [0,n)
 int runif(int n);
+
+int runif(vector<double> probs);
 
 template <typename T>
 T vector_random_pop(vector<T>& xs) {
@@ -554,4 +655,6 @@ template <typename T>
 inline set<T> const& set_in_order(set<T> const& items) {
   return items;
 }
+
+void hash_combine_impl(std::size_t& seed, std::size_t value);
 

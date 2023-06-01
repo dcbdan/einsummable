@@ -36,12 +36,12 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  graph_t graph = three_dimensional_matrix_multiplication(
+  auto g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
 
-  graph.print();
+  g.graph.print();
 
-  auto [_0, _1, taskgraph] = taskgraph_t::make(graph);
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
 
   vector<char> line(40, '/');
   std::cout << std::string(line.begin(), line.end()) << std::endl;

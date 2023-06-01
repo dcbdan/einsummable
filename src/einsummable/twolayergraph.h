@@ -1,5 +1,5 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
 #include "graph.h"
 
@@ -13,7 +13,9 @@ struct twolayergraph_t {
     vector<tensor_t<int>>,
     equal_items_t<int>,
     twolayergraph_t>
-  make(graph_t const& graph);
+  make(
+    graph_t const& graph,
+    vector<partition_t> const& parts);
 
   using rid_t = int; // refinement ids
   using jid_t = int; // join ids
@@ -90,6 +92,8 @@ struct twolayergraph_t {
   void print_graphviz(
     std::ostream&,
     std::function<string(int)> const& jid_to_color);
+
+  int num_input_joins() const;
 
 private:
   jid_t insert_join(uint64_t flops, vector<rid_t> const& deps);
@@ -246,7 +250,8 @@ struct twolayer_join_holder_t {
   }
 };
 
-vector<int> graph_locations_to_tasklayer(
+vector<int> graph_locations_to_twolayer(
   graph_t const& graph,
+  vector<placement_t> const& placements,
   vector<tensor_t<int>> const& g_to_tl);
 

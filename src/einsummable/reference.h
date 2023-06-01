@@ -1,7 +1,7 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
-#include "tensor.h"
+#include "../base/tensor.h"
 #include "graph.h"
 #include "taskgraph.h"
 #include "memgraph.h"

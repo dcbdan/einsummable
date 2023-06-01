@@ -69,6 +69,21 @@ partdim_t partdim_t::split_each(partdim_t const& p, int n_split_each)
   return from_sizes(sizes);
 }
 
+partdim_t partdim_t::merge_each(partdim_t const& p, int n_merge_each) {
+  vector<uint64_t> new_sizes;
+
+  auto sizes = p.sizes();
+  auto iter = sizes.begin();
+  while(iter != sizes.end()) {
+    new_sizes.push_back(0);
+    for(int i = 0; i != n_merge_each && iter != sizes.end(); ++i, ++iter) {
+      new_sizes.back() += *iter;
+    }
+  }
+
+  return from_sizes(new_sizes);
+}
+
 vector<uint64_t> partdim_t::sizes() const {
   vector<uint64_t> ret = spans;
   for(int i = ret.size()-1; i > 0; --i) {

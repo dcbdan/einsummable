@@ -1,5 +1,5 @@
 #pragma once
-#include "setup.h"
+#include "../base/setup.h"
 
 enum class castable_t { add, mul, min, max };
 

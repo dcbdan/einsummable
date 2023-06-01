@@ -77,5 +77,6 @@ void timeplot(
   std::ostream& out,
   vector<timeplot_ns::box_t> const& boxes,
   int row_height,
-  int min_box_width);
+  int min_box_width,
+  optional<double> actual_makespan = std::nullopt);
 

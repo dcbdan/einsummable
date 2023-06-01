@@ -1,5 +1,5 @@
 #include "taskgraph.h"
-#include "copyregion.h"
+#include "../base/copyregion.h"
 
 #include "einsummable.pb.h"
 
@@ -121,12 +121,13 @@ std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
 }
 
 struct state_t {
-  state_t(graph_t const& graph)
-    : graph(graph)
+  state_t(graph_t const& graph, vector<placement_t> const& placements)
+    : graph(graph), placements(placements)
   {}
 
   // the input compute graph
   graph_t const& graph;
+  vector<placement_t> const& placements;
 
   // the output task graph
   taskgraph_t taskgraph;
@@ -152,9 +153,11 @@ tuple<
   map<int, tensor_t<int> >, // for each input, the tids of the blocks
   map<int, tensor_t<int> >, // for each save id, the tids of the blocks
   taskgraph_t>              // the actual taskgraph
-taskgraph_t::make(graph_t const& graph)
+taskgraph_t::make(
+  graph_t const& graph,
+  vector<placement_t> const& placements)
 {
-  state_t state(graph);
+  state_t state(graph, placements);
 
   // maps from gid to tensor
   map<int, tensor_t<int>> inns;
@@ -162,9 +165,10 @@ taskgraph_t::make(graph_t const& graph)
 
   for(int gid: graph.get_order()) {
     graph_t::node_t const& node = graph.nodes[gid];
+    placement_t const& pl = placements[gid];
 
     if(node.op.is_formation()) {
-      tensor_t<int> access_result = state.access(gid, 0).to_tensor(node.placement);
+      tensor_t<int> access_result = state.access(gid, 0).to_tensor(pl);
       if(node.op.is_save()) {
         saves[gid] = access_result;
         // Set the things to be saved on the taskgraph
@@ -203,6 +207,7 @@ state_t::access(int join_gid, int which_input)
 {
   //DOUT("ACCESS " << join_gid << " WITH INPUT " << which_input);
   graph_t::node_t const& join_node = graph.nodes[join_gid];
+  placement_t const& join_pl = placements[join_gid];
 
   // get the multiple placement of the input necessary for the join
   multiple_placement_t inn_placement = [&]
@@ -210,11 +215,11 @@ state_t::access(int join_gid, int which_input)
     if(join_node.op.is_einsummable()) {
       einsummable_t const& einsummable = std::get<einsummable_t>(join_node.op.op);
       return multiple_placement_t::make_einsummable_input(
-        join_node.placement, einsummable, which_input);
+        join_pl, einsummable, which_input);
     } else {
       // If it isn't an einsummable node, then it is a formation node,
-      // in which case the required inn placement is the join_node.placement.
-      return multiple_placement_t::from_single_placement(join_node.placement);
+      // in which case the required inn placement is the join_pl.
+      return multiple_placement_t::from_single_placement(join_pl);
     }
   }();
 
@@ -312,14 +317,15 @@ state_t::compute(int gid)
 {
   //DOUT("COMPUTE " << gid);
   graph_t::node_t const& node = graph.nodes[gid];
+  placement_t const& pl = placements[gid];
 
   if(node.op.is_input()) {
-    auto shape = node.placement.block_shape();
+    auto shape = pl.block_shape();
     tensor_t<int> ret(shape);
     vector<int> index(shape.size(), 0);
     do {
-      int const& loc = node.placement.locations.at(index);
-      auto subtensor_shape = node.placement.partition.tensor_shape_at(index);
+      int const& loc = pl.locations.at(index);
+      auto subtensor_shape = pl.partition.tensor_shape_at(index);
       ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
     } while(increment_idxs(shape, index));
 
@@ -335,12 +341,12 @@ state_t::compute(int gid)
 
   einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
 
-  auto shape = node.placement.block_shape();
+  auto shape = pl.block_shape();
   tensor_t<int> ret(shape);
   vector<int> index(shape.size(), 0);
 
   do {
-    int const& loc = node.placement.locations.at(index);
+    int const& loc = pl.locations.at(index);
 
     vector<int> inns;
     inns.reserve(inputs.size());
@@ -351,7 +357,7 @@ state_t::compute(int gid)
       inns.push_back(inn_tensor.at(inn_idx, loc));
     }
 
-    auto subtensor_shape = node.placement.partition.tensor_shape_at(index);
+    auto subtensor_shape = pl.partition.tensor_shape_at(index);
     ret.at(index) = taskgraph.insert_einsummable(
       loc,
       einsummable_t::with_new_shape(base_einsummable, subtensor_shape),
@@ -366,15 +372,16 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
   //DOUT("COMMUNICATE " << join_gid);
   auto const& join_node = graph.nodes[join_gid];
-  auto const& join_placement = join_node.placement;
+  auto const& join_placement = placements[join_gid];
 
   vector<multiple_placement_t> usage_placements;
   usage_placements.reserve(2*join_node.outs.size());
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
+    auto const& out_pl   = placements[out_gid];
     if(out_node.op.is_formation()) {
       usage_placements.push_back(
-        multiple_placement_t::from_single_placement(out_node.placement));
+        multiple_placement_t::from_single_placement(out_pl));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage placements to collect
@@ -382,7 +389,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         if(out_node.inns[which_input] == join_gid) {
           usage_placements.push_back(
             multiple_placement_t::make_einsummable_input(
-              out_node.placement,
+              out_pl,
               out_node.op.get_einsummable(),
               which_input));
         }
@@ -1454,7 +1461,7 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
     if(n.has_input()) {
       auto const& i = n.input();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(input_t { i.loc(), i.size() }),
         is_save);
     } else if(n.has_apply()) {
@@ -1465,12 +1472,12 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
       einsummable_t e = einsummable_t::from_proto(a.einsummable());
 
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(apply_t { a.loc(), inns, e }),
         is_save);
     } else if(n.has_move()) {
       auto const& m = n.move();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
         is_save);
     } else if(n.has_partialize()) {
@@ -1523,11 +1530,23 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         .write_shape = write_shape,
         .units = units
       };
-      ret.insert(op_t(partialize), is_save);
+      ret.nodes.emplace_back(op_t(partialize), is_save);
     } else {
       throw std::runtime_error("should not happen");
     }
+  }
 
+  // Note: The nodes are sent over the wire in order,
+  //       but that order is not necc a graph order.
+  //       Therefore, don't call insert.
+  //       Instead, directly put in all the nodes and then
+  //       add all outgoing edges
+
+  for(int id = 0; id != ret.nodes.size(); ++id) {
+    auto const& op = ret.nodes[id].op;
+    for(auto inn: op.inputs()) {
+      ret.nodes[inn].outs.insert(id);
+    }
   }
 
   return ret;
@@ -1762,7 +1781,18 @@ void taskgraph_t::print() const {
 }
 
 void taskgraph_t::print_graphviz(std::ostream& out) const {
-  print_graphviz(out, {});
+  vector<string> colors{
+    "#61B292",
+    "#AED09E",
+    "#F1E8A7",
+    "#A8896C",
+    "#A8D8EA",
+    "#AA96DA",
+    "#FCBAD3",
+    "#FFFFD2"
+  };
+
+  print_graphviz(out, colors);
 }
 void taskgraph_t::print_graphviz(
   std::ostream& out,

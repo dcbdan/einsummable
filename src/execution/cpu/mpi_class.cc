@@ -77,19 +77,19 @@ void mpi_t::send_str(string const& x, int dst)
 {
   int n = x.size();
   MPI_Send(&n, 1, MPI_INT,
-    dst, -1, MPI_COMM_WORLD);
+    dst, 0, MPI_COMM_WORLD);
   MPI_Send((void*)x.data(), n, MPI_CHAR,
-    dst, -1, MPI_COMM_WORLD);
+    dst, 0, MPI_COMM_WORLD);
 }
 
 string mpi_t::recv_str(int src)
 {
   int n;
   MPI_Recv(&n, 1, MPI_INT, src,
-    -1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   vector<char> ret(n);
   MPI_Recv((void*)ret.data(), n, MPI_CHAR, src,
-    -1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   return string(ret.begin(), ret.end());
 }
 

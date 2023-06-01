@@ -106,8 +106,11 @@ void timeplot(
   std::ostream& out,
   vector<timeplot_ns::box_t> const& boxes,
   int row_height,
-  int min_box_width)
+  int min_box_width,
+  optional<double> actual_makespan)
 {
+  int max_image_width = 20000;
+
   using namespace timeplot_ns;
 
   double minboxtime = -1.0;
@@ -126,9 +129,24 @@ void timeplot(
     makespan = std::max(makespan, box.stop);
   }
 
-  auto time_to_int = [&](double time) {
+  if(actual_makespan) {
+    if(actual_makespan.value() < makespan) {
+      throw std::runtime_error("provided makespan less than boxes values!");
+    }
+    makespan = actual_makespan.value();
+  }
+
+  std::function<int(double)> time_to_int;
+
+  time_to_int = [&](double time) {
     return double_to_int((time / minboxtime) * min_box_width);
   };
+
+  if(time_to_int(makespan) > max_image_width) {
+    time_to_int = [&](double time) {
+      return double_to_int((max_image_width * 1.0) * time / makespan);
+    };
+  }
 
   int width  = time_to_int(makespan);
   int height = nrow * row_height;
@@ -143,10 +161,18 @@ void timeplot(
     if(stop - start == 0.0) {
       continue;
     }
+    int istart = time_to_int(start);
+    int istop  = time_to_int(stop);
+
+    if(istop - istart < 30) {
+      continue;
+    }
+
     auto [box,text] = task_box(
       row, row_height,
-      time_to_int(start), time_to_int(stop),
+      istart, istop,
       label);
+
     out << box;
     out << text;
   }

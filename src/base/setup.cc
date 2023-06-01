@@ -63,7 +63,28 @@ int runif(int beg, int end) {
 int runif(int n) {
   return runif(0, n);
 }
+int runif(vector<double> probs) {
+  if(probs.size() == 0) {
+    throw std::runtime_error("invalid runif props");
+  }
+  std::inclusive_scan(probs.begin(), probs.end(), probs.begin());
+  double v = std::uniform_real_distribution<double>(0.0, probs.back())(random_gen());
+  int ret = std::lower_bound(probs.begin(), probs.end(), v) - probs.begin();
+  if(ret == probs.size()) {
+    // This shouldnt happen often
+    ret -= 1;
+  }
+  return ret;
+}
 
 bool in_range(int val, int beg, int end) {
   return val >= beg && val < end;
 }
+
+// Stolen from http://myeyesareblind.com/2017/02/06/Combine-hash-values/
+// where this is the boost implementation
+void hash_combine_impl(std::size_t& seed, std::size_t value)
+{
+    seed ^= value + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+

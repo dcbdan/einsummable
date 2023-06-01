@@ -1,4 +1,4 @@
-#include "../src/einsummable/copyregion.h"
+#include "../src/base/copyregion.h"
 
 void print(copyregion_t& c) {
   std::cout << "-----------------" << std::endl << std::endl;
