@@ -1,10 +1,10 @@
 #pragma once
-#include "../../einsummable/setup.h"
-
+#include "../../base/setup.h"
 #include "../../einsummable/memgraph.h"
 #include "../../einsummable/reference.h" // buffer_t
 #include "../../../libcutensor/include/cutensor.h"
 #include "device_launch_parameters.h"
+#include "dummy_kernels.h"
 
 #include <cstddef>
 #include <map>
@@ -12,7 +12,6 @@
 #include <cuda_runtime.h>
 #include <variant>
 
-using std::queue;
 using memgraph_t = memgraph_t;
 
 // we need to define HANDLE_ERROR properly since it's not included in the header file 
@@ -130,7 +129,7 @@ bool is_touch(memgraph_t::node_t node){
 // helper function that given input metadata and stream, executes the tensor reduction
 // unlike contracion, this would immediately execute the reduction with the given stream
 cutensorStatus_t execute_reduction(cutensorHandle_t* handle, memgraph_t::node_t node, buffer_t gpu_memory, 
-                                    memgraph_t memgraph, cudaStream_t stream){
+                                    const memgraph_t & memgraph, cudaStream_t stream){
 
     // get the apply_t object and the einsummable from apply_t
     memgraph_t::apply_t apply = node.op.get_apply();
@@ -203,7 +202,9 @@ cutensorStatus_t execute_reduction(cutensorHandle_t* handle, memgraph_t::node_t 
 
 // input: node from memgraph and all other necessary metadata, output: cutensor plan
 // we are saving this plan in a map so that we can precompute the plan and save it before executing the memgraph
-cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memgraph_t::node_t node, buffer_t gpu_memory, memgraph_t memgraph){
+cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memgraph_t::node_t node, 
+    buffer_t gpu_memory, const memgraph_t & memgraph)
+    {
     // get the apply_t object and the einsummable from apply_t
     memgraph_t::apply_t apply = node.op.get_apply();
     auto einsum = std::get<einsummable_t>(apply.op);
@@ -346,12 +347,29 @@ cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memg
 
 }
 
+// ---------------- Memgraph traversal ----------------
+// given a memgraph, traverse the graph and get all the dependencies of a node represented by node.inns()
+// return a map from the node to the number of its dependencies
+std::map<int, int> get_dependencies(const memgraph_t &memgraph){
+    std::map<int, int> dependency_count;
+    for (int i = 0; i < memgraph.nodes.size(); i++){
+        dependency_count[i] = memgraph.nodes[i].inns.size();
+    }
+    return dependency_count;
+}
+
 struct gpu_execute_state_t 
 {
     memgraph_t memgraph;
     buffer_t gpu_memory;
     // maintain a queue of tasks that are pending to be executed
-    std::queue<memgraph_t::node_t> pending_queue;
+    std::queue<int> pending_queue;
+
+    // if we are not modifying the original memgraph, we can use a map to store the dependency count of each node
+    // key: node index, value: dependency count of that node
+    // whenever a node finishes execution, we decrement the dependency count of all its output
+    // if the dependency count of a node reaches 0, we add it to the pending_queue
+    std::map<int, int> dependency_count;
 
     // cutensor related:
     cutensorHandle_t* handle;
@@ -359,25 +377,26 @@ struct gpu_execute_state_t
     // a map from the node of the memgraph to the cutensor plan 
     // we only have plans for operation contraction, so we only need to store the plans for those nodes
     // remember to throw an error if the node is not a contraction but trying to access the map
-    map<memgraph_t::node_t, cutensorContractionPlan_t> cutensor_plans;
+    map<int, cutensorContractionPlan_t> cutensor_plans;
 
     gpu_execute_state_t(const memgraph_t input_memgraph, buffer_t &input_gpu_memory): memgraph(input_memgraph), gpu_memory(input_gpu_memory){
 
         // create a cutensor handle
         HANDLE_ERROR( cutensorCreate(&handle) );
 
+        dependency_count = get_dependencies(memgraph);
+
         // check all elements from the memgraph and add the nodes with no dependencies to the apply_queue
-        for (auto node: memgraph.nodes)
+        for (int i = 0; i < memgraph.nodes.size(); i++)
         {
-            if (node.inns.size() == 0)
+            if (memgraph.nodes[i].inns.size() == 0)
             {
-                pending_queue.push(node);
+                pending_queue.push(i);
             }
 
-            // go over every node and create a cutensor plan for contraction nodes
-            if (is_contraction(node))
+            if (is_contraction(memgraph.nodes[i]))
             {
-                cutensor_plans[node] = cutensor_plan_from_node(handle, node, gpu_memory, memgraph);
+                cutensor_plans[i] = cutensor_plan_from_node(handle, memgraph.nodes[i], gpu_memory, memgraph);
             }
         }
     }
