@@ -11,7 +11,6 @@ void touch1(touchdim_t const& t0, float* out,
   touch1_dispatch(out, inn, t0.offset_inn,
   t0.offset_out, t0.size, t0.d_inn, t0.d_out,
   stream, choice);
-
 }
 
 void touch2(touchdim_t const& t0, touchdim_t const& t1,
@@ -21,7 +20,6 @@ void touch2(touchdim_t const& t0, touchdim_t const& t1,
   t1.offset_inn, t0.offset_out, t1.offset_out,
   t0.size, t1.size, t1.d_inn, t1.d_out,
   stream, choice);
-
 }
 
 void touch3(touchdim_t const& t0, touchdim_t const& t1,
@@ -32,27 +30,37 @@ void touch3(touchdim_t const& t0, touchdim_t const& t1,
   t1.offset_out, t2.offset_out,t0.size,
   t1.size, t2.size, t1.d_inn, t1.d_out,
   t2.d_inn, t2.d_out, stream, choice);
+}
 
+void touch4(touchdim_t const& t0, touchdim_t const& t1,
+            touchdim_t const& t2, touchdim_t const& t3,
+            float* out, float const* inn, cudaStream_t stream,
+            int choice) {
+  touch4_dispatch(out, inn, t0.offset_inn, t1.offset_inn,
+  t2.offset_inn, t3.offset_inn,t0.offset_out, t1.offset_out,
+  t2.offset_out, t3.offset_out,t0.size, t1.size, t2.size,
+  t3.size, t1.d_inn, t1.d_out, t2.d_inn, t2.d_out, t3.d_inn,
+  t3.d_out, stream, choice);
 }
 
 #define _touch_lambda_1(choice) \
   [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch1(ts[0], out, inn, stream,choice); \
+    touch1(ts[0], out, inn, stream, choice); \
 }
 
 #define _touch_lambda_2(choice) \
   [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch2(ts[0], ts[1], out, inn, stream,choice); \
+    touch2(ts[0], ts[1], out, inn, stream, choice); \
 }
 
 #define _touch_lambda_3(choice) \
   [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch3(ts[0], ts[1], ts[2], out, inn, stream,choice); \
+    touch3(ts[0], ts[1], ts[2], out, inn, stream, choice); \
 }
 
 #define _touch_lambda_4(choice) \
   [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch2(ts[0], ts[1], out, inn, stream,choice); \
+    touch4(ts[0], ts[1], ts[2], ts[3],out, inn, stream, choice); \
 }
 
 

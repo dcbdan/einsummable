@@ -93,6 +93,44 @@ __global__ void touch3(float* out, const float* in, uint64_t t0_offset_inn,
 }
 
 
+template <typename Functor>
+__global__ void touch4(float* out, const float* in, uint64_t t0_offset_inn, 
+                       uint64_t t1_offset_inn, uint64_t t2_offset_inn,
+                       uint64_t t3_offset_inn,uint64_t t0_offset_out,
+                       uint64_t t1_offset_out,uint64_t t2_offset_out,
+                       uint64_t t3_offset_out,uint64_t t0_size,uint64_t t1_size,
+                       uint64_t t2_size,uint64_t t3_size,uint64_t t1_d_inn,
+                       uint64_t t1_d_out,uint64_t t2_d_inn,uint64_t t2_d_out,
+                       uint64_t t3_d_inn,uint64_t t3_d_out, Functor f) {
+    uint64_t xDim = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t yDim = blockIdx.y * blockDim.y + threadIdx.y;
+    uint64_t zDim = blockIdx.z * blockDim.z + threadIdx.z;
+    
+   
+    uint64_t inX = t0_offset_inn + xDim;
+    uint64_t inY = t1_offset_inn + yDim;
+    uint64_t inZ = t2_offset_inn + zDim;
+    uint64_t outX = t0_offset_out + xDim;
+    uint64_t outY = t1_offset_out + yDim;
+    uint64_t outZ = t2_offset_out + zDim;
+
+    if (xDim<t0_size&&yDim<t1_size&&zDim<t2_size) {
+        for(uint64_t wDim = 0; wDim < t3_size; wDim++){
+          uint64_t inW = t3_offset_inn + wDim;
+          uint64_t outW = t3_offset_out + wDim;
+
+          uint64_t inIndex = inX * t1_d_inn * t2_d_inn * t3_d_inn + 
+          inY * t2_d_inn * t3_d_inn +
+          inZ * t3_d_inn + inW;
+          uint64_t outIndex = outX * t1_d_out * t2_d_out * t3_d_out +
+          outY * t2_d_out * t3_d_out +
+          outZ * t3_d_out + outW;
+          out[outIndex] = f(out[outIndex],in[inIndex]);
+        }
+        
+    }
+}
+
 void touch1_dispatch(float* out, const float* in, uint64_t t0_offset_inn,
                      uint64_t t0_offset_out, uint64_t t0_size, uint64_t t0_d_inn,
                      uint64_t t0_d_out,cudaStream_t stream,int choice){
@@ -194,6 +232,56 @@ void touch3_dispatch(float* out, const float* in, uint64_t t0_offset_inn,
         touch3<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
         t2_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,t0_size,
         t1_size, t2_size,t1_d_inn, t1_d_out,t2_d_inn, t2_d_out,FunctorMax());
+    }
+
+}
+
+
+void touch4_dispatch(float* out, const float* in, uint64_t t0_offset_inn,
+                     uint64_t t1_offset_inn, uint64_t t2_offset_inn, 
+                     uint64_t t3_offset_inn, uint64_t t0_offset_out,
+                     uint64_t t1_offset_out, uint64_t t2_offset_out,
+                     uint64_t t3_offset_out,uint64_t t0_size,uint64_t t1_size,
+                     uint64_t t2_size,uint64_t t3_size,uint64_t t1_d_inn,
+                     uint64_t t1_d_out, uint64_t t2_d_inn, uint64_t t2_d_out,
+                     uint64_t t3_d_inn,uint64_t t3_d_out,cudaStream_t stream,
+                     int choice){
+
+    dim3 blockSize(8, 8, 8); 
+    dim3 gridSize((t0_size + blockSize.x - 1) / blockSize.x,
+                  (t1_size + blockSize.y - 1) / blockSize.y,
+                  (t2_size + blockSize.z - 1) / blockSize.z);
+    
+    
+    if(choice==0){
+        touch4<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
+        t2_offset_inn, t3_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,
+        t3_offset_out, t0_size, t1_size, t2_size, t3_size, t1_d_inn, t1_d_out,t2_d_inn,
+        t2_d_out, t3_d_inn, t3_d_out,FunctorNone());
+    }
+    else if(choice==1){
+        touch4<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
+        t2_offset_inn, t3_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,
+        t3_offset_out, t0_size, t1_size, t2_size, t3_size, t1_d_inn, t1_d_out,t2_d_inn,
+        t2_d_out, t3_d_inn, t3_d_out,FunctorAdd());
+    }
+    else if(choice==2){
+        touch4<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
+        t2_offset_inn, t3_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,
+        t3_offset_out, t0_size, t1_size, t2_size, t3_size, t1_d_inn, t1_d_out,t2_d_inn,
+        t2_d_out, t3_d_inn, t3_d_out,FunctorMul());
+    }
+    else if(choice==3){
+        touch4<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
+        t2_offset_inn, t3_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,
+        t3_offset_out, t0_size, t1_size, t2_size, t3_size, t1_d_inn, t1_d_out,t2_d_inn,
+        t2_d_out, t3_d_inn, t3_d_out,FunctorMin());
+    }
+    else if(choice==4){
+        touch4<<<gridSize, blockSize,0,stream>>>(out, in, t0_offset_inn, t1_offset_inn,
+        t2_offset_inn, t3_offset_inn, t0_offset_out, t1_offset_out, t2_offset_out,
+        t3_offset_out, t0_size, t1_size, t2_size, t3_size, t1_d_inn, t1_d_out,t2_d_inn,
+        t2_d_out, t3_d_inn, t3_d_out,FunctorMax());
     }
 
 }
