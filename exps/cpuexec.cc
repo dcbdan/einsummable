@@ -232,8 +232,8 @@ int main(int argc, char** argv)
   }
 
   {
-    raii_print_time_elapsed_t gremlin("cpuexec time");
     mpi.barrier();
+    raii_print_time_elapsed_t gremlin("cpuexec time");
     execute(taskgraph, execute_settings, mpi, tensors);
     mpi.barrier();
   }
