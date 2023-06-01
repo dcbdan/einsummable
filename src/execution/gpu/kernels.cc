@@ -61,7 +61,7 @@ void touch4(touchdim_t const& t0, touchdim_t const& t1,
 
 
 #define _touch_dispatch(i) \
-  [&]() -> std::function<void(cudaStream_t, float*, float const*)> { \
+  [&]() -> touch_kernel_t { \
     if(touch.castable) { \
       castable_t const& c = touch.castable.value(); \
       if(c == castable_t::add) { \
@@ -80,9 +80,7 @@ void touch4(touchdim_t const& t0, touchdim_t const& t1,
     } \
   }()
 
-
-std::function<void(cudaStream_t, float*, float const*)>
-build_touch(touch_t const& touch)
+touch_kernel_t build_touch(touch_t const& touch)
 {
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
@@ -104,26 +102,58 @@ build_touch(touch_t const& touch)
   throw std::runtime_error("touch kernel not implemented");
 }
 
-std::function<void(cudaStream_t, cutensorHandle_t const*, float*, vector<float const*>)>
+cutensor_kernel_t
 build_einsummable(einsummable_t const& e)
 {
   if(is_contraction(e)) {
     throw std::runtime_error("build_einsummable must not be given a constraction");
   }
 
-  // TODO: is this a reduction?
-  // TODO: is this something that cutensor elementwise can do?
-  // TODO: is this straight elementwise?
-
-  string msg =
+  string err_msg =
     "could not build a kernel for einsummable_t: " + write_with_ss(e);
-  throw std::runtime_error(msg);
+
+  // is this something cutensor reduction can do?
+  if(e.has_aggregation()) {
+    if(e.inns.size() == 1 && e.castable.value() == castable_t::add) {
+      vector<int> const& inn_modes = e.inns[0];
+
+      auto inn_shape = e.inn_shapes()[0];
+
+      vector<int> out_modes(e.out_rank);
+      std::iota(out_modes.begin(), out_modes.end(), 0);
+
+      auto out_shape = e.out_shape();
+
+      return build_cutensor_reduction(
+        inn_modes, inn_shape,
+        out_modes, out_shape);
+    }
+    // if something has an aggregation but isn't either contraction
+    // or a cutensor reduction, then there is no kernel for it
+    throw std::runtime_error(err_msg);
+  }
+
+  // is this something that cutensor elementwise can do?
+  auto maybe_cutensor_ew = make_cutensor_elementwise_op(e);
+  if(maybe_cutensor_ew) {
+    return build_cutensor_elementwise(maybe_cutensor_ew.value());
+  }
+
+  // is this straight elementwise?
+  if(e.is_straight_elementwise()) {
+    return build_straight_elementwise(e.join, product(e.join_shape));
+  }
+
+  throw std::runtime_error(err_msg);
 }
 
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
-  einsummable_t const& einsummable)
+  einsummable_t const& e)
 {
+  if(!is_contraction(e)) {
+    throw std::runtime_error("build_contraction must be given a contraction");
+  }
   // TODO
 }
 
@@ -140,15 +170,16 @@ void execute_contraction(
 
 bool is_contraction(einsummable_t const& e)
 {
-  // TODO
-  return false;
+  return e.inns.size() == 2               &&
+    e.has_aggregation()                   &&
+    e.castable.value() == castable_t::add &&
+    e.join.is_mul();
 }
 
 cutensor_kernel_t
-build_reduction(
-  castable_t castable,
-  vector<uint64_t> shape,
-  int out_rank)
+build_cutensor_reduction(
+  vector<int> inn_modes, vector<uint64_t> inn_shape,
+  vector<int> out_modes, vector<uint64_t> out_shape)
 {
   // TODO
   return {};
@@ -170,7 +201,9 @@ make_cutensor_elementwise_op(
 }
 
 cutensor_kernel_t
-build_straight_elementwise(einsummable_t const& e)
+build_straight_elementwise(
+  scalarop_t op,
+  uint64_t size)
 {
   // TODO: dispatch to canned elementwise kernels here
   return {};

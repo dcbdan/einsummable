@@ -41,26 +41,36 @@ void execute_contraction(
 bool is_contraction(einsummable_t const& e);
 
 cutensor_kernel_t
-build_reduction(
-  castable_t castable,
-  vector<uint64_t> shape,
-  int out_rank);
+build_cutensor_reduction(
+  vector<int> inn_modes, vector<uint64_t> inn_shape,
+  vector<int> out_modes, vector<uint64_t> out_shape);
 
 struct cutensor_elementwise_op_t {
   struct arg_t {
     float scale;
     cutensorOperator_t op;
     vector<int> modes;
+    // ^ modes is analagous to einsummable_t::inns[i]
   };
   struct unary_t {
+    // Out{0,1,..,rank-1} = arg.scale * arg.op( Inn{arg.modes} )
     arg_t arg;
   };
   struct binary_t {
+    // Out{0,1,...,rank-1} = op(
+    //   lhs.scale * lhs.op( Lhs{lhs.modes} ),
+    //   rhs.scale * rhs.op( Rhs{rhs.modes} ),
     cutensorOperator_t op;
     arg_t lhs;
     arg_t rhs;
   };
   struct ternary_t {
+    // Out{0,1,...,rank-1} = op_01_2(
+    //   op_0_1(
+    //     a0.scale * a0.op( A0{a0.modes} ),
+    //     a1.scale * a1.op( A1{a1.modes} )),
+    //   a2.scale * a2.op( A2{a2.modes} )
+    // );
     cutensorOperator_t op_01_2;
     cutensorOperator_t op_0_1;
     arg_t a0;
@@ -75,10 +85,16 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op);
 
 // Attempt to construct a cutensor elementwise op
 // from an einsummable. If the einsummable can't be
-// converted, return None
+// converted, return none
 optional<cutensor_elementwise_op_t>
 make_cutensor_elementwise_op(
   einsummable_t const& e);
 
+// Straight elementwise means:
+//   for(int i = 0; i != size; ++i) {
+//     out[i] = op(inn0[i], ..., innN[i]);
+//   }
 cutensor_kernel_t
-build_straight_elementwise(einsummable_t const& e);
+build_straight_elementwise(
+  scalarop_t op,
+  uint64_t size);
