@@ -1,10 +1,6 @@
 #include "kernels.h"
 #include "cuda_kernels.h"
 
-
-
-
-
 void touch1(touchdim_t const& t0, float* out,
             float const* inn, cudaStream_t stream,
             int choice) {
@@ -106,5 +102,4 @@ build_touch(touch_t const& touch)
   }
 
   throw std::runtime_error("touch kernel not implemented");
-
 }
