@@ -327,7 +327,6 @@ string einsummable_t::str() const {
   vector<char> letters(join_shape.size());
   std::iota(letters.begin(), letters.end(), 'a');
 
-
   auto words = get_inputs_from_join(letters);
 
   std::ostringstream ss;

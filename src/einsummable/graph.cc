@@ -408,4 +408,179 @@ graph_constructor_t straight_matrix_multiplication(
   return graph;
 }
 
+// Swap B and E when
+// lhs = B interval and
+// rhs = D interval.
+//   A B C D E -> A D C B E
+template <typename T>
+void rotate_sections(
+  vector<T>& items,
+  tuple<int,int> lhs,
+  tuple<int,int> rhs)
+{
+  {
+    // make the lhs come before the rhs side
+    auto const& [a,b] = lhs;
+    auto const& [c,d] = rhs;
+    if(a > c) {
+      std::swap(lhs, rhs);
+    }
+  }
+
+  auto const& [a,b] = lhs;
+  auto const& [c,d] = rhs;
+
+  if(a >= b || b > c || c >= d) {
+    throw std::runtime_error("should not happen");
+  }
+
+  std::rotate(
+    items.begin() + a,
+    items.begin() + c,
+    items.begin() + d);
+
+  if(b != c) {
+    int nl = b-a;
+    int nr = d-c;
+    std::rotate(
+      items.begin() + (a + nr),
+      items.begin() + (a + nr + nl),
+      items.begin() + d);
+  }
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::permute(int i, int j) const
+{
+  auto breaks = get_breaks();
+
+  tensor_t ret = *this;
+
+  std::swap(ret.shape.at(i), ret.shape.at(j));
+
+  rotate_sections(ret.modes,      breaks[i], breaks[j]);
+  rotate_sections(ret.full_shape, breaks[i], breaks[j]);
+
+  return ret;
+}
+
+bool _check_new_shape(
+  vector<uint64_t> const& full_shape,
+  vector<uint64_t> const& new_shape)
+{
+  if(new_shape.size() > full_shape.size()) {
+    return false;
+  }
+
+  vector<uint64_t> full(full_shape.size());
+  vector<uint64_t> news(new_shape.size());
+
+  std::inclusive_scan(
+    full_shape.begin(), full_shape.end(),
+    full.begin(),
+    std::multiplies<>{});
+  std::inclusive_scan(
+    new_shape.begin(),  new_shape.end(),
+    news.begin(),
+    std::multiplies<>{});
+
+  auto n = news.begin();
+  auto f = full.begin();
+  for(; n != news.end(); ++n) {
+    for(; f != full.end(); ++f) {
+      if(*n == *f) {
+        break;
+      }
+    }
+    if(f == full.end()) {
+      return false;
+    }
+    ++f;
+  }
+  return true;
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::view(vector<uint64_t> new_shape) const
+{
+  if(!_check_new_shape(full_shape, new_shape)) {
+    throw std::runtime_error(
+      "could not create view " + write_with_ss(new_shape) + " from " +
+      write_with_ss(full_shape));
+  }
+
+  tensor_t ret = *this;
+  ret.shape = new_shape;
+  return ret;
+}
+
+void graph_writer_t::tensor_t::save() {
+  // permute this node if necc
+  physically_permute();
+
+  {
+    auto& op = self.graph.nodes[id].op;
+    if(op.is_formation()) {
+      op.get_formation().is_save = true;
+      return;
+    }
+  }
+
+  id = self.graph.insert_formation(id, true);
+}
+
+void graph_writer_t::tensor_t::physically_permute() {
+  vector<int> no_permute_modes(modes.size());
+  std::iota(
+    no_permute_modes.begin(),
+    no_permute_modes.end(),
+    0);
+
+  if(modes == no_permute_modes) {
+    return;
+  }
+
+  string str;
+  {
+    vector<char> letters(modes.size());
+    std::iota(letters.begin(), letters.end(), 'a');
+
+    string inn(letters.begin(), letters.end());
+
+    string out;
+    for(auto const& m: modes) {
+      out.push_back(letters[m]);
+    }
+
+    str = inn + "->" + out;
+  }
+
+  id = self._insert_elementwise(
+    str,
+    scalarop_t::make_identity(),
+    id);
+  modes = no_permute_modes;
+}
+
+vector<tuple<int,int>>
+graph_writer_t::tensor_t::get_breaks() const
+{
+  vector<tuple<int,int>> ret;
+
+  int f = 0;
+  for(int d = 0; d != shape.size(); ++d) {
+    ret.emplace_back(f,0);
+
+    auto& [_, b] = ret.back();
+
+    int sz = shape[d];
+    while(sz != 1) {
+      sz /= full_shape[f];
+      ++f;
+    }
+    b = f;
+  }
+
+  return ret;
+}
 

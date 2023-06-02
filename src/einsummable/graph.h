@@ -158,6 +158,11 @@ private:
   int insert(op_t const& op, vector<int> inns);
 };
 
+// graph_constructor_t is for building a graph
+// object with associated placements.
+// graph_writer_t is for building a graph object
+// but returning a virtual tensor object
+
 struct graph_constructor_t {
   int insert_input(
     placement_t placement);
@@ -210,4 +215,71 @@ graph_constructor_t three_dimensional_matrix_multiplication(
 graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk);
+
+struct graph_writer_t {
+  struct tensor_t {
+    tensor_t permute(int i, int j) const;
+    tensor_t view(vector<uint64_t> shape) const;
+    vector<uint64_t> const& get_shape() const { return shape; }
+    void save();
+  private:
+    vector<uint64_t> shape;
+
+    vector<uint64_t> full_shape;
+    vector<int> modes;
+
+    int id;
+
+    graph_writer_t& self;
+
+  private:
+    // after this, the modes are 0,1,...,full_shape.size()-1
+    void physically_permute();
+    vector<tuple<int,int>> get_breaks() const;
+  };
+
+  graph_t const& get_graph() const { return graph; }
+
+  // the core ops
+  tensor_t insert_input(
+    vector<uint64_t> shape);
+  tensor_t insert_contraction(
+    string str,
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+  tensor_t insert_reduction(
+    string str,
+    tensor_t const& inn);
+  tensor_t insert_elementwise(
+    string str,
+    scalarop_t op,
+    tensor_t const& inn);
+  tensor_t insert_elementwise(
+    string str,
+    scalarop_t op,
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+
+  // helper ops that dispatch to the core ops
+  tensor_t add(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+  tensor_t scale(
+    float val,
+    tensor_t const& inn);
+  // supports ij,jk->ik and
+  //         ...ij,...jk->...ik
+  //         provided all the leading dims are the same
+  tensor_t matrix_multiply(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+private:
+  graph_t graph;
+
+  int _insert_elementwise(
+    string str,
+    scalarop_t op,
+    int id);
+};
+
 
