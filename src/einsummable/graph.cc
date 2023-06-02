@@ -462,7 +462,7 @@ graph_writer_t::tensor_t::tensor_t(
 }
 
 graph_writer_t::tensor_t
-graph_writer_t::tensor_t::permute(int i, int j) const
+graph_writer_t::tensor_t::transpose(int i, int j) const
 {
   auto breaks = get_breaks();
 
@@ -517,7 +517,7 @@ graph_writer_t::tensor_t::view(vector<uint64_t> new_shape) const
 {
   if(!_check_new_shape(full_shape, new_shape)) {
     throw std::runtime_error(
-      "could not create view " + write_with_ss(new_shape) + " from " +
+      "could not create view from " + write_with_ss(new_shape) + " to " +
       write_with_ss(full_shape));
   }
 
@@ -539,6 +539,18 @@ void graph_writer_t::tensor_t::save() {
   }
 
   id = self.graph.insert_formation(id, true);
+}
+
+graph_writer_t::tensor_t&
+graph_writer_t::tensor_t::operator=(
+  graph_writer_t::tensor_t const& other)
+{
+  shape = other.shape;
+  full_shape = other.full_shape;
+  modes = other.modes;
+  id = other.id;
+
+  return *this;
 }
 
 void graph_writer_t::tensor_t::physically_permute() {
@@ -619,7 +631,7 @@ graph_writer_t::tensor_t::_full_shape() const
 }
 
 graph_writer_t::tensor_t
-graph_writer_t::insert_input(
+graph_writer_t::input(
   vector<uint64_t> shape)
 {
   int id = graph.insert_input(shape);
@@ -653,14 +665,14 @@ einsummable_t graph_writer_t::to_einsummable_info_t::build_einsummable(
 }
 
 graph_writer_t::tensor_t
-graph_writer_t::insert_contraction(
+graph_writer_t::contraction(
   string str,
   graph_writer_t::tensor_t const& lhs,
   graph_writer_t::tensor_t const& rhs)
 {
   auto maybe_info = make_einsummable_info(str, {lhs,rhs});
   if(!maybe_info) {
-    throw std::runtime_error("graph_writer_t constraction: could not create einsummable");
+    throw std::runtime_error("graph_writer_t contraction: could not create einsummable");
   }
 
   auto const& info = maybe_info.value();
@@ -672,15 +684,164 @@ graph_writer_t::insert_contraction(
   }
 
   int id = graph.insert_einsummable(e, {lhs.id, rhs.id});
-
-  vector<int> modes(info.full_out_rank);
-  std::iota(modes.begin(), modes.end(), 0);
+  id = graph.insert_formation(id, false);
 
   return tensor_t(
     info.get_out_shape(),
     info.get_out_full_shape(),
     id,
     *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::reduction(
+  string str,
+  castable_t castable,
+  graph_writer_t::tensor_t const& inn)
+{
+  auto maybe_info = make_einsummable_info(str, {inn});
+  if(!maybe_info) {
+    throw std::runtime_error("graph_writer_t reduction: could not create einsummable");
+  }
+
+  auto const& info = maybe_info.value();
+
+  einsummable_t e = info.build_einsummable(scalarop_t::make_mul(), castable_t::add);
+
+  if(!e.has_aggregation()) {
+    throw std::runtime_error("build einsummable is not a reduction");
+  }
+
+  int id = graph.insert_einsummable(e, {inn.id});
+  id = graph.insert_formation(id, false);
+
+  return tensor_t(
+    info.get_out_shape(),
+    info.get_out_full_shape(),
+    id,
+    *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::ew(
+  string str,
+  scalarop_t op,
+  graph_writer_t::tensor_t const& inn)
+{
+  return ew(str, op, vector<tensor_t>{inn});
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::ew(
+  string str,
+  scalarop_t op,
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
+  return ew(str, op, vector<tensor_t>{lhs, rhs});
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::ew(
+  string str,
+  scalarop_t op,
+  vector<graph_writer_t::tensor_t> const& inns)
+{
+  auto maybe_info = make_einsummable_info(str, inns);
+  if(!maybe_info) {
+    throw std::runtime_error("graph writer ew: coult not create einsummable");
+  }
+
+  auto const& info = maybe_info.value();
+  einsummable_t e = info.build_einsummable(op);
+
+  if(e.has_aggregation()) {
+    throw std::runtime_error("ew op has aggregation");
+  }
+
+  vector<int> inn_ids = vector_from_each_member(inns, int, id);
+  int id = graph.insert_einsummable(e, inn_ids);
+
+  return tensor_t(
+    info.get_out_shape(),
+    info.get_out_full_shape(),
+    id,
+    *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::matmul(
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
+  int nl = lhs.shape.size();
+  int nr = rhs.shape.size();
+  if(nl < 2 || nr < 2) {
+    throw std::runtime_error("graph writer matmul: must have atleast rank 2");
+  }
+
+  auto make_header = [](int n) {
+    string ret(n, ' ');
+    std::iota(ret.begin(), ret.end(), 'd');
+    return ret;
+  };
+
+  string sl = "ab";
+  string sr = "bc";
+  string so;
+
+  if(nl == 2 && nr == 2) {
+    so = "ac";
+  } else if(nl == 2)  {
+    int n = nr-2;
+    string header = make_header(n);
+    sr = header + "bc";
+    so = header + "ac";
+  } else if(nr == 2)  {
+    int n = nl-2;
+    string header = make_header(n);
+    sl = header + "ab";
+    so = header + "ac";
+  } else if(nl == nr) {
+    int n = nl-2;
+    string header = make_header(n);
+    sl = header + "ab";
+    sr = header + "bc";
+    so = header + "ac";
+  } else {
+    throw std::runtime_error("graph writer matmul: invalid inputs");
+  }
+
+  return contraction(sl + "," + sr + "->" + so, lhs, rhs);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::add(
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
+  if(lhs.shape != rhs.shape) {
+    throw std::runtime_error("graph writer add : invalid shapes");
+  }
+
+  string x(lhs.shape.size(), ' ');
+  std::iota(x.begin(), x.end(), 'a');
+
+  return ew(
+    x + "," + x + "->" + x,
+    scalarop_t::make_add(),
+    lhs, rhs);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::scale(
+  float val,
+  graph_writer_t::tensor_t const& inn)
+{
+  string x(inn.shape.size(), ' ');
+  std::iota(x.begin(), x.end(), 'a');
+
+  return ew(x + "->" + x, scalarop_t::make_scale(val), inn);
 }
 
 int graph_writer_t::_insert_elementwise(
@@ -788,12 +949,12 @@ graph_writer_t::make_einsummable_info(
       full_inns.push_back(vector<int>(before_perm.size(), -1));
       auto& after_perm = full_inns.back();
 
-      // modes = 01234->42310
-      // where before_perm currently contains v4 v2 v3 v1 v0
-      // and after_perm needs to contain v0 v1 v2 v3 v4
-      for(int after_i = 0; after_i != after_perm.size(); ++after_i) {
-        int const& before_i = modes[after_i];
-        after_perm[after_i] = before_perm[before_i];
+      // modes=42310 means permutation 01234->42310
+      // currently, before_perm has           abcde
+      // and need to get               edbca
+      //
+      for(int i = 0; i != modes.size(); ++i) {
+        after_perm[modes[i]] = before_perm[i];
       }
     }
   }

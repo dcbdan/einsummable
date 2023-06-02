@@ -218,10 +218,12 @@ graph_constructor_t straight_matrix_multiplication(
 
 struct graph_writer_t {
   struct tensor_t {
-    tensor_t permute(int i, int j) const;
+    tensor_t transpose(int i, int j) const;
     tensor_t view(vector<uint64_t> shape) const;
     vector<uint64_t> const& get_shape() const { return shape; }
     void save();
+
+    tensor_t& operator=(tensor_t const&);
   private:
     friend class graph_writer_t;
 
@@ -270,37 +272,47 @@ struct graph_writer_t {
   graph_t const& get_graph() const { return graph; }
 
   // the core ops
-  tensor_t insert_input(
+  tensor_t input(
     vector<uint64_t> shape);
-  tensor_t insert_contraction(
+  tensor_t contraction(
     string str,
     tensor_t const& lhs,
     tensor_t const& rhs);
-  tensor_t insert_reduction(
+  tensor_t reduction(
     string str,
     castable_t castable,
     tensor_t const& inn);
-  tensor_t insert_elementwise(
+  tensor_t ew( // ew = elementwise
     string str,
     scalarop_t op,
     tensor_t const& inn);
-  tensor_t insert_elementwise(
+  tensor_t ew(
     string str,
     scalarop_t op,
     tensor_t const& lhs,
     tensor_t const& rhs);
+  tensor_t ew(
+    string str,
+    scalarop_t op,
+    vector<tensor_t> const& inns);
 
   // helper ops that dispatch to the core ops
+
+  // add two tensors with the same shape
   tensor_t add(
     tensor_t const& lhs,
     tensor_t const& rhs);
+
+  // straight elementwise scale
   tensor_t scale(
     float val,
     tensor_t const& inn);
+
   // supports ij,jk->ik and
-  //         ...ij,...jk->...ik
-  //         provided all the leading dims are the same
-  tensor_t matrix_multiply(
+  //         ...ij,...jk->...ik and
+  //         ...ij,jk->ik       and
+  //         ij,...jk->ik
+  tensor_t matmul(
     tensor_t const& lhs,
     tensor_t const& rhs);
 private:

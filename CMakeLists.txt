@@ -43,6 +43,7 @@ add_base_application("copyregion"      "exps" "copyregion")
 add_base_application("scalarop"        "exps" "scalarop")
 add_base_application("forwardsim"      "exps" "forwardsim")
 add_base_application("allocator_test"  "exps" "allocator_test")
+add_base_application("gwriter"         "exps" "gwriter")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
