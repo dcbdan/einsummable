@@ -105,7 +105,7 @@ touch_kernel_t build_touch(touch_t const& touch)
 cutensor_kernel_t
 build_einsummable(einsummable_t const& e)
 {
-  if(is_contraction(e)) {
+  if(e.is_contraction()) {
     throw std::runtime_error("build_einsummable must not be given a constraction");
   }
 
@@ -151,7 +151,7 @@ void build_contraction(
   cutensorContractionDescriptor_t* desc,
   einsummable_t const& e)
 {
-  if(!is_contraction(e)) {
+  if(!e.is_contraction()) {
     throw std::runtime_error("build_contraction must be given a contraction");
   }
   // TODO
@@ -166,14 +166,6 @@ void execute_contraction(
   float const* rhs)
 {
   // TODO
-}
-
-bool is_contraction(einsummable_t const& e)
-{
-  return e.inns.size() == 2               &&
-    e.has_aggregation()                   &&
-    e.castable.value() == castable_t::add &&
-    e.join.is_mul();
 }
 
 cutensor_kernel_t

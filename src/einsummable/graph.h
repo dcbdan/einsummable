@@ -223,6 +223,14 @@ struct graph_writer_t {
     vector<uint64_t> const& get_shape() const { return shape; }
     void save();
   private:
+    friend class graph_writer_t;
+
+    tensor_t(
+      vector<uint64_t> const& shape,
+      vector<uint64_t> const& full_shape,
+      int id,
+      graph_writer_t& self);
+
     vector<uint64_t> shape;
 
     vector<uint64_t> full_shape;
@@ -236,6 +244,27 @@ struct graph_writer_t {
     // after this, the modes are 0,1,...,full_shape.size()-1
     void physically_permute();
     vector<tuple<int,int>> get_breaks() const;
+    vector<vector<uint64_t>> _full_shape() const;
+
+    static vector<tuple<int,int>> get_breaks_(
+      vector<uint64_t> const& shape,
+      vector<uint64_t> const& full_shape);
+  };
+
+  struct to_einsummable_info_t {
+    vector<uint64_t> full_join_shape;
+    vector<uint64_t> join_shape;
+    vector<vector<int>> full_inns;
+    int full_out_rank;
+    int out_rank;
+
+    vector<uint64_t> get_out_full_shape() const;
+
+    vector<uint64_t> get_out_shape() const;
+
+    einsummable_t build_einsummable(
+      scalarop_t scalarop,
+      optional<castable_t> castable = std::nullopt) const;
   };
 
   graph_t const& get_graph() const { return graph; }
@@ -249,6 +278,7 @@ struct graph_writer_t {
     tensor_t const& rhs);
   tensor_t insert_reduction(
     string str,
+    castable_t castable,
     tensor_t const& inn);
   tensor_t insert_elementwise(
     string str,
@@ -280,6 +310,9 @@ private:
     string str,
     scalarop_t op,
     int id);
+
+  optional<to_einsummable_info_t>
+  make_einsummable_info(string str, vector<tensor_t> const& inns);
 };
 
 

@@ -296,6 +296,15 @@ bool einsummable_t::valid_inns_out(
   return true;
 }
 
+optional<vector<uint64_t>>
+einsummable_t::construct_join_shape(
+  vector<vector<int>> const& inns,
+  vector<vector<uint64_t>> const& inn_shapes)
+{
+  uint64_t d = 0;
+  return construct_join_shape_(inns, inn_shapes, d, std::equal_to<>());
+}
+
 vector<uint64_t> einsummable_t::out_shape() const {
   return vector<uint64_t>(
     join_shape.begin(),
@@ -355,6 +364,13 @@ bool einsummable_t::is_straight_elementwise() const {
 
 bool einsummable_t::has_aggregation() const {
   return out_rank < join_shape.size();
+}
+
+bool einsummable_t::is_contraction() const {
+  return inns.size() == 2               &&
+    has_aggregation()                   &&
+    castable.value() == castable_t::add &&
+    join.is_mul();
 }
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {

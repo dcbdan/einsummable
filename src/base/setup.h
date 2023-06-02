@@ -140,6 +140,15 @@ void vector_concatenate_into(vector<T>& vs, vector<T> const& add_these) {
 }
 
 template <typename T>
+vector<T> vector_flatten(vector<vector<T>> const& vvs) {
+  vector<T> ret;
+  for(vector<T> const& vs: vvs) {
+    vector_concatenate_into(ret, vs);
+  }
+  return ret;
+}
+
+template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());

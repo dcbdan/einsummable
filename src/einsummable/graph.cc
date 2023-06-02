@@ -449,6 +449,18 @@ void rotate_sections(
   }
 }
 
+graph_writer_t::tensor_t::tensor_t(
+  vector<uint64_t> const& _shape,
+  vector<uint64_t> const& _full_shape,
+  int _id,
+  graph_writer_t& _self)
+    : shape(_shape), full_shape(_full_shape),
+      id(_id), self(_self)
+{
+  modes.resize(full_shape.size());
+  std::iota(modes.begin(), modes.end(), 0);
+}
+
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::permute(int i, int j) const
 {
@@ -565,6 +577,14 @@ void graph_writer_t::tensor_t::physically_permute() {
 vector<tuple<int,int>>
 graph_writer_t::tensor_t::get_breaks() const
 {
+  return get_breaks_(shape, full_shape);
+}
+
+vector<tuple<int,int>>
+graph_writer_t::tensor_t::get_breaks_(
+  vector<uint64_t> const& shape,
+  vector<uint64_t> const& full_shape)
+{
   vector<tuple<int,int>> ret;
 
   int f = 0;
@@ -582,5 +602,208 @@ graph_writer_t::tensor_t::get_breaks() const
   }
 
   return ret;
+}
+
+vector<vector<uint64_t>>
+graph_writer_t::tensor_t::_full_shape() const
+{
+  auto breaks = get_breaks();
+  vector<vector<uint64_t>> ret;
+  for(auto const& [b,e]: breaks) {
+    ret.push_back({});
+    for(int i = b; i != e; ++i) {
+      ret.back().push_back(full_shape[i]);
+    }
+  }
+  return ret;
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::insert_input(
+  vector<uint64_t> shape)
+{
+  int id = graph.insert_input(shape);
+  return tensor_t(shape, shape, id, *this);
+}
+
+vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_full_shape() const
+{
+  return vector<uint64_t>(
+    full_join_shape.begin(),
+    full_join_shape.begin() + full_out_rank);
+}
+
+vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_shape() const
+{
+  return vector<uint64_t>(
+    join_shape.begin(),
+    join_shape.begin() + out_rank);
+}
+
+einsummable_t graph_writer_t::to_einsummable_info_t::build_einsummable(
+  scalarop_t join,
+  optional<castable_t> castable) const
+{
+  return einsummable_t(
+    full_join_shape,
+    full_inns,
+    full_out_rank,
+    join,
+    castable);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::insert_contraction(
+  string str,
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
+  auto maybe_info = make_einsummable_info(str, {lhs,rhs});
+  if(!maybe_info) {
+    throw std::runtime_error("graph_writer_t constraction: could not create einsummable");
+  }
+
+  auto const& info = maybe_info.value();
+
+  einsummable_t e = info.build_einsummable(scalarop_t::make_mul(), castable_t::add);
+
+  if(!e.is_contraction()) {
+    throw std::runtime_error("build einsummable is not a contraction");
+  }
+
+  int id = graph.insert_einsummable(e, {lhs.id, rhs.id});
+
+  vector<int> modes(info.full_out_rank);
+  std::iota(modes.begin(), modes.end(), 0);
+
+  return tensor_t(
+    info.get_out_shape(),
+    info.get_out_full_shape(),
+    id,
+    *this);
+}
+
+int graph_writer_t::_insert_elementwise(
+  string str,
+  scalarop_t op,
+  int id)
+{
+  auto [inns, out_rank] = einsummable_t::parse_str(str);
+  if(inns.size() != 1) {
+    throw std::runtime_error("invalid str to _insert_elementwise");
+  }
+
+  auto inn_shape = graph.out_shape(id);
+  if(out_rank != inn_shape.size()) {
+    throw std::runtime_error("_insert_elementwise not elementwise");
+  }
+
+  auto maybe_join_shape = einsummable_t::construct_join_shape(inns, { inn_shape });
+  if(!maybe_join_shape) {
+    throw std::runtime_error("_insert_elementwise: no join shape");
+  }
+  auto const& join_shape = maybe_join_shape.value();
+
+  einsummable_t e(join_shape, inns, out_rank, op);
+  if(inn_shape != e.inn_shapes()[0]) {
+    throw std::runtime_error("_insert_elementwise something wrong");
+  }
+
+  return graph.insert_einsummable(e, {id});
+}
+
+// There are a few things that get packed into this.
+// (1) All the input tensors maintain a permutation
+// (2) All the tensors have a current shape and a current full shape
+//     (which are the shape after the virtual permutation)
+// (3) str refers to the current shape
+optional<graph_writer_t::to_einsummable_info_t>
+graph_writer_t::make_einsummable_info(
+  string str,
+  vector<graph_writer_t::tensor_t> const& tensors)
+{
+  // does the str and current shapes line up correctly?
+  auto [inns, out_rank] = einsummable_t::parse_str(str);
+
+  vector<uint64_t> join_shape;
+  {
+    vector<vector<uint64_t>> inn_shapes;
+    for(auto const& inn_tensor: tensors) {
+      inn_shapes.push_back(inn_tensor.shape);
+    }
+    auto maybe = einsummable_t::construct_join_shape(inns, inn_shapes);
+    if(!maybe) {
+      return std::nullopt;
+    }
+    join_shape = maybe.value();
+  }
+
+  vector<uint64_t> full_join_shape;
+  int full_out_rank;
+  {
+    vector<vector<vector<uint64_t>>> fs;
+    for(auto const& inn_tensor: tensors) {
+      fs.push_back(inn_tensor._full_shape());
+    }
+    auto maybe = einsummable_t::construct_join_shape_(
+      inns, fs, vector<uint64_t>{}, vector_equal<uint64_t>);
+    if(!maybe) {
+      return std::nullopt;
+    }
+
+    auto const& v = maybe.value();
+
+    full_out_rank = 0;
+    for(int i = 0; i != out_rank; ++i) {
+      full_out_rank += v[i].size();
+    }
+
+    full_join_shape = vector_flatten(v);
+  }
+
+  vector<vector<int>> full_inns_before_perm;
+  {
+    auto breaks = tensor_t::get_breaks_(join_shape, full_join_shape);
+    for(vector<int> const& is: inns) {
+      full_inns_before_perm.push_back({});
+      auto& full_is = full_inns_before_perm.back();
+      for(auto const& ii: is) {
+        auto const& [b,e] = breaks[ii];
+        for(int i = b; i != e; ++i) {
+          full_is.push_back(i);
+        }
+      }
+    }
+  }
+
+  vector<vector<int>> full_inns;
+  {
+    // permute each input based on modes
+    for(int which_inn = 0; which_inn != inns.size(); ++which_inn) {
+      tensor_t const& inn_tensor = tensors[which_inn];
+      vector<int> const& modes = inn_tensor.modes;
+
+      auto& before_perm = full_inns_before_perm[which_inn];
+
+      full_inns.push_back(vector<int>(before_perm.size(), -1));
+      auto& after_perm = full_inns.back();
+
+      // modes = 01234->42310
+      // where before_perm currently contains v4 v2 v3 v1 v0
+      // and after_perm needs to contain v0 v1 v2 v3 v4
+      for(int after_i = 0; after_i != after_perm.size(); ++after_i) {
+        int const& before_i = modes[after_i];
+        after_perm[after_i] = before_perm[before_i];
+      }
+    }
+  }
+
+  return to_einsummable_info_t {
+    .full_join_shape = full_join_shape,
+    .join_shape = join_shape,
+    .full_inns = full_inns,
+    .full_out_rank = full_out_rank,
+    .out_rank = out_rank
+  };
 }
 

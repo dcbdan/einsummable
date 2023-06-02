@@ -38,8 +38,6 @@ void execute_contraction(
   float const* lhs,
   float const* rhs);
 
-bool is_contraction(einsummable_t const& e);
-
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
