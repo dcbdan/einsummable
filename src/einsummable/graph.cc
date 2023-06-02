@@ -816,6 +816,49 @@ graph_writer_t::matmul(
 }
 
 graph_writer_t::tensor_t
+graph_writer_t::softmax(
+  graph_writer_t::tensor_t const& inn)
+{
+  int n = inn.shape.size() - 1;
+
+  string h(n, ' ');
+  std::iota(h.begin(), h.end(), 'b');
+  string ha = h + "a";
+  string redstr = ha + "->" + h;
+  string ewustr = ha + "->" + ha;
+  string ewbstr = ha + "," + h + "->" + ha;
+
+  tensor_t x = inn;
+
+  tensor_t c = reduction(
+    redstr,
+    castable_t::max,
+    x);
+
+  // x = x + c
+  x = ew(
+    ewbstr,
+    scalarop_t::make_add(),
+    x, c);
+
+  // ex = exp(x)
+  tensor_t ex = ew(
+    ewustr,
+    scalarop_t::make_exp(),
+    x);
+
+  tensor_t sum_ex = reduction(
+    redstr,
+    castable_t::add,
+    x);
+
+  return ew(
+    ewbstr,
+    scalarop_t::make_div(),
+    ex, sum_ex);
+}
+
+graph_writer_t::tensor_t
 graph_writer_t::add(
   graph_writer_t::tensor_t const& lhs,
   graph_writer_t::tensor_t const& rhs)

@@ -315,6 +315,10 @@ struct graph_writer_t {
   tensor_t matmul(
     tensor_t const& lhs,
     tensor_t const& rhs);
+
+  // take the softmax over the last dimension
+  tensor_t softmax(
+    tensor_t const& inn);
 private:
   graph_t graph;
 

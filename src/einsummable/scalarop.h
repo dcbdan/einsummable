@@ -143,6 +143,9 @@ struct scalarop_t {
   // x0 * x1
   static scalarop_t make_mul();
 
+  // x0 / x1
+  static scalarop_t make_div();
+
   // min(x0, x1);
   static scalarop_t make_min();
 
@@ -160,6 +163,8 @@ struct scalarop_t {
 
   // x0 + val
   static scalarop_t make_increment(float val);
+
+  static scalarop_t make_exp();
 
   static scalarop_t make_relu();
 
