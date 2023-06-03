@@ -324,7 +324,6 @@ public:
     vector<vector<tuple<int, touch_t>>> get_touches() const {
       return std::get<partialize_t>(op).as_touches_from();
     }
-
   };
 
   struct node_t {

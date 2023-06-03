@@ -149,8 +149,8 @@ std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
   return out;
 }
 
-struct state_t {
-  state_t(graph_t const& graph, vector<placement_t> const& placements)
+struct taskgraph_make_state_t {
+  taskgraph_make_state_t(graph_t const& graph, vector<placement_t> const& placements)
     : graph(graph), placements(placements)
   {}
 
@@ -168,10 +168,25 @@ struct state_t {
   // Since a join may require multiple uses of an input block,
   // the return type is multiple_tensor_t
   multiple_tensor_t access(int gid, int which_input);
+  // the output partition is with respect to the gid partition
+
+  // get the concat relation of node gid with respect to its
+  // partitioning
+  tensor_t<int> access_concat(int gid);
 
   // create a tensor to hold the compute phase results.
-  // (this will call access)
+  // (this will call access for einsummable nodes;
+  //  must be input or einsummable node)
   tensor_t<int> compute(int gid);
+
+  // this will call access
+  tensor_t<int> compute_einsummable(int gid);
+
+  tensor_t<int> compute_input(int gid);
+
+  tensor_t<int> form_relation(int gid);
+  // TODO: check that state access makes sense still
+  // TODO: implement access_concat
 
   // create the refined_tensor object from the compute result;
   // save into refined_tensors
@@ -186,7 +201,7 @@ taskgraph_t::make(
   graph_t const& graph,
   vector<placement_t> const& placements)
 {
-  state_t state(graph, placements);
+  taskgraph_make_state_t state(graph, placements);
 
   // maps from gid to tensor
   map<int, tensor_t<int>> inns;
@@ -194,27 +209,23 @@ taskgraph_t::make(
 
   for(int gid: graph.get_order()) {
     graph_t::node_t const& node = graph.nodes[gid];
-    placement_t const& pl = placements[gid];
 
-    if(node.op.is_formation()) {
-      tensor_t<int> access_result = state.access(gid, 0).to_tensor(pl);
-      if(node.op.is_save()) {
-        saves[gid] = access_result;
-        // Set the things to be saved on the taskgraph
-        for(int const& taskgraph_tid: access_result.get()) {
-          state.taskgraph.nodes[taskgraph_tid].is_save = true;
-        }
+    tensor_t<int> relation = state.form_relation(gid);
+
+    if(node.op.is_input()) {
+      inns[gid] = relation;
+    }
+
+    if(node.op.is_save()) {
+      saves[gid] = relation;
+      // Set the taskgraph nodes to be saved
+      for(int const& taskgraph_tid: relation.get()) {
+        state.taskgraph.nodes[taskgraph_tid].is_save = true;
       }
-      if(node.outs.size() > 0) {
-        state.communicate(gid, std::move(access_result));
-      }
-    } else {
-      // the node is an input or an einsummable
-      tensor_t<int> compute_result = state.compute(gid);
-      if(node.op.is_input()) {
-        inns[gid] = compute_result;
-      }
-      state.communicate(gid, std::move(compute_result));
+    }
+
+    if(node.outs.size() > 0) {
+      state.communicate(gid, std::move(relation));
     }
   }
 
@@ -232,11 +243,15 @@ taskgraph_t::make(
 //       then either of the lhs or rhs x inputs, this does a bunch of duplicate work.
 // TODO TODO TODO
 multiple_tensor_t
-state_t::access(int join_gid, int which_input)
+taskgraph_make_state_t::access(int join_gid, int which_input)
 {
   //DOUT("ACCESS " << join_gid << " WITH INPUT " << which_input);
   graph_t::node_t const& join_node = graph.nodes[join_gid];
   placement_t const& join_pl = placements[join_gid];
+
+  if(join_node.op.is_concat()) {
+    throw std::runtime_error("cannot call access with concat node");
+  }
 
   // get the multiple placement of the input necessary for the join
   multiple_placement_t inn_placement = [&]
@@ -342,23 +357,39 @@ state_t::access(int join_gid, int which_input)
 };
 
 tensor_t<int>
-state_t::compute(int gid)
-{
-  //DOUT("COMPUTE " << gid);
+taskgraph_make_state_t::access_concat(int gid) {
+  // TODO
+}
+
+tensor_t<int>
+taskgraph_make_state_t::compute_input(int gid) {
   graph_t::node_t const& node = graph.nodes[gid];
   placement_t const& pl = placements[gid];
 
-  if(node.op.is_input()) {
-    auto shape = pl.block_shape();
-    tensor_t<int> ret(shape);
-    vector<int> index(shape.size(), 0);
-    do {
-      int const& loc = pl.locations.at(index);
-      auto subtensor_shape = pl.partition.tensor_shape_at(index);
-      ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
-    } while(increment_idxs(shape, index));
+  if(!node.op.is_input()) {
+    throw std::runtime_error("compute_input must have input node");
+  }
 
-    return ret;
+  auto shape = pl.block_shape();
+  tensor_t<int> ret(shape);
+  vector<int> index(shape.size(), 0);
+  do {
+    int const& loc = pl.locations.at(index);
+    auto subtensor_shape = pl.partition.tensor_shape_at(index);
+    ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
+  } while(increment_idxs(shape, index));
+
+  return ret;
+}
+
+tensor_t<int>
+taskgraph_make_state_t::compute_einsummable(int gid)
+{
+  graph_t::node_t const& node = graph.nodes[gid];
+  placement_t const& pl = placements[gid];
+
+  if(!node.op.is_einsummable()) {
+    throw std::runtime_error("compute_einsummable must have einsummable node");
   }
 
   // Get the inputs
@@ -396,8 +427,30 @@ state_t::compute(int gid)
   return ret;
 }
 
+tensor_t<int>
+taskgraph_make_state_t::form_relation(int gid)
+{
+  graph_t::node_t const& node = graph.nodes.at(gid);
+  placement_t const& pl = placements.at(gid);
+
+  if(node.op.is_input()) {
+    return compute_input(gid);
+  }
+  if(node.op.is_formation()) {
+    return access(gid, 0).to_tensor(pl);
+  }
+  if(node.op.is_concat()) {
+    return access_concat(gid);
+  }
+  if(node.op.is_einsummable()) {
+    return compute_einsummable(gid);
+  }
+
+  throw std::runtime_error("state form relation should not reach");
+}
+
 void
-state_t::communicate(int join_gid, tensor_t<int> join_result)
+taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
   //DOUT("COMMUNICATE " << join_gid);
   auto const& join_node = graph.nodes[join_gid];
@@ -424,7 +477,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
         }
       }
     } else {
-      throw std::runtime_error("state_t::communicate: should not happen");
+      throw std::runtime_error("taskgraph state_t::communicate: should not happen");
     }
   }
 
