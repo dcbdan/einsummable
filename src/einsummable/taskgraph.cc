@@ -37,7 +37,7 @@ touch_t touch_t::simplify() const {
 // the specified elements.
 //
 // Their are three phases to worry about. The "compute" phase,
-// the "access" phase, the "communicate" phase.
+// the "form" phase, the "communicate" phase.
 //
 // In the compute phase, input and einsummable nodes are processed:
 // for every (block,loc) in the placement, issue the computation to
@@ -54,10 +54,7 @@ touch_t touch_t::simplify() const {
 // If the compute node was an einsummable with aggregations, then the refinement
 // phase must do the aggregation.
 //
-// The access phase gets the input for the compute phase from the
-// communicate phase.
-
-// TODO: better name for multiple_placement_t and multiple_tensor_t?
+// The form phase grabs the input from the refinement.
 
 struct multiple_placement_t {
   static multiple_placement_t from_single_placement(placement_t const& p);
@@ -164,29 +161,21 @@ struct taskgraph_make_state_t {
   // Map from gid to the refined tensor formed from that gid.
   map<int, multiple_tensor_t> refined_tensors;
 
-  // Get the which_input tensor for operation gid.
-  // Since a join may require multiple uses of an input block,
-  // the return type is multiple_tensor_t
-  multiple_tensor_t access(int gid, int which_input);
-  // the output partition is with respect to the gid partition
+  // Grab gid from it's refined tensor in the form of the
+  // given multiple placement
+  multiple_tensor_t form_from_refinement(
+    int gid,
+    multiple_placement_t const& placement);
+  // TODO: have a cache for this method
 
-  // get the concat relation of node gid with respect to its
-  // partitioning
-  tensor_t<int> access_concat(int gid);
+  tensor_t<int> form_concat(int gid);
 
-  // create a tensor to hold the compute phase results.
-  // (this will call access for einsummable nodes;
-  //  must be input or einsummable node)
-  tensor_t<int> compute(int gid);
-
-  // this will call access
+  // this will form the inputs as required
   tensor_t<int> compute_einsummable(int gid);
 
   tensor_t<int> compute_input(int gid);
 
   tensor_t<int> form_relation(int gid);
-  // TODO: check that state access makes sense still
-  // TODO: implement access_concat
 
   // create the refined_tensor object from the compute result;
   // save into refined_tensors
@@ -236,57 +225,28 @@ taskgraph_t::make(
   return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
 }
 
-// TODO: this could be better if it stored previous results and detected
-//       similar placement usages...
-//       Consider y = x + x where x (lhs input) and x(rhs input) are placed
-//       in the same way. Then if x (previous computation) was formed differently
-//       then either of the lhs or rhs x inputs, this does a bunch of duplicate work.
-// TODO TODO TODO
 multiple_tensor_t
-taskgraph_make_state_t::access(int join_gid, int which_input)
+taskgraph_make_state_t::form_from_refinement(
+  int gid,
+  multiple_placement_t const& placement)
 {
-  //DOUT("ACCESS " << join_gid << " WITH INPUT " << which_input);
-  graph_t::node_t const& join_node = graph.nodes[join_gid];
-  placement_t const& join_pl = placements[join_gid];
-
-  if(join_node.op.is_concat()) {
-    throw std::runtime_error("cannot call access with concat node");
-  }
-
-  // get the multiple placement of the input necessary for the join
-  multiple_placement_t inn_placement = [&]
-  {
-    if(join_node.op.is_einsummable()) {
-      einsummable_t const& einsummable = std::get<einsummable_t>(join_node.op.op);
-      return multiple_placement_t::make_einsummable_input(
-        join_pl, einsummable, which_input);
-    } else {
-      // If it isn't an einsummable node, then it is a formation node,
-      // in which case the required inn placement is the join_pl.
-      return multiple_placement_t::from_single_placement(join_pl);
-    }
-  }();
-
-  // get the refined tensor of the relevant input tensor
-  int gid = join_node.inns[which_input];
   multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
 
-  // When the refinement is a no-op, just return the refined tensor
-  if(inn_placement.partition == refine_tensor.partition) {
+  if(placement.partition == refine_tensor.partition) {
     return refine_tensor;
   }
 
-  // At this point we have refine_tensor, which contains a hyper-rectangular
+  // At this point refine_tensor contains a hyper-rectangular
   // grid of sub-tensors, each sub-tensor at all the locations it will be used
   // across all operations.
   //
   // For this particular operation, it will be used according to the partition
-  // and locations in inn_placement. Each sub-tensor in the refine_tensor maps
-  // to exactly one subtensor in the inn_placement partition.
+  // and locations in the given placement. Each sub-tensor in the refine_tensor
+  // maps to exactly one subtensor in the placement partition.
   //
   // For each sub-tensor in refine_tensor, write it into the locations it'll
-  // be used at for inn_placement.
-  auto out_shape = inn_placement.partition.block_shape();
+  // be used at for placement.
+  auto out_shape = placement.partition.block_shape();
   tensor_t<vector<multiple_tensor_t::locid_t>> ret(out_shape);
 
   vector<int> out_index(out_shape.size(), 0);
@@ -294,8 +254,8 @@ taskgraph_make_state_t::access(int join_gid, int which_input)
     // At this index and all locations it'll be used at, we need
     // to write the new id into the return tensor and get the
     // partialize builders
-    auto const& locs = inn_placement.locations.at(out_index);
-    auto write_shape = inn_placement.partition.tensor_shape_at(out_index);
+    auto const& locs = placement.locations.at(out_index);
+    auto write_shape = placement.partition.tensor_shape_at(out_index);
 
     // initialize the partials to be written
     auto& _ret_at = ret.at(out_index);
@@ -314,7 +274,7 @@ taskgraph_make_state_t::access(int join_gid, int which_input)
 
     // Now iterate through all the refined subtensors writing
     // into the output
-    auto hrect_wrt_full = inn_placement.partition.get_hrect(out_index);
+    auto hrect_wrt_full = placement.partition.get_hrect(out_index);
     auto refine_region = refine_tensor.partition.get_exact_region(hrect_wrt_full);
     vector<int> refine_index = vector_mapfst(refine_region);
 
@@ -353,11 +313,11 @@ taskgraph_make_state_t::access(int join_gid, int which_input)
     } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
 
-  return multiple_tensor_t(inn_placement.partition, std::move(ret));
-};
+  return multiple_tensor_t(placement.partition, std::move(ret));
+}
 
 tensor_t<int>
-taskgraph_make_state_t::access_concat(int gid) {
+taskgraph_make_state_t::form_concat(int gid) {
   // TODO
 }
 
@@ -392,14 +352,19 @@ taskgraph_make_state_t::compute_einsummable(int gid)
     throw std::runtime_error("compute_einsummable must have einsummable node");
   }
 
+  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
+
   // Get the inputs
   vector<multiple_tensor_t> inputs;
   inputs.reserve(node.inns.size());
-  for(int i = 0; i != node.inns.size(); ++i) {
-    inputs.push_back(this->access(gid, i));
-  }
+  for(int which_input = 0; which_input != node.inns.size(); ++which_input) {
+    int const& inn_gid = node.inns[which_input];
 
-  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
+    auto inn_placement = multiple_placement_t::make_einsummable_input(
+      pl, base_einsummable, which_input);
+
+    inputs.push_back(this->form_from_refinement(inn_gid, inn_placement));
+  }
 
   auto shape = pl.block_shape();
   tensor_t<int> ret(shape);
@@ -431,16 +396,18 @@ tensor_t<int>
 taskgraph_make_state_t::form_relation(int gid)
 {
   graph_t::node_t const& node = graph.nodes.at(gid);
-  placement_t const& pl = placements.at(gid);
 
   if(node.op.is_input()) {
     return compute_input(gid);
   }
   if(node.op.is_formation()) {
-    return access(gid, 0).to_tensor(pl);
+    placement_t const& pl = placements.at(gid);
+    multiple_placement_t mpl =
+      multiple_placement_t::from_single_placement(pl);
+    return form_from_refinement(gid, mpl).to_tensor(pl);
   }
   if(node.op.is_concat()) {
-    return access_concat(gid);
+    return form_concat(gid);
   }
   if(node.op.is_einsummable()) {
     return compute_einsummable(gid);
