@@ -1,4 +1,5 @@
 #include "reference.h"
+#include "../base/hrect.h"
 
 buffer_t make_buffer(uint64_t size) {
   return std::make_shared<buffer_holder_t>(size);
@@ -313,7 +314,7 @@ tensor_t<buffer_t> partition_buffer(
     auto offset = vector_mapfst(hrect);
 
     buffer_t& buffer = ret.at(block_index);
-    vector<uint64_t> buffer_shape = shape_hrect(hrect);
+    vector<uint64_t> buffer_shape = hrect_shape(hrect);
     buffer = make_buffer(product(buffer_shape));
 
     vector<uint64_t> inn_index = offset;
@@ -343,7 +344,7 @@ buffer_t unpartition_buffer(
     auto offset = vector_mapfst(hrect);
 
     buffer_t const& inn_buffer = inn.at(block_index);
-    vector<uint64_t> inn_shape = shape_hrect(hrect);
+    vector<uint64_t> inn_shape = hrect_shape(hrect);
 
     vector<uint64_t> out_index = offset;
     do {

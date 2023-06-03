@@ -1,5 +1,6 @@
 #include "taskgraph.h"
 #include "../base/copyregion.h"
+#include "../base/hrect.h"
 
 #include "einsummable.pb.h"
 
@@ -161,6 +162,16 @@ struct taskgraph_make_state_t {
   // Map from gid to the refined tensor formed from that gid.
   map<int, multiple_tensor_t> refined_tensors;
 
+  // Partialize the data into the partial ids at outs.
+  void relational_touch(
+    vector<uint64_t>   const& offset_inn,
+    vector<uint64_t>   const& offset_out,
+    vector<uint64_t>   const& size,
+    partition_t        const& inn_partition,
+    multiple_tensor_t  const& inns,
+    partition_t        const& out_partition,
+    multiple_tensor_t  const& outs);
+
   // Grab gid from it's refined tensor in the form of the
   // given multiple placement
   multiple_tensor_t form_from_refinement(
@@ -223,6 +234,133 @@ taskgraph_t::make(
   }
 
   return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
+}
+
+void taskgraph_make_state_t::relational_touch(
+  vector<uint64_t>   const& offset_inn,
+  vector<uint64_t>   const& offset_out,
+  vector<uint64_t>   const& size,
+  partition_t        const& part_inn,
+  multiple_tensor_t  const& inn_locids,
+  partition_t        const& part_out,
+  multiple_tensor_t  const& out_locids)
+{
+  // Some naming conventions:
+  //   hrect:       a uint64_t hyper rectangular indexing actual tensor indices
+  //   region:      a int hyper rectangular indexing blocks
+  //   inn/out:     inn = read only, out = being written
+  //                also: inn means with respect to the input indexing,
+  //                      out means with respect to the output indexing
+  //   big/med/sml: big = the entire output,
+  //                med: a smaller output part or bigger input part,
+  //                sml: a smaller input part
+  //                (big/medium/small)
+  //   exa/uxa:     exact: all of this is the region being copied
+  //                unexact: not all of this is the region being copied
+
+  // Form hrect_out_big_exa and get region_out_big_uxa
+  // For every out block in region_out_big_uxa:
+  //   get hrect_out_mid_uxa from the corr index
+  //   get hrect_out_mid_exa by taking the intersection
+  //   get hrect_inn_mid_uxa by fixing the offsets
+  //   get region_inn_mid_uxa
+  //   For every input block in region_inn_mid_uxa:
+  //     get hrect_inn_sml_exa from the corr index
+  //
+  //     get the partial id at the out index
+  //     form the touch
+  //     for each loc,
+  //       copy hrect_inn_sml_exa into hrect_out_mid_uxa
+
+  using hrect_t  = vector<tuple<uint64_t, uint64_t>>;
+  using shape_t  = vector<uint64_t>;
+
+  using region_t = vector<tuple<int, int>>;
+  using index_t  = vector<int>;
+
+  using locid_t = multiple_tensor_t::locid_t;
+
+  hrect_t hrect_out_big_exa;
+  {
+    hrect_out_big_exa.reserve(size.size());
+    for(int i = 0; i != size.size(); ++i) {
+      auto const& off_out = offset_out[i];
+      auto const& sz = size[i];
+      hrect_out_big_exa.emplace_back(off_out, off_out + sz);
+    }
+  }
+
+  region_t region_out_big_uxa = part_out.get_region(hrect_out_big_exa);
+  index_t out_index = vector_mapfst(region_out_big_uxa);
+  do {
+    vector<locid_t> const& out_lis = out_locids.tensor.at(out_index);
+
+    hrect_t hrect_out_mid_uxa = part_out.get_hrect(out_index);
+    hrect_t hrect_out_mid_exa = hrect_intersect(hrect_out_mid_uxa, hrect_out_big_exa);
+
+    shape_t shape_out_mid_uxa = hrect_shape(hrect_out_mid_uxa);
+
+    shape_t out_mid_offset;
+    out_mid_offset.reserve(size.size());
+    for(int i = 0; i != size.size(); ++i) {
+      out_mid_offset.push_back(
+        std::get<0>(hrect_out_mid_exa[i]) - std::get<0>(hrect_out_mid_uxa[i]));
+    }
+
+    // convert hrect_out_mid_exa into something with respect to the inn indicess
+    hrect_t hrect_inn_mid;
+    hrect_inn_mid.reserve(size.size());
+    for(int i = 0; i != size.size(); ++i) {
+      auto [b,e] = hrect_out_mid_exa[i];
+      uint64_t const& off_inn = offset_inn[i];
+      uint64_t const& off_out = offset_out[i];
+      b = (b - off_out) + off_inn;
+      e = (e - off_out) + off_inn;
+      hrect_inn_mid.emplace_back(b,e);
+    }
+
+    region_t region_inn_mid = part_inn.get_exact_region(hrect_inn_mid);
+    index_t inn_index = vector_mapfst(region_inn_mid);
+    do {
+      hrect_t hrect_inn_sml_uxa = part_inn.get_hrect(inn_index);
+      hrect_t hrect_inn_sml_exa = hrect_intersect(hrect_inn_sml_uxa, hrect_inn_mid);
+
+      shape_t shape_inn_sml_uxa = hrect_shape(hrect_inn_sml_uxa);
+      shape_t shape_inn_sml_exa = hrect_shape(hrect_inn_sml_exa);
+
+      shape_t inn_sml_offset;
+      inn_sml_offset.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        inn_sml_offset.push_back(
+          std::get<0>(hrect_inn_sml_exa[i]) - std::get<0>(hrect_inn_sml_uxa[i]));
+      }
+
+      // copy from hrect_inn_sml_uxa to
+      //           hrect_out_mid_uxa
+      vector<touchdim_t> selection;
+      selection.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        selection.push_back(touchdim_t {
+          .d_inn      = shape_inn_sml_uxa[i],
+          .d_out      = shape_out_mid_uxa[i],
+          .offset_inn = inn_sml_offset[i],
+          .offset_out = out_mid_offset[i],
+          .size       = shape_inn_sml_exa[i]
+        });
+      }
+      touch_t touch {
+        .selection = selection,
+        .castable = std::nullopt
+      };
+      // TODO: ^ when to have a castable here
+
+      for(auto const& [loc,out_id]: out_lis) {
+        int const& inn_id = inn_locids.at(inn_index, loc);
+        // TODO: when to consume in add_to_partial
+        taskgraph.add_to_partial(out_id, inn_id, touch);
+      }
+    } while(increment_idxs_region(region_inn_mid, inn_index));
+  } while(increment_idxs_region(region_out_big_uxa, out_index));
 }
 
 multiple_tensor_t
@@ -303,7 +441,7 @@ taskgraph_make_state_t::form_from_refinement(
 
     do {
       auto refine_hrect_wrt_full = refine_tensor.partition.get_hrect(refine_index);
-      auto centered_hrect = center_hrect(hrect_wrt_full, refine_hrect_wrt_full);
+      auto centered_hrect = hrect_center(hrect_wrt_full, refine_hrect_wrt_full);
 
       for(auto const& [loc, builder_id]: ret_at) {
         int refine_tensor_id = refine_tensor.at(refine_index, loc);
@@ -318,7 +456,43 @@ taskgraph_make_state_t::form_from_refinement(
 
 tensor_t<int>
 taskgraph_make_state_t::form_concat(int gid) {
-  // TODO
+// TODO
+//  // 1. get the partition of this node
+//  // 2. split it along the concat dimension
+//  // 3. for each input, write directly into the output
+//
+//  // TODO: if form_from_refinement had cache support,
+//  //       maybe dip into the cache.
+//  // Note: this is very similar to form_from_refinement
+//
+//  graph_t::node_t const& node = graph.nodes.at(gid);
+//  placement_t const& pl = placements.at(gid);
+//
+//  if(!node.op.is_concat()) {
+//    throw std::runtime_error("from_concat needs concat node");
+//  }
+//
+//  auto const& concat = node.op.get_concat();
+//  int const& dim = concat.dim;
+//
+//  vector<partdim_t> split_partdims = pl.partition.partdims;
+//  split_partdims[dim] = partdim_t::unions({
+//    split_partdims[dim],
+//    partdim_t::from_sizes(concat.dim_parts)
+//  });
+//  partition_t split_partition(split_partdims);
+//
+//  // create inn_partitions from split_partitions
+//
+//  if(pl.partition == split_partition) {
+//    tensor_t<int> ret(split_partition.block_shape(), -1);
+//    // for each input,
+//    //   call form_from_refinement,
+//    //   get the corresponding tensor,
+//    //   concat into ret
+//    return ret;
+//  }
+//
 }
 
 tensor_t<int>

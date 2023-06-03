@@ -294,6 +294,42 @@ bool vector_has(vector<T> const& xs, T const& value)
   return std::find(xs.begin(), xs.end(), value) != xs.end();
 }
 
+template <typename T1, typename T2>
+vector<tuple<T1, T2>> vector_zip(
+  vector<T1> const& lhs,
+  vector<T1> const& rhs)
+{
+  if(lhs.size() != rhs.size()) {
+    throw std::runtime_error("vector_zip expects inputs to be the same size");
+  }
+
+  vector<tuple<T1, T2>> ret;
+  ret.reserve(lhs.size());
+  for(int i = 0; i != lhs.size(); ++i) {
+    ret.emplace_back(lhs[i], rhs[i]);
+  }
+
+  return ret;
+}
+
+template <typename T1, typename T2>
+tuple<vector<T1>, vector<T2>> vector_unzip(
+  vector<tuple<T1, T2>> const& xs)
+{
+  vector<T1> lhs;
+  vector<T2> rhs;
+
+  lhs.reserve(xs.size());
+  rhs.reserve(xs.size());
+
+  for(auto const& [l,r]: xs) {
+    lhs.push_back(l);
+    rhs.push_back(r);
+  }
+
+  return {lhs,rhs};
+}
+
 template <typename RandomIter>
 vector<std::size_t> argsort(RandomIter beg, RandomIter end) {
   vector<std::size_t> ret(end-beg);
@@ -367,31 +403,6 @@ vector<T> variadic_to_vec(Args... is) {
   std::reverse(x.begin(), x.end());
   return x;
 }
-
-// -------------------
-// |A   |A           |
-// |----|------------|
-// |A   |A  |A       |
-// |    |   |B       |
-// |    |   |        |
-// -------------------
-// A: full
-// B: small
-//
-//  --------------
-//  |   |Output  |
-//  |   |        |
-//  |   |        |
-//  --------------
-// It is an error if the small is not within the big
-vector<tuple<uint64_t, uint64_t>>
-center_hrect(
-  vector<tuple<uint64_t, uint64_t>> const& full,
-  vector<tuple<uint64_t, uint64_t>> const& small);
-
-
-vector<uint64_t> shape_hrect(
-  vector<tuple<uint64_t, uint64_t>> const& hrect);
 
 template <typename T>
 T parse_with_ss(string const& s)
