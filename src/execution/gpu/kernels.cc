@@ -103,8 +103,10 @@ touch_kernel_t build_touch(touch_t const& touch)
 }
 
 cutensor_kernel_t
-build_einsummable(einsummable_t const& e)
+build_einsummable(einsummable_t const& e_)
 {
+  einsummable_t e = e_.merge_adjacent_dims();
+
   if(e.is_contraction()) {
     throw std::runtime_error("build_einsummable must not be given a constraction");
   }
@@ -149,8 +151,10 @@ build_einsummable(einsummable_t const& e)
 
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
-  einsummable_t const& e)
+  einsummable_t const& e_)
 {
+  einsummable_t e = e_.merge_adjacent_dims();
+
   if(!e.is_contraction()) {
     throw std::runtime_error("build_contraction must be given a contraction");
   }

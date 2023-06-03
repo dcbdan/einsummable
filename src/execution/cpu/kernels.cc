@@ -653,8 +653,10 @@ _make_batch_matrix_multiply(
 std::function<void(float*, vector<float const*>)>
 build_einsummable(
   int num_threads,
-  einsummable_t const& einsummable)
+  einsummable_t const& einsummable_)
 {
+  einsummable_t einsummable = einsummable_.merge_adjacent_dims();
+
   if(einsummable.is_straight_elementwise()) {
     int n = einsummable.inns.size();
     if(n == 1) {

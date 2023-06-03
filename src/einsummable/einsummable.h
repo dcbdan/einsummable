@@ -16,11 +16,6 @@ struct einsummable_t {
   // may be none when out_rank == join_rank
   optional<castable_t> castable;
 
-  // Note: this sort of simplification can be made at the
-  // kernel level:
-  //   ijkl,klmn->ijmn is the same as
-  //   a b, b c ->a c
-
   // Consider batched matrix multiply into
   // the same output:
   //   bij,bjk->ik
@@ -35,6 +30,12 @@ struct einsummable_t {
     int out_rank,
     scalarop_t join,
     optional<castable_t> castable = std::nullopt);
+
+  // Note: this sort of simplification can be made at the
+  // kernel level:
+  //   ijkl,klmn->ijmn is the same as
+  //   a b, b c ->a c
+  einsummable_t merge_adjacent_dims() const;
 
   string to_wire() const;
   static einsummable_t from_wire(string const& str);

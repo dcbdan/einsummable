@@ -44,6 +44,97 @@ einsummable_t::einsummable_t(
   }
 }
 
+einsummable_t einsummable_t::merge_adjacent_dims() const {
+  int join_rank = join_shape.size();
+
+  auto count_adjacent = [](int r, vector<int> const& is) {
+    auto iter = std::find(is.begin(), is.end(), r);
+    if(iter == is.end()) {
+      return -1;
+    }
+    int c = r;
+    for(; iter != is.end(); ++iter) {
+      if(*iter == c) {
+        c++;
+      } else {
+        break;
+      }
+    }
+    return c-r;
+  };
+
+  // for each index, return the new index and the count and the size
+  map<int, tuple<int, int>> merges;
+
+  int r = 0;
+  int new_r = 0;
+  while(r != join_rank) {
+    int n_adj = count_adjacent(r, inns[0]);
+    for(int i = 1; i != inns.size(); ++i) {
+      if(n_adj == 1) {
+        break;
+      }
+      int n = count_adjacent(r, inns[i]);
+      if(n != -1) {
+        if(n_adj == -1) {
+          n_adj = n;
+        } else {
+          n_adj = std::min(n_adj, n);
+        }
+      }
+    }
+    if(r < out_rank) {
+      // Consider 0123->012
+      // n_adj @ 0 = 4 but it can only be 3
+      n_adj = std::min(n_adj, out_rank - r);
+    }
+
+    merges.insert({r, {new_r, n_adj}});
+    r += n_adj;
+    new_r += 1;
+  }
+
+  if(merges.size() == join_rank) {
+    return *this;
+  }
+
+  vector<uint64_t> new_join_shape;
+  {
+    int r = 0;
+    while(r != join_rank) {
+      auto const& [_, n_adj] = merges.at(r);
+
+      uint64_t sz = 1;
+      for(int i = r; i != r + n_adj; ++i) {
+        sz *= join_shape[r];
+      }
+
+      new_join_shape.push_back(sz);
+
+      r += n_adj;
+    }
+  }
+
+  int new_out_rank = std::get<0>(merges.at(out_rank));
+
+  vector<vector<int>> new_inns;
+  for(auto const& inn: inns) {
+    new_inns.emplace_back();
+    vector<int>& new_inn = new_inns.back();
+
+    int i = 0;
+    while(i != inn.size()) {
+      auto const& [new_r, n_adj] = merges.at(inn[i]);
+      new_inn.push_back(new_r);
+      i += n_adj;
+    }
+  }
+
+  return einsummable_t(
+    new_join_shape, new_inns, new_out_rank,
+    join, castable);
+}
+
 einsummable_t einsummable_t::from_proto(es_proto::Einsummable const& e) {
   vector<uint64_t> join_shape;
   {
