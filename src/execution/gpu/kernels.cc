@@ -116,9 +116,13 @@ build_einsummable(einsummable_t const& e_)
   string err_msg =
     "could not build a kernel for einsummable_t: " + write_with_ss(e);
 
-  // is this something cutensor reduction can do?
   if(e.has_aggregation()) {
-    if(e.inns.size() == 1 && e.castable.value() == castable_t::add) {
+    if(e.inns.size() != 1) {
+      throw std::runtime_error(err_msg);
+    }
+
+    if(e.castable.value() == castable_t::add) {
+      // this is something cutensor reduction should be able to do
       vector<int> const& inn_modes = e.inns[0];
 
       auto inn_shape = e.inn_shapes()[0];
@@ -132,8 +136,15 @@ build_einsummable(einsummable_t const& e_)
         inn_modes, inn_shape,
         out_modes, out_shape);
     }
-    // if something has an aggregation but isn't either contraction
-    // or a cutensor reduction, then there is no kernel for it
+
+    if(e.inns[0] == vector<int>{0,1} && e.out_rank == 1) {
+      // call a canned ij->i kernel
+      return build_simple_reduction(
+        e.join_shape[0],
+        e.join_shape[1],
+        e.castable.value());
+    }
+
     throw std::runtime_error(err_msg);
   }
 
@@ -178,6 +189,15 @@ cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape)
+{
+  // TODO
+  return {};
+}
+
+cutensor_kernel_t
+build_simple_reduction(
+  uint64_t ni, uint64_t nj,
+  castable_t castable)
 {
   // TODO
   return {};

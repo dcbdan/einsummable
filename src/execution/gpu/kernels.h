@@ -43,6 +43,14 @@ build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape);
 
+// create a canned ij->i kernel that does not use
+// cutensor. (cutensor reduction can only do this
+// for the add castable)
+cutensor_kernel_t
+build_simple_reduction(
+  uint64_t ni, uint64_t nj,
+  castable_t castable);
+
 struct cutensor_elementwise_op_t {
   struct arg_t {
     float scale;
@@ -75,6 +83,8 @@ struct cutensor_elementwise_op_t {
     arg_t a1;
     arg_t a2;
   };
+
+  vector<uint64_t> join_shape;
   std::variant<unary_t, binary_t, ternary_t> op;
 };
 
