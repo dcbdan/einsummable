@@ -3,6 +3,35 @@
 
 #include "einsummable.pb.h"
 
+touch_t touch_t::simplify() const {
+  vector<touchdim_t> new_selection;
+  new_selection.push_back(selection[0]);
+
+  auto is_dummy_dim = [](touchdim_t const& td) {
+    auto const& [d_inn, d_out, o_inn, o_out, sz] = td;
+    return d_inn == d_out && o_inn == 0 && o_out == 0 && d_inn == sz;
+  };
+
+  for(int i = 1; i != selection.size(); ++i) {
+    if(is_dummy_dim(selection[i])) {
+      int const& d = selection[i].d_inn;
+      auto& [d_inn, d_out, o_inn, o_out, sz] = new_selection.back();
+      d_inn *= d;
+      d_out *= d;
+      o_inn *= d;
+      o_out *= d;
+      sz    *= d;
+    } else {
+      new_selection.push_back(selection[i]);
+    }
+  }
+
+  return touch_t {
+    .selection = new_selection,
+    .castable = castable
+  };
+}
+
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.

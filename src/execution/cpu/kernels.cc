@@ -329,8 +329,10 @@ _touch4(touch4_max,  out[i] =  std::max(out[i], inn[i]));
   }()
 
 std::function<void(float*, float const*)>
-build_touch(touch_t const& touch)
+build_touch(touch_t const& touch_)
 {
+  touch_t touch = touch_.simplify();
+
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
     return _touch_dispatch(1);

@@ -15,6 +15,15 @@ struct touchdim_t {
 struct touch_t {
   vector<touchdim_t> selection;
   optional<castable_t> castable;
+
+  // Merge out dimensions that are fully copied.
+  // So
+  //   selection = [10,10,3,3,2],[20,20,0,0,20]
+  //   (X[3:5,0:20] = Y[3:5,0:20] for two (10,20) matrices)
+  // Becomes
+  //   selection = [200,200,60,60,40]
+  //   (X.flatten()[60:100] = Y.flatten()[60:100])
+  touch_t simplify() const;
 };
 
 struct regiondim_t {

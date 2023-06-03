@@ -80,8 +80,10 @@ void touch4(touchdim_t const& t0, touchdim_t const& t1,
     } \
   }()
 
-touch_kernel_t build_touch(touch_t const& touch)
+touch_kernel_t build_touch(touch_t const& touch_)
 {
+  touch_t touch = touch_.simplify();
+
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
     return _touch_dispatch(1);
