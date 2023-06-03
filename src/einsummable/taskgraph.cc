@@ -267,7 +267,6 @@ void taskgraph_make_state_t::relational_touch(
   //     form the touch
   //     for each loc,
   //       copy hrect_inn_sml_exa into hrect_out_mid_uxa
-
   partition_t const& part_inn = inn_locids.partition;
   partition_t const& part_out = out_locids.partition;
 
@@ -539,7 +538,8 @@ taskgraph_make_state_t::form_relation(int gid)
     placement_t const& pl = placements.at(gid);
     multiple_placement_t mpl =
       multiple_placement_t::from_single_placement(pl);
-    return form_from_refinement(gid, mpl).to_tensor(pl);
+    int inn_gid = node.inns[0];
+    return form_from_refinement(inn_gid, mpl).to_tensor(pl);
   }
   if(node.op.is_concat()) {
     return form_concat(gid);
@@ -554,7 +554,6 @@ taskgraph_make_state_t::form_relation(int gid)
 void
 taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
-  //DOUT("COMMUNICATE " << join_gid);
   auto const& join_node = graph.nodes[join_gid];
   auto const& join_placement = placements[join_gid];
 
