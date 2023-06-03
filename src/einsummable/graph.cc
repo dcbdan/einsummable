@@ -120,6 +120,148 @@ int graph_t::insert_formation(
     {inn});
 }
 
+int graph_constructor_t::insert_concat(
+  placement_t placement,
+  int dim,
+  vector<int> inns)
+{
+  int ret = graph.insert_concat(dim, inns);
+
+  if(placement.total_shape() != graph.out_shape(ret)) {
+    throw std::runtime_error("graph constructor: invalid concat");
+  }
+
+  placements.insert({ret, placement});
+  return ret;
+}
+
+int graph_constructor_t::insert_concat(
+  partition_t partition,
+  int dim,
+  vector<int> inns)
+{
+  int ret = graph.insert_concat(dim, inns);
+
+  if(partition.total_shape() != graph.out_shape(ret)) {
+    throw std::runtime_error("graph constructor: invalid concat");
+  }
+
+  placements.insert({ret, placement_t(partition)});
+  return ret;
+}
+
+int graph_constructor_t::insert_concat(
+  int dim,
+  vector<int> inns)
+{
+  int ret = graph.insert_concat(dim, inns);
+
+  partition_t partition = partition_t::singleton(graph.out_shape(ret));
+
+  placements.insert({ret, placement_t(partition)});
+  return ret;
+}
+
+optional<string> check_concat_shapes(
+  int dim,
+  vector<vector<uint64_t>> const& shapes)
+{
+  // they should all have the same rank
+  int rank = shapes[0].size();
+  for(int i = 1; i != shapes.size(); ++i) {
+    if(shapes[i].size() != rank) {
+      return "invalid input size";
+    }
+  }
+
+  if(dim < 0 || dim >= rank) {
+    return "invalid dim";
+  }
+
+  // every dim should be the same, except dim
+  vector<uint64_t> dim_parts;
+  for(int r = 0; r != rank; ++r) {
+    if(r != dim) {
+      uint64_t d = shapes[0][r];
+      for(int i = 1; i != shapes.size(); ++i) {
+        if(shapes[i][r] != d) {
+          return "non-concat dimensions do not line up";
+        }
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+int graph_t::insert_concat(
+  int dim,
+  vector<int> inns)
+{
+  if(inns.size() == 1) {
+    throw std::runtime_error("concat must have multiple arguments");
+  }
+
+  vector<vector<uint64_t>> shapes;
+  for(int const& inn: inns) {
+    shapes.push_back(out_shape(inn));
+  }
+
+  optional<string> err_msg = check_concat_shapes(dim, shapes);
+  if(err_msg) {
+    throw std::runtime_error("graph insert concat: " + err_msg.value());
+  }
+
+  vector<uint64_t> dim_parts;
+  for(int i = 0; i != shapes.size(); ++i) {
+    dim_parts.push_back(shapes[i][dim]);
+  }
+
+  vector<uint64_t> out_shape = shapes[0];
+  out_shape[dim] = std::accumulate(dim_parts.begin(), dim_parts.end(), 0);
+
+  return this->insert(
+    concat_t {
+      .shape = out_shape,
+      .dim = dim,
+      .dim_parts = dim_parts },
+    inns);
+}
+
+vector<uint64_t>
+graph_t::op_t::out_shape() const {
+  if(is_input()) {
+    return get_input().shape;
+  }
+  if(is_formation()) {
+    return get_formation().shape;
+  }
+  if(is_concat()) {
+    return get_concat().shape;
+  }
+  if(is_einsummable()) {
+    return get_einsummable().out_shape();
+  }
+  throw std::runtime_error("graph::op_t should not reach");
+}
+
+vector<uint64_t>
+graph_t::op_t::shape() const {
+  if(is_input()) {
+    return get_input().shape;
+  }
+  if(is_formation()) {
+    return get_formation().shape;
+  }
+  if(is_concat()) {
+    return get_concat().shape;
+  }
+  if(is_einsummable()) {
+    return get_einsummable().join_shape;
+  }
+  throw std::runtime_error("graph::op_t should not reach");
+}
+
 vector<placement_t> graph_constructor_t::get_placements() const {
   vector<placement_t> ret;
   ret.reserve(graph.nodes.size());
@@ -194,6 +336,10 @@ void graph_t::print() const {
       std::cout << "einsummable " << node.op.get_einsummable() << std::endl;
     } else if(node.op.is_formation()) {
       std::cout << "formation (is save = " << std::boolalpha << node.op.is_save() << ")" << std::endl;
+    } else if(node.op.is_concat()) {
+      std::cout << "concat[dim=" << node.op.get_concat().dim << "]" << std::endl;
+    } else {
+      throw std::runtime_error("graph_t print should not reach");
     }
 
     std::cout << std::endl;
@@ -765,6 +911,60 @@ graph_writer_t::ew(
   return tensor_t(
     info.get_out_shape(),
     info.get_out_full_shape(),
+    id,
+    *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::concat(
+  int dim,
+  vector<graph_writer_t::tensor_t> const& inns_)
+{
+  vector<tensor_t> inns = inns_;
+
+  // make sure all the inputs have no hidden permutation
+  for(tensor_t& inn: inns) {
+    inn.physically_permute();
+  }
+
+  // only the full dimensions can be concatenated
+  for(tensor_t const& inn: inns) {
+    auto [i,j] = inn.get_breaks()[dim];
+    if(j-i != 1) {
+      throw std::runtime_error(
+        "graph writer concat: only full dims can be concated");
+    }
+  }
+
+  // check the shapes (but not full shapes) are correct
+  vector<uint64_t> shape;
+  {
+    vector<vector<uint64_t>> shapes = vector_from_each_member(
+      inns, vector<uint64_t>, shape);
+    optional<string> err_msg = check_concat_shapes(dim, shapes);
+    if(err_msg) {
+      throw std::runtime_error("graph writer insert concat: " + err_msg.value());
+    }
+
+    shape = shapes[0];
+    shape[dim] = 0;
+    for(int i = 0; i != inns.size(); ++i) {
+      shape[dim] += shapes[i][dim];
+    }
+  }
+
+  auto breaks = inns[0].get_breaks();
+  int full_dim = std::get<0>(breaks[dim]);
+
+  // now graph concat will check the full shapes
+  vector<int> inn_ids = vector_from_each_member(inns, int, id);
+  int id = graph.insert_concat(full_dim, inn_ids);
+
+  auto full_shape = graph.out_shape(id);
+
+  return tensor_t(
+    shape,
+    full_shape,
     id,
     *this);
 }

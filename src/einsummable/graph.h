@@ -18,6 +18,10 @@ struct graph_t {
     int inn,
     bool is_save = true);
 
+  int insert_concat(
+    int dim,
+    vector<int> inns);
+
   // For each non-save node, make sure it gets marked as save if it isn't used
   // elsewhere.
   // For non-formation nodes, if the node is not used elsewhere, insert an outgoing
@@ -58,83 +62,61 @@ public:
 
   struct input_t {
     vector<uint64_t> shape;
-
-    vector<uint64_t> out_shape() const { return shape; }
   };
 
   struct formation_t {
     vector<uint64_t> shape;
     bool is_save; // if this is false, it is a temporary
-
-    vector<uint64_t> out_shape() const { return shape; }
   };
 
+  struct concat_t {
+    vector<uint64_t> shape;
+
+    int dim;
+    vector<uint64_t> dim_parts;
+  };
 
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, formation_t, einsummable_t>;
+    using _op_t = std::variant<input_t, formation_t, concat_t, einsummable_t>;
 
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t       x): op_t(_op_t(x)) {}
     op_t(formation_t   x): op_t(_op_t(x)) {}
+    op_t(concat_t      x): op_t(_op_t(x)) {}
     op_t(einsummable_t x): op_t(_op_t(x)) {}
 
-    vector<uint64_t> out_shape() const {
-      return std::visit([](auto x){ return x.out_shape(); }, op);
-    }
-    int out_rank() const {
-      return this->out_shape().size();
-    }
+    vector<uint64_t> out_shape() const;
+    vector<uint64_t> shape() const;
 
-    vector<uint64_t> shape() const {
-      if(std::holds_alternative<input_t>(op)) {
-        return std::get<input_t>(op).shape;
-      }
-      if(std::holds_alternative<formation_t>(op)) {
-        return std::get<formation_t>(op).shape;
-      }
-      if(std::holds_alternative<einsummable_t>(op)) {
-        return std::get<einsummable_t>(op).join_shape;
-      }
-      throw std::runtime_error("graph::op_t should not reach");
-      return {};
-    }
-
-    int rank() const {
-      return this->shape().size();
-    }
+    int out_rank() const { return this->out_shape().size(); }
+    int rank() const { return this->shape().size(); }
 
     bool is_save() const {
       return is_formation() && get_formation().is_save;
     }
-    bool is_formation() const {
-      return std::holds_alternative<formation_t>(op);
-    }
-    bool is_input() const {
-      return std::holds_alternative<input_t>(op);
-    }
+
+    bool is_input()       const { return std::holds_alternative<input_t>(op);     }
+    bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
+    bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
     }
 
-    einsummable_t const& get_einsummable() const {
-      return std::get<einsummable_t>(op);
-    }
-    einsummable_t& get_einsummable() {
-      return std::get<einsummable_t>(op);
-    }
     bool has_aggregation() const {
       return is_einsummable() && get_einsummable().has_aggregation();
     }
 
-    formation_t const& get_formation() const {
-      return std::get<formation_t>(op);
+    input_t       const& get_input()     const { return std::get<input_t>(op);     }
+    formation_t   const& get_formation() const { return std::get<formation_t>(op); }
+    formation_t        & get_formation()       { return std::get<formation_t>(op); }
+    concat_t      const& get_concat()    const { return std::get<concat_t>(op);    }
+    einsummable_t const& get_einsummable() const {
+      return std::get<einsummable_t>(op);
     }
-    formation_t& get_formation() {
-      return std::get<formation_t>(op);
-    }
+
 
     _op_t op;
   };
@@ -194,6 +176,18 @@ struct graph_constructor_t {
   int insert_formation(
     int inn,
     bool is_save = true);
+
+  int insert_concat(
+    placement_t placement,
+    int dim,
+    vector<int> inns);
+  int insert_concat(
+    partition_t partition,
+    int dim,
+    vector<int> inns);
+  int insert_concat(
+    int dim,
+    vector<int> inns);
 
   vector<placement_t> get_placements() const;
 
@@ -272,16 +266,20 @@ struct graph_writer_t {
   graph_t const& get_graph() const { return graph; }
 
   // the core ops
+
   tensor_t input(
     vector<uint64_t> shape);
+
   tensor_t contraction(
     string str,
     tensor_t const& lhs,
     tensor_t const& rhs);
+
   tensor_t reduction(
     string str,
     castable_t castable,
     tensor_t const& inn);
+
   tensor_t ew( // ew = elementwise
     string str,
     scalarop_t op,
@@ -294,6 +292,10 @@ struct graph_writer_t {
   tensor_t ew(
     string str,
     scalarop_t op,
+    vector<tensor_t> const& inns);
+
+  tensor_t concat(
+    int dim,
     vector<tensor_t> const& inns);
 
   // helper ops that dispatch to the core ops
@@ -330,5 +332,4 @@ private:
   optional<to_einsummable_info_t>
   make_einsummable_info(string str, vector<tensor_t> const& inns);
 };
-
 

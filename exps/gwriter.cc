@@ -125,7 +125,7 @@ void main08_attention() {
   using tensor_t = graph_writer_t::tensor_t;
   graph_writer_t writer;
 
-  uint64_t start_pos   = 0; // TODO: implement concat and set this
+  uint64_t start_pos   = 7;
   uint64_t n_heads     = 8;
   uint64_t head_dim    = 10;
   uint64_t dim         = n_heads * head_dim;
@@ -156,12 +156,10 @@ void main08_attention() {
 
   // TODO: rotary embed xq, xk
 
-  //tensor_t prev_keys   = writer.input({bsz, start_pos, n_heads, head_dim});
-  //tensor_t prev_values = writer.input({bsz, start_pos, n_heads, head_dim});
-  //tensor_t keys   = writer.concat(1, {prev_keys,   xk});
-  //tensor_t values = writer.concat(1, {prev_values, xv});
-  tensor_t keys   = xk;
-  tensor_t values = xv;
+  tensor_t prev_keys   = writer.input({bsz, start_pos, n_heads, head_dim});
+  tensor_t prev_values = writer.input({bsz, start_pos, n_heads, head_dim});
+  tensor_t keys   = writer.concat(1, {prev_keys,   xk});
+  tensor_t values = writer.concat(1, {prev_values, xv});
 
   xq     = xq.transpose(1, 2);
   keys   = keys.transpose(1, 2);
