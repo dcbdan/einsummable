@@ -167,9 +167,7 @@ struct taskgraph_make_state_t {
     vector<uint64_t>   const& offset_inn,
     vector<uint64_t>   const& offset_out,
     vector<uint64_t>   const& size,
-    partition_t        const& inn_partition,
     multiple_tensor_t  const& inns,
-    partition_t        const& out_partition,
     multiple_tensor_t  const& outs);
 
   // Grab gid from it's refined tensor in the form of the
@@ -240,9 +238,7 @@ void taskgraph_make_state_t::relational_touch(
   vector<uint64_t>   const& offset_inn,
   vector<uint64_t>   const& offset_out,
   vector<uint64_t>   const& size,
-  partition_t        const& part_inn,
   multiple_tensor_t  const& inn_locids,
-  partition_t        const& part_out,
   multiple_tensor_t  const& out_locids)
 {
   // Some naming conventions:
@@ -271,6 +267,9 @@ void taskgraph_make_state_t::relational_touch(
   //     form the touch
   //     for each loc,
   //       copy hrect_inn_sml_exa into hrect_out_mid_uxa
+
+  partition_t const& part_inn = inn_locids.partition;
+  partition_t const& part_out = out_locids.partition;
 
   using hrect_t  = vector<tuple<uint64_t, uint64_t>>;
   using shape_t  = vector<uint64_t>;
@@ -352,7 +351,7 @@ void taskgraph_make_state_t::relational_touch(
         .selection = selection,
         .castable = std::nullopt
       };
-      // TODO: ^ when to have a castable here
+      // Note: one could put a castable argument here
 
       for(auto const& [loc,out_id]: out_lis) {
         int const& inn_id = inn_locids.at(inn_index, loc);
@@ -370,88 +369,50 @@ taskgraph_make_state_t::form_from_refinement(
 {
   multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
 
+  // verify that the refinement partition
+  // is actually a refinement of the given placement
+  if(!refine_tensor.partition.refines(placement.partition)) {
+    throw std::runtime_error("refine partition not actually a refinement");
+  }
+
   if(placement.partition == refine_tensor.partition) {
     return refine_tensor;
   }
 
-  // At this point refine_tensor contains a hyper-rectangular
-  // grid of sub-tensors, each sub-tensor at all the locations it will be used
-  // across all operations.
-  //
-  // For this particular operation, it will be used according to the partition
-  // and locations in the given placement. Each sub-tensor in the refine_tensor
-  // maps to exactly one subtensor in the placement partition.
-  //
-  // For each sub-tensor in refine_tensor, write it into the locations it'll
-  // be used at for placement.
+  // initialize multiple_tensor_t for the outs by creating new partializes
   auto out_shape = placement.partition.block_shape();
-  tensor_t<vector<multiple_tensor_t::locid_t>> ret(out_shape);
+  multiple_tensor_t packaged_ret(
+    placement.partition,
+    tensor_t<vector<multiple_tensor_t::locid_t>>(out_shape));
 
+  auto& ret = packaged_ret.tensor;
   vector<int> out_index(out_shape.size(), 0);
   do {
-    // At this index and all locations it'll be used at, we need
-    // to write the new id into the return tensor and get the
-    // partialize builders
     auto const& locs = placement.locations.at(out_index);
     auto write_shape = placement.partition.tensor_shape_at(out_index);
 
     // initialize the partials to be written
-    auto& _ret_at = ret.at(out_index);
-    _ret_at.reserve(locs.size());
+    auto& ret_at = ret.at(out_index);
+    ret_at.reserve(locs.size());
     for(auto const& loc: locs) {
       int builder_id = taskgraph.new_partial(loc, write_shape);
-      _ret_at.push_back(
+      ret_at.push_back(
         multiple_tensor_t::locid_t {
           .loc = loc,
           .id  = builder_id
         });
     }
-
-    // now ret_at is filled out with uninitialized partials
-    auto const& ret_at = _ret_at;
-
-    // Now iterate through all the refined subtensors writing
-    // into the output
-    auto hrect_wrt_full = placement.partition.get_hrect(out_index);
-    auto refine_region = refine_tensor.partition.get_exact_region(hrect_wrt_full);
-    vector<int> refine_index = vector_mapfst(refine_region);
-
-    // Welcome to the tedious world of hyper-rectangles...
-    //
-    // The full hrect of the entire tensor
-    // -------------------------
-    // |          |            |
-    // |          |            |
-    // |----------|------------|
-    // |          |A    |A     |
-    // |          |-----|------|
-    // |          |A    |AB    |
-    // -------------------------
-    //
-    // --------------
-    // |C    |C     |
-    // |-----|------|
-    // |C    |CD    |
-    // --------------
-    //
-    // A := hrect_wrt_full             (the hrect of this output)
-    // B := refine_hrect_wrt_full      (one of the refined hrects)
-    // C := output region for op       (from the perspective of the partialize op)
-    // D := one input to output region (from the perspective of the partialize op)
-
-    do {
-      auto refine_hrect_wrt_full = refine_tensor.partition.get_hrect(refine_index);
-      auto centered_hrect = hrect_center(hrect_wrt_full, refine_hrect_wrt_full);
-
-      for(auto const& [loc, builder_id]: ret_at) {
-        int refine_tensor_id = refine_tensor.at(refine_index, loc);
-        taskgraph.add_to_partial_the_full_input(
-          builder_id, refine_tensor_id, centered_hrect);
-      }
-    } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
 
-  return multiple_tensor_t(placement.partition, std::move(ret));
+  // now add to all the partial builders inside ret
+  vector<uint64_t> total_shape = placement.partition.total_shape();
+  vector<uint64_t> offsets(total_shape.size(), 0);
+  relational_touch(
+    offsets, offsets, placement.partition.total_shape(),
+    refine_tensor,
+    packaged_ret);
+
+  return packaged_ret;
 }
 
 tensor_t<int>
@@ -1420,47 +1381,6 @@ void taskgraph_t::add_to_partial(
 
   // make sure to tell nodes this id_inn gets used at id_out
   nodes[id_inn].outs.insert(id_out);
-}
-
-void taskgraph_t::add_to_partial_the_full_input(
-  int id_out,
-  int id_inn,
-  vector<tuple<uint64_t, uint64_t>> hrect_out,
-  bool consume)
-{
-  // this is a little goofy: we're gonna get the write shape,
-  // put it into touches, the add_to_partial is gonna extract
-  // the write shape and verify that it is the same shape as
-  // the partialize we're adding to.
-  //
-  // Oh well.
-  auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
-
-  if(hrect_out.size() != write_shape.size()) {
-    throw std::runtime_error("incorrect sizing");
-  }
-
-  vector<touchdim_t> ts;
-  ts.reserve(hrect_out.size());
-  for(int i = 0; i != hrect_out.size(); ++i) {
-    auto const& [b,e] = hrect_out[i];
-    auto const& d_out = write_shape[i];
-
-    ts.push_back(touchdim_t {
-      .d_inn = e-b,
-      .d_out = d_out,
-      .offset_inn = 0,
-      .offset_out = b,
-      .size = e-b
-    });
-  }
-
-  touch_t touch {
-    .selection = ts,
-    .castable = optional<castable_t>()
-  };
-
-  add_to_partial(id_out, id_inn, touch, consume);
 }
 
 void taskgraph_t::add_to_partial_the_full_aggregate(

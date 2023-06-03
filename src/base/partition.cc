@@ -25,6 +25,19 @@ vector<int> partition_t::block_shape() const {
   return vector_from_each_method(partdims, int, num_parts);
 }
 
+bool partition_t::refines(partition_t const& other) const
+{
+  if(other.partdims.size() != partdims.size()) {
+    return false;
+  }
+  for(int i = 0; i != partdims.size(); ++i) {
+    if(!partdims[i].refines(other.partdims[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 vector<uint64_t> partition_t::tensor_shape_at(vector<int> const& idxs) const
 {
   if(idxs.size() != partdims.size()) {

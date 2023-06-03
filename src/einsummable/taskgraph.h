@@ -89,12 +89,6 @@ struct taskgraph_t {
     touch_t touch,
     bool consume = false);
 
-  void add_to_partial_the_full_input(
-    int id_out,
-    int id_inn,
-    vector<tuple<uint64_t, uint64_t>> hrect_out,
-    bool consume = false);
-
   void add_to_partial_the_full_aggregate(
     int id_out,
     int id_inn,

@@ -14,6 +14,8 @@ struct partition_t {
 
   vector<int> block_shape() const;
 
+  bool refines(partition_t const& other) const;
+
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const;
 
   // Get the hyper-rectanuglar set represnted by this index
