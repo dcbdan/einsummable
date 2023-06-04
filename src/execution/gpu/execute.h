@@ -25,7 +25,7 @@ using memgraph_t = memgraph_t;
 // ------------- CUTENSOR HELPER FUNCTIONS ---------------
 
 // get a vector of ints, return a vector of int64_t
-vector<int64_t> get_int64_t(vector<int> const& vec){
+vector<int64_t> get_int64_t(const vector<int> &vec) {
     vector<int64_t> int64_t_vec;
     for (auto v: vec){
         int64_t_vec.push_back(v);
@@ -34,7 +34,7 @@ vector<int64_t> get_int64_t(vector<int> const& vec){
 }
 
 // create an array from 1 to n
-vector<int>create_mode(int n){
+vector<int>create_mode(int n) {
     vector<int> mode;
     for (int i = 1; i <= n; i++){
         mode.push_back(i);
@@ -49,7 +49,7 @@ vector<int>create_mode(int n){
 // 1. there is one input
 // 2. castable is a +
 // 3. out rank is less than the join shape size
-bool is_reduction(memgraph_t::node_t node){
+bool is_reduction(memgraph_t::node_t node) {
     // reduction needs to be an apply node
     if (!node.op.is_apply()){
         return false;
@@ -79,7 +79,7 @@ bool is_reduction(memgraph_t::node_t node){
 }
 
 // return true if the node is a contraction, false otherwise
-bool is_contraction(memgraph_t::node_t node){
+bool is_contraction(memgraph_t::node_t node) {
     // contraction needs to be an apply node
     if (!node.op.is_apply()){
         return false;
@@ -110,7 +110,7 @@ bool is_contraction(memgraph_t::node_t node){
 }
 
 // return true if the node is a touch, false otherwise
-bool is_touch(memgraph_t::node_t node){
+bool is_touch(memgraph_t::node_t node) {
     // touch needs to be an apply node
     if (!node.op.is_apply()){
         return false;
@@ -124,81 +124,6 @@ bool is_touch(memgraph_t::node_t node){
     return false;
 }
 
-// ------------- CUTENSOR KERNEL GENERATION ---------------
-
-// helper function that given input metadata and stream, executes the tensor reduction
-// unlike contracion, this would immediately execute the reduction with the given stream
-cutensorStatus_t execute_reduction(cutensorHandle_t* handle, memgraph_t::node_t node, buffer_t gpu_memory, 
-                                    const memgraph_t & memgraph, cudaStream_t stream){
-
-    // get the apply_t object and the einsummable from apply_t
-    memgraph_t::apply_t apply = node.op.get_apply();
-    auto einsum = std::get<einsummable_t>(apply.op);
-    
-    // *****************************************************
-    // Reduction: performs the operation alpha * opReduce(opA(A)) + beta * opC(C)
-    // getting all the metadata needed to generate the cutensor plan
-    auto nmodeA = einsum.inns[0].size();
-    auto nmodeC = 0;
-
-    // CUDA types
-    cudaDataType_t typeA = CUDA_R_32F;
-    cudaDataType_t typeB = CUDA_R_32F;
-    cudaDataType_t typeC = CUDA_R_32F;
-    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
-
-    auto extent_A = get_int64_t(einsum.inns[0]);
-    int64_t* extent_C = nullptr;
-
-    // Create Tensor Descriptors
-    cutensorTensorDescriptor_t descA;
-    HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
-                &descA,
-                nmodeA,
-                extent_A.data(),
-                NULL,/*stride*/
-                typeA, CUTENSOR_OP_IDENTITY ) );
-
-    cutensorTensorDescriptor_t descC;
-    HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
-                &descC,
-                nmodeC,
-                extent_C,
-                NULL,/*stride*/
-                typeC, CUTENSOR_OP_IDENTITY ) );
-    auto A_d = gpu_memory->data + apply.mems[1].offset;
-    auto C_d = gpu_memory->data + apply.mems[0].offset;
-    // get workspace size
-    uint64_t workspaceSize;
-    void *workspace = nullptr;
-    auto A_mode = create_mode(nmodeA);
-    auto C_mode = create_mode(nmodeC);
-    
-    HANDLE_ERROR(cutensorReductionGetWorkspaceSize(handle, 
-                 A_d, &descA, A_mode.data(),
-                 C_d, &descC, C_mode.data(),
-                 C_d, &descC, C_mode.data(),
-                 cutensorOperator_t::CUTENSOR_OP_ADD, typeCompute, &workspaceSize));
-    // check if we can get a workspace; TODO: check if this conflicts with our exiting memgraph
-    if (workspaceSize > 0)
-    {
-        if (cudaSuccess != cudaMalloc(&workspace, workspaceSize))
-        {
-            workspace = nullptr;
-            workspaceSize = 0;
-        }
-    } 
-
-    // performs the reduction
-    typedef float floatTypeCompute;
-    floatTypeCompute alpha = (floatTypeCompute)1.0f;
-    floatTypeCompute beta  = (floatTypeCompute)1.0f;
-    HANDLE_ERROR(cutensorReduction(handle, &alpha, A_d, 
-            &descA, A_mode.data(), &beta, C_d, 
-            &descC, C_mode.data(), C_d, &descC, 
-            C_mode.data(), cutensorOperator_t::CUTENSOR_OP_ADD, typeCompute, 
-            workspace, workspaceSize, stream));
-}
 
 // input: node from memgraph and all other necessary metadata, output: cutensor plan
 // we are saving this plan in a map so that we can precompute the plan and save it before executing the memgraph
@@ -350,7 +275,7 @@ cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memg
 // ---------------- Memgraph traversal ----------------
 // given a memgraph, traverse the graph and get all the dependencies of a node represented by node.inns()
 // return a map from the node to the number of its dependencies
-std::map<int, int> get_dependencies(const memgraph_t &memgraph){
+std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
     std::map<int, int> dependency_count;
     for (int i = 0; i < memgraph.nodes.size(); i++){
         dependency_count[i] = memgraph.nodes[i].inns.size();
@@ -408,5 +333,5 @@ struct gpu_execute_state_t
 // Every input node in taskgraph should be in tensors.
 // After execution, only every save taskgraph node should be in tensors
 void execute(
-  memgraph_t const& memgraph,
+  const memgraph_t &memgraph,
   buffer_t& gpu_memory);

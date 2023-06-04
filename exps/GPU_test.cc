@@ -2,8 +2,10 @@
 
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/scalarop.h"
+#include "../src/execution/gpu/execute.h"
 
 #include <fstream>
+#include <memory>
 
 void usage() {
   DOUT("pi pj pk di dj dk np");
@@ -59,7 +61,10 @@ int main(int argc, char** argv) {
     // std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
     // std::ofstream f("mm3d_mem_lowest_dep.gv");
     // memgraph.print_graphviz(f);
+    execute(memgraph, std::make_shared<buffer_holder_t>());
   }
+
+  
 
 //   {
 //     tuple<
