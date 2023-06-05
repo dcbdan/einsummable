@@ -162,8 +162,11 @@ build_einsummable(einsummable_t const& e_)
   throw std::runtime_error(err_msg);
 }
 
+//************************************
+//I think we need handle for this one
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
+  cutensorHandle_t const* handle,
   einsummable_t const& e_)
 {
   einsummable_t e = e_.merge_adjacent_dims();
@@ -171,27 +174,245 @@ void build_contraction(
   if(!e.is_contraction()) {
     throw std::runtime_error("build_contraction must be given a contraction");
   }
+  //Assuming we are doing C = A contraction B
+
+
+  // if we have mhkn, ukvh -> munv
+  // then we should have:
+  //std::vector<int> modeC{'m','u','n','v'};
+  //std::vector<int> modeA{'m','h','k','n'};
+  //std::vector<int> modeB{'u','k','v','h'};
+  //*************************
+  modeA = 
+  modeB =
+  modeC = 
+
   // TODO
+  auto nmodeA = e.inns[0].size();
+  auto nmodeB = e.inns[1].size();
+
+  //***************************
+  //dimension of C 
+  auto nmodeC = ?
+
+  // CUDA types
+  cudaDataType_t typeA = CUDA_R_32F;
+  cudaDataType_t typeB = CUDA_R_32F;
+  cudaDataType_t typeC = CUDA_R_32F;
+  cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+
+  // extent = size of each dimension
+  vector<int64_t> extent_A(e.inns[0].begin(),e.inns[0].end());
+  vector<int64_t> extent_B(e.inns[1].begin(),e.inns[1].end());
+
+  //****************************
+  //get the extent of C
+  vector<int64_t> extent_C = ?
+
+
+  // Set up Tensor Descriptors for A, B, and C
+  cutensorTensorDescriptor_t descA;
+  HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+                &descA,
+                nmodeA,
+                extent_A.data(),
+                NULL,/*stride*/
+                typeA, CUTENSOR_OP_IDENTITY ) );
+  
+  cutensorTensorDescriptor_t descB;
+  HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+                &descB,
+                nmodeB,
+                extent_B.data(),
+                NULL,/*stride*/
+                typeB, CUTENSOR_OP_IDENTITY ) );
+
+  cutensorTensorDescriptor_t descC;
+  HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+              &descC,
+              nmodeC,
+              extent_C,
+              NULL,/*stride*/
+              typeC, CUTENSOR_OP_IDENTITY ) );
+  
+  //******************************************
+  // get the memory pointers to the tensors
+  auto ptrA = 
+  auto ptrB =
+  auto ptrC =
+
+  uint32_t alignmentRequirementA;
+  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+              ptrA,
+              &descA,
+              &alignmentRequirementA) );
+
+  uint32_t alignmentRequirementB;
+  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+              ptrB,
+              &descB,
+              &alignmentRequirementB) );
+
+  uint32_t alignmentRequirementC;
+  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+              ptrC,
+              &descC,
+              &alignmentRequirementC) );
+
+
+  // Init Contraction Descriptor need to be in the format of
+  // D = alpha * A * B + beta * C
+  // so we should probably use a C for both C and D
+
+  HANDLE_ERROR( cutensorInitContractionDescriptor( handle,
+                &desc,
+                &descA, modeA.data(), alignmentRequirementA,
+                &descB, modeB.data(), alignmentRequirementB,
+                &descC, modeC.data(), alignmentRequirementC,
+                &descC, modeC.data(), alignmentRequirementC,
+                typeCompute) );
+
+
 }
 
 void execute_contraction(
-  cudaStream_t,
-  cutensorHandle_t const*,
-  cutensorContractionDescriptor_t const*,
+  cudaStream_t stream,
+  cutensorHandle_t const* handle,
+  cutensorContractionDescriptor_t const* desc,
   float* out,
   float const* lhs,
   float const* rhs)
 {
   // TODO
+
+  // Set the algorithm to use
+  cutensorContractionFind_t find;
+  HANDLE_ERROR( cutensorInitContractionFind(
+              handle, &find,
+              CUTENSOR_ALGO_DEFAULT) );
+
+  size_t worksize = 0;
+  HANDLE_ERROR( cutensorContractionGetWorkspace(handle,
+              &desc,
+              &find,
+              CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
+  
+  void *work = nullptr;
+  if(worksize > 0)
+  {
+      if( cudaSuccess != cudaMalloc(&work, worksize) ) // This is optional!
+      {
+          work = nullptr;
+          worksize = 0;
+      }
+  }
+
+
+  cutensorContractionPlan_t plan;
+  HANDLE_ERROR( cutensorInitContractionPlan(handle,
+                                            &plan,
+                                            &desc,
+                                            &find,
+                                            worksize) );
+  
+  cutensorStatus_t err;
+
+
+  err = cutensorContraction(handle, &plan, NULL, lhs,
+                            rhs, NULL, out, out,
+                            work, worksize, stream);
+
+  cudaDeviceSynchronize();
+
+  
 }
 
+//******************************
+//What are inn_modes and inn_shape?
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape)
 {
-  // TODO
-  return {};
+  //********************************
+  //Same problem as contraction
+  //If we have mhkv->mv
+  //Then we should have:
+  //std::vector<int32_t> modeA{'m','h','k','v'};
+  //std::vector<int32_t> modeC{'m','v'};
+
+  std::vector<int32_t> modeA = ?;
+  std::vector<int32_t> modeC = ?;
+  int32_t nmodeA = modeA.size();
+  int32_t nmodeC = modeC.size();
+
+
+  // extent = size of each dimension
+  vector<int64_t> extent_A(inn_modes.begin(),inn_modes.end());
+  vector<int64_t> extent_C(out_modes.begin(),out_modes.end());
+
+
+  
+
+
+  // ****************************************
+  // What is float*, vector<float const*> here?
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C]
+  (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*>){
+    cudaDataType_t typeA = CUDA_R_32F;
+    cudaDataType_t typeC = CUDA_R_32F;
+    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+
+    cutensorTensorDescriptor_t descA;
+    HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                 &descA,
+                 nmodeA,
+                 extentA.data(),
+                 NULL /* stride */,
+                 typeA, CUTENSOR_OP_IDENTITY));
+
+    cutensorTensorDescriptor_t descC;
+    HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                 &descC,
+                 nmodeC,
+                 extentC.data(),
+                 NULL /* stride */,
+                 typeC, CUTENSOR_OP_IDENTITY));
+    
+
+    //Specify reduce OP (this should be the one?)
+    const cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
+
+    //Workspace
+    uint64_t worksize = 0;
+    HANDLE_ERROR(cutensorReductionGetWorkspaceSize(&handle, 
+                 A_d, &descA, modeA.data(),
+                 C_d, &descC, modeC.data(),
+                 C_d, &descC, modeC.data(),
+                 opReduce, typeCompute, &worksize));
+    void *work = nullptr;
+    if (worksize > 0)
+    {
+        if (cudaSuccess != cudaMalloc(&work, worksize))
+        {
+            work = nullptr;
+            worksize = 0;
+        }
+    }
+
+
+
+
+    cutensorStatus_t err;
+    err = cutensorReduction(&handle, 
+                NULL/*alpha*/, A/*Pointer to the data corresponding to A in device memory. Pointer to the GPU-accessible memory.*/, 
+                &descA, modeA.data(),NULL/*beta*/,  
+                out/*Pointer to the data corresponding to C in device memory. Pointer to the GPU-accessible memory.*/,
+                &descC, modeC.data(), out, &descC, modeC.data(), 
+                opReduce, typeCompute, work, worksize, stream);
+
+
+  };
 }
 
 cutensor_kernel_t
