@@ -18,6 +18,8 @@ struct placement_t {
   static placement_t random(partition_t const& partition, int nloc);
   static placement_t random(vector<partdim_t> const& partdims, int nloc);
 
+  placement_t refine(partition_t const& refined_partition) const;
+
   placement_t subset(vector<tuple<int, int>> const& region) const;
 
   // Args must be all ints or this won't compile

@@ -34,6 +34,11 @@ struct partition_t {
   get_region(
     vector<tuple<uint64_t,uint64_t>> const& hrect) const;
 
+  // If multiple index cover the area given by hrect,
+  // throw an error
+  vector<int> get_index_covering(
+    vector<tuple<uint64_t,uint64_t>> const& hrect) const;
+
   vector<partdim_t> partdims;
 };
 

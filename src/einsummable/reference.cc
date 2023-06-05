@@ -105,6 +105,13 @@ map<int, buffer_t> reference_compute_graph(
         inns.push_back(tensors[id_inn]);
       }
       tensors[id] = reference_einsummable(node.op.get_einsummable(), inns);
+    } else if(node.op.is_concat()) {
+      vector<buffer_t> inns;
+      inns.reserve(node.inns.size());
+      for(auto const& id_inn: node.inns) {
+        inns.push_back(tensors[id_inn]);
+      }
+      tensors[id] = reference_concat(node.op.get_concat(), inns);
     } else {
       throw std::runtime_error("should not reach: reference compute graph");
     }

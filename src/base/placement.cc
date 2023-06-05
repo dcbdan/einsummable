@@ -60,6 +60,26 @@ placement_t placement_t::random(vector<partdim_t> const& partdims, int nloc) {
   return random(partition_t(partdims), nloc);
 }
 
+placement_t placement_t::refine(partition_t const& refined_partition) const {
+  if(!refined_partition.refines(partition)) {
+    throw std::runtime_error(
+      "placement_t refine: must be given refining partition");
+  }
+
+  auto refi_block_shape = refined_partition.block_shape();
+
+  tensor_t<int> ret(refi_block_shape, -1);
+
+  vector<int> refi_index(refi_block_shape.size(), 0);
+  do {
+    auto hrect = refined_partition.get_hrect(refi_index);
+    vector<int> index = partition.get_index_covering(hrect);
+    ret.at(refi_index) = locations.at(index);
+  } while(increment_idxs(refi_block_shape, refi_index));
+
+  return placement_t(refined_partition, ret);
+}
+
 placement_t placement_t::subset(vector<tuple<int, int>> const& region) const {
   return placement_t(
     partition.subset(region),

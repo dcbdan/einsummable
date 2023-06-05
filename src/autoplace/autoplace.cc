@@ -28,13 +28,7 @@ double simulate(
 }
 
 vector<placement_t> single_loc_placements(graph_t const& graph) {
-  vector<placement_t> pls;
-  pls.reserve(graph.nodes.size());
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    pls.emplace_back(partition_t::singleton(node.op.shape()));
-  }
-  return pls;
+  return graph.make_singleton_placement();
 }
 
 equal_items_t<int> construct_equal_placements(graph_t const& graph) {

@@ -172,14 +172,15 @@ void main05() {
 }
 
 void test_make_taskgraph(
-  graph_constructor_t const& graph,
+  graph_t const& graph,
+  vector<placement_t> const& placements,
   map<int, buffer_t> full_inns)
 {
   tuple<
     map<int, tensor_t<int> >,
     map<int, tensor_t<int> >,
     taskgraph_t>
-    _info = taskgraph_t::make(graph.graph, graph.get_placements());
+    _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
   //taskgraph.print();
@@ -187,19 +188,19 @@ void test_make_taskgraph(
   map<int, buffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
     tensor_t<buffer_t> pbuffer = partition_buffer(
-      graph.placements.at(gid).partition,
+      placements.at(gid).partition,
       full_buffer);
     fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
   }
 
-  map<int, buffer_t> full_outs = reference_compute_graph(graph.graph, full_inns);
+  map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
   map<int, buffer_t> task_outs = reference_compute_taskgraph(taskgraph, task_inns);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
     tensor_t<buffer_t> t_part_buffer =
       get_partitioned_buffer(task_outs, out_to_blocks.at(gid));
     tensor_t<buffer_t> part_buffer =
-      partition_buffer(graph.placements.at(gid).partition, full_buffer_via_graph);
+      partition_buffer(placements.at(gid).partition, full_buffer_via_graph);
 
     auto const& tids  = out_to_blocks.at(gid).get();
     auto const& t_vec = t_part_buffer.get();
@@ -222,15 +223,23 @@ void test_make_taskgraph(
   }
 }
 
-void test_make_memgraph_without_evict(
+void test_make_taskgraph(
   graph_constructor_t const& graph,
+  map<int, buffer_t> full_inns)
+{
+  return test_make_taskgraph(graph.graph, graph.get_placements(), full_inns);
+}
+
+void test_make_memgraph_without_evict(
+  graph_t const& graph,
+  vector<placement_t> const& placements,
   map<int, buffer_t> full_inns)
 {
   tuple<
     map<int, tensor_t<int> >,
     map<int, tensor_t<int> >,
     taskgraph_t>
-    _info0 = taskgraph_t::make(graph.graph, graph.get_placements());
+    _info0 = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
   //{
@@ -264,7 +273,7 @@ void test_make_memgraph_without_evict(
     map<int, buffer_t> task_inns;
     for(auto [gid, full_buffer]: full_inns) {
       tensor_t<buffer_t> pbuffer = partition_buffer(
-        graph.placements.at(gid).partition,
+        placements.at(gid).partition,
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
     }
@@ -282,7 +291,7 @@ void test_make_memgraph_without_evict(
   }
 
   // compute the reference implementation
-  map<int, buffer_t> full_outs = reference_compute_graph(graph.graph, full_inns);
+  map<int, buffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
   //{
   //  std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
@@ -294,7 +303,7 @@ void test_make_memgraph_without_evict(
 
   for(auto const& [gid, full_buffer]: full_outs) {
     tensor_t<buffer_t> part_buffer =
-      partition_buffer(graph.placements.at(gid).partition, full_buffer);
+      partition_buffer(placements.at(gid).partition, full_buffer);
 
     auto const& tids = out_to_blocks.at(gid).get();
     auto const& vec  = part_buffer.get();
@@ -316,6 +325,14 @@ void test_make_memgraph_without_evict(
       }
     }
   }
+}
+
+void test_make_memgraph_without_evict(
+  graph_constructor_t const& graph,
+  map<int, buffer_t> full_inns)
+{
+  return test_make_memgraph_without_evict(
+    graph.graph, graph.get_placements(), full_inns);
 }
 
 // Here, obvious matmul means
@@ -658,6 +675,8 @@ void main11(int argc, char** argv) {
 }
 
 void main11() {
+  // Test the reference_concat works allright
+
   auto run = [](int dim, vector<uint64_t> shape_template) {
     shape_template[dim] = 1;
     uint64_t n = product(shape_template);
@@ -689,6 +708,42 @@ void main11() {
   run(1, {2,1,2});
 }
 
+void main12() {
+  graph_writer_t w;
+
+  using id_t = graph_writer_t::tensor_t;
+
+  id_t a = w.input({4,3});
+  id_t b = w.input({4,5});
+  id_t c = w.input({5,3});
+
+  id_t x = w.concat(1, {a,b});
+  id_t y = w.concat(0, {a,c});
+
+  map<int, buffer_t> inns;
+  inns.insert({a.get_id(), make_buffer(4*3)});
+  inns.insert({b.get_id(), make_buffer(4*5)});
+  inns.insert({c.get_id(), make_buffer(5*3)});
+
+  x.save();
+  y.save();
+
+  graph_t g = w.get_graph();
+
+  {
+    // singleton placements
+    auto pls = g.make_singleton_placement();
+    test_make_taskgraph(g, pls, inns);
+  }
+
+  // TODO
+  //{
+  //  // singleton input placements, but preserve partition on
+  //  // the concats of a
+  //  test_make_taskgraph(g, pls, inns);
+  //}
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
   //main10();
@@ -697,5 +752,5 @@ int main(int argc, char** argv) {
   //test_obvious_random_loc_matmul(5,5,5,5);
   //test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
 
-  main11();
+  main12();
 }

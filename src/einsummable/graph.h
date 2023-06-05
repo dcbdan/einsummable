@@ -65,6 +65,12 @@ struct graph_t {
 
   // }}}
 
+  // create a partition where every node is unpartitioned
+  vector<partition_t> make_singleton_partition() const;
+  // create a placement where every node is unpartitioned
+  // and every block is at loc 0
+  vector<placement_t> make_singleton_placement() const;
+
   vector<uint64_t> out_shape(int id) const;
 
   vector<int> get_order() const;
@@ -246,6 +252,7 @@ struct graph_writer_t {
     tensor_t view(vector<uint64_t> shape) const;
     vector<uint64_t> const& get_shape() const { return shape; }
     void save();
+    int get_id() const { return id; }
 
     tensor_t& operator=(tensor_t const&);
   private:

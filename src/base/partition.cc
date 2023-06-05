@@ -129,6 +129,28 @@ partition_t::get_region(
   return ret;
 }
 
+vector<int> partition_t::get_index_covering(
+  vector<tuple<uint64_t,uint64_t>> const& hrect) const
+{
+  vector<tuple<int,int>> ret = get_region(hrect);
+
+  if(ret.size() != hrect.size()) {
+    throw std::runtime_error("get index covering should not happen");
+  }
+
+  for(auto const& [b,e]: ret) {
+    if(b >= e) {
+      throw std::runtime_error("get index covering should not happen");
+    }
+    if(b + 1 != e) {
+      throw std::runtime_error(
+        "get_index_covering: cannot have multiple index");
+    }
+  }
+
+  return vector_mapfst(ret);
+}
+
 bool operator==(partition_t const& lhs, partition_t const& rhs) {
   return vector_equal(lhs.partdims, rhs.partdims);
 }

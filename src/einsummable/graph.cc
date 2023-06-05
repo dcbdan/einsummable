@@ -807,6 +807,25 @@ vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_full_shape() con
     full_join_shape.begin() + full_out_rank);
 }
 
+vector<partition_t> graph_t::make_singleton_partition() const {
+  vector<partition_t> ps;
+  ps.reserve(nodes.size());
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    ps.push_back(partition_t::singleton(node.op.shape()));
+  }
+  return ps;
+}
+
+vector<placement_t> graph_t::make_singleton_placement() const {
+  vector<placement_t> pls;
+  pls.reserve(nodes.size());
+  for(auto const& part: make_singleton_partition()) {
+    pls.emplace_back(part);
+  }
+  return pls;
+}
+
 vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_shape() const
 {
   return vector<uint64_t>(
