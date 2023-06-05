@@ -64,9 +64,26 @@ struct multiple_placement_t {
 
   static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
 
+  // deduce the required multiple placement of an einsummable's
+  // input at which_input given that the einsummable is placed with
+  // with join_placement
   static multiple_placement_t make_einsummable_input(
     placement_t const& join_placement,
     einsummable_t const& einsummable,
+    int which_input);
+
+  // deduce the required multiple_placement of a concat's
+  // input at which_input given that the concat is placed with
+  // join_placement
+  static multiple_placement_t make_concat_input(
+    placement_t const& join_placement,
+    int concat_dim,
+    vector<uint64_t> concat_parts,
+    int which_input);
+  static placement_t make_concat_input_placement(
+    placement_t const& join_placement,
+    int concat_dim,
+    vector<uint64_t> concat_parts,
     int which_input);
 
   partition_t const partition;
@@ -451,30 +468,26 @@ taskgraph_make_state_t::form_concat(int gid) {
   });
   partition_t split_partition(split_partdims);
 
+  // TODO: calling form_from_refinement could be done on a part by
+  //       part basis:
+  //       (in1|in2  |in3    )   <- the inputs being concated
+  //       (x x|x x x|x x x x)   <- split_partition
+  //       (x x|x x x|x x|x x)   <- pl partition
+  //        ^yes^yes  ^no ^no
 
   if(pl.partition == split_partition) {
     // Note: if form_from_refinement had cache support,
     //       this would dip into that cache.
 
-    vector<tuple<int,int>> breaks = _get_sum_breaks(
-      split_partdims[dim].sizes(),
-      concat.dim_parts);
-
     vector<tensor_t<int>> ts;
-
-    auto pl_block_shape = pl.block_shape();
-    vector<tuple<int,int>> region;
-    region.reserve(pl_block_shape.size());
-    for(auto const& d: pl_block_shape) {
-      region.emplace_back(0, d);
-    }
 
     for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
       int const& inn_gid = node.inns[which_inn];
-      auto const& [b,e] = breaks[which_inn];
-      region[dim] = {b, e};
-
-      auto inn_pl = pl.subset(region);
+      placement_t inn_pl = multiple_placement_t::make_concat_input_placement(
+        pl,
+        dim,
+        concat.dim_parts,
+        which_inn);
 
       ts.push_back(form_from_refinement(inn_gid, inn_pl));
     }
@@ -642,7 +655,6 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
     auto const& out_pl   = placements[out_gid];
-    // TODO: concat
     if(out_node.op.is_formation()) {
       usage_placements.push_back(
         multiple_placement_t::from_single_placement(out_pl));
@@ -658,10 +670,22 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
               which_input));
         }
       }
+    } else if(out_node.op.is_concat()) {
+      auto concat = out_node.op.get_concat();
+      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
+        if(out_node.inns[which_input] == join_gid) {
+          usage_placements.push_back(
+            multiple_placement_t::make_concat_input(
+              out_pl,
+              concat.dim,
+              concat.dim_parts,
+              which_input));
+        }
+      }
     } else {
       throw std::runtime_error(
           "taskgraph state construct refinement placement: "
-          "communicate: should not happen");
+          "should not happen");
     }
   }
 
@@ -1236,6 +1260,42 @@ multiple_placement_t multiple_placement_t::make_einsummable_input(
     .partition = std::move(partition),
     .locations = std::move(locations)
   };
+}
+
+placement_t
+multiple_placement_t::make_concat_input_placement(
+  placement_t const& join_placement,
+  int concat_dim,
+  vector<uint64_t> concat_parts,
+  int which_input)
+{
+  auto const& partdim = join_placement.partition.partdims[concat_dim];
+
+  vector<tuple<int,int>> breaks = _get_sum_breaks(
+    partdim.sizes(),
+    concat_parts);
+
+  auto block_shape = join_placement.block_shape();
+  vector<tuple<int,int>> region;
+  region.reserve(block_shape.size());
+  for(auto const& d: block_shape) {
+    region.emplace_back(0, d);
+  }
+
+  region[concat_dim] = breaks[which_input];
+
+  return join_placement.subset(region);
+}
+
+multiple_placement_t multiple_placement_t::make_concat_input(
+  placement_t const& join_placement,
+  int concat_dim,
+  vector<uint64_t> concat_parts,
+  int which_input)
+{
+  return multiple_placement_t::from_single_placement(
+    make_concat_input_placement(
+      join_placement, concat_dim, concat_parts, which_input));
 }
 
 multiple_tensor_t::multiple_tensor_t(
