@@ -61,7 +61,8 @@ int main(int argc, char** argv) {
     // std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
     // std::ofstream f("mm3d_mem_lowest_dep.gv");
     // memgraph.print_graphviz(f);
-    execute(memgraph, std::make_shared<buffer_holder_t>());
+    uint64_t buffer_size = 0;
+    execute(memgraph);
   }
 
   

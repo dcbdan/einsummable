@@ -2,8 +2,8 @@
 #include "../../base/setup.h"
 #include "../../einsummable/memgraph.h"
 #include "../../einsummable/reference.h" // buffer_t
-#include "../../../libcutensor/include/cutensor.h"
-#include "device_launch_parameters.h"
+#include "cutensor.h"
+// #include "device_launch_parameters.h"
 #include "dummy_kernels.h"
 
 #include <cstddef>
@@ -125,152 +125,152 @@ bool is_touch(memgraph_t::node_t node) {
 }
 
 
-// input: node from memgraph and all other necessary metadata, output: cutensor plan
-// we are saving this plan in a map so that we can precompute the plan and save it before executing the memgraph
-cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memgraph_t::node_t node, 
-    buffer_t gpu_memory, const memgraph_t & memgraph)
-    {
-    // get the apply_t object and the einsummable from apply_t
-    memgraph_t::apply_t apply = node.op.get_apply();
-    auto einsum = std::get<einsummable_t>(apply.op);
+// // input: node from memgraph and all other necessary metadata, output: cutensor plan
+// // we are saving this plan in a map so that we can precompute the plan and save it before executing the memgraph
+// cutensorContractionPlan_t cutensor_plan_from_node(cutensorHandle_t* handle, memgraph_t::node_t node, 
+//     buffer_t gpu_memory, const memgraph_t & memgraph)
+//     {
+//     // get the apply_t object and the einsummable from apply_t
+//     memgraph_t::apply_t apply = node.op.get_apply();
+//     auto einsum = std::get<einsummable_t>(apply.op);
     
-    // *****************************************************
-    // contraction: performs the operation alpha * A * B + beta * C
-    // getting all the metadata needed to generate the cutensor plan
-    auto nmodeA = einsum.inns[0].size();
-    auto nmodeB = einsum.inns[1].size();
-    auto nmodeC = 0;
-    if (einsum.inns.size() == 3){
-        nmodeC = einsum.inns[2].size();
-    }
-    // CUDA types
-    cudaDataType_t typeA = CUDA_R_32F;
-    cudaDataType_t typeB = CUDA_R_32F;
-    cudaDataType_t typeC = CUDA_R_32F;
-    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+//     // *****************************************************
+//     // contraction: performs the operation alpha * A * B + beta * C
+//     // getting all the metadata needed to generate the cutensor plan
+//     auto nmodeA = einsum.inns[0].size();
+//     auto nmodeB = einsum.inns[1].size();
+//     auto nmodeC = 0;
+//     if (einsum.inns.size() == 3){
+//         nmodeC = einsum.inns[2].size();
+//     }
+//     // CUDA types
+//     cudaDataType_t typeA = CUDA_R_32F;
+//     cudaDataType_t typeB = CUDA_R_32F;
+//     cudaDataType_t typeC = CUDA_R_32F;
+//     cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
 
-    auto extent_A = get_int64_t(einsum.inns[0]);
-    auto extent_B = get_int64_t(einsum.inns[1]);
-    int64_t* extent_C = nullptr;
-    if (apply.mems.size() == 4){
-        extent_C = get_int64_t(einsum.inns[2]).data();
-    }
+//     auto extent_A = get_int64_t(einsum.inns[0]);
+//     auto extent_B = get_int64_t(einsum.inns[1]);
+//     int64_t* extent_C = nullptr;
+//     if (apply.mems.size() == 4){
+//         extent_C = get_int64_t(einsum.inns[2]).data();
+//     }
     
-    // Create Tensor Descriptors
-    cutensorTensorDescriptor_t descA;
-    HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
-                &descA,
-                nmodeA,
-                extent_A.data(),
-                NULL,/*stride*/
-                typeA, CUTENSOR_OP_IDENTITY ) );
+//     // Create Tensor Descriptors
+//     cutensorTensorDescriptor_t descA;
+//     HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+//                 &descA,
+//                 nmodeA,
+//                 extent_A.data(),
+//                 NULL,/*stride*/
+//                 typeA, CUTENSOR_OP_IDENTITY ) );
 
-    cutensorTensorDescriptor_t descB;
-    HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
-                &descB,
-                nmodeB,
-                extent_B.data(),
-                NULL,/*stride*/
-                typeB, CUTENSOR_OP_IDENTITY ) );
+//     cutensorTensorDescriptor_t descB;
+//     HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+//                 &descB,
+//                 nmodeB,
+//                 extent_B.data(),
+//                 NULL,/*stride*/
+//                 typeB, CUTENSOR_OP_IDENTITY ) );
 
-    cutensorTensorDescriptor_t descC;
-    HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
-                &descC,
-                nmodeC,
-                extent_C,
-                NULL,/*stride*/
-                typeC, CUTENSOR_OP_IDENTITY ) );
+//     cutensorTensorDescriptor_t descC;
+//     HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
+//                 &descC,
+//                 nmodeC,
+//                 extent_C,
+//                 NULL,/*stride*/
+//                 typeC, CUTENSOR_OP_IDENTITY ) );
 
-    // printf("Initialize cuTENSOR and tensor descriptors\n");
+//     // printf("Initialize cuTENSOR and tensor descriptors\n");
 
-    /* ***************************** */
+//     /* ***************************** */
 
-    // get the data/memory pointers of the input tensors
-    auto A_d = gpu_memory->data + apply.mems[1].offset;
-    auto B_d = gpu_memory->data + apply.mems[2].offset;
-    auto C_d = gpu_memory->data + apply.mems[0].offset;
-    //Retrieve the memory alignment for each tensor
-    uint32_t alignmentRequirementA;
-    HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-                A_d,
-                &descA,
-                &alignmentRequirementA) );
+//     // get the data/memory pointers of the input tensors
+//     auto A_d = gpu_memory->data + apply.mems[1].offset;
+//     auto B_d = gpu_memory->data + apply.mems[2].offset;
+//     auto C_d = gpu_memory->data + apply.mems[0].offset;
+//     //Retrieve the memory alignment for each tensor
+//     uint32_t alignmentRequirementA;
+//     HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+//                 A_d,
+//                 &descA,
+//                 &alignmentRequirementA) );
 
-    uint32_t alignmentRequirementB;
-    HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-                B_d,
-                &descB,
-                &alignmentRequirementB) );
+//     uint32_t alignmentRequirementB;
+//     HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+//                 B_d,
+//                 &descB,
+//                 &alignmentRequirementB) );
 
-    uint32_t alignmentRequirementC;
-    HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-                C_d,
-                &descC,
-                &alignmentRequirementC) );
+//     uint32_t alignmentRequirementC;
+//     HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+//                 C_d,
+//                 &descC,
+//                 &alignmentRequirementC) );
 
-    printf("Query best alignment requirement for our pointers\n");
+//     printf("Query best alignment requirement for our pointers\n");
 
-    /* ***************************** */
+//     /* ***************************** */
 
-    // Create the Contraction Descriptor
-    cutensorContractionDescriptor_t desc;
-    HANDLE_ERROR( cutensorInitContractionDescriptor( handle,
-                &desc,
-                &descA, create_mode(nmodeA).data(), alignmentRequirementA,
-                &descB, create_mode(nmodeB).data(), alignmentRequirementB,
-                &descC, create_mode(nmodeC).data(), alignmentRequirementC,
-                &descC, create_mode(nmodeC).data(), alignmentRequirementC,
-                typeCompute) );
+//     // Create the Contraction Descriptor
+//     cutensorContractionDescriptor_t desc;
+//     HANDLE_ERROR( cutensorInitContractionDescriptor( handle,
+//                 &desc,
+//                 &descA, create_mode(nmodeA).data(), alignmentRequirementA,
+//                 &descB, create_mode(nmodeB).data(), alignmentRequirementB,
+//                 &descC, create_mode(nmodeC).data(), alignmentRequirementC,
+//                 &descC, create_mode(nmodeC).data(), alignmentRequirementC,
+//                 typeCompute) );
 
-    printf("Initialize contraction descriptor\n");
+//     printf("Initialize contraction descriptor\n");
 
-    /* ***************************** */
+//     /* ***************************** */
 
-    // Set the algorithm to use
-    cutensorContractionFind_t find;
-    HANDLE_ERROR( cutensorInitContractionFind(
-                handle, &find,
-                CUTENSOR_ALGO_DEFAULT) );
+//     // Set the algorithm to use
+//     cutensorContractionFind_t find;
+//     HANDLE_ERROR( cutensorInitContractionFind(
+//                 handle, &find,
+//                 CUTENSOR_ALGO_DEFAULT) );
 
-    // printf("Initialize settings to find algorithm\n");
+//     // printf("Initialize settings to find algorithm\n");
 
-    /* ***************************** */
+//     /* ***************************** */
 
-    // Query workspace
-    size_t worksize = 0;
-    HANDLE_ERROR( cutensorContractionGetWorkspaceSize(handle,
-                &desc,
-                &find,
-                CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
+//     // Query workspace
+//     size_t worksize = 0;
+//     HANDLE_ERROR( cutensorContractionGetWorkspaceSize(handle,
+//                 &desc,
+//                 &find,
+//                 CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
 
-    // Allocate workspace
-    void *work = nullptr;
-    if(worksize > 0)
-    {
-        if( cudaSuccess != cudaMalloc(&work, worksize) ) // This is optional!
-        {
-            work = nullptr;
-            worksize = 0;
-        }
-    }
+//     // Allocate workspace
+//     void *work = nullptr;
+//     if(worksize > 0)
+//     {
+//         if( cudaSuccess != cudaMalloc(&work, worksize) ) // This is optional!
+//         {
+//             work = nullptr;
+//             worksize = 0;
+//         }
+//     }
 
-    // printf("Query recommended workspace size and allocate it\n");
+//     // printf("Query recommended workspace size and allocate it\n");
 
-    /* ***************************** */
+//     /* ***************************** */
 
-    // Create Contraction Plan
-    cutensorContractionPlan_t plan;
-    HANDLE_ERROR( cutensorInitContractionPlan(handle,
-                                                &plan,
-                                                &desc,
-                                                &find,
-                                                worksize) );
+//     // Create Contraction Plan
+//     cutensorContractionPlan_t plan;
+//     HANDLE_ERROR( cutensorInitContractionPlan(handle,
+//                                                 &plan,
+//                                                 &desc,
+//                                                 &find,
+//                                                 worksize) );
 
-    // printf("Create plan for contraction\n");
+//     // printf("Create plan for contraction\n");
 
-    return plan;
+//     return plan;
 
-}
+// }
 
 // ---------------- Memgraph traversal ----------------
 // given a memgraph, traverse the graph and get all the dependencies of a node represented by node.inns()
@@ -286,7 +286,7 @@ std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
 struct gpu_execute_state_t 
 {
     memgraph_t memgraph;
-    buffer_t gpu_memory;
+    // buffer_t gpu_memory;
     // maintain a queue of tasks that are pending to be executed
     std::queue<int> pending_queue;
 
@@ -297,17 +297,17 @@ struct gpu_execute_state_t
     std::map<int, int> dependency_count;
 
     // cutensor related:
-    cutensorHandle_t* handle;
+    // cutensorHandle_t* handle;
     
     // a map from the node of the memgraph to the cutensor plan 
     // we only have plans for operation contraction, so we only need to store the plans for those nodes
     // remember to throw an error if the node is not a contraction but trying to access the map
     map<int, cutensorContractionPlan_t> cutensor_plans;
 
-    gpu_execute_state_t(const memgraph_t input_memgraph, buffer_t &input_gpu_memory): memgraph(input_memgraph), gpu_memory(input_gpu_memory){
+    gpu_execute_state_t(const memgraph_t input_memgraph): memgraph(input_memgraph) {
 
         // create a cutensor handle
-        HANDLE_ERROR( cutensorCreate(&handle) );
+        // HANDLE_ERROR( cutensorInit(&handle) );
 
         dependency_count = get_dependencies(memgraph);
 
@@ -319,10 +319,10 @@ struct gpu_execute_state_t
                 pending_queue.push(i);
             }
 
-            if (is_contraction(memgraph.nodes[i]))
-            {
-                cutensor_plans[i] = cutensor_plan_from_node(handle, memgraph.nodes[i], gpu_memory, memgraph);
-            }
+            // if (is_contraction(memgraph.nodes[i]))
+            // {
+            //     cutensor_plans[i] = cutensor_plan_from_node(handle, memgraph.nodes[i], gpu_memory, memgraph);
+            // }
         }
     }
 
@@ -330,8 +330,4 @@ struct gpu_execute_state_t
     
 };
 
-// Every input node in taskgraph should be in tensors.
-// After execution, only every save taskgraph node should be in tensors
-void execute(
-  const memgraph_t &memgraph,
-  buffer_t& gpu_memory);
+void execute(const memgraph_t &memgraph);

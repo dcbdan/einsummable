@@ -110,4 +110,5 @@ if(${GPU_EXECUTION_ENGINE})
   endfunction()
 
   # call add_gpu_application here
+  add_gpu_application("loopTest" "exps" "GPU_test")
 endif()
