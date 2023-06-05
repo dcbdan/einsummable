@@ -717,31 +717,42 @@ void main12() {
   id_t b = w.input({4,5});
   id_t c = w.input({5,3});
 
-  id_t x = w.concat(1, {a,b});
-  id_t y = w.concat(0, {a,c});
-
   map<int, buffer_t> inns;
   inns.insert({a.get_id(), make_buffer(4*3)});
   inns.insert({b.get_id(), make_buffer(4*5)});
   inns.insert({c.get_id(), make_buffer(5*3)});
+
+  id_t x = w.concat(1, {a,b});
+  id_t y = w.concat(0, {a,c});
 
   x.save();
   y.save();
 
   graph_t g = w.get_graph();
 
+  DOUT("singleton concats...");
   {
     // singleton placements
     auto pls = g.make_singleton_placement();
     test_make_taskgraph(g, pls, inns);
   }
 
-  // TODO
-  //{
-  //  // singleton input placements, but preserve partition on
-  //  // the concats of a
-  //  test_make_taskgraph(g, pls, inns);
-  //}
+  DOUT("concats with partitions along concat...");
+  {
+    // singleton input placements, but preserve partition on
+    // the concats of a
+    auto pls = g.make_singleton_placement();
+
+    for(int id = 0; id != g.nodes.size(); ++id) {
+      auto const& node = g.nodes[id];
+      if(node.op.is_concat()) {
+        pls[id] = concat_split_placement(pls[id], node.op.get_concat());
+      }
+    }
+
+    test_make_taskgraph(g, pls, inns);
+  }
+  DOUT("all done.");
 }
 
 int main(int argc, char** argv) {

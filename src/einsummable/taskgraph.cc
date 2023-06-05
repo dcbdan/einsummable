@@ -112,14 +112,6 @@ struct multiple_tensor_t {
   tensor_t<int> to_tensor(placement_t const& placement);
 };
 
-partition_t _concat_split_partition(
-  partition_t const& partition,
-  concat_t const& concat);
-
-placement_t _concat_split_placement(
-  placement_t const& placement,
-  concat_t const& concat);
-
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
 struct taskgraph_make_state_t {
@@ -465,7 +457,7 @@ taskgraph_make_state_t::form_concat(int gid) {
 
   auto const& concat = node.op.get_concat();
 
-  partition_t split_partition = _concat_split_partition(pl.partition, concat);
+  partition_t split_partition = concat_split_partition(pl.partition, concat);
 
   // TODO: calling form_from_refinement could be done on a part by
   //       part basis:
@@ -1260,7 +1252,7 @@ multiple_placement_t::make_concat_input_placement(
   int which_input)
 {
   // the first thing to do is split the placement along concat_dim
-  placement_t split_placement = _concat_split_placement(join_placement, concat);
+  placement_t split_placement = concat_split_placement(join_placement, concat);
 
   auto const& partdim = split_placement.partition.partdims[concat.dim];
 
@@ -1364,7 +1356,7 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   return tensor_t<int>(tensor.get_shape(), ret);
 }
 
-partition_t _concat_split_partition(
+partition_t concat_split_partition(
   partition_t const& partition,
   concat_t const& concat)
 {
@@ -1380,11 +1372,11 @@ partition_t _concat_split_partition(
   return partition_t(split_partdims);
 }
 
-placement_t _concat_split_placement(
+placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat)
 {
-  partition_t split_partition = _concat_split_partition(
+  partition_t split_partition = concat_split_partition(
     placement.partition, concat);
 
   return placement.refine(split_partition);

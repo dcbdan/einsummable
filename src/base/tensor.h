@@ -137,7 +137,7 @@ struct tensor_t {
     tensor_t<T> ret(shape);
     for(int which_inn = 0; which_inn != ts.size(); ++which_inn) {
       tensor_t<T> const& inn = ts[which_inn];
-      vector<int> inn_index(0, inn.shape.size());
+      vector<int> inn_index(inn.shape.size(), 0);
 
       int const& offset = offsets[which_inn];
       do {

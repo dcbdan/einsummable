@@ -333,6 +333,14 @@ private:
   int insert(op_t op, bool is_save);
 };
 
+partition_t concat_split_partition(
+  partition_t const& partition,
+  concat_t const& concat);
+
+placement_t concat_split_placement(
+  placement_t const& placement,
+  concat_t const& concat);
+
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);
