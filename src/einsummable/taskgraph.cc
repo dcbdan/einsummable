@@ -282,13 +282,6 @@ void taskgraph_make_state_t::relational_touch(
 
     shape_t shape_out_mid_uxa = hrect_shape(hrect_out_mid_uxa);
 
-    shape_t out_mid_offset;
-    out_mid_offset.reserve(size.size());
-    for(int i = 0; i != size.size(); ++i) {
-      out_mid_offset.push_back(
-        std::get<0>(hrect_out_mid_exa[i]) - std::get<0>(hrect_out_mid_uxa[i]));
-    }
-
     // convert hrect_out_mid_exa into something with respect to the inn indicess
     hrect_t hrect_inn_mid;
     hrect_inn_mid.reserve(size.size());
@@ -306,6 +299,24 @@ void taskgraph_make_state_t::relational_touch(
     do {
       hrect_t hrect_inn_sml_uxa = part_inn.get_hrect(inn_index);
       hrect_t hrect_inn_sml_exa = hrect_intersect(hrect_inn_sml_uxa, hrect_inn_mid);
+
+      hrect_t hrect_out_sml;
+      hrect_out_sml.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        auto [b,e] = hrect_inn_sml_exa[i];
+        uint64_t const& off_inn = offset_inn[i];
+        uint64_t const& off_out = offset_out[i];
+        b = (b - off_inn) + off_out;
+        e = (e - off_inn) + off_out;
+        hrect_out_sml.emplace_back(b,e);
+      }
+
+      shape_t out_mid_offset;
+      out_mid_offset.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        out_mid_offset.push_back(
+          std::get<0>(hrect_out_sml[i]) - std::get<0>(hrect_out_mid_uxa[i]));
+      }
 
       shape_t shape_inn_sml_uxa = hrect_shape(hrect_inn_sml_uxa);
       shape_t shape_inn_sml_exa = hrect_shape(hrect_inn_sml_exa);
@@ -330,6 +341,7 @@ void taskgraph_make_state_t::relational_touch(
           .size       = shape_inn_sml_exa[i]
         });
       }
+
       touch_t touch {
         .selection = selection,
         .castable = std::nullopt

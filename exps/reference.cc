@@ -817,6 +817,53 @@ void main14() {
   }
 }
 
+void test_random_goofy_ff() {
+  graph_writer_t writer;
+  using id_t = graph_writer_t::tensor_t;
+
+  uint64_t bsz = 3;
+  uint64_t d0 = 4;
+  uint64_t d1 = 5;
+  uint64_t d2 = 6;
+  uint64_t d3 = 7;
+
+  uint64_t d01 = d0*d1;
+  uint64_t d12 = d1*d2;
+  uint64_t d22 = d2*d2;
+  uint64_t d32 = d3*d2;
+  uint64_t d33 = d3*d3;
+
+  id_t x = writer.input({bsz,d0,d1}).view({bsz,d01});
+  id_t w0 = writer.input({d0,d1,d3,d2}).view({d01,d32});
+  id_t w1 = writer.input({d3,d2});
+
+  map<int,buffer_t> inns;
+  for(id_t id: vector<id_t>{x,w0,w1}) {
+    int gid = id.get_id();
+    buffer_t buffer = make_buffer(product(id.get_shape()));
+    buffer->random();
+    inns.insert({gid, buffer});
+  }
+
+  id_t y = writer.matmul(x, w0).view({bsz, d3, d2});
+  id_t z = writer.matmul(y, w1.transpose(0,1)); // bsz,d3,d3
+  y = writer.concat(2, {y, z}); // bsz,d3,d33
+  y = writer.reduction("bxy->bx", castable_t::add, y); // bsz,d1
+
+  y.save();
+
+  int nloc = 3;
+  random_placement_t random_placement { {1, 10}, nloc };
+
+  graph_t g = writer.get_graph();
+  vector<placement_t> pls;
+  for(int gid = 0; gid != g.nodes.size(); ++gid) {
+    pls.push_back(random_placement(g.nodes[gid].op.shape()));
+  }
+
+  test_make_taskgraph(g, pls, inns);
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
   //main10();
@@ -826,8 +873,17 @@ int main(int argc, char** argv) {
   //test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
 
   //main13();
-  main14();
+  //main14();
 
   //set_seed(0);
   //test_random_concat(0, {20,19,18}, 3);
+
+  for(int i = 0; i != 1000; ++i) {
+    DOUT(i);
+    set_seed(i);
+    test_random_goofy_ff();
+  }
+
+  //set_seed(1);
+  //test_random_goofy_ff();
 }
