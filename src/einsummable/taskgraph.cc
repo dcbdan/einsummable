@@ -148,6 +148,16 @@ struct taskgraph_make_state_t {
   // create the refined_tensor object from the compute result;
   // save into refined_tensors
   void communicate(int gid, tensor_t<int> compute_result);
+
+  multiple_placement_t construct_refinement_placement(int gid);
+
+  // Note: the join_result can include agg'd dimensions, in which case
+  //       a castable must be given
+  multiple_tensor_t construct_refinement_tensor(
+    placement_t const& join_placement,
+    tensor_t<int> join_result,
+    multiple_placement_t const& refinement,
+    optional<castable_t> castable);
 };
 
 tuple<
@@ -605,14 +615,34 @@ taskgraph_make_state_t::form_relation(int gid)
 void
 taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
 {
+  multiple_placement_t usage_placement = construct_refinement_placement(join_gid);
+
+  optional<castable_t> maybe_castable;
+  auto const& node = graph.nodes[join_gid];
+  if(node.op.has_aggregation()) {
+    maybe_castable = node.op.get_castable();
+  }
+
+  multiple_tensor_t ret = construct_refinement_tensor(
+    placements[join_gid],
+    join_result,
+    usage_placement,
+    maybe_castable);
+
+  refined_tensors.insert({join_gid, ret});
+}
+
+multiple_placement_t
+taskgraph_make_state_t::construct_refinement_placement(int join_gid)
+{
   auto const& join_node = graph.nodes[join_gid];
-  auto const& join_placement = placements[join_gid];
 
   vector<multiple_placement_t> usage_placements;
   usage_placements.reserve(2*join_node.outs.size());
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
     auto const& out_pl   = placements[out_gid];
+    // TODO: concat
     if(out_node.op.is_formation()) {
       usage_placements.push_back(
         multiple_placement_t::from_single_placement(out_pl));
@@ -629,25 +659,34 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
         }
       }
     } else {
-      throw std::runtime_error("taskgraph state_t::communicate: should not happen");
+      throw std::runtime_error(
+          "taskgraph state construct refinement placement: "
+          "communicate: should not happen");
     }
   }
 
-  auto refinement = multiple_placement_t::make_refinement(usage_placements);
+  return multiple_placement_t::make_refinement(usage_placements);
+}
+
+multiple_tensor_t
+taskgraph_make_state_t::construct_refinement_tensor(
+  placement_t const& join_placement,
+  tensor_t<int> join_result,
+  multiple_placement_t const& refinement,
+  optional<castable_t> maybe_castable)
+{
+  auto const& _join_partdims = join_placement.partition.partdims;
+
+  int join_rank = join_placement.partition.block_shape().size();
+  int out_rank = refinement.partition.block_shape().size();
+  int agg_rank = join_rank - out_rank;
+
   auto refinement_shape = refinement.partition.block_shape();
 
   // the output (of this method) to be added to refined_tensors
   // initialize every id to -1 initially;
   // the locs will track with the refinement locs
   multiple_tensor_t refined_tensor(refinement, -1);
-
-  auto const& _join_partdims = join_placement.partition.partdims;
-
-  int join_rank = join_node.op.rank();
-  int out_rank = join_node.op.out_rank();
-  int agg_rank = join_rank - out_rank;
-
-  optional<castable_t> maybe_castable;
 
   partition_t out_partition(vector<partdim_t>(
     _join_partdims.begin(),
@@ -659,9 +698,13 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
       _join_partdims.begin() + out_rank,
       _join_partdims.end());
 
-    // an agg will only happen if this is an einsummable node;
-    // so set the castable value
-    maybe_castable = graph.nodes[join_gid].op.get_einsummable().castable.value();
+    if(!maybe_castable) {
+      throw std::runtime_error("ann agg is happening but no castable");
+    }
+  } else {
+    if(maybe_castable) {
+      throw std::runtime_error("no agg but castable given");
+    }
   }
 
   // There are out index, agg index, join index
@@ -1044,7 +1087,7 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
     }
   }
 
-  refined_tensors.insert({join_gid, refined_tensor});
+  return refined_tensor;
 }
 
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)

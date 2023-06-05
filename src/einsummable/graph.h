@@ -116,7 +116,9 @@ public:
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
     }
-
+    castable_t    const& get_castable() const {
+      return get_einsummable().castable.value();
+    }
 
     _op_t op;
   };
@@ -210,6 +212,26 @@ graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk);
 
+// TODO:
+//   This is not valid but should be:
+//     graph_writer_t w;
+//     auto t = w.input({100,100});
+//     t = t.view({10,10,10,10});
+//   The reason it is not valid is because all inputs must
+//   currently be declared with the finest used dimension sizes.
+//
+//   What should happen instead is at t.view(...), it is determined
+//   which dimensions need to be set finer and that should be
+//   somehow propagated up the graph.
+//   An implementation that does this might not be desirable as it
+//   would be error prone: graph_t does checks when constructing
+//   the graph and offers no facilities to do such modifications.
+//
+//   Perhaps the preferable implementation would be upon encountering
+//   a dimension that needs to be made finer, to detect all the usages
+//   of the dimension and create an entirely new graph within the
+//   graph_writer_t. This would not be efficient for lots of encounters,
+//   but efficiency should not be the concern here.
 struct graph_writer_t {
   struct tensor_t {
     tensor_t transpose(int i, int j) const;
