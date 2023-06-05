@@ -332,4 +332,3 @@ private:
   optional<to_einsummable_info_t>
   make_einsummable_info(string str, vector<tensor_t> const& inns);
 };
-

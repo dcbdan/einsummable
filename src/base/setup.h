@@ -678,3 +678,41 @@ inline set<T> const& set_in_order(set<T> const& items) {
 
 void hash_combine_impl(std::size_t& seed, std::size_t value);
 
+template <typename T>
+optional<string> check_concat_shapes(
+  int dim,
+  vector<vector<T>> const& shapes)
+{
+  if(shapes.size() == 0) {
+    return "cannot be empty list of shapes";
+  }
+
+  // they should all have the same rank
+  int rank = shapes[0].size();
+  for(int i = 1; i != shapes.size(); ++i) {
+    if(shapes[i].size() != rank) {
+      return "invalid input size";
+    }
+  }
+
+  if(dim < 0 || dim >= rank) {
+    return "invalid dim";
+  }
+
+  // every dim should be the same, except dim
+  vector<T> dim_parts;
+  for(int r = 0; r != rank; ++r) {
+    if(r != dim) {
+      T d = shapes[0][r];
+      for(int i = 1; i != shapes.size(); ++i) {
+        if(shapes[i][r] != d) {
+          return "non-concat dimensions do not line up";
+        }
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+

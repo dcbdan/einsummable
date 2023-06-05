@@ -86,6 +86,72 @@ struct tensor_t {
     return shape;
   }
 
+  tensor_t<T> subset(vector<tuple<int,int>> const& region) const {
+    if(region.size() != shape.size()) {
+      throw std::runtime_error("invalid subset region tenosr");
+    }
+
+    vector<int> new_shape;
+    new_shape.reserve(region.size());
+    for(int i = 0; i != region.size(); ++i) {
+      auto const& [b,e] = region[i];
+      int const& sz = shape[i];
+      if(b < 0 || b >= e || e > sz) {
+        throw std::runtime_error("invalid region subset tensor");
+      }
+      new_shape.push_back(e-b);
+    }
+
+    vector<T> ret;
+    ret.reserve(product(new_shape));
+
+    vector<int> index = vector_mapfst(region);
+    do {
+      ret.push_back(this->at(index));
+    } while(increment_idxs_region(region, index));
+
+    return tensor_t<T>(new_shape, ret);
+  }
+
+  static tensor_t<T> concat(int dim, vector<tensor_t<T>> const& ts) {
+    vector<vector<int>> shapes = vector_from_each_member(ts, vector<int>, shape);
+
+    vector<int> shape;
+    vector<int> offsets;
+    {
+      optional<string> errmsg = check_concat_shapes(dim, shapes);
+      if(errmsg) {
+        throw std::runtime_error("tensor_t concat: " + errmsg.value());
+      }
+
+      int total = 0;
+      for(auto const& s: shapes) {
+        offsets.push_back(total);
+        total += s[dim];
+      }
+
+      shape = shapes[0];
+      shape[dim] = total;
+    }
+
+    tensor_t<T> ret(shape);
+    for(int which_inn = 0; which_inn != ts.size(); ++which_inn) {
+      tensor_t<T> const& inn = ts[which_inn];
+      vector<int> inn_index(0, inn.shape.size());
+
+      int const& offset = offsets[which_inn];
+      do {
+        vector<int> out_index = inn_index;
+        out_index[dim] += offset;
+
+        ret.at(out_index) = inn.at(inn_index);
+
+      } while(increment_idxs(inn.shape, inn_index));
+    }
+
+    return ret;
+  }
+
 private:
   vector<int> shape;
   vector<T> vec;

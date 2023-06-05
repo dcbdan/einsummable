@@ -162,38 +162,6 @@ int graph_constructor_t::insert_concat(
   return ret;
 }
 
-optional<string> check_concat_shapes(
-  int dim,
-  vector<vector<uint64_t>> const& shapes)
-{
-  // they should all have the same rank
-  int rank = shapes[0].size();
-  for(int i = 1; i != shapes.size(); ++i) {
-    if(shapes[i].size() != rank) {
-      return "invalid input size";
-    }
-  }
-
-  if(dim < 0 || dim >= rank) {
-    return "invalid dim";
-  }
-
-  // every dim should be the same, except dim
-  vector<uint64_t> dim_parts;
-  for(int r = 0; r != rank; ++r) {
-    if(r != dim) {
-      uint64_t d = shapes[0][r];
-      for(int i = 1; i != shapes.size(); ++i) {
-        if(shapes[i][r] != d) {
-          return "non-concat dimensions do not line up";
-        }
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
 int graph_t::insert_concat(
   int dim,
   vector<int> inns)

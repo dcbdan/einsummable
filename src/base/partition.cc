@@ -53,6 +53,31 @@ vector<uint64_t> partition_t::tensor_shape_at(vector<int> const& idxs) const
   return ret;
 }
 
+partition_t partition_t::subset(
+  vector<tuple<int, int>> const& region) const
+{
+  if(region.size() != partdims.size()) {
+    throw std::runtime_error("invalid region size for subsetting");
+  }
+
+  vector<partdim_t> pds;
+
+  for(int i = 0; i != region.size(); ++i) {
+    auto const& [b,e] = region[i];
+    auto full_szs = partdims[i].sizes();
+
+    if(b < 0 || b >= e || e > full_szs.size()) {
+      throw std::runtime_error("invalid region");
+    }
+
+    pds.push_back(partdim_t::from_sizes(vector<uint64_t>(
+      full_szs.begin() + b,
+      full_szs.begin() + e)));
+  }
+
+  return partition_t(pds);
+}
+
 // Get the hyper-rectanuglar set represnted by this index
 vector<tuple<uint64_t, uint64_t>>
 partition_t::get_hrect(vector<int> const& idxs) const

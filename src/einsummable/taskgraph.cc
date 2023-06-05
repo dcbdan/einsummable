@@ -81,58 +81,15 @@ struct multiple_tensor_t {
 
   multiple_tensor_t(
     partition_t p,
-    tensor_t<vector<locid_t>> && t)
-    : partition(p), tensor(std::move(t))
-  {
-    if(tensor.get_shape() != p.block_shape()){
-      throw std::runtime_error("multiple_tensor_t incorrect shape");
-    }
-  }
+    tensor_t<vector<locid_t>> && t);
 
-  multiple_tensor_t(multiple_placement_t p, int init_value = 0)
-    : partition(p.partition), tensor(p.partition.block_shape())
-  {
-    auto shape = partition.block_shape();
-    vector<int> index(shape.size(), 0);
-    do {
-      auto const& locs = p.locations.at(index);
-      auto& tensor_at = tensor.at(index);
-      tensor_at.reserve(locs.size());
-      for(auto const& loc: locs) {
-        tensor_at.push_back(locid_t {
-          .loc = loc,
-          .id = init_value
-        });
-      }
-    } while(increment_idxs(shape, index));
-  }
+  multiple_tensor_t(multiple_placement_t p, int init_value = 0);
 
-  int vec_at(int vec_index, int desired_loc) const {
-    for(auto const& [loc,id]: tensor.get()[vec_index]) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::vec_at could not get");
-  }
+  int vec_at(int vec_index, int desired_loc) const;
 
-  int const& at(vector<int> const& index, int desired_loc) const {
-    for(auto const& [loc,id]: tensor.at(index)) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::at could not get");
-  }
+  int const& at(vector<int> const& index, int desired_loc) const;
 
-  int& at(vector<int> const& index, int desired_loc) {
-    for(auto& [loc,id]: tensor.at(index)) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::at could not get");
-  }
+  int& at(vector<int> const& index, int desired_loc);
 
   partition_t partition;
   tensor_t<vector<locid_t>> tensor;
@@ -140,12 +97,7 @@ struct multiple_tensor_t {
   tensor_t<int> to_tensor(placement_t const& placement);
 };
 
-std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
-{
-  auto const& [loc,id] = x;
-  out << "loc" << loc << "id" << id;
-  return out;
-}
+std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
 struct taskgraph_make_state_t {
   taskgraph_make_state_t(graph_t const& graph, vector<placement_t> const& placements)
@@ -175,6 +127,10 @@ struct taskgraph_make_state_t {
   multiple_tensor_t form_from_refinement(
     int gid,
     multiple_placement_t const& placement);
+  // this dispatches to the multiple tensor form_from_refinement
+  tensor_t<int> form_from_refinement(
+    int gid,
+    placement_t const& placement);
   // TODO: have a cache for this method
 
   tensor_t<int> form_concat(int gid);
@@ -415,44 +371,100 @@ taskgraph_make_state_t::form_from_refinement(
 }
 
 tensor_t<int>
+taskgraph_make_state_t::form_from_refinement(
+  int gid,
+  placement_t const& pl)
+{
+  multiple_placement_t mpl =
+    multiple_placement_t::from_single_placement(pl);
+  return form_from_refinement(gid, mpl).to_tensor(pl);
+}
+
+// Example
+//   big { 10, 10, 10 }
+//   sml { 5, 2, 3, 10, 3, 3, 3, 1}
+//   rs  { 3, 4, 8 }
+vector<tuple<int,int>> _get_sum_breaks(
+  vector<uint64_t> big,
+  vector<uint64_t> sml)
+{
+  vector<int> rs;
+  int j = 0;
+  for(int i = 0; i != big.size(); ++i) {
+    auto sz = big[i];
+    for(; sz != 0; ++j) {
+      sz -= sml[j];
+    }
+    rs.push_back(j);
+  }
+
+  vector<tuple<int,int>> ret;
+  int b = 0;
+  for(int i = 0; i != rs.size(); ++i) {
+    ret.emplace_back(b, rs[i]);
+    b = rs[i];
+  }
+
+  return ret;
+}
+
+tensor_t<int>
 taskgraph_make_state_t::form_concat(int gid) {
-// TODO
-//  // 1. get the partition of this node
-//  // 2. split it along the concat dimension
-//  // 3. for each input, write directly into the output
-//
-//  // TODO: if form_from_refinement had cache support,
-//  //       maybe dip into the cache.
-//  // Note: this is very similar to form_from_refinement
-//
-//  graph_t::node_t const& node = graph.nodes.at(gid);
-//  placement_t const& pl = placements.at(gid);
-//
-//  if(!node.op.is_concat()) {
-//    throw std::runtime_error("from_concat needs concat node");
-//  }
-//
-//  auto const& concat = node.op.get_concat();
-//  int const& dim = concat.dim;
-//
-//  vector<partdim_t> split_partdims = pl.partition.partdims;
-//  split_partdims[dim] = partdim_t::unions({
-//    split_partdims[dim],
-//    partdim_t::from_sizes(concat.dim_parts)
-//  });
-//  partition_t split_partition(split_partdims);
-//
-//  // create inn_partitions from split_partitions
-//
-//  if(pl.partition == split_partition) {
-//    tensor_t<int> ret(split_partition.block_shape(), -1);
-//    // for each input,
-//    //   call form_from_refinement,
-//    //   get the corresponding tensor,
-//    //   concat into ret
-//    return ret;
-//  }
-//
+  // 1. get the partition of this node
+  // 2. split it along the concat dimension
+  // 3. for each input, write directly into the output
+
+  // TODO: if form_from_refinement had cache support,
+  //       maybe dip into the cache.
+  // Note: this is very similar to form_from_refinement
+
+  graph_t::node_t const& node = graph.nodes.at(gid);
+  placement_t const& pl = placements.at(gid);
+
+  if(!node.op.is_concat()) {
+    throw std::runtime_error("from_concat needs concat node");
+  }
+
+  auto const& concat = node.op.get_concat();
+  int const& dim = concat.dim;
+
+  vector<partdim_t> split_partdims = pl.partition.partdims;
+  split_partdims[dim] = partdim_t::unions({
+    split_partdims[dim],
+    partdim_t::from_sizes(concat.dim_parts)
+  });
+  partition_t split_partition(split_partdims);
+
+  vector<tuple<int,int>> breaks = _get_sum_breaks(
+    split_partdims[dim].sizes(),
+    concat.dim_parts);
+
+  // create inn_partitions from split_partitions
+
+  if(pl.partition == split_partition) {
+    vector<tensor_t<int>> ts;
+
+    auto pl_block_shape = pl.block_shape();
+    vector<tuple<int,int>> region;
+    region.reserve(pl_block_shape.size());
+    for(auto const& d: pl_block_shape) {
+      region.emplace_back(0, d);
+    }
+
+    for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+      int const& inn_gid = node.inns[which_inn];
+      auto const& [b,e] = breaks[which_inn];
+      region[dim] = {b, e};
+
+      auto inn_pl = pl.subset(region);
+
+      ts.push_back(form_from_refinement(inn_gid, inn_pl));
+    }
+
+    return tensor_t<int>::concat(dim, ts);
+  }
+
+  // TODO
 }
 
 tensor_t<int>
@@ -535,11 +547,8 @@ taskgraph_make_state_t::form_relation(int gid)
     return compute_input(gid);
   }
   if(node.op.is_formation()) {
-    placement_t const& pl = placements.at(gid);
-    multiple_placement_t mpl =
-      multiple_placement_t::from_single_placement(pl);
     int inn_gid = node.inns[0];
-    return form_from_refinement(inn_gid, mpl).to_tensor(pl);
+    return form_from_refinement(inn_gid, placements.at(gid));
   }
   if(node.op.is_concat()) {
     return form_concat(gid);
@@ -1144,6 +1153,62 @@ multiple_placement_t multiple_placement_t::make_einsummable_input(
   };
 }
 
+multiple_tensor_t::multiple_tensor_t(
+  partition_t p,
+  tensor_t<vector<locid_t>> && t)
+  : partition(p), tensor(std::move(t))
+{
+  if(tensor.get_shape() != p.block_shape()){
+    throw std::runtime_error("multiple_tensor_t incorrect shape");
+  }
+}
+
+multiple_tensor_t::multiple_tensor_t(multiple_placement_t p, int init_value)
+  : partition(p.partition), tensor(p.partition.block_shape())
+{
+  auto shape = partition.block_shape();
+  vector<int> index(shape.size(), 0);
+  do {
+    auto const& locs = p.locations.at(index);
+    auto& tensor_at = tensor.at(index);
+    tensor_at.reserve(locs.size());
+    for(auto const& loc: locs) {
+      tensor_at.push_back(locid_t {
+        .loc = loc,
+        .id = init_value
+      });
+    }
+  } while(increment_idxs(shape, index));
+}
+
+int multiple_tensor_t::vec_at(int vec_index, int desired_loc) const {
+  for(auto const& [loc,id]: tensor.get()[vec_index]) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::vec_at could not get");
+}
+
+int const& multiple_tensor_t::at(vector<int> const& index, int desired_loc) const
+{
+  for(auto const& [loc,id]: tensor.at(index)) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::at could not get");
+}
+
+int& multiple_tensor_t::at(vector<int> const& index, int desired_loc) {
+  for(auto& [loc,id]: tensor.at(index)) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::at could not get");
+}
+
 tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   if(!vector_equal(placement.block_shape(), tensor.get_shape())) {
     throw std::runtime_error("multiple_tensor_t::to_tensor");
@@ -1160,6 +1225,13 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   }
 
   return tensor_t<int>(tensor.get_shape(), ret);
+}
+
+std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
+{
+  auto const& [loc,id] = x;
+  out << "loc" << loc << "id" << id;
+  return out;
 }
 
 int taskgraph_t::insert_input(
