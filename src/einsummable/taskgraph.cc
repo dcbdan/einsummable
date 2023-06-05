@@ -417,13 +417,16 @@ taskgraph_make_state_t::form_from_refinement(
 }
 
 // Example
-//   big { 10, 10, 10 }
-//   sml { 5, 2, 3, 10, 3, 3, 3, 1}
+//   big = coarse { 10, 10, 10 }
+//   sml = fine   { 5, 2, 3, 10, 3, 3, 3, 1}
 //   rs  { 3, 4, 8 }
 vector<tuple<int,int>> _get_sum_breaks(
-  vector<uint64_t> big,
-  vector<uint64_t> sml)
+  vector<uint64_t> coarse,
+  vector<uint64_t> fine)
 {
+  auto const& big = coarse;
+  auto const& sml = fine;
+
   vector<int> rs;
   int j = 0;
   for(int i = 0; i != big.size(); ++i) {
@@ -1257,8 +1260,8 @@ multiple_placement_t::make_concat_input_placement(
   auto const& partdim = split_placement.partition.partdims[concat.dim];
 
   vector<tuple<int,int>> breaks = _get_sum_breaks(
-    partdim.sizes(),
-    concat.dim_parts());
+    concat.dim_parts(),
+    partdim.sizes());
 
   auto block_shape = split_placement.block_shape();
   vector<tuple<int,int>> region;

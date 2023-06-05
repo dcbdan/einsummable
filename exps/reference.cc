@@ -3,6 +3,28 @@
 
 #include <fstream>
 
+struct random_placement_t {
+  placement_t operator()(vector<uint64_t> const& total_shape) {
+    vector<partdim_t> partdims;
+    for(uint64_t const& n: total_shape) {
+      auto const& [beg_,end_] = part_size_rng;
+      int p;
+      if(end_ > n) {
+        p = 1;
+      } else {
+        p = runif(beg_, end_);
+      }
+      partdims.push_back(partdim_t::split(n, p));
+    }
+    partition_t part(partdims);
+
+    return placement_t::random(part, nloc);
+  }
+
+  tuple<int,int> part_size_rng;
+  int nloc;
+};
+
 int main01() {
   uint64_t ni = 3;
   uint64_t nj = 4;
@@ -449,16 +471,7 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
 
 void test_random_matmul() {
   int nloc = 20;
-  auto random_placement = [&](vector<uint64_t> total_shape) {
-    vector<partdim_t> partdims;
-    for(uint64_t const& n: total_shape) {
-      int p = runif(1, 10);
-      partdims.push_back(partdim_t::split(n, p));
-    }
-    partition_t part(partdims);
-
-    return placement_t::random(part, nloc);
-  };
+  random_placement_t random_placement { {1, 10}, nloc };
 
   graph_constructor_t graph;
 
@@ -501,16 +514,7 @@ void test_random_matmul_then_unary_ew(scalarop_t unary_scalar_op) {
   }
 
   int nloc = 3;
-  auto random_placement = [&](vector<uint64_t> total_shape) {
-    vector<partdim_t> partdims;
-    for(uint64_t const& n: total_shape) {
-      int p = runif(1, 10);
-      partdims.push_back(partdim_t::split(n, p));
-    }
-    partition_t part(partdims);
-
-    return placement_t::random(part, nloc);
-  };
+  random_placement_t random_placement { {1, 10}, nloc };
 
   graph_constructor_t graph;
 
@@ -674,7 +678,7 @@ void main11(int argc, char** argv) {
   test_3d_matmul(pi, pj, pk, np);
 }
 
-void main11() {
+void main12() {
   // Test the reference_concat works allright
 
   auto run = [](int dim, vector<uint64_t> shape_template) {
@@ -708,7 +712,51 @@ void main11() {
   run(1, {2,1,2});
 }
 
-void main12() {
+void test_random_concat(
+  int dim,
+  vector<uint64_t> shape_template,
+  int n_inn)
+{
+  shape_template[dim] = 1;
+  uint64_t n = product(shape_template);
+
+  graph_writer_t w;
+
+  using id_t = graph_writer_t::tensor_t;
+
+  map<int, buffer_t> inn_tensors;
+  vector<id_t> inns;
+  for(int i = 0; i != n_inn; ++i) {
+    auto shape = shape_template;
+    shape[dim] = runif(10,20);
+    inns.push_back(w.input(shape));
+
+    inn_tensors.insert({
+      inns.back().get_id(),
+      make_buffer(product(shape))});
+  }
+
+  for(auto& [_, buffer]: inn_tensors) {
+    buffer->random();
+  }
+
+  id_t x = w.concat(dim, inns);
+
+  x.save();
+
+  int nloc = 3;
+  random_placement_t random_placement { {1, 10}, nloc };
+
+  graph_t g = w.get_graph();
+  vector<placement_t> pls;
+  for(int gid = 0; gid != g.nodes.size(); ++gid) {
+    pls.push_back(random_placement(g.nodes[gid].op.shape()));
+  }
+
+  test_make_taskgraph(g, pls, inn_tensors);
+}
+
+void main13() {
   graph_writer_t w;
 
   using id_t = graph_writer_t::tensor_t;
@@ -721,6 +769,10 @@ void main12() {
   inns.insert({a.get_id(), make_buffer(4*3)});
   inns.insert({b.get_id(), make_buffer(4*5)});
   inns.insert({c.get_id(), make_buffer(5*3)});
+
+  for(auto& [_, buffer]: inns) {
+    buffer->random();
+  }
 
   id_t x = w.concat(1, {a,b});
   id_t y = w.concat(0, {a,c});
@@ -755,6 +807,16 @@ void main12() {
   DOUT("all done.");
 }
 
+void main14() {
+  for(int i = 0; i != 1000; ++i) {
+    DOUT(i);
+    set_seed(i);
+    int n_inn = runif(2,5);
+    int dim = runif(4);
+    test_random_concat(dim, {20,19,18,17}, n_inn);
+  }
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
   //main10();
@@ -763,5 +825,9 @@ int main(int argc, char** argv) {
   //test_obvious_random_loc_matmul(5,5,5,5);
   //test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
 
-  main12();
+  //main13();
+  main14();
+
+  //set_seed(0);
+  //test_random_concat(0, {20,19,18}, 3);
 }
