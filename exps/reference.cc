@@ -657,11 +657,45 @@ void main11(int argc, char** argv) {
   test_3d_matmul(pi, pj, pk, np);
 }
 
+void main11() {
+  auto run = [](int dim, vector<uint64_t> shape_template) {
+    shape_template[dim] = 1;
+    uint64_t n = product(shape_template);
+
+    vector<uint64_t> ds { 3, 4, 5, 6 };
+    vector<buffer_t> bs;
+    for(int i = 0; i != ds.size(); ++i) {
+      auto const& d = ds[i];
+      bs.push_back(make_buffer(n*d));
+      bs.back()->fill(1.0*i);
+    }
+
+    vector<vector<uint64_t>> shapes;
+    for(auto const& d: ds) {
+      shapes.push_back(shape_template);
+      shapes.back()[dim] = d;
+    }
+
+    concat_t concat(dim, shapes);
+
+    buffer_t out = reference_concat(concat, bs);
+
+    DOUT(out);
+  };
+
+  run(0, {1});
+  run(0, {1,2});
+  run(1, {2,1});
+  run(1, {2,1,2});
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  main10();
+  //main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
   //test_random_matmul_then_unary_ew(scalarop_t::make_increment(0.77));
+
+  main11();
 }

@@ -39,13 +39,14 @@ concat_t::get_hrect(int which_inn) const
   auto offsets = get_offsets();
   int rank = inn_shapes[0].size();
   ret.reserve(rank);
-  for(int d = 0; d != rank; ++d) {
-    if(d == dim) {
+  for(int which_dim = 0; which_dim != rank; ++which_dim) {
+    if(which_dim == dim) {
       uint64_t offset = offsets[which_inn];
       uint64_t const& sz = inn_shapes[which_inn][dim];
       ret.emplace_back(offset, offset + sz);
     } else {
-      ret.emplace_back(0, d);
+      uint64_t const& sz = inn_shapes[0][which_dim];
+      ret.emplace_back(0, sz);
     }
   }
   return ret;
