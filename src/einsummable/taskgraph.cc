@@ -459,12 +459,13 @@ taskgraph_make_state_t::form_concat(int gid) {
 
   auto const& concat = node.op.get_concat();
   int const& dim = concat.dim;
+  auto const dim_parts = concat.dim_parts();
 
   // split the partition of this node along the concat dimension
   vector<partdim_t> split_partdims = pl.partition.partdims;
   split_partdims[dim] = partdim_t::unions({
     split_partdims[dim],
-    partdim_t::from_sizes(concat.dim_parts)
+    partdim_t::from_sizes(dim_parts)
   });
   partition_t split_partition(split_partdims);
 
@@ -486,7 +487,7 @@ taskgraph_make_state_t::form_concat(int gid) {
       placement_t inn_pl = multiple_placement_t::make_concat_input_placement(
         pl,
         dim,
-        concat.dim_parts,
+        dim_parts,
         which_inn);
 
       ts.push_back(form_from_refinement(inn_gid, inn_pl));
@@ -501,12 +502,7 @@ taskgraph_make_state_t::form_concat(int gid) {
   multiple_tensor_t ret = initialize_partials(mpl);
 
   // store 0, dim_parts[0], dim_parts[0] + dim_parts[1], ...
-  vector<uint64_t> dim_offset(node.inns.size());
-  std::exclusive_scan(
-    concat.dim_parts.begin(),
-    concat.dim_parts.end(),
-    dim_offset.begin(),
-    0);
+  vector<uint64_t> dim_offset = concat.get_offsets();
 
   // copying the entirety of each input so
   // the offset is the same for all inns
@@ -672,13 +668,14 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
       }
     } else if(out_node.op.is_concat()) {
       auto concat = out_node.op.get_concat();
+      auto dim_parts = concat.dim_parts();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
           usage_placements.push_back(
             multiple_placement_t::make_concat_input(
               out_pl,
               concat.dim,
-              concat.dim_parts,
+              dim_parts,
               which_input));
         }
       }

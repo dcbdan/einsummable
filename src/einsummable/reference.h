@@ -75,6 +75,10 @@ void reference_einsummable_inplace(
   buffer_t& out,
   vector<buffer_t> const& inputs);
 
+buffer_t reference_concat(
+  concat_t const& concat,
+  vector<buffer_t> const& inputs);
+
 void reference_touch(
   touch_t const& touch,
   buffer_t& out,

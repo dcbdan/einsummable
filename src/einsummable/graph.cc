@@ -1,5 +1,70 @@
 #include "graph.h"
 
+concat_t::concat_t(int d, vector<vector<uint64_t>> const& ss):
+  dim(d), inn_shapes(ss)
+{
+  optional<string> err_msg = check_concat_shapes(dim, inn_shapes);
+  if(err_msg) {
+    throw std::runtime_error("concat_t: " + err_msg.value());
+  }
+
+  if(inn_shapes.size() <= 1) {
+    throw std::runtime_error("concat_t: expects >1 input");
+  }
+}
+
+vector<uint64_t> concat_t::shape() const
+{
+  vector<uint64_t> ret = inn_shapes[0];
+  for(int i = 1; i != inn_shapes.size(); ++i) {
+    ret[dim] += inn_shapes[i][dim];
+  }
+  return ret;
+}
+
+vector<uint64_t> concat_t::dim_parts() const
+{
+  vector<uint64_t> ret;
+  ret.reserve(inn_shapes.size());
+  for(auto const& inn_shape: inn_shapes) {
+    ret.push_back(inn_shape[dim]);
+  }
+  return ret;
+}
+
+vector<tuple<uint64_t, uint64_t>>
+concat_t::get_hrect(int which_inn) const
+{
+  vector<tuple<uint64_t, uint64_t>> ret;
+  auto offsets = get_offsets();
+  int rank = inn_shapes[0].size();
+  ret.reserve(rank);
+  for(int d = 0; d != rank; ++d) {
+    if(d == dim) {
+      uint64_t offset = offsets[which_inn];
+      uint64_t const& sz = inn_shapes[which_inn][dim];
+      ret.emplace_back(offset, offset + sz);
+    } else {
+      ret.emplace_back(0, d);
+    }
+  }
+  return ret;
+}
+
+vector<uint64_t> concat_t::get_offsets() const {
+  vector<uint64_t> ret(inn_shapes.size());
+  auto ds = dim_parts();
+
+  // 0, ds[0], ds[0] + ds[1], ...
+  std::exclusive_scan(
+    ds.begin(),
+    ds.end(),
+    ret.begin(),
+    0);
+
+  return ret;
+}
+
 int graph_constructor_t::insert_input(
   placement_t placement)
 {
@@ -175,25 +240,7 @@ int graph_t::insert_concat(
     shapes.push_back(out_shape(inn));
   }
 
-  optional<string> err_msg = check_concat_shapes(dim, shapes);
-  if(err_msg) {
-    throw std::runtime_error("graph insert concat: " + err_msg.value());
-  }
-
-  vector<uint64_t> dim_parts;
-  for(int i = 0; i != shapes.size(); ++i) {
-    dim_parts.push_back(shapes[i][dim]);
-  }
-
-  vector<uint64_t> out_shape = shapes[0];
-  out_shape[dim] = std::accumulate(dim_parts.begin(), dim_parts.end(), 0);
-
-  return this->insert(
-    concat_t {
-      .shape = out_shape,
-      .dim = dim,
-      .dim_parts = dim_parts },
-    inns);
+  return this->insert(concat_t(dim, shapes), inns);
 }
 
 vector<uint64_t>
@@ -205,7 +252,7 @@ graph_t::op_t::out_shape() const {
     return get_formation().shape;
   }
   if(is_concat()) {
-    return get_concat().shape;
+    return get_concat().shape();
   }
   if(is_einsummable()) {
     return get_einsummable().out_shape();
@@ -222,7 +269,7 @@ graph_t::op_t::shape() const {
     return get_formation().shape;
   }
   if(is_concat()) {
-    return get_concat().shape;
+    return get_concat().shape();
   }
   if(is_einsummable()) {
     return get_einsummable().join_shape;

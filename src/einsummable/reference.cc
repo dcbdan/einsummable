@@ -466,6 +466,46 @@ void reference_einsummable_inplace(
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 }
 
+buffer_t reference_concat(
+  concat_t const& concat,
+  vector<buffer_t> const& inns)
+{
+  if(inns.size() != concat.inn_shapes.size()) {
+    throw std::runtime_error("incorrect number of inputs");
+  }
+
+  vector<uint64_t> out_shape = concat.shape();
+
+  vector<uint64_t> offsets = concat.get_offsets();
+
+  buffer_t ret = make_buffer(product(out_shape));
+
+  for(int i = 0; i != inns.size(); ++i) {
+    buffer_t const& inn = inns[i];
+    vector<uint64_t> const& inn_shape = concat.inn_shapes[i];
+
+    if(inn->size != product(inn_shape)) {
+      throw std::runtime_error("incorrectly sized input");
+    }
+
+    uint64_t offset = offsets[i];
+
+    vector<tuple<uint64_t, uint64_t>> hrect = concat.get_hrect(i);
+    auto out_index = vector_mapfst(hrect);
+   do {
+      vector<uint64_t> inn_index = out_index;
+      inn_index[concat.dim] -= offset;
+
+      auto out_idx = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
+      auto inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
+
+      ret->data[out_idx] = inn->data[inn_idx];
+    } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, out_index));
+  }
+
+  return ret;
+}
+
 std::function<void(float&, float const&)> reference_touch_update(
   std::optional<castable_t> castable)
 {

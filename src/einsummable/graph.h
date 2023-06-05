@@ -4,6 +4,21 @@
 #include "../base/placement.h"
 #include "einsummable.h"
 
+struct concat_t {
+  concat_t(int dim, vector<vector<uint64_t>> const& input_shapes);
+
+  int const dim;
+  vector<vector<uint64_t>> const inn_shapes;
+
+  vector<uint64_t> shape() const;
+
+  vector<uint64_t> dim_parts() const;
+
+  vector<tuple<uint64_t, uint64_t>> get_hrect(int which_inn) const;
+
+  vector<uint64_t> get_offsets() const;
+};
+
 struct graph_t {
   // Methods to construct a graph object
   // {{{
@@ -67,13 +82,6 @@ public:
   struct formation_t {
     vector<uint64_t> shape;
     bool is_save; // if this is false, it is a temporary
-  };
-
-  struct concat_t {
-    vector<uint64_t> shape;
-
-    int dim;
-    vector<uint64_t> dim_parts;
   };
 
   struct op_t {
