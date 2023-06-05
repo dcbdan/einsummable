@@ -122,6 +122,9 @@ struct taskgraph_make_state_t {
     multiple_tensor_t  const& inns,
     multiple_tensor_t  const& outs);
 
+  multiple_tensor_t initialize_partials(
+    multiple_placement_t const& placement);
+
   // Grab gid from it's refined tensor in the form of the
   // given multiple placement
   multiple_tensor_t form_from_refinement(
@@ -317,24 +320,9 @@ void taskgraph_make_state_t::relational_touch(
   } while(increment_idxs_region(region_out_big_uxa, out_index));
 }
 
-multiple_tensor_t
-taskgraph_make_state_t::form_from_refinement(
-  int gid,
+multiple_tensor_t taskgraph_make_state_t::initialize_partials(
   multiple_placement_t const& placement)
 {
-  multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
-
-  // verify that the refinement partition
-  // is actually a refinement of the given placement
-  if(!refine_tensor.partition.refines(placement.partition)) {
-    throw std::runtime_error("refine partition not actually a refinement");
-  }
-
-  if(placement.partition == refine_tensor.partition) {
-    return refine_tensor;
-  }
-
-  // initialize multiple_tensor_t for the outs by creating new partializes
   auto out_shape = placement.partition.block_shape();
   multiple_tensor_t packaged_ret(
     placement.partition,
@@ -359,15 +347,38 @@ taskgraph_make_state_t::form_from_refinement(
     }
   } while(increment_idxs(out_shape, out_index));
 
+  return packaged_ret;
+}
+
+multiple_tensor_t
+taskgraph_make_state_t::form_from_refinement(
+  int gid,
+  multiple_placement_t const& placement)
+{
+  multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
+
+  // verify that the refinement partition
+  // is actually a refinement of the given placement
+  if(!refine_tensor.partition.refines(placement.partition)) {
+    throw std::runtime_error("refine partition not actually a refinement");
+  }
+
+  if(placement.partition == refine_tensor.partition) {
+    return refine_tensor;
+  }
+
+  // initialize multiple_tensor_t for the outs by creating new partializes
+  multiple_tensor_t ret = initialize_partials(placement);
+
   // now add to all the partial builders inside ret
   vector<uint64_t> total_shape = placement.partition.total_shape();
   vector<uint64_t> offsets(total_shape.size(), 0);
   relational_touch(
     offsets, offsets, placement.partition.total_shape(),
     refine_tensor,
-    packaged_ret);
+    ret);
 
-  return packaged_ret;
+  return ret;
 }
 
 tensor_t<int>
@@ -410,14 +421,6 @@ vector<tuple<int,int>> _get_sum_breaks(
 
 tensor_t<int>
 taskgraph_make_state_t::form_concat(int gid) {
-  // 1. get the partition of this node
-  // 2. split it along the concat dimension
-  // 3. for each input, write directly into the output
-
-  // TODO: if form_from_refinement had cache support,
-  //       maybe dip into the cache.
-  // Note: this is very similar to form_from_refinement
-
   graph_t::node_t const& node = graph.nodes.at(gid);
   placement_t const& pl = placements.at(gid);
 
@@ -425,9 +428,12 @@ taskgraph_make_state_t::form_concat(int gid) {
     throw std::runtime_error("from_concat needs concat node");
   }
 
+  int rank = node.op.out_rank();
+
   auto const& concat = node.op.get_concat();
   int const& dim = concat.dim;
 
+  // split the partition of this node along the concat dimension
   vector<partdim_t> split_partdims = pl.partition.partdims;
   split_partdims[dim] = partdim_t::unions({
     split_partdims[dim],
@@ -435,13 +441,15 @@ taskgraph_make_state_t::form_concat(int gid) {
   });
   partition_t split_partition(split_partdims);
 
-  vector<tuple<int,int>> breaks = _get_sum_breaks(
-    split_partdims[dim].sizes(),
-    concat.dim_parts);
-
-  // create inn_partitions from split_partitions
 
   if(pl.partition == split_partition) {
+    // Note: if form_from_refinement had cache support,
+    //       this would dip into that cache.
+
+    vector<tuple<int,int>> breaks = _get_sum_breaks(
+      split_partdims[dim].sizes(),
+      concat.dim_parts);
+
     vector<tensor_t<int>> ts;
 
     auto pl_block_shape = pl.block_shape();
@@ -464,7 +472,41 @@ taskgraph_make_state_t::form_concat(int gid) {
     return tensor_t<int>::concat(dim, ts);
   }
 
-  // TODO
+  // form the output partials
+  multiple_placement_t mpl =
+    multiple_placement_t::from_single_placement(pl);
+  multiple_tensor_t ret = initialize_partials(mpl);
+
+  // store 0, dim_parts[0], dim_parts[0] + dim_parts[1], ...
+  vector<uint64_t> dim_offset(node.inns.size());
+  std::exclusive_scan(
+    concat.dim_parts.begin(),
+    concat.dim_parts.end(),
+    dim_offset.begin(),
+    0);
+
+  // copying the entirety of each input so
+  // the offset is the same for all inns
+  vector<uint64_t> offset_inn(rank, 0);
+
+  // for each input, call relational_touch to copy all of the input
+  // into the corresponding part of ret
+  for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+    int const& inn_gid = node.inns[which_inn];
+    multiple_tensor_t const& inn = refined_tensors.at(inn_gid);
+
+    vector<uint64_t> offset_out(rank, 0);
+    offset_out[dim] = dim_offset[which_inn];
+
+    relational_touch(
+      offset_inn,
+      offset_out,
+      inn.partition.total_shape(),
+      inn,
+      ret);
+  }
+
+  return ret.to_tensor(pl);
 }
 
 tensor_t<int>
