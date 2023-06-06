@@ -90,7 +90,6 @@ struct einsummable_t {
 
   bool is_contraction() const;
 
-
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
   {
