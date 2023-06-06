@@ -379,8 +379,6 @@ struct forward_state_t {
 
   graph_node_info_t const& get_ginfo(int gid) const;
 
-  uint64_t extra_elems_to(jid_t jid, int loc) const;
-
   // Count the number of elements moved if jid is
   // set to have location loc. Only jids dependent
   // on id will be accessed in get_loc.
@@ -401,7 +399,7 @@ private:
   // be assigned
   void ec_assign_partition(int gid);
 
-  // Once refis (and refinement_partition) is setup, it may the
+  // Once refis (and refinement_partition) is setup, it may be the
   // case that an output graph node can have the the joins setup
   void ec_setup_refis(int gid);
 

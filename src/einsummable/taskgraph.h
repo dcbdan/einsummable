@@ -337,6 +337,13 @@ partition_t concat_split_partition(
   partition_t const& partition,
   concat_t const& concat);
 
+// get the slice of concat_partition at
+// the which_input part of the concat op
+partition_t concat_get_input_partition(
+  partition_t const& concat_partition,
+  concat_t const& concat,
+  int which_input);
+
 placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat);

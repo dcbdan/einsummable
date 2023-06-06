@@ -1,5 +1,6 @@
 #include "forwardsim.h"
 #include "../base/copyregion.h"
+#include "../einsummable/taskgraph.h"
 
 capacity_scheduler_t::capacity_scheduler_t(int c)
   : capacity(c)
@@ -551,7 +552,7 @@ void forward_state_t::setup_refinement_partition(int join_id) {
     auto const& out_part = ginfos[out_id].partition.value();
     if(out_node.op.is_formation()) {
       usage_partitions.push_back(out_part);
-    } else {
+    } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect
       auto const& einsummable = out_node.op.get_einsummable();
@@ -562,6 +563,16 @@ void forward_state_t::setup_refinement_partition(int join_id) {
             which_input));
         }
       }
+    } else if(out_node.op.is_concat()) {
+      auto const& concat = out_node.op.get_concat();
+      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
+        if(out_node.inns[which_input] == join_id) {
+          usage_partitions.push_back(concat_get_input_partition(
+            out_part, concat, which_input));
+        }
+      }
+    } else {
+      throw std::runtime_error("setup refinement part: should not reach");
     }
   }
 
@@ -753,6 +764,7 @@ void forward_state_t::setup_joins(int graph_id) {
       join_info.deps = {};
     } else {
       optional<einsummable_t> maybe_einsummable;
+      // TODO: concat
       if(node.op.is_formation()) {
         auto op_shape = node.op.shape();
         int rank = op_shape.size();
@@ -1292,54 +1304,6 @@ forward_state_t::graph_node_info_t const&
 forward_state_t::get_ginfo(int gid) const
 {
   return ginfos[gid];
-}
-
-uint64_t forward_state_t::extra_elems_to(jid_t jid, int loc) const
-{
-  // A refi contains agg units.
-  // An agg unit is broadcast to all locations it get used and
-  // from all locations its inputs are from
-  uint64_t total = 0;
-
-  auto const& [gid,bid] = jid;
-  auto const& ginfo = ginfos[gid];
-  vector<int> const& locs = ginfo.locs.value();
-  auto const& join = ginfo.joins.value()[bid];
-
-  for(auto const& [rid_gid, rid_bid]: join.deps) {
-    auto const& refi = ginfos[rid_gid].refis.value()[rid_bid];
-
-    set<int> out_locs;
-    for(auto const& out_jid: refi.outs) {
-      auto const& [out_gid, out_bid] = out_jid;
-      int const& out_loc = ginfos[out_gid].locs.value()[out_bid];
-      if(out_jid != jid && out_loc != -1) {
-        out_locs.insert(out_loc);
-      }
-    }
-    if(out_locs.count(loc) == 1) {
-      // all agg units will be broadcast to this location
-      // already so nothing to add
-      continue;
-    }
-
-    for(auto const& [size, inn_jids]: refi.units) {
-      set<int> inn_locs;
-      for(auto const& inn_jid_bid: inn_jids) {
-        if(inn_jid_bid == bid) {
-          continue;
-        }
-        int const& inn_loc = locs[inn_jid_bid];
-        // don't add inn_loc == loc since that move is free
-        if(inn_loc != -1 && inn_loc != loc) {
-          inn_locs.insert(inn_loc);
-        }
-      }
-      int n = inn_locs.size();
-      total += n*size;
-    }
-  }
-  return total;
 }
 
 uint64_t forward_state_t::count_elements_to(

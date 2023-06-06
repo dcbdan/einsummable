@@ -112,6 +112,11 @@ struct multiple_tensor_t {
   tensor_t<int> to_tensor(placement_t const& placement);
 };
 
+vector<tuple<int,int>> get_concat_input_region(
+  partition_t const& split_part,
+  concat_t const& concat,
+  int which_input);
+
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
 struct taskgraph_make_state_t {
@@ -670,7 +675,7 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
         }
       }
     } else if(out_node.op.is_concat()) {
-      auto concat = out_node.op.get_concat();
+      auto const& concat = out_node.op.get_concat();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
           usage_placements.push_back(
@@ -1269,20 +1274,8 @@ multiple_placement_t::make_concat_input_placement(
   // the first thing to do is split the placement along concat_dim
   placement_t split_placement = concat_split_placement(join_placement, concat);
 
-  auto const& partdim = split_placement.partition.partdims[concat.dim];
-
-  vector<tuple<int,int>> breaks = _get_sum_breaks(
-    concat.dim_parts(),
-    partdim.sizes());
-
-  auto block_shape = split_placement.block_shape();
-  vector<tuple<int,int>> region;
-  region.reserve(block_shape.size());
-  for(auto const& d: block_shape) {
-    region.emplace_back(0, d);
-  }
-
-  region[concat.dim] = breaks[which_input];
+  auto region = get_concat_input_region(
+    split_placement.partition, concat, which_input);
 
   return split_placement.subset(region);
 }
@@ -1371,6 +1364,29 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   return tensor_t<int>(tensor.get_shape(), ret);
 }
 
+vector<tuple<int,int>> get_concat_input_region(
+  partition_t const& split_part,
+  concat_t const& concat,
+  int which_input)
+{
+  auto const& partdim = split_part.partdims[concat.dim];
+
+  vector<tuple<int,int>> breaks = _get_sum_breaks(
+    concat.dim_parts(),
+    partdim.sizes());
+
+  auto block_shape = split_part.block_shape();
+  vector<tuple<int,int>> region;
+  region.reserve(block_shape.size());
+  for(auto const& d: block_shape) {
+    region.emplace_back(0, d);
+  }
+
+  region[concat.dim] = breaks[which_input];
+
+  return region;
+}
+
 partition_t concat_split_partition(
   partition_t const& partition,
   concat_t const& concat)
@@ -1385,6 +1401,18 @@ partition_t concat_split_partition(
   });
 
   return partition_t(split_partdims);
+}
+
+partition_t concat_get_input_partition(
+  partition_t const& concat_part,
+  concat_t const& concat,
+  int which_input)
+{
+  partition_t split_part = concat_split_partition(concat_part, concat);
+
+  auto region = get_concat_input_region(split_part, concat, which_input);
+
+  return split_part.subset(region);
 }
 
 placement_t concat_split_placement(
