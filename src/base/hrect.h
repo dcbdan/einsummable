@@ -31,3 +31,8 @@ hrect_intersect(
   vector<tuple<uint64_t, uint64_t>> const& lhs,
   vector<tuple<uint64_t, uint64_t>> const& rhs);
 
+optional<tuple<uint64_t, uint64_t>>
+interval_intersect(
+  tuple<uint64_t, uint64_t> const& lhs,
+  tuple<uint64_t, uint64_t> const& rhs);
+

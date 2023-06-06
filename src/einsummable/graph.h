@@ -10,6 +10,8 @@ struct concat_t {
   int const dim;
   vector<vector<uint64_t>> const inn_shapes;
 
+  int num_inns() const { return inn_shapes.size(); }
+
   vector<uint64_t> shape() const;
 
   vector<uint64_t> dim_parts() const;

@@ -720,6 +720,7 @@ bool forward_state_t::can_setup_joins(int gid) const {
   return true;
 }
 
+// TODO: organize this method; too much code duplication
 void forward_state_t::setup_joins(int graph_id) {
   //DOUT("setup_joins " << graph_id);
   auto const& node = graph.nodes[graph_id];
@@ -744,9 +745,10 @@ void forward_state_t::setup_joins(int graph_id) {
     join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
 
     // flops
-    //   input nodes: 0
-    //   formation nodes: 0
-    //   join nodes: the tensor block size
+    //   input: 0
+    //   formation: 0
+    //   concat: 0
+    //   einsummable: the tensor block size
     // (the join_t stores an optional einsummable_t)
     if(base_einsummable) {
       join_info.einsummable = einsummable_t::with_new_shape(
@@ -758,13 +760,41 @@ void forward_state_t::setup_joins(int graph_id) {
 
     // deps
     //   input nodes: {}
+    //   concat nodes: have to figure it out
     //   formation nodes: same as a straight einsummable op
     //   einsummable nodes: reach into each input and grab it
     if(node.op.is_input()) {
       join_info.deps = {};
+    } else if(node.op.is_concat()) {
+      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
+      hrect_t join_hrect = join_partition.get_hrect(join_index);
+
+      auto const& concat = node.op.get_concat();
+      int n_inns = concat.num_inns();
+      for(int which_inn = 0; which_inn != n_inns; ++which_inn) {
+        hrect_t inn_hrect = concat.get_hrect(which_inn);
+        if(interval_intersect(join_hrect[concat.dim], inn_hrect[concat.dim])) {
+          // get the copy_hrect with respect to the input relation
+          hrect_t copy_hrect = hrect_center(
+            inn_hrect,
+            hrect_intersect(join_hrect, inn_hrect));
+
+          int const& inn = node.inns[which_inn];
+          auto& inn_ginfo = ginfos[inn];
+          partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
+
+          auto inn_region = inn_partition.get_region(copy_hrect);
+          auto inn_shape = inn_partition.block_shape();
+          auto inn_index = vector_mapfst(inn_region);
+          do {
+            int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
+            rid_t dep_rid { inn, inn_refi_bid };
+            join_info.deps.push_back(dep_rid);
+          } while(increment_idxs_region(inn_region, inn_index));
+        }
+      }
     } else {
       optional<einsummable_t> maybe_einsummable;
-      // TODO: concat
       if(node.op.is_formation()) {
         auto op_shape = node.op.shape();
         int rank = op_shape.size();
@@ -1083,8 +1113,10 @@ void forward_state_t::add_refi_dst(rid_t rid, jid_t jid, int dst) {
 
 void forward_state_t::schedule_join(jid_t jid, int loc) {
   auto const& [gid, bid] = jid;
-  if(!graph.nodes[gid].op.is_einsummable()) {
-    // inputs and formations happen immediately
+  join_t const& join_info = ginfos[gid].joins.value()[bid];
+  if(!join_info.einsummable) {
+    // if join_info doesn't have an einsummable, it
+    // completes right away
     ec_join(jid);
     return;
   }

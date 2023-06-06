@@ -1,6 +1,8 @@
 #pragma once
 #include "../base/setup.h"
 
+#include "../base/hrect.h"
+
 #include "../einsummable/graph.h"
 #include "cluster.h"
 

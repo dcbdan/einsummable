@@ -268,6 +268,11 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
           update_with(out_reordered_partdims);
         }
       }
+    } else if(out_node.op.is_concat()) {
+      auto const& concat = out_node.op.get_concat();
+      auto out_partdims = out_part.partdims;
+      out_partdims[concat.dim] = partdim_t::singleton(shape[concat.dim]);
+      update_with(out_partdims);
     } else {
       update_with(out_part.partdims);
     }
@@ -296,6 +301,8 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
     if(node.op.is_einsummable()) {
       vector<int> const& is = node.op.get_einsummable().inns[which_inn];
       _update_pds_and_choice_from_input_for_nonmmlike(pds, choice, is, inn_partdims);
+    } else if(node.op.is_concat()) {
+      // TODO?
     } else {
       update_with(inn_partdims);
     }
@@ -351,7 +358,10 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
     inn_parts.push_back(ret[inn_id].value());
   }
 
-  // Either this is a non-mmlike einsummable or a formation node.
+  // Either this is
+  // (1) non-mmlike einsummable
+  // (2) a formation node or
+  // (3) a concat node
   auto shape = node.op.shape();
   if(node.op.is_einsummable()) {
     optional<partition_t> choice;
@@ -376,7 +386,7 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       choice
     );
     set_partition(id, new_partition);
-  } else {
+  } else if(node.op.is_formation()) {
     // This is a formation node.
 
     auto const& inn_part     = inn_parts[0];
@@ -404,7 +414,7 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       // each block has n_aggregates sub blocks.
       //
       // Walk through the partdims and find the first one
-      // for which that can happena nd do so.
+      // for which that can happen and do so.
       //
       // Preferably this will happen at the first dimension
       // since things are row-major ordered, and that
@@ -431,6 +441,44 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
     } else {
       set_partition(id, inn_parts[0]);
     }
+  } else if(node.op.is_concat()) {
+    auto const& concat = node.op.get_concat();
+
+    vector<uint64_t> dim_szs;
+    int rank = concat.shape().size();
+    vector<vector<partdim_t>> all_pds(rank);
+
+    for(auto const& inn_part: inn_parts) {
+      auto const& pds = inn_part.partdims;
+      for(int i = 0; i != rank; ++i) {
+        auto const& partdim = pds[i];
+        if(i == concat.dim) {
+          vector_concatenate_into(dim_szs, partdim.sizes());
+        } else {
+          all_pds[i].push_back(partdim);
+        }
+      }
+    }
+
+    vector<partdim_t> pds;
+    for(int i = 0; i != rank; ++i) {
+      if(i == concat.dim) {
+        pds.push_back(partdim_t::from_sizes(dim_szs));
+      } else {
+        pds.push_back(partdim_t::unions(all_pds[i]));
+      }
+    }
+
+    partition_t new_part(pds);
+
+    if(is_too_fine(new_part)) {
+      return false;
+    }
+    set_partition(id, new_part);
+  } else {
+    throw std::runtime_error(
+      "set_from_inputs_and_recurse: "
+      "should not reach");
   }
 
   // This guy has been set, so we can recurse

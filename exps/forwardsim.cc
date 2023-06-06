@@ -273,20 +273,44 @@ void main05() {
   //  nlocs);
   //equal_items_t<int> eqs = {};
 
-  float learning_rate = 0.1;
-  uint64_t dn = 1500;
-  uint64_t dp = 1500;
-  uint64_t dd = 1500;
-  vector<uint64_t> dws{2000, 2000};
+  //float learning_rate = 0.1;
+  //uint64_t dn = 1500;
+  //uint64_t dp = 1500;
+  //uint64_t dd = 1500;
+  //vector<uint64_t> dws{2000, 2000};
 
-  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
-  auto [graph, m_to_g] = ff.mgraph.compile();
-  equal_items_t<int> eqs;
-  for(int i = 0; i != ff.wsinn.size(); ++i) {
-    auto const& inn = m_to_g.at(ff.wsinn[i]);
-    auto const& out = m_to_g.at(ff.wsout[i]);
-    eqs.insert(inn, out);
+  //ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
+  //auto [graph, m_to_g] = ff.mgraph.compile();
+  //equal_items_t<int> eqs;
+  //for(int i = 0; i != ff.wsinn.size(); ++i) {
+  //  auto const& inn = m_to_g.at(ff.wsinn[i]);
+  //  auto const& out = m_to_g.at(ff.wsout[i]);
+  //  eqs.insert(inn, out);
+  //}
+
+  graph_writer_t writer;
+  {
+    // just making a graph that does concat
+    using id_t = graph_writer_t::tensor_t;
+
+    uint64_t bb  = 4000;
+    uint64_t da  = 1500;
+    uint64_t db  = 1600;
+    uint64_t dc  = 1700;
+    uint64_t dab = da+db;
+
+    id_t x = writer.input({bb, da});
+    id_t w_a_b = writer.input({da,db});
+    id_t w_ab_c = writer.input({dab, dc});
+
+    id_t y = writer.matmul(x, w_a_b);
+    x = writer.concat(1, {x, y});
+    x = writer.matmul(x, w_ab_c);
+
+    x.save();
   }
+  graph_t const& graph = writer.get_graph();
+  equal_items_t<int> eqs = {};
 
   double base = simulate(cluster, graph, single_loc_placements(graph));
 
