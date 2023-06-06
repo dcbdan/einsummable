@@ -44,6 +44,7 @@ add_base_application("scalarop"        "exps" "scalarop")
 add_base_application("forwardsim"      "exps" "forwardsim")
 add_base_application("allocator_test"  "exps" "allocator_test")
 add_base_application("gwriter"         "exps" "gwriter")
+add_base_application("deepff"          "exps" "deepff")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
