@@ -167,7 +167,10 @@ build_einsummable(einsummable_t const& e_)
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,
-  einsummable_t const& e_)
+  einsummable_t const& e_,
+  float* out,
+  float const* lhs,
+  float const* rhs)
 {
   einsummable_t e = e_.merge_adjacent_dims();
 
@@ -183,9 +186,12 @@ void build_contraction(
   //std::vector<int> modeA{'m','h','k','n'};
   //std::vector<int> modeB{'u','k','v','h'};
   //*************************
-  modeA = 
-  modeB =
-  modeC = 
+  std::vector<int> modeA = e.inns[0];
+  std::vector<int> modeB = e.inns[1];
+  std::vector<int> modeC;
+  for (int i = 0; i < e.out_rank; i++) {
+    modeC.push_back(i);
+  }
 
   // TODO
   auto nmodeA = e.inns[0].size();
@@ -193,7 +199,7 @@ void build_contraction(
 
   //***************************
   //dimension of C 
-  auto nmodeC = ?
+  auto nmodeC = e.out_rank;
 
   // CUDA types
   cudaDataType_t typeA = CUDA_R_32F;
@@ -202,12 +208,19 @@ void build_contraction(
   cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
 
   // extent = size of each dimension
-  vector<int64_t> extent_A(e.inns[0].begin(),e.inns[0].end());
-  vector<int64_t> extent_B(e.inns[1].begin(),e.inns[1].end());
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(e.join_shape[mode]);
+  }
+  vector<int64_t> extent_B;
+  for(auto const& mode: modeB) {
+    extent_B.push_back(e.join_shape[mode]);
+  }
 
-  //****************************
-  //get the extent of C
-  vector<int64_t> extent_C = ?
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(e.join_shape[mode]);
+  }
 
 
   // Set up Tensor Descriptors for A, B, and C
@@ -237,9 +250,9 @@ void build_contraction(
   
   //******************************************
   // get the memory pointers to the tensors
-  auto ptrA = 
-  auto ptrB =
-  auto ptrC =
+  auto ptrA = lhs;
+  auto ptrB = rhs;
+  auto ptrC = out;
 
   uint32_t alignmentRequirementA;
   HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
@@ -341,15 +354,15 @@ build_cutensor_reduction(
   //std::vector<int32_t> modeA{'m','h','k','v'};
   //std::vector<int32_t> modeC{'m','v'};
 
-  std::vector<int32_t> modeA = ?;
-  std::vector<int32_t> modeC = ?;
+  std::vector<int32_t> modeA = inn_modes;
+  std::vector<int32_t> modeC = out_modes;
   int32_t nmodeA = modeA.size();
   int32_t nmodeC = modeC.size();
 
 
   // extent = size of each dimension
-  vector<int64_t> extent_A(inn_modes.begin(),inn_modes.end());
-  vector<int64_t> extent_C(out_modes.begin(),out_modes.end());
+  vector<int64_t> extent_A = inn_shape;
+  vector<int64_t> extent_C = out_shape;
 
 
   
@@ -358,7 +371,7 @@ build_cutensor_reduction(
   // ****************************************
   // What is float*, vector<float const*> here?
   return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C]
-  (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*>){
+  (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
     cudaDataType_t typeA = CUDA_R_32F;
     cudaDataType_t typeC = CUDA_R_32F;
     cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
@@ -383,6 +396,10 @@ build_cutensor_reduction(
     //Specify reduce OP (this should be the one?)
     const cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
 
+    //get the memory pointer
+    float* A_d = inns[0];
+    float* C_d = out;
+ 
     //Workspace
     uint64_t worksize = 0;
     HANDLE_ERROR(cutensorReductionGetWorkspaceSize(&handle, 
@@ -405,9 +422,9 @@ build_cutensor_reduction(
 
     cutensorStatus_t err;
     err = cutensorReduction(&handle, 
-                NULL/*alpha*/, A/*Pointer to the data corresponding to A in device memory. Pointer to the GPU-accessible memory.*/, 
+                NULL/*alpha*/, A_d,
                 &descA, modeA.data(),NULL/*beta*/,  
-                out/*Pointer to the data corresponding to C in device memory. Pointer to the GPU-accessible memory.*/,
+                out,
                 &descC, modeC.data(), out, &descC, modeC.data(), 
                 opReduce, typeCompute, work, worksize, stream);
 
@@ -421,7 +438,22 @@ build_simple_reduction(
   castable_t castable)
 {
   // TODO
-  return {};
+  return [](cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
+    for(int i=0; i<ni;i++){
+      float num = 0;
+      for(int j=0; j<nj;j++){
+        if(c == castable_t::mul) { 
+          num*=inns[0][i*nj+j];
+        } else if(c == castable_t::min) { 
+          num = std::min(num, inns[0][i*nj+j]); 
+        } else if(c == castable_t::max) { 
+          num = std::max(num, inns[0][i*nj+j]);
+        }
+      }
+      out[i] = num;
+    }
+  
+  };
 }
 
 cutensor_kernel_t
