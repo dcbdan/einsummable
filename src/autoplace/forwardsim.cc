@@ -1342,6 +1342,44 @@ uint64_t forward_state_t::extra_elems_to(jid_t jid, int loc) const
   return total;
 }
 
+uint64_t forward_state_t::count_elements_to(
+  std::function<int(forward_state_t::jid_t)> get_loc,
+  forward_state_t::jid_t jid,
+  int dst) const
+{
+  auto const& [join_gid, join_bid] = jid;
+  auto const& joins = ginfos[join_gid].joins;
+  if(!joins) {
+    throw std::runtime_error("count_elements_to must have join setup");
+  }
+  auto const& join = joins.value()[join_bid];
+
+  uint64_t ret = 0;
+  for(rid_t const& rid: join.deps) {
+    auto const& [refi_gid, refi_bid] = rid;
+    auto const& refi = ginfos[refi_gid].refis.value()[refi_bid];
+    for(agg_unit_t const& agg_unit: refi.units) {
+      // This agg unit needs to be moved to this location.
+      // This happens by first locally aggregating at
+      // each source location and then moving from that source
+      // location to the destination.
+
+      // src_locs keeps track of which source locations
+      // have already been sent from. Only send at most
+      // once per location. Don't send from dst.
+      set<int> src_locs;
+      for(int const& dep_join_bid: agg_unit.deps) {
+        int src = get_loc(jid_t{ refi_gid, dep_join_bid });
+        if(src != dst && src_locs.count(src) == 0) {
+          ret += agg_unit.size;
+          src_locs.insert(src);
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
   return two_tuple_eq(lhs, rhs);
 }

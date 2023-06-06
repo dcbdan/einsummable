@@ -381,6 +381,17 @@ struct forward_state_t {
 
   uint64_t extra_elems_to(jid_t jid, int loc) const;
 
+  // Count the number of elements moved if jid is
+  // set to have location loc. Only jids dependent
+  // on id will be accessed in get_loc.
+  //
+  // The join must be set at jid and any set locations
+  // in this object are ignored.
+  uint64_t count_elements_to(
+    std::function<int(jid_t)> get_loc,
+    jid_t jid,
+    int loc) const;
+
 private:
   // ec = Event Completed
 
