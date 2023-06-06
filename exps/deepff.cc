@@ -26,6 +26,16 @@ struct random_placement_t {
   int nloc;
 };
 
+void main02() {
+  std::unordered_map<einsummable_t, int> zzz;
+  zzz.insert({einsummable_t::from_matmul(100,101,102), 9});
+  zzz.insert({einsummable_t::from_matmul(100,101,103), 10});
+
+  for(auto const& [e,v]: zzz) {
+    DOUT(e << " " << v);
+  }
+}
+
 int main() {
   using id_t = graph_writer_t::tensor_t;
 
@@ -72,3 +82,4 @@ int main() {
   std::ofstream f("deepff.gv");
   memgraph.print_graphviz(f);
 }
+
