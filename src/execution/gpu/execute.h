@@ -47,7 +47,9 @@ struct gpu_execute_state_t
     std::map<int, int> num_nodes_remaining;
 
     // cutensor related:
-    cutensorHandle_t* handle;
+    // cutensorHandle_t* handle;
+
+    void* memory;
     
     // a map from the node of the memgraph to the cutensor plan 
     // we only have plans for operation contraction, so we only need to store the plans for those nodes
@@ -58,6 +60,10 @@ struct gpu_execute_state_t
 
         // create a cutensor handle
         // HANDLE_ERROR( cutensorInit(&handle) );
+
+        // get the size of the memory needed from the memgraph
+        // TODO: hardcoded the 0 since we only have 1 gpu for now
+        auto mem_size = memgraph.mem_sizes()[0];
 
         dependency_count = get_dependencies(memgraph);
 
@@ -76,6 +82,8 @@ struct gpu_execute_state_t
          // print the size of pending_queue in the beginning
         std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
     }
+
+    
 
     void run();
     

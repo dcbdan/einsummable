@@ -40,7 +40,7 @@ void add_to_queue(std::queue<int> &queue, std::vector<int> &nodes) {
         queue.push(node);
     }
     // print how many elements are in the queue
-    std::cout << "Queue size: " << queue.size() << std::endl;
+    // std::cout << "Queue size: " << queue.size() << std::endl;
 }
 
 std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
@@ -60,6 +60,15 @@ bool is_complete(std::map<int, int> &dependency_count) {
     return true;
 }
 
+// calling cuda malloc to allocate memory for a given size
+void* cuda_malloc(size_t size) {
+  void* ret;
+  if(cudaMalloc(&ret, size) != cudaSuccess) {
+    throw std::runtime_error("cuda_malloc");
+  }
+  return ret;
+}
+
 // get a callback data struct that keeps track of the current node that finished execution
 // Has all the data structures required to update things
 struct callback_data_t {
@@ -74,14 +83,12 @@ struct callback_data_t {
     std::mutex& m = *m_ptr;
     auto& cv = *cv_ptr;
     {
-      // print that callback is called
-      std::cout << "callback called" << std::endl;
       std::unique_lock lk(m);
+      // update the queue since this node is finished
       auto new_nodes = node_update(*dependency_count, *memgraph, node_idx);
       add_to_queue(*pending_queue, new_nodes);      
     }
     cv.notify_all();
-    std::cout << "callback finished" << std::endl;
   }
 };
 
@@ -96,14 +103,13 @@ void gpu_execute_state_t::run() {
 
     while (true){
         std::mutex m;
+        // wait till some node finishes and notifies the cv
         std::condition_variable cv;
         {
             std::unique_lock lk(m);
-            std::cout << "Main loop waiting" << std::endl;
             cv.wait(lk, [&]{
                 return pending_queue.size() > 0;
             });
-            std::cout << "finished waiting" << std::endl;
         }
         // execute things that are in the apply_queue until the queue is empty
         while (pending_queue.size() != 0){
@@ -149,7 +155,11 @@ void gpu_execute_state_t::run() {
             }
             else{
                 // print a message saying that the operation is not supported and this operation's type
-                std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;
+                // std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;\
+
+                // also updating just to check the loop
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx);
+                add_to_queue(pending_queue, new_nodes);
             }
         }
         // if the num_nodes_remaining is 0, then we are done

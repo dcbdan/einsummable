@@ -7,6 +7,33 @@
 #include <fstream>
 #include <memory>
 
+void main01() {
+std::cout << "trying to test new allocator_t" << std::endl;
+
+  /*Take an example that we have a device with 100 bytes memory*/
+  allocator_t allocator = allocator_t(100);
+
+  allocator.print();
+  DOUT("");
+
+  auto [o0, _0] = allocator.allocate(6);
+  auto [o1, _1] = allocator.allocate(4);
+  auto [o2, _2] = allocator.allocate(2);
+  auto [o3, _3] = allocator.allocate(7);
+  DOUT("_0" << _0);
+  DOUT("_1" << _1);
+  DOUT("_2" << _2);
+  DOUT("_3" << _3);
+  allocator.free(o0,0);
+  allocator.free(o1,0);
+  allocator.free(o2,0);
+  allocator.free(o3,0);
+  allocator.print();
+  auto [o5, _4] = allocator.allocate(10);
+  DOUT("_4 " << _4);
+  allocator.print();
+}
+
 void usage() {
   DOUT("pi pj pk di dj dk np");
 }
@@ -55,7 +82,7 @@ int main(int argc, char** argv) {
         taskgraph,
         compute_loc_to_cache,
         {},
-        allocator_strat_t::lowest_dependency);
+        { allocator_strat_t::lowest_dependency, 1 } );
     auto const& [_2, _3, memgraph] = _info1;
 
     // print the number of nodes in the graph
