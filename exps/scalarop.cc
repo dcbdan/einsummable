@@ -1,6 +1,6 @@
 #include "../src/einsummable/scalarop.h"
 
-int main() {
+void main01() {
   {
     std::cout << "ADD" << std::endl;
     scalarop_t op = scalarop_t::make_add();
@@ -81,5 +81,14 @@ int main() {
     scalarop_t op = scalarop_t::make_relu();
     std::cout << op << std::endl;
     std::cout << op.derivative(0) << std::endl;
+  }
+}
+
+int main() {
+  float16_t a(3.4), b(5);
+  float16_t c = a * b;
+  c += 3;
+  if(c > a) {
+    std::cout << c << std::endl;
   }
 }
