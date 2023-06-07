@@ -58,6 +58,21 @@ int main(int argc, char** argv) {
         allocator_strat_t::lowest_dependency);
     auto const& [_2, _3, memgraph] = _info1;
 
+    // print the number of nodes in the graph
+    std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
+    // print the input and output of every node
+    for(int i = 0; i < memgraph.nodes.size(); ++i) {
+      std::cout << "Node " << i << " has input: ";
+      for(auto in: memgraph.nodes[i].inns) {
+        std::cout << in << " ";
+      }
+      std::cout << "and output: ";
+      for(auto out: memgraph.nodes[i].outs) {
+        std::cout << out << " ";
+      }
+      std::cout << std::endl;
+    }
+
     // std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
     // std::ofstream f("mm3d_mem_lowest_dep.gv");
     // memgraph.print_graphviz(f);

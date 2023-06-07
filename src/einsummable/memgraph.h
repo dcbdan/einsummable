@@ -33,6 +33,8 @@ struct memgraph_t {
     int num_cache_locs,
     vector<int> const& cache_locs);
 
+  memgraph_t();
+
   // Create a memgraph without any memory-size constraints.
   // Return also mappings
   //   input taskgraph node ids -> memory
