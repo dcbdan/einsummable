@@ -14,7 +14,11 @@ struct partition_t {
 
   vector<int> block_shape() const;
 
+  bool refines(partition_t const& other) const;
+
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const;
+
+  partition_t subset(vector<tuple<int, int>> const& region) const;
 
   // Get the hyper-rectanuglar set represnted by this index
   vector<tuple<uint64_t, uint64_t>>
@@ -24,11 +28,16 @@ struct partition_t {
   // region: hyper-rectangular subset of blocks
   vector<tuple<int,int> >
   get_exact_region(
-    vector<tuple<uint64_t,uint64_t>> const& region) const;
+    vector<tuple<uint64_t,uint64_t>> const& hrect) const;
 
   vector<tuple<int,int> >
   get_region(
-    vector<tuple<uint64_t,uint64_t>> const& region) const;
+    vector<tuple<uint64_t,uint64_t>> const& hrect) const;
+
+  // If multiple index cover the area given by hrect,
+  // throw an error
+  vector<int> get_index_covering(
+    vector<tuple<uint64_t,uint64_t>> const& hrect) const;
 
   vector<partdim_t> partdims;
 };

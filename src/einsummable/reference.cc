@@ -1,4 +1,5 @@
 #include "reference.h"
+#include "../base/hrect.h"
 
 buffer_t make_buffer(uint64_t size) {
   return std::make_shared<buffer_holder_t>(size);
@@ -104,6 +105,13 @@ map<int, buffer_t> reference_compute_graph(
         inns.push_back(tensors[id_inn]);
       }
       tensors[id] = reference_einsummable(node.op.get_einsummable(), inns);
+    } else if(node.op.is_concat()) {
+      vector<buffer_t> inns;
+      inns.reserve(node.inns.size());
+      for(auto const& id_inn: node.inns) {
+        inns.push_back(tensors[id_inn]);
+      }
+      tensors[id] = reference_concat(node.op.get_concat(), inns);
     } else {
       throw std::runtime_error("should not reach: reference compute graph");
     }
@@ -313,7 +321,7 @@ tensor_t<buffer_t> partition_buffer(
     auto offset = vector_mapfst(hrect);
 
     buffer_t& buffer = ret.at(block_index);
-    vector<uint64_t> buffer_shape = shape_hrect(hrect);
+    vector<uint64_t> buffer_shape = hrect_shape(hrect);
     buffer = make_buffer(product(buffer_shape));
 
     vector<uint64_t> inn_index = offset;
@@ -343,7 +351,7 @@ buffer_t unpartition_buffer(
     auto offset = vector_mapfst(hrect);
 
     buffer_t const& inn_buffer = inn.at(block_index);
-    vector<uint64_t> inn_shape = shape_hrect(hrect);
+    vector<uint64_t> inn_shape = hrect_shape(hrect);
 
     vector<uint64_t> out_index = offset;
     do {
@@ -463,6 +471,46 @@ void reference_einsummable_inplace(
     }
     agg_index = vector<uint64_t>(agg_shape.size(), 0);
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
+}
+
+buffer_t reference_concat(
+  concat_t const& concat,
+  vector<buffer_t> const& inns)
+{
+  if(inns.size() != concat.inn_shapes.size()) {
+    throw std::runtime_error("incorrect number of inputs");
+  }
+
+  vector<uint64_t> out_shape = concat.shape();
+
+  vector<uint64_t> offsets = concat.get_offsets();
+
+  buffer_t ret = make_buffer(product(out_shape));
+
+  for(int i = 0; i != inns.size(); ++i) {
+    buffer_t const& inn = inns[i];
+    vector<uint64_t> const& inn_shape = concat.inn_shapes[i];
+
+    if(inn->size != product(inn_shape)) {
+      throw std::runtime_error("incorrectly sized input");
+    }
+
+    uint64_t offset = offsets[i];
+
+    vector<tuple<uint64_t, uint64_t>> hrect = concat.get_hrect(i);
+    auto out_index = vector_mapfst(hrect);
+   do {
+      vector<uint64_t> inn_index = out_index;
+      inn_index[concat.dim] -= offset;
+
+      auto out_idx = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
+      auto inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
+
+      ret->data[out_idx] = inn->data[inn_idx];
+    } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, out_index));
+  }
+
+  return ret;
 }
 
 std::function<void(float&, float const&)> reference_touch_update(

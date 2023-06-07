@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
         taskgraph,
         compute_loc_to_cache,
         {},
-        allocator_strat_t::lowest_dependency);
+        { allocator_strat_t::lowest_dependency, 1 } );
     auto const& [_2, _3, memgraph] = _info1;
 
     std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
         taskgraph,
         compute_loc_to_cache,
         {},
-        allocator_strat_t::first);
+        { allocator_strat_t::first, 1 } );
     auto const& [_2, _3, memgraph] = _info1;
 
     std::cout << "Printing to mm3d_mem_first.gv" << std::endl;

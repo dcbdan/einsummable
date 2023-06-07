@@ -89,12 +89,6 @@ struct taskgraph_t {
     touch_t touch,
     bool consume = false);
 
-  void add_to_partial_the_full_input(
-    int id_out,
-    int id_inn,
-    vector<tuple<uint64_t, uint64_t>> hrect_out,
-    bool consume = false);
-
   void add_to_partial_the_full_aggregate(
     int id_out,
     int id_inn,
@@ -324,7 +318,6 @@ public:
     vector<vector<tuple<int, touch_t>>> get_touches() const {
       return std::get<partialize_t>(op).as_touches_from();
     }
-
   };
 
   struct node_t {
@@ -339,6 +332,21 @@ public:
 private:
   int insert(op_t op, bool is_save);
 };
+
+partition_t concat_split_partition(
+  partition_t const& partition,
+  concat_t const& concat);
+
+// get the slice of concat_partition at
+// the which_input part of the concat op
+partition_t concat_get_input_partition(
+  partition_t const& concat_partition,
+  concat_t const& concat,
+  int which_input);
+
+placement_t concat_split_placement(
+  placement_t const& placement,
+  concat_t const& concat);
 
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,

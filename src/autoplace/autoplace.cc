@@ -28,13 +28,7 @@ double simulate(
 }
 
 vector<placement_t> single_loc_placements(graph_t const& graph) {
-  vector<placement_t> pls;
-  pls.reserve(graph.nodes.size());
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    pls.emplace_back(partition_t::singleton(node.op.shape()));
-  }
-  return pls;
+  return graph.make_singleton_placement();
 }
 
 equal_items_t<int> construct_equal_placements(graph_t const& graph) {
@@ -116,13 +110,8 @@ mcmc_t mcmc_t::init_balanced(
   int nloc = cluster.devices.size();
   vector<partition_t> parts = autopartition(graph, nloc, 4*nloc, eqs);
 
-  auto locs = load_balanced_placement(
+  vector<placement_t> pls = load_balanced_placement(
     graph, parts, cluster.devices.size(), false);
-
-  vector<placement_t> pls;
-  for(int gid = 0; gid != parts.size(); ++gid) {
-    pls.emplace_back(parts[gid], locs[gid]);
-  }
 
   for(auto const& gid: eqs.candidates()) {
     auto const& pl = pls[gid];
@@ -135,7 +124,6 @@ mcmc_t mcmc_t::init_balanced(
 
   return mcmc_t(cluster, graph, beta, eqs, pls);
 }
-
 
 bool mcmc_t::step() {
   vector<placement_t> pls = random_change();

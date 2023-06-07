@@ -19,6 +19,8 @@ struct partdim_t {
 
   int num_parts() const { return spans.size(); }
 
+  bool refines(partdim_t const& other) const;
+
   tuple<uint64_t, uint64_t> which_vals(int blk) const;
 
   int which_block(uint64_t val) const;

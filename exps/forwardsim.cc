@@ -6,9 +6,6 @@
 
 #include "../src/matrixgraph/ff.h"
 
-#include "../src/autoplace/mcts1.h"
-#include "../src/einsummable/twolayergraph.h"
-
 #include <fstream>
 
 cluster_t make_cluster(int nlocs, uint64_t compute_score = 1, uint64_t communicate_score = 1) {
@@ -263,91 +260,6 @@ void main02() {
   }
 }
 
-void main03() {
-  int nlocs = 4;
-
-  cluster_t cluster = make_cluster(nlocs, 10, 1);
-
-  //auto graph = three_dimensional_matrix_multiplication(
-  //  4,4,4,
-  //  4000,4000,4000,
-  //  nlocs);
-
-  float learning_rate = 0.1;
-  uint64_t dn = 1500;
-  uint64_t dp = 1500;
-  uint64_t dd = 1500;
-  vector<uint64_t> dws{2000,2000};
-
-  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
-  auto [graph, _] = ff.mgraph.compile();
-
-  using namespace mcts1_ns;
-
-  double c = 1.5;
-  tree_t tree(graph, cluster, c);
-  double base = tree.get_best_makespan();
-
-  for(int i = 0; i != 4000; ++i) {
-    auto [makespan,_] = tree.step();
-    double speedup = base / tree.get_best_makespan();
-    DOUT((tree.get_best_makespan() / base) << "             | " << (makespan / base) << "");
-    //DOUT(speedup << "x");
-    //DOUT(tree.size());
-  }
-
-  forward_state_t state = tree.construct_best();
-  {
-    {
-      std::ofstream f("tl.gv");
-      state.print_twolayer_graphviz(f);
-      DOUT("Printed to tl.gv");
-    }
-
-    vector<timeplot_ns::box_t> boxes;
-    double makespan = 0.0;
-    using jid_t = forward_state_t::jid_t;
-    while(!state.all_done()) {
-      state.enqueue_all();
-      auto completed = state.pop_work();
-      makespan = std::max(makespan, completed.finish);
-      if(completed.did_apply()) {
-        auto const& [loc,gid,bid,flops] = completed.get_apply_info();
-        boxes.push_back(timeplot_ns::box_t {
-          .row = loc,
-          .start = completed.start,
-          .stop  = completed.finish,
-          .text = write_with_ss(jid_t { gid, bid })
-        });
-      }
-    }
-
-    {
-      std::ofstream f("tp.svg");
-      timeplot(f, boxes, 50, 50, makespan);
-      DOUT("Printed to tp.svg");
-    }
-  }
-
-  //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-  //  auto const& node = graph.nodes[gid];
-  //  if(node.op.is_einsummable()) {
-  //    DOUT(gid << ": " << node.op.get_einsummable());
-  //  }
-  //  DOUT(gid << ": " << state.get_ginfo(gid).partition.value());
-  //}
-  //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-  //  auto const& node = graph.nodes[gid];
-  //  if(node.op.is_einsummable()) {
-  //    DOUT(gid << ": " << node.op.get_einsummable());
-  //  } else if(node.op.is_input()) {
-  //    DOUT(gid << ": input");
-  //  } else if(node.op.is_formation()) {
-  //    DOUT(gid << ": formation");
-  //  }
-  //}
-}
-
 void main05() {
   // Do markov chain monte carlo to search the space..
 
@@ -361,25 +273,49 @@ void main05() {
   //  nlocs);
   //equal_items_t<int> eqs = {};
 
-  float learning_rate = 0.1;
-  uint64_t dn = 1500;
-  uint64_t dp = 1500;
-  uint64_t dd = 1500;
-  vector<uint64_t> dws{2000, 2000};
+  //float learning_rate = 0.1;
+  //uint64_t dn = 1500;
+  //uint64_t dp = 1500;
+  //uint64_t dd = 1500;
+  //vector<uint64_t> dws{2000, 2000};
 
-  ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
-  auto [graph, m_to_g] = ff.mgraph.compile();
-  equal_items_t<int> eqs;
-  for(int i = 0; i != ff.wsinn.size(); ++i) {
-    auto const& inn = m_to_g.at(ff.wsinn[i]);
-    auto const& out = m_to_g.at(ff.wsout[i]);
-    eqs.insert(inn, out);
+  //ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
+  //auto [graph, m_to_g] = ff.mgraph.compile();
+  //equal_items_t<int> eqs;
+  //for(int i = 0; i != ff.wsinn.size(); ++i) {
+  //  auto const& inn = m_to_g.at(ff.wsinn[i]);
+  //  auto const& out = m_to_g.at(ff.wsout[i]);
+  //  eqs.insert(inn, out);
+  //}
+
+  graph_writer_t writer;
+  {
+    // just making a graph that does concat
+    using id_t = graph_writer_t::tensor_t;
+
+    uint64_t bb  = 4000;
+    uint64_t da  = 1500;
+    uint64_t db  = 1600;
+    uint64_t dc  = 1700;
+    uint64_t dab = da+db;
+
+    id_t x = writer.input({bb, da});
+    id_t w_a_b = writer.input({da,db});
+    id_t w_ab_c = writer.input({dab, dc});
+
+    id_t y = writer.matmul(x, w_a_b);
+    x = writer.concat(1, {x, y});
+    x = writer.matmul(x, w_ab_c);
+
+    x.save();
   }
+  graph_t const& graph = writer.get_graph();
+  equal_items_t<int> eqs = {};
 
   double base = simulate(cluster, graph, single_loc_placements(graph));
 
-  mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
-  //mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
+  //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
+  mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 
   for(int i = 0; i != 20000; ++i) {
     mcmc.step();

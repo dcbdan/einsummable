@@ -442,6 +442,22 @@ string einsummable_t::str() const {
   return ss.str();
 }
 
+std::size_t einsummable_t::hash() const {
+  std::hash<string>   h_str;
+  std::hash<int>      h_int;
+  std::hash<uint64_t> h_uint;
+
+  std::size_t ret = h_str(str() + write_with_ss(join));
+
+  for(auto const j: join_shape) {
+    hash_combine_impl(ret, h_uint(j));
+  }
+  if(castable) {
+    hash_combine_impl(ret, h_int(int(castable.value())));
+  }
+  return ret;
+};
+
 bool einsummable_t::is_straight_elementwise() const {
   vector<int> reference(join_shape.size());
   std::iota(reference.begin(), reference.end(), 0);
@@ -521,4 +537,24 @@ std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c)
   return out;
 }
 
+bool operator==(einsummable_t const& lhs, einsummable_t const& rhs) {
+  if(!vector_equal(lhs.join_shape, rhs.join_shape)) {
+    return false;
+  }
+  if(lhs.inns.size() != rhs.inns.size()) {
+    return false;
+  }
+  for(int i = 0; i != lhs.inns.size(); ++i) {
+    if(!vector_equal(lhs.inns[i], rhs.inns[i])) {
+      return false;
+    }
+  }
+  if(lhs.out_rank != rhs.out_rank) {
+    return false;
+  }
+  return lhs.join == rhs.join && lhs.castable == rhs.castable;
+}
 
+bool operator!=(einsummable_t const& lhs, einsummable_t const& rhs) {
+  return !(lhs == rhs);
+}

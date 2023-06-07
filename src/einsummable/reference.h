@@ -13,8 +13,9 @@ struct buffer_holder_t {
   buffer_holder_t(float* data, uint64_t size): size(size), own(false), data(data) {}
   ~buffer_holder_t() { if(own) { delete[] data; } }
 
-  void zeros() { std::fill(data, data + size, 0.0); }
-  void ones()  { std::fill(data, data + size, 1.0); }
+  void zeros() { fill(0.0); }
+  void ones()  { fill(1.0); }
+  void fill(float v) { std::fill(data, data + size, v); }
   void iota(int start = 0) { std::iota(data, data + size, start); }
   void random(float lower = 0.0, float upper = 1.0);
 
@@ -73,6 +74,10 @@ buffer_t reference_einsummable(
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
   buffer_t& out,
+  vector<buffer_t> const& inputs);
+
+buffer_t reference_concat(
+  concat_t const& concat,
   vector<buffer_t> const& inputs);
 
 void reference_touch(

@@ -104,6 +104,13 @@ uint64_t partdim_t::size_at(int i) const {
   }
 }
 
+bool partdim_t::refines(partdim_t const& other) const {
+  if(total() != other.total()) {
+    return false;
+  }
+  return *this == partdim_t::unions({*this, other});
+}
+
 tuple<uint64_t, uint64_t> partdim_t::which_vals(int blk) const {
   if(blk == 0) {
     return {0, spans[0]};

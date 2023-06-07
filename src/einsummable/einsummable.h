@@ -74,6 +74,8 @@ struct einsummable_t {
 
   string str() const;
 
+  std::size_t hash() const;
+
   // A straight elementwise operation can be computed by
   //   for(i = 0, i != product(join_shape); ++i) {
   //     out[i] = join(inn1[i], ..., innN[i]);
@@ -89,7 +91,6 @@ struct einsummable_t {
   bool has_aggregation() const;
 
   bool is_contraction() const;
-
 
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
@@ -178,3 +179,12 @@ std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c)
 
 std::istream& operator>>(std::istream& inn, castable_t& c);
 
+template <> struct std::hash<einsummable_t> {
+  inline std::size_t operator()(einsummable_t const& e) const
+  {
+    return e.hash();
+  }
+};
+
+bool operator==(einsummable_t const& lhs, einsummable_t const& rhs);
+bool operator!=(einsummable_t const& lhs, einsummable_t const& rhs);
