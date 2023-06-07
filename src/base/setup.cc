@@ -54,3 +54,18 @@ void hash_combine_impl(std::size_t& seed, std::size_t value)
     seed ^= value + 0x9e3779b9 + (seed<<6) + (seed>>2);
 }
 
+uint64_t align_to_power_of_two(uint64_t number, uint8_t power) {
+  if(number == 0) {
+    return number;
+  }
+
+  number--;
+  for(int i = 0; i != power; ++i) {
+    number |= (1 << i);
+  }
+  number++;
+
+  return number;
+}
+
+

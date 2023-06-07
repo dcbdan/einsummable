@@ -715,4 +715,42 @@ optional<string> check_concat_shapes(
   return std::nullopt;
 }
 
+// return the smallest value greater than or equal to number
+// that is divisible by 2^power.
+uint64_t align_to_power_of_two(uint64_t number, uint8_t power);
+
+// Find the last true element
+// Assumption: evaluate returns all trues then all falses.
+// If there are no trues: return end
+// If there are all trues: return end-1
+template <typename Iter, typename F>
+Iter binary_search_find(Iter beg, Iter end, F evaluate)
+{
+  if(beg == end) {
+    return end;
+  }
+  if(!evaluate(*beg)) {
+    return end;
+  }
+
+  decltype(std::distance(beg,end)) df;
+  while((df = std::distance(beg, end)) > 2) {
+    Iter mid = beg + (df / 2);
+    if(evaluate(*mid)) {
+      beg = mid;
+    } else {
+      end = mid;
+    }
+  }
+
+  if(df == 1) {
+    return beg;
+  }
+
+  if(evaluate(*(end - 1))) {
+    return end-1;
+  } else {
+    return beg;
+  }
+}
 
