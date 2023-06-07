@@ -15,6 +15,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/half-2.2.0/include)
 include_directories(${Protobuf_INCLUDE_DIRS})
 
 add_subdirectory(src/proto)
@@ -137,5 +138,4 @@ if(${GPU_EXECUTION_ENGINE})
 
   # call add_gpu_application here
   add_gpu_application("gpuexec_touch"  "exps" "gpuexec_touch")
-  add_gpu_application("cutensorexp"  "exps" "cutensorexp")
 endif()

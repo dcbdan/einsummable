@@ -16,6 +16,8 @@
 #include <queue>
 #include <chrono>
 
+#include "half.hpp"
+
 #define DOUT(x) \
   std::cout << x << std::endl;
 #define DLINEOUT(x) \
@@ -66,6 +68,8 @@ using std::set;
 using std::map;
 using std::optional;
 using std::string;
+
+using float16_t = half_float::half;
 
 template <typename T>
 T product(vector<T> const& xs)
