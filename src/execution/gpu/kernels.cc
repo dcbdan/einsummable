@@ -167,10 +167,7 @@ build_einsummable(einsummable_t const& e_)
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,
-  einsummable_t const& e_,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  einsummable_t const& e_)
 {
   einsummable_t e = e_.merge_adjacent_dims();
 
@@ -250,27 +247,14 @@ void build_contraction(
   
   //******************************************
   // get the memory pointers to the tensors
-  auto ptrA = lhs;
-  auto ptrB = rhs;
-  auto ptrC = out;
+  
 
-  uint32_t alignmentRequirementA;
-  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-              ptrA,
-              &descA,
-              &alignmentRequirementA) );
+  uint32_t alignmentRequirementA = 0;
 
-  uint32_t alignmentRequirementB;
-  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-              ptrB,
-              &descB,
-              &alignmentRequirementB) );
-
-  uint32_t alignmentRequirementC;
-  HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
-              ptrC,
-              &descC,
-              &alignmentRequirementC) );
+  uint32_t alignmentRequirementB = 0;
+  
+  uint32_t alignmentRequirementC = 0;
+  
 
 
   // Init Contraction Descriptor need to be in the format of
@@ -345,7 +329,8 @@ void execute_contraction(
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
-  vector<int> out_modes, vector<uint64_t> out_shape)
+  vector<int> out_modes, vector<uint64_t> out_shape,
+  castable_t castable)
 {
   //********************************
   //Same problem as contraction
@@ -364,13 +349,21 @@ build_cutensor_reduction(
   vector<int64_t> extent_A = inn_shape;
   vector<int64_t> extent_C = out_shape;
 
+  const cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
 
+  if(c == castable_t::mul) { 
+    opReduce = CUTENSOR_OP_MUL;
+  } else if(c == castable_t::min) { 
+    opReduce = CUTENSOR_OP_MIN;
+  } else if(c == castable_t::max) { 
+    opReduce = CUTENSOR_OP_MAX;
+  }
   
 
 
   // ****************************************
   // What is float*, vector<float const*> here?
-  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C]
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce]
   (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
     cudaDataType_t typeA = CUDA_R_32F;
     cudaDataType_t typeC = CUDA_R_32F;
@@ -393,8 +386,8 @@ build_cutensor_reduction(
                  typeC, CUTENSOR_OP_IDENTITY));
     
 
-    //Specify reduce OP (this should be the one?)
-    const cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
+    
+    
 
     //get the memory pointer
     float* A_d = inns[0];
@@ -459,7 +452,16 @@ build_simple_reduction(
 cutensor_kernel_t
 build_cutensor_elementwise(cutensor_elementwise_op_t op)
 {
-  // TODO
+  if(std::holds_alternative<cutensor_elementwise_op_t::unary_t>(op.op)){
+
+  }
+  else if(std::holds_alternative<cutensor_elementwise_op_t::binary_t>(op.op)){
+    
+  }
+  else if(std::holds_alternative<cutensor_elementwise_op_t::ternary_t>(op.op)){
+    
+  }
+
   return {};
 }
 
