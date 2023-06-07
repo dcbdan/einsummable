@@ -79,23 +79,4 @@ int main(int argc, char** argv) {
     uint64_t buffer_size = 0;
     execute(memgraph);
   }
-
-  
-
-//   {
-//     tuple<
-//       map<int, mem_t>, // input -> mem
-//       map<int, mem_t>, // save -> mem
-//       memgraph_t>
-//       _info1 = memgraph_t::make_without_evict(
-//         taskgraph,
-//         compute_loc_to_cache,
-//         {},
-//         allocator_strat_t::first);
-//     auto const& [_2, _3, memgraph] = _info1;
-
-//     std::cout << "Printing to mm3d_mem_first.gv" << std::endl;
-//     std::ofstream f("mm3d_mem_first.gv");
-//     memgraph.print_graphviz(f);
-//   }
 }

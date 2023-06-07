@@ -1,4 +1,5 @@
 #include "execute.h"
+#include <cstdlib>
 #include <driver_types.h>
 #include <iostream>
 #include <thread>
@@ -48,6 +49,15 @@ std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
         dependency_count[i] = memgraph.nodes[i].inns.size();
     }
     return dependency_count;
+}
+
+bool is_complete(std::map<int, int> &dependency_count) {
+    for (auto it = dependency_count.begin(); it != dependency_count.end(); it++){
+        if (it->second != 0){
+            return false;
+        }
+    }
+    return true;
 }
 
 // get a callback data struct that keeps track of the current node that finished execution
@@ -141,6 +151,20 @@ void gpu_execute_state_t::run() {
                 // print a message saying that the operation is not supported and this operation's type
                 std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;
             }
+        }
+        // if the num_nodes_remaining is 0, then we are done
+        if (is_complete(num_nodes_remaining)){
+            // if the dependency count for all node is 0, then we are done
+            // else throw an error
+            if (is_complete(dependency_count)){
+                std::cout << "All nodes finished execution." << std::endl;
+                break;
+            }
+            else{
+                std::cout << "Error: All nodes finished execution but there are still nodes in the queue." << std::endl;
+                exit(0);
+            }
+            exit(0);
         }
     }
 }

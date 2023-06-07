@@ -3,7 +3,6 @@
 #include "../../einsummable/memgraph.h"
 #include "../../einsummable/reference.h" // buffer_t
 #include "cutensor.h"
-// #include "device_launch_parameters.h"
 #include "dummy_kernels.h"
 
 #include <cstddef>
@@ -44,6 +43,7 @@ struct gpu_execute_state_t
 
     // how many nodes in the memgraph are remaining to execute
     // each entry in the map is the number of nodes remaining for this device
+    // for now there's only one device, so we only need one entry
     std::map<int, int> num_nodes_remaining;
 
     // cutensor related:
@@ -62,7 +62,7 @@ struct gpu_execute_state_t
         dependency_count = get_dependencies(memgraph);
 
         // in the beginning num_nodes_remaining is the number of nodes in the memgraph
-        num_nodes_remaining = memgraph.nodes.size();
+        num_nodes_remaining[0] = memgraph.nodes.size();
 
         // check all elements from the memgraph and add the nodes with no dependencies to the apply_queue
         for (int i = 0; i < memgraph.nodes.size(); i++)
