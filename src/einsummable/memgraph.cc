@@ -15,6 +15,14 @@ mem_t memloc_t::as_mem() const {
   };
 }
 
+allocator_settings_t allocator_settings_t::default_settings()
+{
+  return allocator_settings_t {
+    .strat = allocator_strat_t::lowest_dependency,
+    .alignment = 0
+  };
+}
+
 memgraph_t::memgraph_t(
   int nl, int nc, vector<int> const& cs)
   : num_compute_locs(nl), num_cache_locs(nc), cache_locs(cs)
@@ -391,7 +399,7 @@ memgraph_t::make_without_evict(
   taskgraph_t const& taskgraph,
   vector<int> const& which_cache,
   vector<uint64_t> mem_sizes,
-  allocator_strat_t strat)
+  allocator_settings_t settings)
 {
   int const n_compute_locs = taskgraph.num_locs();
   if(which_cache.size() != n_compute_locs) {
@@ -419,14 +427,14 @@ memgraph_t::make_without_evict(
     // each with a very large amount of available memory
     allocators = vector<allocator_t>(
       n_compute_locs,
-      allocator_t(std::numeric_limits<uint64_t>::max(), strat));
+      allocator_t(std::numeric_limits<uint64_t>::max(), settings));
   } else {
     if(mem_sizes.size() != n_compute_locs) {
       throw std::runtime_error("must have mem sizes for each device");
     }
     allocators.reserve(mem_sizes.size());
     for(auto const& m: mem_sizes) {
-      allocators.emplace_back(m, strat);
+      allocators.emplace_back(m, settings);
     }
   }
 
@@ -919,9 +927,8 @@ vector<_which_touch_t> get_which_touches_from_to(
   return ret;
 }
 
-
-allocator_t::allocator_t(uint64_t memsize, allocator_strat_t s)
-  : strat(s)
+allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
+  : strat(s.strat), alignment(s.alignment)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");
@@ -947,17 +954,22 @@ allocator_t::find_first_available(uint64_t size) {
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
     if(iter->available()) {
       iter_t ret = iter;
-      uint64_t sz = 0;
+      uint64_t sz  = 0;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
       for(; iter != blocks.end() && iter->available(); ++iter) {
         sz += iter->size();
-        if(sz >= size) {
+        if(rem != 0 && sz > rem) {
+          rem = 0;
+          sz -= rem;
+        }
+        if(rem == 0 && sz >= size) {
           return optional<return_t>({ret, iter + 1, sz});
         }
       }
     }
   }
 
-  return optional<return_t>();
+  return std::nullopt;
 }
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
@@ -969,11 +981,19 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz = 0;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
       int inner_max_dep = -1;
-      for(iter_t inner_iter = iter; inner_iter != blocks.end() && inner_iter->available(); ++inner_iter) {
+      for(iter_t inner_iter = iter;
+          inner_iter != blocks.end() && inner_iter->available();
+          ++inner_iter)
+      {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
         sz += inner_iter->size();
-        if(sz >= size && inner_max_dep <= min_dep) {
+        if(rem != 0 && sz > rem) {
+          rem = 0;
+          sz -= rem;
+        }
+        if(rem == 0 && sz >= size && inner_max_dep <= min_dep) {
           min_dep = inner_max_dep;
           return_block = {ret, inner_iter + 1, sz};
           break;
@@ -1002,6 +1022,7 @@ allocator_t::try_to_allocate(uint64_t size)
 
     // collect the output information
     uint64_t offset = beg->beg;
+    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment);
     vector<int> deps;
     for(auto iter = beg; iter != end; ++iter) {
       if(!iter->dep) {
@@ -1029,7 +1050,7 @@ allocator_t::try_to_allocate(uint64_t size)
         .dep = last_block_copy.dep
       });
     }
-    return optional<return_t>({offset, deps});
+    return optional<return_t>({aligned_offset, deps});
   } else {
     return optional<return_t>();
   }
@@ -1046,14 +1067,14 @@ allocator_t::allocate(uint64_t size)
 }
 
 void allocator_t::free(uint64_t offset, int del) {
-  auto iter = std::lower_bound(blocks.begin(), blocks.end(), offset,
-    [](block_t const& blk, uint64_t const& val) {
-      return blk.beg < val;
+  auto iter = binary_search_find(blocks.begin(), blocks.end(),
+    [&offset](block_t const& blk) {
+      return blk.beg <= offset;
     }
   );
 
-  if(iter == blocks.end() || iter->beg != offset) {
-    throw std::runtime_error("cannot del this block");
+  if(iter == blocks.end()) {
+    throw std::runtime_error("did not find a block");
   }
 
   block_t& block = *iter;

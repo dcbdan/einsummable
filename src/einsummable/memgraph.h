@@ -27,6 +27,13 @@ struct memgraph_make_state_t;
 
 enum class allocator_strat_t { lowest_dependency, first };
 
+struct allocator_settings_t {
+  allocator_strat_t strat;
+  uint8_t alignment; // 2^alignment
+
+  static allocator_settings_t default_settings();
+};
+
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
@@ -56,7 +63,7 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<int> const& which_cache,
     vector<uint64_t> mem_sizes = {},
-    allocator_strat_t strat = allocator_strat_t::lowest_dependency);
+    allocator_settings_t settings = allocator_settings_t::default_settings());
 
   void print_graphviz(std::ostream& out) const;
 
@@ -244,7 +251,7 @@ struct allocator_t {
 
   allocator_t(
     uint64_t memsize_t,
-    allocator_strat_t s = allocator_strat_t::lowest_dependency);
+    allocator_settings_t settings = allocator_settings_t::default_settings());
 
   // Allocate this much memory if possible and return
   // the offset and all dependents. If there is not
@@ -287,6 +294,7 @@ private:
 
   vector<block_t> blocks;
   allocator_strat_t strat;
+  uint64_t alignment;
 
   using iter_t = vector<block_t>::iterator;
 

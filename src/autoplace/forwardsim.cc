@@ -1,15 +1,228 @@
 #include "forwardsim.h"
 #include "../base/copyregion.h"
+#include "../einsummable/taskgraph.h"
+
+capacity_scheduler_t::capacity_scheduler_t(int c)
+  : capacity(c)
+{
+  blocks.push_back(block_t {
+    .beg = 0.0,
+    .end = std::numeric_limits<double>::max(),
+    .cnt = 0
+  });
+}
+
+double capacity_scheduler_t::schedule(int util, double min_start, double compute_time)
+{
+  auto [beg,end] = find_available(util, min_start, compute_time);
+  vector<block_t> new_blocks;
+  new_blocks.reserve(blocks.size() + 2);
+
+  auto iter = blocks.begin();
+
+  for(; iter != beg; ++iter) {
+    new_blocks.push_back(*iter);
+  }
+
+  double start;
+  double finish;
+  {
+    // iter is beg
+
+    if(min_start < beg->beg) {
+      start = beg->beg;
+    } else {
+      start = min_start;
+    }
+    finish = start + compute_time;
+
+    if(start == beg->beg) {
+      if(finish < beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = finish,
+          .cnt = beg->cnt + util
+        });
+        new_blocks.push_back(block_t {
+          .beg = finish,
+          .end = beg->end,
+          .cnt = beg->cnt
+        });
+      } else if(finish >= beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = beg->end,
+          .cnt = beg->cnt + util
+        });
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+    } else {
+      new_blocks.push_back(block_t {
+        .beg = beg->beg,
+        .end = start,
+        .cnt = beg->cnt
+      });
+      if(finish < beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = finish,
+          .cnt = beg->cnt + util
+        });
+        new_blocks.push_back(block_t {
+          .beg = finish,
+          .end = beg->end,
+          .cnt = beg->cnt
+        });
+      } else if(finish >= beg->end) {
+        new_blocks.push_back(block_t {
+          .beg = start,
+          .end = beg->end,
+          .cnt = beg->cnt + util
+        });
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+    }
+
+    iter++;
+  }
+
+  for(; iter != end; ++iter) {
+    if(finish < iter->end) {
+      new_blocks.push_back(block_t {
+        .beg = iter->beg,
+        .end = finish,
+        .cnt = iter->cnt + util
+      });
+      new_blocks.push_back(block_t {
+        .beg = finish,
+        .end = iter->end,
+        .cnt = iter->cnt
+      });
+    } else if(finish >= iter->end) {
+      new_blocks.push_back(block_t {
+        .beg = iter->beg,
+        .end = iter->end,
+        .cnt = iter->cnt + util
+      });
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  }
+
+  for(; iter != blocks.end(); ++iter) {
+    new_blocks.push_back(*iter);
+  }
+
+  blocks = new_blocks;
+  return start;
+}
+
+void capacity_scheduler_t::complete(int util, double start, double finish)
+{
+  auto iter = get_exact_start(start);
+  auto end = get_exact_finish(finish) + 1;
+  for(; iter != end; ++iter) {
+    int& cnt = iter->cnt;
+    cnt -= util;
+  }
+
+  merge_zeros();
+}
+
+tuple<capacity_scheduler_t::iter_t, capacity_scheduler_t::iter_t>
+capacity_scheduler_t::find_available(int util, double min_start, double time)
+{
+  for(auto iter = blocks.begin(); iter != blocks.end(); ++iter) {
+    if(iter->end > min_start) {
+      double start = std::max(min_start, iter->beg);
+      auto [max_util, end] = get_avail(iter, start + time);
+      if(max_util + util <= capacity) {
+        return {iter, end};
+      }
+    }
+  }
+  throw std::runtime_error("did not find available: should not happen");
+}
+
+tuple<int, capacity_scheduler_t::iter_t>
+capacity_scheduler_t::get_avail(capacity_scheduler_t::iter_t iter, double end)
+{
+  int ret = 0;
+  for(; iter != blocks.end(); ++iter) {
+    ret = std::max(ret, iter->cnt);
+    if(end <= iter->end) {
+      break;
+    }
+  }
+  if(iter == blocks.end()) {
+    throw std::runtime_error("did not find end");
+  }
+  return {ret, iter + 1};
+}
+
+capacity_scheduler_t::iter_t
+capacity_scheduler_t::get_exact_start(double t)
+{
+  auto iter = std::lower_bound(blocks.begin(), blocks.end(), t,
+    [](block_t const& lhs, double const& rhs) {
+      return lhs.beg < rhs;
+    });
+  if(iter == blocks.end() || iter->beg != t) {
+    DOUT(std::boolalpha << (iter == blocks.end()));
+    throw std::runtime_error("failed get_exact_start");
+  }
+  return iter;
+}
+
+capacity_scheduler_t::iter_t
+capacity_scheduler_t::get_exact_finish(double t)
+{
+  auto iter = std::lower_bound(blocks.begin(), blocks.end(), t,
+    [](block_t const& lhs, double const& rhs) {
+      return lhs.end < rhs;
+    });
+  if(iter == blocks.end() || iter->end != t) {
+    throw std::runtime_error("failed get_exact_finish");
+  }
+  return iter;
+}
+
+void capacity_scheduler_t::merge_zeros() {
+  vector<block_t> new_blocks;
+  new_blocks.reserve(blocks.size());
+
+  iter_t iter = blocks.begin();
+  while(iter != blocks.end()) {
+    new_blocks.push_back(*iter);
+    iter += 1;
+    if(new_blocks.back().cnt == 0) {
+      for(; iter != blocks.end(); ++iter) {
+        if(iter->cnt != 0) {
+          break;
+        }
+        new_blocks.back().end = iter->end;
+      }
+    }
+  }
+
+  blocks = new_blocks;
+}
 
 forward_state_t::forward_state_t(cluster_t const& c, graph_t const& g)
   : cluster(c), graph(g),
     ginfos(g.nodes.size()),
-    apply_workers(c.devices.size()),
     move_workers(c.connections.size()),
     to_move_worker(cluster.to_connection),
     num_join_remaining(0),
     time(0.0)
 {
+  apply_workers.reserve(cluster.devices.size());
+  for(auto const& dev: cluster.devices) {
+    apply_workers.emplace_back(dev.capacity);
+  }
+
   vector<int> cs(g.nodes.size());
   std::iota(cs.begin(), cs.end(), 0);
   can_partition.insert(cs.begin(), cs.end());
@@ -93,9 +306,9 @@ void forward_state_t::assign_location(jid_t jid, int loc) {
 void forward_state_t::enqueue_apply_worker(int loc, int which) {
   auto& worker = apply_workers[loc];
   auto const& [gid,bid] = worker.get_pending(which);
-  uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
-  double compute_time = cluster.compute(loc, flops);
-  worker.start_work(which, time, compute_time);
+  einsummable_t const& e = ginfos[gid].joins.value()[bid].einsummable.value();
+  auto [util, compute_time] = cluster.compute(loc, e);
+  worker.start_work(which, util, time, compute_time);
 }
 
 void forward_state_t::enqueue_move_worker(int src, int dst, int which) {
@@ -134,8 +347,9 @@ forward_state_t::pop_work()
   for(int i = 0; i != apply_workers.size(); ++i) {
     auto const& apply_worker = apply_workers[i];
     if(apply_worker.is_in_progress()) {
+      auto const& progress = apply_worker.get_in_progress();
       items.emplace_back(
-        std::get<1>(apply_worker.get_in_progress()),
+        progress.end,
         true,
         i);
     }
@@ -162,10 +376,16 @@ forward_state_t::pop_work()
 
     int const& loc = which;
 
-    auto [start,finish,jid] = apply_worker.get_in_progress();
+    auto [_,start,finish,jid] = apply_worker.get_in_progress();
     auto const& [gid, bid] = jid;
 
-    uint64_t const& flops = ginfos[gid].joins.value()[bid].flops;
+    uint64_t flops = 0;
+    {
+      auto const& e = ginfos[gid].joins.value()[bid].einsummable;
+      if(e) {
+        flops = product(e.value().join_shape);
+      }
+    }
 
     apply_worker.finish_work();
 
@@ -332,7 +552,7 @@ void forward_state_t::setup_refinement_partition(int join_id) {
     auto const& out_part = ginfos[out_id].partition.value();
     if(out_node.op.is_formation()) {
       usage_partitions.push_back(out_part);
-    } else {
+    } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect
       auto const& einsummable = out_node.op.get_einsummable();
@@ -343,6 +563,16 @@ void forward_state_t::setup_refinement_partition(int join_id) {
             which_input));
         }
       }
+    } else if(out_node.op.is_concat()) {
+      auto const& concat = out_node.op.get_concat();
+      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
+        if(out_node.inns[which_input] == join_id) {
+          usage_partitions.push_back(concat_get_input_partition(
+            out_part, concat, which_input));
+        }
+      }
+    } else {
+      throw std::runtime_error("setup refinement part: should not reach");
     }
   }
 
@@ -490,6 +720,7 @@ bool forward_state_t::can_setup_joins(int gid) const {
   return true;
 }
 
+// TODO: organize this method; too much code duplication
 void forward_state_t::setup_joins(int graph_id) {
   //DOUT("setup_joins " << graph_id);
   auto const& node = graph.nodes[graph_id];
@@ -504,26 +735,64 @@ void forward_state_t::setup_joins(int graph_id) {
 
   vector<int> join_index(join_block_shape.size(), 0);
 
+  optional<einsummable_t> base_einsummable;
+  if(node.op.is_einsummable()) {
+    base_einsummable = node.op.get_einsummable();
+  }
+
   do {
     int join_bid = idxs_to_index(join_block_shape, join_index);
     join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
 
     // flops
-    //   input nodes: 0
-    //   formation nodes: 0
-    //   join nodes: the tensor block size
-    if(node.op.is_einsummable()) {
-      join_info.flops = product(join_partition.tensor_shape_at(join_index));
+    //   input: 0
+    //   formation: 0
+    //   concat: 0
+    //   einsummable: the tensor block size
+    // (the join_t stores an optional einsummable_t)
+    if(base_einsummable) {
+      join_info.einsummable = einsummable_t::with_new_shape(
+        base_einsummable.value(),
+        join_partition.tensor_shape_at(join_index));
     } else {
-      join_info.flops = 0;
+      join_info.einsummable = std::nullopt;
     }
 
     // deps
     //   input nodes: {}
+    //   concat nodes: have to figure it out
     //   formation nodes: same as a straight einsummable op
     //   einsummable nodes: reach into each input and grab it
     if(node.op.is_input()) {
       join_info.deps = {};
+    } else if(node.op.is_concat()) {
+      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
+      hrect_t join_hrect = join_partition.get_hrect(join_index);
+
+      auto const& concat = node.op.get_concat();
+      int n_inns = concat.num_inns();
+      for(int which_inn = 0; which_inn != n_inns; ++which_inn) {
+        hrect_t inn_hrect = concat.get_hrect(which_inn);
+        if(interval_intersect(join_hrect[concat.dim], inn_hrect[concat.dim])) {
+          // get the copy_hrect with respect to the input relation
+          hrect_t copy_hrect = hrect_center(
+            inn_hrect,
+            hrect_intersect(join_hrect, inn_hrect));
+
+          int const& inn = node.inns[which_inn];
+          auto& inn_ginfo = ginfos[inn];
+          partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
+
+          auto inn_region = inn_partition.get_region(copy_hrect);
+          auto inn_shape = inn_partition.block_shape();
+          auto inn_index = vector_mapfst(inn_region);
+          do {
+            int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
+            rid_t dep_rid { inn, inn_refi_bid };
+            join_info.deps.push_back(dep_rid);
+          } while(increment_idxs_region(inn_region, inn_index));
+        }
+      }
     } else {
       optional<einsummable_t> maybe_einsummable;
       if(node.op.is_formation()) {
@@ -844,8 +1113,10 @@ void forward_state_t::add_refi_dst(rid_t rid, jid_t jid, int dst) {
 
 void forward_state_t::schedule_join(jid_t jid, int loc) {
   auto const& [gid, bid] = jid;
-  if(!graph.nodes[gid].op.is_einsummable()) {
-    // inputs and formations happen immediately
+  join_t const& join_info = ginfos[gid].joins.value()[bid];
+  if(!join_info.einsummable) {
+    // if join_info doesn't have an einsummable, it
+    // completes right away
     ec_join(jid);
     return;
   }
@@ -1067,52 +1338,42 @@ forward_state_t::get_ginfo(int gid) const
   return ginfos[gid];
 }
 
-uint64_t forward_state_t::extra_elems_to(jid_t jid, int loc) const
+uint64_t forward_state_t::count_elements_to(
+  std::function<int(forward_state_t::jid_t)> get_loc,
+  forward_state_t::jid_t jid,
+  int dst) const
 {
-  // A refi contains agg units.
-  // An agg unit is broadcast to all locations it get used and
-  // from all locations its inputs are from
-  uint64_t total = 0;
+  auto const& [join_gid, join_bid] = jid;
+  auto const& joins = ginfos[join_gid].joins;
+  if(!joins) {
+    throw std::runtime_error("count_elements_to must have join setup");
+  }
+  auto const& join = joins.value()[join_bid];
 
-  auto const& [gid,bid] = jid;
-  auto const& ginfo = ginfos[gid];
-  vector<int> const& locs = ginfo.locs.value();
-  auto const& join = ginfo.joins.value()[bid];
+  uint64_t ret = 0;
+  for(rid_t const& rid: join.deps) {
+    auto const& [refi_gid, refi_bid] = rid;
+    auto const& refi = ginfos[refi_gid].refis.value()[refi_bid];
+    for(agg_unit_t const& agg_unit: refi.units) {
+      // This agg unit needs to be moved to this location.
+      // This happens by first locally aggregating at
+      // each source location and then moving from that source
+      // location to the destination.
 
-  for(auto const& [rid_gid, rid_bid]: join.deps) {
-    auto const& refi = ginfos[rid_gid].refis.value()[rid_bid];
-
-    set<int> out_locs;
-    for(auto const& out_jid: refi.outs) {
-      auto const& [out_gid, out_bid] = out_jid;
-      int const& out_loc = ginfos[out_gid].locs.value()[out_bid];
-      if(out_jid != jid && out_loc != -1) {
-        out_locs.insert(out_loc);
-      }
-    }
-    if(out_locs.count(loc) == 1) {
-      // all agg units will be broadcast to this location
-      // already so nothing to add
-      continue;
-    }
-
-    for(auto const& [size, inn_jids]: refi.units) {
-      set<int> inn_locs;
-      for(auto const& inn_jid_bid: inn_jids) {
-        if(inn_jid_bid == bid) {
-          continue;
-        }
-        int const& inn_loc = locs[inn_jid_bid];
-        // don't add inn_loc == loc since that move is free
-        if(inn_loc != -1 && inn_loc != loc) {
-          inn_locs.insert(inn_loc);
+      // src_locs keeps track of which source locations
+      // have already been sent from. Only send at most
+      // once per location. Don't send from dst.
+      set<int> src_locs;
+      for(int const& dep_join_bid: agg_unit.deps) {
+        int src = get_loc(jid_t{ refi_gid, dep_join_bid });
+        if(src != dst && src_locs.count(src) == 0) {
+          ret += agg_unit.size;
+          src_locs.insert(src);
         }
       }
-      int n = inn_locs.size();
-      total += n*size;
     }
   }
-  return total;
+  return ret;
 }
 
 bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {

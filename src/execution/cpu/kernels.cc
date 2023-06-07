@@ -329,8 +329,10 @@ _touch4(touch4_max,  out[i] =  std::max(out[i], inn[i]));
   }()
 
 std::function<void(float*, float const*)>
-build_touch(touch_t const& touch)
+build_touch(touch_t const& touch_)
 {
+  touch_t touch = touch_.simplify();
+
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
     return _touch_dispatch(1);
@@ -653,8 +655,10 @@ _make_batch_matrix_multiply(
 std::function<void(float*, vector<float const*>)>
 build_einsummable(
   int num_threads,
-  einsummable_t const& einsummable)
+  einsummable_t const& einsummable_)
 {
+  einsummable_t einsummable = einsummable_.merge_adjacent_dims();
+
   if(einsummable.is_straight_elementwise()) {
     int n = einsummable.inns.size();
     if(n == 1) {
@@ -684,5 +688,5 @@ build_einsummable(
     return batch_matmul.value();
   }
 
-  throw std::runtime_error("could not acrquire kernel for " + write_with_ss(einsummable));
+  throw std::runtime_error("could not acquire kernel for " + write_with_ss(einsummable));
 }

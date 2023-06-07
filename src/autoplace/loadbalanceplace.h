@@ -1,7 +1,7 @@
 #pragma once
 #include "../base/setup.h"
 
-#include "../einsummable/twolayergraph.h"
+#include "../autoplace/forwardsim.h"
 
 // In graph order, for each node:
 //   If this is an elementwise node with the
@@ -22,7 +22,7 @@
 //
 // Input nodes are either round robin placed 0,1,2...
 // or randomly assigned (but still load balanced)
-vector<tensor_t<int>>
+vector<placement_t>
 load_balanced_placement(
   graph_t const& graph,
   vector<partition_t> const& parts,

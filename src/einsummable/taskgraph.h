@@ -15,6 +15,15 @@ struct touchdim_t {
 struct touch_t {
   vector<touchdim_t> selection;
   optional<castable_t> castable;
+
+  // Merge out dimensions that are fully copied.
+  // So
+  //   selection = [10,10,3,3,2],[20,20,0,0,20]
+  //   (X[3:5,0:20] = Y[3:5,0:20] for two (10,20) matrices)
+  // Becomes
+  //   selection = [200,200,60,60,40]
+  //   (X.flatten()[60:100] = Y.flatten()[60:100])
+  touch_t simplify() const;
 };
 
 struct regiondim_t {
@@ -78,12 +87,6 @@ struct taskgraph_t {
     int id_out,
     int id_inn,
     touch_t touch,
-    bool consume = false);
-
-  void add_to_partial_the_full_input(
-    int id_out,
-    int id_inn,
-    vector<tuple<uint64_t, uint64_t>> hrect_out,
     bool consume = false);
 
   void add_to_partial_the_full_aggregate(
@@ -315,7 +318,6 @@ public:
     vector<vector<tuple<int, touch_t>>> get_touches() const {
       return std::get<partialize_t>(op).as_touches_from();
     }
-
   };
 
   struct node_t {
@@ -330,6 +332,21 @@ public:
 private:
   int insert(op_t op, bool is_save);
 };
+
+partition_t concat_split_partition(
+  partition_t const& partition,
+  concat_t const& concat);
+
+// get the slice of concat_partition at
+// the which_input part of the concat op
+partition_t concat_get_input_partition(
+  partition_t const& concat_partition,
+  concat_t const& concat,
+  int which_input);
+
+placement_t concat_split_placement(
+  placement_t const& placement,
+  concat_t const& concat);
 
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,

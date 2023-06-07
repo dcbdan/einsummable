@@ -1,14 +1,44 @@
 #include "taskgraph.h"
 #include "../base/copyregion.h"
+#include "../base/hrect.h"
 
 #include "einsummable.pb.h"
+
+touch_t touch_t::simplify() const {
+  vector<touchdim_t> new_selection;
+  new_selection.push_back(selection[0]);
+
+  auto is_dummy_dim = [](touchdim_t const& td) {
+    auto const& [d_inn, d_out, o_inn, o_out, sz] = td;
+    return d_inn == d_out && o_inn == 0 && o_out == 0 && d_inn == sz;
+  };
+
+  for(int i = 1; i != selection.size(); ++i) {
+    if(is_dummy_dim(selection[i])) {
+      int const& d = selection[i].d_inn;
+      auto& [d_inn, d_out, o_inn, o_out, sz] = new_selection.back();
+      d_inn *= d;
+      d_out *= d;
+      o_inn *= d;
+      o_out *= d;
+      sz    *= d;
+    } else {
+      new_selection.push_back(selection[i]);
+    }
+  }
+
+  return touch_t {
+    .selection = new_selection,
+    .castable = castable
+  };
+}
 
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.
 //
 // Their are three phases to worry about. The "compute" phase,
-// the "access" phase, the "communicate" phase.
+// the "form" phase, the "communicate" phase.
 //
 // In the compute phase, input and einsummable nodes are processed:
 // for every (block,loc) in the placement, issue the computation to
@@ -25,10 +55,7 @@
 // If the compute node was an einsummable with aggregations, then the refinement
 // phase must do the aggregation.
 //
-// The access phase gets the input for the compute phase from the
-// communicate phase.
-
-// TODO: better name for multiple_placement_t and multiple_tensor_t?
+// The form phase grabs the input from the refinement.
 
 struct multiple_placement_t {
   static multiple_placement_t from_single_placement(placement_t const& p);
@@ -37,9 +64,24 @@ struct multiple_placement_t {
 
   static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
 
+  // deduce the required multiple placement of an einsummable's
+  // input at which_input given that the einsummable is placed with
+  // with join_placement
   static multiple_placement_t make_einsummable_input(
     placement_t const& join_placement,
     einsummable_t const& einsummable,
+    int which_input);
+
+  // deduce the required multiple_placement of a concat's
+  // input at which_input given that the concat is placed with
+  // join_placement
+  static multiple_placement_t make_concat_input(
+    placement_t const& join_placement,
+    concat_t const& concat,
+    int which_input);
+  static placement_t make_concat_input_placement(
+    placement_t const& join_placement,
+    concat_t const& concat,
     int which_input);
 
   partition_t const partition;
@@ -54,58 +96,15 @@ struct multiple_tensor_t {
 
   multiple_tensor_t(
     partition_t p,
-    tensor_t<vector<locid_t>> && t)
-    : partition(p), tensor(std::move(t))
-  {
-    if(tensor.get_shape() != p.block_shape()){
-      throw std::runtime_error("multiple_tensor_t incorrect shape");
-    }
-  }
+    tensor_t<vector<locid_t>> && t);
 
-  multiple_tensor_t(multiple_placement_t p, int init_value = 0)
-    : partition(p.partition), tensor(p.partition.block_shape())
-  {
-    auto shape = partition.block_shape();
-    vector<int> index(shape.size(), 0);
-    do {
-      auto const& locs = p.locations.at(index);
-      auto& tensor_at = tensor.at(index);
-      tensor_at.reserve(locs.size());
-      for(auto const& loc: locs) {
-        tensor_at.push_back(locid_t {
-          .loc = loc,
-          .id = init_value
-        });
-      }
-    } while(increment_idxs(shape, index));
-  }
+  multiple_tensor_t(multiple_placement_t p, int init_value = 0);
 
-  int vec_at(int vec_index, int desired_loc) const {
-    for(auto const& [loc,id]: tensor.get()[vec_index]) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::vec_at could not get");
-  }
+  int vec_at(int vec_index, int desired_loc) const;
 
-  int const& at(vector<int> const& index, int desired_loc) const {
-    for(auto const& [loc,id]: tensor.at(index)) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::at could not get");
-  }
+  int const& at(vector<int> const& index, int desired_loc) const;
 
-  int& at(vector<int> const& index, int desired_loc) {
-    for(auto& [loc,id]: tensor.at(index)) {
-      if(desired_loc == loc) {
-        return id;
-      }
-    }
-    throw std::runtime_error("multiple_tensor_t::at could not get");
-  }
+  int& at(vector<int> const& index, int desired_loc);
 
   partition_t partition;
   tensor_t<vector<locid_t>> tensor;
@@ -113,15 +112,15 @@ struct multiple_tensor_t {
   tensor_t<int> to_tensor(placement_t const& placement);
 };
 
-std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
-{
-  auto const& [loc,id] = x;
-  out << "loc" << loc << "id" << id;
-  return out;
-}
+vector<tuple<int,int>> get_concat_input_region(
+  partition_t const& split_part,
+  concat_t const& concat,
+  int which_input);
 
-struct state_t {
-  state_t(graph_t const& graph, vector<placement_t> const& placements)
+std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
+
+struct taskgraph_make_state_t {
+  taskgraph_make_state_t(graph_t const& graph, vector<placement_t> const& placements)
     : graph(graph), placements(placements)
   {}
 
@@ -135,18 +134,50 @@ struct state_t {
   // Map from gid to the refined tensor formed from that gid.
   map<int, multiple_tensor_t> refined_tensors;
 
-  // Get the which_input tensor for operation gid.
-  // Since a join may require multiple uses of an input block,
-  // the return type is multiple_tensor_t
-  multiple_tensor_t access(int gid, int which_input);
+  // Partialize the data into the partial ids at outs.
+  void relational_touch(
+    vector<uint64_t>   const& offset_inn,
+    vector<uint64_t>   const& offset_out,
+    vector<uint64_t>   const& size,
+    multiple_tensor_t  const& inns,
+    multiple_tensor_t  const& outs);
 
-  // create a tensor to hold the compute phase results.
-  // (this will call access)
-  tensor_t<int> compute(int gid);
+  multiple_tensor_t initialize_partials(
+    multiple_placement_t const& placement);
+
+  // Grab gid from it's refined tensor in the form of the
+  // given multiple placement
+  multiple_tensor_t form_from_refinement(
+    int gid,
+    multiple_placement_t const& placement);
+  // this dispatches to the multiple tensor form_from_refinement
+  tensor_t<int> form_from_refinement(
+    int gid,
+    placement_t const& placement);
+  // TODO: have a cache for this method
+
+  tensor_t<int> form_concat(int gid);
+
+  // this will form the inputs as required
+  tensor_t<int> compute_einsummable(int gid);
+
+  tensor_t<int> compute_input(int gid);
+
+  tensor_t<int> form_relation(int gid);
 
   // create the refined_tensor object from the compute result;
   // save into refined_tensors
   void communicate(int gid, tensor_t<int> compute_result);
+
+  multiple_placement_t construct_refinement_placement(int gid);
+
+  // Note: the join_result can include agg'd dimensions, in which case
+  //       a castable must be given
+  multiple_tensor_t construct_refinement_tensor(
+    placement_t const& join_placement,
+    tensor_t<int> join_result,
+    multiple_placement_t const& refinement,
+    optional<castable_t> castable);
 };
 
 tuple<
@@ -157,7 +188,7 @@ taskgraph_t::make(
   graph_t const& graph,
   vector<placement_t> const& placements)
 {
-  state_t state(graph, placements);
+  taskgraph_make_state_t state(graph, placements);
 
   // maps from gid to tensor
   map<int, tensor_t<int>> inns;
@@ -165,27 +196,23 @@ taskgraph_t::make(
 
   for(int gid: graph.get_order()) {
     graph_t::node_t const& node = graph.nodes[gid];
-    placement_t const& pl = placements[gid];
 
-    if(node.op.is_formation()) {
-      tensor_t<int> access_result = state.access(gid, 0).to_tensor(pl);
-      if(node.op.is_save()) {
-        saves[gid] = access_result;
-        // Set the things to be saved on the taskgraph
-        for(int const& taskgraph_tid: access_result.get()) {
-          state.taskgraph.nodes[taskgraph_tid].is_save = true;
-        }
+    tensor_t<int> relation = state.form_relation(gid);
+
+    if(node.op.is_input()) {
+      inns[gid] = relation;
+    }
+
+    if(node.op.is_save()) {
+      saves[gid] = relation;
+      // Set the taskgraph nodes to be saved
+      for(int const& taskgraph_tid: relation.get()) {
+        state.taskgraph.nodes[taskgraph_tid].is_save = true;
       }
-      if(node.outs.size() > 0) {
-        state.communicate(gid, std::move(access_result));
-      }
-    } else {
-      // the node is an input or an einsummable
-      tensor_t<int> compute_result = state.compute(gid);
-      if(node.op.is_input()) {
-        inns[gid] = compute_result;
-      }
-      state.communicate(gid, std::move(compute_result));
+    }
+
+    if(node.outs.size() > 0) {
+      state.communicate(gid, std::move(relation));
     }
   }
 
@@ -196,150 +223,363 @@ taskgraph_t::make(
   return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
 }
 
-// TODO: this could be better if it stored previous results and detected
-//       similar placement usages...
-//       Consider y = x + x where x (lhs input) and x(rhs input) are placed
-//       in the same way. Then if x (previous computation) was formed differently
-//       then either of the lhs or rhs x inputs, this does a bunch of duplicate work.
-// TODO TODO TODO
-multiple_tensor_t
-state_t::access(int join_gid, int which_input)
+void taskgraph_make_state_t::relational_touch(
+  vector<uint64_t>   const& offset_inn,
+  vector<uint64_t>   const& offset_out,
+  vector<uint64_t>   const& size,
+  multiple_tensor_t  const& inn_locids,
+  multiple_tensor_t  const& out_locids)
 {
-  //DOUT("ACCESS " << join_gid << " WITH INPUT " << which_input);
-  graph_t::node_t const& join_node = graph.nodes[join_gid];
-  placement_t const& join_pl = placements[join_gid];
+  // Some naming conventions:
+  //   hrect:       a uint64_t hyper rectangular indexing actual tensor indices
+  //   region:      a int hyper rectangular indexing blocks
+  //   inn/out:     inn = read only, out = being written
+  //                also: inn means with respect to the input indexing,
+  //                      out means with respect to the output indexing
+  //   big/med/sml: big = the entire output,
+  //                med: a smaller output part or bigger input part,
+  //                sml: a smaller input part
+  //                (big/medium/small)
+  //   exa/uxa:     exact: all of this is the region being copied
+  //                unexact: not all of this is the region being copied
 
-  // get the multiple placement of the input necessary for the join
-  multiple_placement_t inn_placement = [&]
+  // Form hrect_out_big_exa and get region_out_big_uxa
+  // For every out block in region_out_big_uxa:
+  //   get hrect_out_mid_uxa from the corr index
+  //   get hrect_out_mid_exa by taking the intersection
+  //   get hrect_inn_mid_uxa by fixing the offsets
+  //   get region_inn_mid_uxa
+  //   For every input block in region_inn_mid_uxa:
+  //     get hrect_inn_sml_exa from the corr index
+  //
+  //     get the partial id at the out index
+  //     form the touch
+  //     for each loc,
+  //       copy hrect_inn_sml_exa into hrect_out_mid_uxa
+  partition_t const& part_inn = inn_locids.partition;
+  partition_t const& part_out = out_locids.partition;
+
+  using hrect_t  = vector<tuple<uint64_t, uint64_t>>;
+  using shape_t  = vector<uint64_t>;
+
+  using region_t = vector<tuple<int, int>>;
+  using index_t  = vector<int>;
+
+  using locid_t = multiple_tensor_t::locid_t;
+
+  hrect_t hrect_out_big_exa;
   {
-    if(join_node.op.is_einsummable()) {
-      einsummable_t const& einsummable = std::get<einsummable_t>(join_node.op.op);
-      return multiple_placement_t::make_einsummable_input(
-        join_pl, einsummable, which_input);
-    } else {
-      // If it isn't an einsummable node, then it is a formation node,
-      // in which case the required inn placement is the join_pl.
-      return multiple_placement_t::from_single_placement(join_pl);
+    hrect_out_big_exa.reserve(size.size());
+    for(int i = 0; i != size.size(); ++i) {
+      auto const& off_out = offset_out[i];
+      auto const& sz = size[i];
+      hrect_out_big_exa.emplace_back(off_out, off_out + sz);
     }
-  }();
-
-  // get the refined tensor of the relevant input tensor
-  int gid = join_node.inns[which_input];
-  multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
-
-  // When the refinement is a no-op, just return the refined tensor
-  if(inn_placement.partition == refine_tensor.partition) {
-    return refine_tensor;
   }
 
-  // At this point we have refine_tensor, which contains a hyper-rectangular
-  // grid of sub-tensors, each sub-tensor at all the locations it will be used
-  // across all operations.
-  //
-  // For this particular operation, it will be used according to the partition
-  // and locations in inn_placement. Each sub-tensor in the refine_tensor maps
-  // to exactly one subtensor in the inn_placement partition.
-  //
-  // For each sub-tensor in refine_tensor, write it into the locations it'll
-  // be used at for inn_placement.
-  auto out_shape = inn_placement.partition.block_shape();
-  tensor_t<vector<multiple_tensor_t::locid_t>> ret(out_shape);
+  region_t region_out_big_uxa = part_out.get_region(hrect_out_big_exa);
+  index_t out_index = vector_mapfst(region_out_big_uxa);
+  do {
+    vector<locid_t> const& out_lis = out_locids.tensor.at(out_index);
 
+    hrect_t hrect_out_mid_uxa = part_out.get_hrect(out_index);
+    hrect_t hrect_out_mid_exa = hrect_intersect(hrect_out_mid_uxa, hrect_out_big_exa);
+
+    shape_t shape_out_mid_uxa = hrect_shape(hrect_out_mid_uxa);
+
+    // convert hrect_out_mid_exa into something with respect to the inn indicess
+    hrect_t hrect_inn_mid;
+    hrect_inn_mid.reserve(size.size());
+    for(int i = 0; i != size.size(); ++i) {
+      auto [b,e] = hrect_out_mid_exa[i];
+      uint64_t const& off_inn = offset_inn[i];
+      uint64_t const& off_out = offset_out[i];
+      b = (b - off_out) + off_inn;
+      e = (e - off_out) + off_inn;
+      hrect_inn_mid.emplace_back(b,e);
+    }
+
+    region_t region_inn_mid = part_inn.get_exact_region(hrect_inn_mid);
+    index_t inn_index = vector_mapfst(region_inn_mid);
+    do {
+      hrect_t hrect_inn_sml_uxa = part_inn.get_hrect(inn_index);
+      hrect_t hrect_inn_sml_exa = hrect_intersect(hrect_inn_sml_uxa, hrect_inn_mid);
+
+      hrect_t hrect_out_sml;
+      hrect_out_sml.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        auto [b,e] = hrect_inn_sml_exa[i];
+        uint64_t const& off_inn = offset_inn[i];
+        uint64_t const& off_out = offset_out[i];
+        b = (b - off_inn) + off_out;
+        e = (e - off_inn) + off_out;
+        hrect_out_sml.emplace_back(b,e);
+      }
+
+      shape_t out_mid_offset;
+      out_mid_offset.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        out_mid_offset.push_back(
+          std::get<0>(hrect_out_sml[i]) - std::get<0>(hrect_out_mid_uxa[i]));
+      }
+
+      shape_t shape_inn_sml_uxa = hrect_shape(hrect_inn_sml_uxa);
+      shape_t shape_inn_sml_exa = hrect_shape(hrect_inn_sml_exa);
+
+      shape_t inn_sml_offset;
+      inn_sml_offset.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        inn_sml_offset.push_back(
+          std::get<0>(hrect_inn_sml_exa[i]) - std::get<0>(hrect_inn_sml_uxa[i]));
+      }
+
+      // copy from hrect_inn_sml_uxa to
+      //           hrect_out_mid_uxa
+      vector<touchdim_t> selection;
+      selection.reserve(size.size());
+      for(int i = 0; i != size.size(); ++i) {
+        selection.push_back(touchdim_t {
+          .d_inn      = shape_inn_sml_uxa[i],
+          .d_out      = shape_out_mid_uxa[i],
+          .offset_inn = inn_sml_offset[i],
+          .offset_out = out_mid_offset[i],
+          .size       = shape_inn_sml_exa[i]
+        });
+      }
+
+      touch_t touch {
+        .selection = selection,
+        .castable = std::nullopt
+      };
+      // Note: one could put a castable argument here
+
+      for(auto const& [loc,out_id]: out_lis) {
+        int const& inn_id = inn_locids.at(inn_index, loc);
+        // TODO: when to consume in add_to_partial
+        taskgraph.add_to_partial(out_id, inn_id, touch);
+      }
+    } while(increment_idxs_region(region_inn_mid, inn_index));
+  } while(increment_idxs_region(region_out_big_uxa, out_index));
+}
+
+multiple_tensor_t taskgraph_make_state_t::initialize_partials(
+  multiple_placement_t const& placement)
+{
+  auto out_shape = placement.partition.block_shape();
+  multiple_tensor_t packaged_ret(
+    placement.partition,
+    tensor_t<vector<multiple_tensor_t::locid_t>>(out_shape));
+
+  auto& ret = packaged_ret.tensor;
   vector<int> out_index(out_shape.size(), 0);
   do {
-    // At this index and all locations it'll be used at, we need
-    // to write the new id into the return tensor and get the
-    // partialize builders
-    auto const& locs = inn_placement.locations.at(out_index);
-    auto write_shape = inn_placement.partition.tensor_shape_at(out_index);
+    auto const& locs = placement.locations.at(out_index);
+    auto write_shape = placement.partition.tensor_shape_at(out_index);
 
     // initialize the partials to be written
-    auto& _ret_at = ret.at(out_index);
-    _ret_at.reserve(locs.size());
+    auto& ret_at = ret.at(out_index);
+    ret_at.reserve(locs.size());
     for(auto const& loc: locs) {
       int builder_id = taskgraph.new_partial(loc, write_shape);
-      _ret_at.push_back(
+      ret_at.push_back(
         multiple_tensor_t::locid_t {
           .loc = loc,
           .id  = builder_id
         });
     }
-
-    // now ret_at is filled out with uninitialized partials
-    auto const& ret_at = _ret_at;
-
-    // Now iterate through all the refined subtensors writing
-    // into the output
-    auto hrect_wrt_full = inn_placement.partition.get_hrect(out_index);
-    auto refine_region = refine_tensor.partition.get_exact_region(hrect_wrt_full);
-    vector<int> refine_index = vector_mapfst(refine_region);
-
-    // Welcome to the tedious world of hyper-rectangles...
-    //
-    // The full hrect of the entire tensor
-    // -------------------------
-    // |          |            |
-    // |          |            |
-    // |----------|------------|
-    // |          |A    |A     |
-    // |          |-----|------|
-    // |          |A    |AB    |
-    // -------------------------
-    //
-    // --------------
-    // |C    |C     |
-    // |-----|------|
-    // |C    |CD    |
-    // --------------
-    //
-    // A := hrect_wrt_full             (the hrect of this output)
-    // B := refine_hrect_wrt_full      (one of the refined hrects)
-    // C := output region for op       (from the perspective of the partialize op)
-    // D := one input to output region (from the perspective of the partialize op)
-
-    do {
-      auto refine_hrect_wrt_full = refine_tensor.partition.get_hrect(refine_index);
-      auto centered_hrect = center_hrect(hrect_wrt_full, refine_hrect_wrt_full);
-
-      for(auto const& [loc, builder_id]: ret_at) {
-        int refine_tensor_id = refine_tensor.at(refine_index, loc);
-        taskgraph.add_to_partial_the_full_input(
-          builder_id, refine_tensor_id, centered_hrect);
-      }
-    } while(increment_idxs_region(refine_region, refine_index));
   } while(increment_idxs(out_shape, out_index));
 
-  return multiple_tensor_t(inn_placement.partition, std::move(ret));
-};
+  return packaged_ret;
+}
+
+multiple_tensor_t
+taskgraph_make_state_t::form_from_refinement(
+  int gid,
+  multiple_placement_t const& placement)
+{
+  multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
+
+  // verify that the refinement partition
+  // is actually a refinement of the given placement
+  if(!refine_tensor.partition.refines(placement.partition)) {
+    throw std::runtime_error("refine partition not actually a refinement");
+  }
+
+  if(placement.partition == refine_tensor.partition) {
+    return refine_tensor;
+  }
+
+  // initialize multiple_tensor_t for the outs by creating new partializes
+  multiple_tensor_t ret = initialize_partials(placement);
+
+  // now add to all the partial builders inside ret
+  vector<uint64_t> total_shape = placement.partition.total_shape();
+  vector<uint64_t> offsets(total_shape.size(), 0);
+  relational_touch(
+    offsets, offsets, placement.partition.total_shape(),
+    refine_tensor,
+    ret);
+
+  return ret;
+}
 
 tensor_t<int>
-state_t::compute(int gid)
+taskgraph_make_state_t::form_from_refinement(
+  int gid,
+  placement_t const& pl)
 {
-  //DOUT("COMPUTE " << gid);
+  multiple_placement_t mpl =
+    multiple_placement_t::from_single_placement(pl);
+  return form_from_refinement(gid, mpl).to_tensor(pl);
+}
+
+// Example
+//   big = coarse { 10, 10, 10 }
+//   sml = fine   { 5, 2, 3, 10, 3, 3, 3, 1}
+//   rs  { 3, 4, 8 }
+vector<tuple<int,int>> _get_sum_breaks(
+  vector<uint64_t> coarse,
+  vector<uint64_t> fine)
+{
+  auto const& big = coarse;
+  auto const& sml = fine;
+
+  vector<int> rs;
+  int j = 0;
+  for(int i = 0; i != big.size(); ++i) {
+    auto sz = big[i];
+    for(; sz != 0; ++j) {
+      sz -= sml[j];
+    }
+    rs.push_back(j);
+  }
+
+  vector<tuple<int,int>> ret;
+  int b = 0;
+  for(int i = 0; i != rs.size(); ++i) {
+    ret.emplace_back(b, rs[i]);
+    b = rs[i];
+  }
+
+  return ret;
+}
+
+tensor_t<int>
+taskgraph_make_state_t::form_concat(int gid) {
+  graph_t::node_t const& node = graph.nodes.at(gid);
+  placement_t const& pl = placements.at(gid);
+
+  if(!node.op.is_concat()) {
+    throw std::runtime_error("from_concat needs concat node");
+  }
+
+  int rank = node.op.out_rank();
+
+  auto const& concat = node.op.get_concat();
+
+  partition_t split_partition = concat_split_partition(pl.partition, concat);
+
+  // TODO: calling form_from_refinement could be done on a part by
+  //       part basis:
+  //       (in1|in2  |in3    )   <- the inputs being concated
+  //       (x x|x x x|x x x x)   <- split_partition
+  //       (x x|x x x|x x|x x)   <- pl partition
+  //        ^yes^yes  ^no ^no
+
+  if(pl.partition == split_partition) {
+    // Note: if form_from_refinement had cache support,
+    //       this would dip into that cache.
+
+    vector<tensor_t<int>> ts;
+
+    for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+      int const& inn_gid = node.inns[which_inn];
+      placement_t inn_pl = multiple_placement_t::make_concat_input_placement(
+        pl,
+        concat,
+        which_inn);
+
+      ts.push_back(form_from_refinement(inn_gid, inn_pl));
+    }
+
+    return tensor_t<int>::concat(concat.dim, ts);
+  }
+
+  // form the output partials
+  multiple_placement_t mpl =
+    multiple_placement_t::from_single_placement(pl);
+  multiple_tensor_t ret = initialize_partials(mpl);
+
+  vector<uint64_t> dim_offset = concat.get_offsets();
+
+  // copying the entirety of each input so
+  // the offset is the same for all inns
+  vector<uint64_t> offset_inn(rank, 0);
+
+  // for each input, call relational_touch to copy all of the input
+  // into the corresponding part of ret
+  for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
+    int const& inn_gid = node.inns[which_inn];
+    multiple_tensor_t const& inn = refined_tensors.at(inn_gid);
+
+    vector<uint64_t> offset_out(rank, 0);
+    offset_out[concat.dim] = dim_offset[which_inn];
+
+    relational_touch(
+      offset_inn,
+      offset_out,
+      inn.partition.total_shape(),
+      inn,
+      ret);
+  }
+
+  return ret.to_tensor(pl);
+}
+
+tensor_t<int>
+taskgraph_make_state_t::compute_input(int gid) {
   graph_t::node_t const& node = graph.nodes[gid];
   placement_t const& pl = placements[gid];
 
-  if(node.op.is_input()) {
-    auto shape = pl.block_shape();
-    tensor_t<int> ret(shape);
-    vector<int> index(shape.size(), 0);
-    do {
-      int const& loc = pl.locations.at(index);
-      auto subtensor_shape = pl.partition.tensor_shape_at(index);
-      ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
-    } while(increment_idxs(shape, index));
-
-    return ret;
+  if(!node.op.is_input()) {
+    throw std::runtime_error("compute_input must have input node");
   }
+
+  auto shape = pl.block_shape();
+  tensor_t<int> ret(shape);
+  vector<int> index(shape.size(), 0);
+  do {
+    int const& loc = pl.locations.at(index);
+    auto subtensor_shape = pl.partition.tensor_shape_at(index);
+    ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
+  } while(increment_idxs(shape, index));
+
+  return ret;
+}
+
+tensor_t<int>
+taskgraph_make_state_t::compute_einsummable(int gid)
+{
+  graph_t::node_t const& node = graph.nodes[gid];
+  placement_t const& pl = placements[gid];
+
+  if(!node.op.is_einsummable()) {
+    throw std::runtime_error("compute_einsummable must have einsummable node");
+  }
+
+  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
 
   // Get the inputs
   vector<multiple_tensor_t> inputs;
   inputs.reserve(node.inns.size());
-  for(int i = 0; i != node.inns.size(); ++i) {
-    inputs.push_back(this->access(gid, i));
-  }
+  for(int which_input = 0; which_input != node.inns.size(); ++which_input) {
+    int const& inn_gid = node.inns[which_input];
 
-  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
+    auto inn_placement = multiple_placement_t::make_einsummable_input(
+      pl, base_einsummable, which_input);
+
+    inputs.push_back(this->form_from_refinement(inn_gid, inn_placement));
+  }
 
   auto shape = pl.block_shape();
   tensor_t<int> ret(shape);
@@ -367,12 +607,52 @@ state_t::compute(int gid)
   return ret;
 }
 
-void
-state_t::communicate(int join_gid, tensor_t<int> join_result)
+tensor_t<int>
+taskgraph_make_state_t::form_relation(int gid)
 {
-  //DOUT("COMMUNICATE " << join_gid);
+  graph_t::node_t const& node = graph.nodes.at(gid);
+
+  if(node.op.is_input()) {
+    return compute_input(gid);
+  }
+  if(node.op.is_formation()) {
+    int inn_gid = node.inns[0];
+    return form_from_refinement(inn_gid, placements.at(gid));
+  }
+  if(node.op.is_concat()) {
+    return form_concat(gid);
+  }
+  if(node.op.is_einsummable()) {
+    return compute_einsummable(gid);
+  }
+
+  throw std::runtime_error("state form relation should not reach");
+}
+
+void
+taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
+{
+  multiple_placement_t usage_placement = construct_refinement_placement(join_gid);
+
+  optional<castable_t> maybe_castable;
+  auto const& node = graph.nodes[join_gid];
+  if(node.op.has_aggregation()) {
+    maybe_castable = node.op.get_castable();
+  }
+
+  multiple_tensor_t ret = construct_refinement_tensor(
+    placements[join_gid],
+    join_result,
+    usage_placement,
+    maybe_castable);
+
+  refined_tensors.insert({join_gid, ret});
+}
+
+multiple_placement_t
+taskgraph_make_state_t::construct_refinement_placement(int join_gid)
+{
   auto const& join_node = graph.nodes[join_gid];
-  auto const& join_placement = placements[join_gid];
 
   vector<multiple_placement_t> usage_placements;
   usage_placements.reserve(2*join_node.outs.size());
@@ -394,26 +674,46 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
               which_input));
         }
       }
+    } else if(out_node.op.is_concat()) {
+      auto const& concat = out_node.op.get_concat();
+      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
+        if(out_node.inns[which_input] == join_gid) {
+          usage_placements.push_back(
+            multiple_placement_t::make_concat_input(
+              out_pl,
+              concat,
+              which_input));
+        }
+      }
     } else {
-      throw std::runtime_error("state_t::communicate: should not happen");
+      throw std::runtime_error(
+          "taskgraph state construct refinement placement: "
+          "should not happen");
     }
   }
 
-  auto refinement = multiple_placement_t::make_refinement(usage_placements);
+  return multiple_placement_t::make_refinement(usage_placements);
+}
+
+multiple_tensor_t
+taskgraph_make_state_t::construct_refinement_tensor(
+  placement_t const& join_placement,
+  tensor_t<int> join_result,
+  multiple_placement_t const& refinement,
+  optional<castable_t> maybe_castable)
+{
+  auto const& _join_partdims = join_placement.partition.partdims;
+
+  int join_rank = join_placement.partition.block_shape().size();
+  int out_rank = refinement.partition.block_shape().size();
+  int agg_rank = join_rank - out_rank;
+
   auto refinement_shape = refinement.partition.block_shape();
 
   // the output (of this method) to be added to refined_tensors
   // initialize every id to -1 initially;
   // the locs will track with the refinement locs
   multiple_tensor_t refined_tensor(refinement, -1);
-
-  auto const& _join_partdims = join_placement.partition.partdims;
-
-  int join_rank = join_node.op.rank();
-  int out_rank = join_node.op.out_rank();
-  int agg_rank = join_rank - out_rank;
-
-  optional<castable_t> maybe_castable;
 
   partition_t out_partition(vector<partdim_t>(
     _join_partdims.begin(),
@@ -425,9 +725,13 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
       _join_partdims.begin() + out_rank,
       _join_partdims.end());
 
-    // an agg will only happen if this is an einsummable node;
-    // so set the castable value
-    maybe_castable = graph.nodes[join_gid].op.get_einsummable().castable.value();
+    if(!maybe_castable) {
+      throw std::runtime_error("ann agg is happening but no castable");
+    }
+  } else {
+    if(maybe_castable) {
+      throw std::runtime_error("no agg but castable given");
+    }
   }
 
   // There are out index, agg index, join index
@@ -810,7 +1114,7 @@ state_t::communicate(int join_gid, tensor_t<int> join_result)
     }
   }
 
-  refined_tensors.insert({join_gid, refined_tensor});
+  return refined_tensor;
 }
 
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)
@@ -961,6 +1265,87 @@ multiple_placement_t multiple_placement_t::make_einsummable_input(
   };
 }
 
+placement_t
+multiple_placement_t::make_concat_input_placement(
+  placement_t const& join_placement,
+  concat_t const& concat,
+  int which_input)
+{
+  // the first thing to do is split the placement along concat_dim
+  placement_t split_placement = concat_split_placement(join_placement, concat);
+
+  auto region = get_concat_input_region(
+    split_placement.partition, concat, which_input);
+
+  return split_placement.subset(region);
+}
+
+multiple_placement_t multiple_placement_t::make_concat_input(
+  placement_t const& join_placement,
+  concat_t const& concat,
+  int which_input)
+{
+  return multiple_placement_t::from_single_placement(
+    make_concat_input_placement(
+      join_placement, concat, which_input));
+}
+
+multiple_tensor_t::multiple_tensor_t(
+  partition_t p,
+  tensor_t<vector<locid_t>> && t)
+  : partition(p), tensor(std::move(t))
+{
+  if(tensor.get_shape() != p.block_shape()){
+    throw std::runtime_error("multiple_tensor_t incorrect shape");
+  }
+}
+
+multiple_tensor_t::multiple_tensor_t(multiple_placement_t p, int init_value)
+  : partition(p.partition), tensor(p.partition.block_shape())
+{
+  auto shape = partition.block_shape();
+  vector<int> index(shape.size(), 0);
+  do {
+    auto const& locs = p.locations.at(index);
+    auto& tensor_at = tensor.at(index);
+    tensor_at.reserve(locs.size());
+    for(auto const& loc: locs) {
+      tensor_at.push_back(locid_t {
+        .loc = loc,
+        .id = init_value
+      });
+    }
+  } while(increment_idxs(shape, index));
+}
+
+int multiple_tensor_t::vec_at(int vec_index, int desired_loc) const {
+  for(auto const& [loc,id]: tensor.get()[vec_index]) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::vec_at could not get");
+}
+
+int const& multiple_tensor_t::at(vector<int> const& index, int desired_loc) const
+{
+  for(auto const& [loc,id]: tensor.at(index)) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::at could not get");
+}
+
+int& multiple_tensor_t::at(vector<int> const& index, int desired_loc) {
+  for(auto& [loc,id]: tensor.at(index)) {
+    if(desired_loc == loc) {
+      return id;
+    }
+  }
+  throw std::runtime_error("multiple_tensor_t::at could not get");
+}
+
 tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   if(!vector_equal(placement.block_shape(), tensor.get_shape())) {
     throw std::runtime_error("multiple_tensor_t::to_tensor");
@@ -977,6 +1362,74 @@ tensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   }
 
   return tensor_t<int>(tensor.get_shape(), ret);
+}
+
+vector<tuple<int,int>> get_concat_input_region(
+  partition_t const& split_part,
+  concat_t const& concat,
+  int which_input)
+{
+  auto const& partdim = split_part.partdims[concat.dim];
+
+  vector<tuple<int,int>> breaks = _get_sum_breaks(
+    concat.dim_parts(),
+    partdim.sizes());
+
+  auto block_shape = split_part.block_shape();
+  vector<tuple<int,int>> region;
+  region.reserve(block_shape.size());
+  for(auto const& d: block_shape) {
+    region.emplace_back(0, d);
+  }
+
+  region[concat.dim] = breaks[which_input];
+
+  return region;
+}
+
+partition_t concat_split_partition(
+  partition_t const& partition,
+  concat_t const& concat)
+{
+  int const& dim = concat.dim;
+  auto const dim_parts = concat.dim_parts();
+
+  vector<partdim_t> split_partdims = partition.partdims;
+  split_partdims[dim] = partdim_t::unions({
+    split_partdims[dim],
+    partdim_t::from_sizes(dim_parts)
+  });
+
+  return partition_t(split_partdims);
+}
+
+partition_t concat_get_input_partition(
+  partition_t const& concat_part,
+  concat_t const& concat,
+  int which_input)
+{
+  partition_t split_part = concat_split_partition(concat_part, concat);
+
+  auto region = get_concat_input_region(split_part, concat, which_input);
+
+  return split_part.subset(region);
+}
+
+placement_t concat_split_placement(
+  placement_t const& placement,
+  concat_t const& concat)
+{
+  partition_t split_partition = concat_split_partition(
+    placement.partition, concat);
+
+  return placement.refine(split_partition);
+}
+
+std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
+{
+  auto const& [loc,id] = x;
+  out << "loc" << loc << "id" << id;
+  return out;
 }
 
 int taskgraph_t::insert_input(
@@ -1197,47 +1650,6 @@ void taskgraph_t::add_to_partial(
 
   // make sure to tell nodes this id_inn gets used at id_out
   nodes[id_inn].outs.insert(id_out);
-}
-
-void taskgraph_t::add_to_partial_the_full_input(
-  int id_out,
-  int id_inn,
-  vector<tuple<uint64_t, uint64_t>> hrect_out,
-  bool consume)
-{
-  // this is a little goofy: we're gonna get the write shape,
-  // put it into touches, the add_to_partial is gonna extract
-  // the write shape and verify that it is the same shape as
-  // the partialize we're adding to.
-  //
-  // Oh well.
-  auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
-
-  if(hrect_out.size() != write_shape.size()) {
-    throw std::runtime_error("incorrect sizing");
-  }
-
-  vector<touchdim_t> ts;
-  ts.reserve(hrect_out.size());
-  for(int i = 0; i != hrect_out.size(); ++i) {
-    auto const& [b,e] = hrect_out[i];
-    auto const& d_out = write_shape[i];
-
-    ts.push_back(touchdim_t {
-      .d_inn = e-b,
-      .d_out = d_out,
-      .offset_inn = 0,
-      .offset_out = b,
-      .size = e-b
-    });
-  }
-
-  touch_t touch {
-    .selection = ts,
-    .castable = optional<castable_t>()
-  };
-
-  add_to_partial(id_out, id_inn, touch, consume);
 }
 
 void taskgraph_t::add_to_partial_the_full_aggregate(
@@ -1461,7 +1873,7 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
     if(n.has_input()) {
       auto const& i = n.input();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(input_t { i.loc(), i.size() }),
         is_save);
     } else if(n.has_apply()) {
@@ -1472,12 +1884,12 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
       einsummable_t e = einsummable_t::from_proto(a.einsummable());
 
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(apply_t { a.loc(), inns, e }),
         is_save);
     } else if(n.has_move()) {
       auto const& m = n.move();
-      ret.insert(
+      ret.nodes.emplace_back(
         op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
         is_save);
     } else if(n.has_partialize()) {
@@ -1530,11 +1942,23 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         .write_shape = write_shape,
         .units = units
       };
-      ret.insert(op_t(partialize), is_save);
+      ret.nodes.emplace_back(op_t(partialize), is_save);
     } else {
       throw std::runtime_error("should not happen");
     }
+  }
 
+  // Note: The nodes are sent over the wire in order,
+  //       but that order is not necc a graph order.
+  //       Therefore, don't call insert.
+  //       Instead, directly put in all the nodes and then
+  //       add all outgoing edges
+
+  for(int id = 0; id != ret.nodes.size(); ++id) {
+    auto const& op = ret.nodes[id].op;
+    for(auto inn: op.inputs()) {
+      ret.nodes[inn].outs.insert(id);
+    }
   }
 
   return ret;

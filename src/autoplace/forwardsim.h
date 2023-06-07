@@ -1,8 +1,126 @@
 #pragma once
 #include "../base/setup.h"
 
+#include "../base/hrect.h"
+
 #include "../einsummable/graph.h"
 #include "cluster.h"
+
+// Assumption: all time >= 0; all util >= 1
+struct capacity_scheduler_t {
+  capacity_scheduler_t(int c);
+
+  double schedule(int util, double min_start, double compute_time);
+
+  void complete(int util, double start, double finish);
+
+  int const capacity;
+
+private:
+  struct block_t {
+    double beg;
+    double end;
+    int cnt;
+  };
+
+  // Invariant: holds interval [0,max double)
+  vector<block_t> blocks;
+
+  using iter_t = vector<block_t>::iterator;
+
+  tuple<iter_t, iter_t>
+  find_available(int util, double min_start, double time);
+
+  tuple<int, iter_t> get_avail(iter_t iter, double end);
+
+  iter_t get_exact_start(double t);
+  iter_t get_exact_finish(double t);
+
+  void merge_zeros();
+};
+
+template <typename T>
+struct in_progress_t {
+  int util;
+  double beg;
+  double end;
+  T payload;
+};
+
+template <typename T>
+bool operator>(
+  in_progress_t<T> const& lhs,
+  in_progress_t<T> const& rhs)
+{
+  return lhs.end > rhs.end;
+}
+
+template <typename T>
+struct capacity_worker_t {
+  capacity_worker_t(int capacity)
+    : scheduler(capacity)
+  {}
+
+  bool is_in_progress() const {
+    return in_progress.size() > 0;
+  }
+
+  in_progress_t<T> const& get_in_progress() const {
+    return in_progress.top();
+  }
+
+  vector<T> const& get_pending() const {
+    return pending;
+  }
+
+  T const& get_pending(int which) const {
+    return pending[which];
+  }
+
+  void finish_work() {
+    auto const& p = get_in_progress();
+    scheduler.complete(p.util, p.beg, p.end);
+    in_progress.pop();
+  }
+
+  void add_to_pending(T const& new_work) {
+    for(auto const& pending_work: pending) {
+      if(new_work == pending_work) {
+        return;
+      }
+    }
+    pending.push_back(new_work);
+  }
+
+  void start_work(
+    int which_pending,
+    int util,
+    double time_now,
+    double total_work_time)
+  {
+    double start_time = scheduler.schedule(
+      util, time_now, total_work_time);
+
+    T const& work = pending[which_pending];
+
+    in_progress.push(in_progress_t<T> {
+      .util = util,
+      .beg = start_time,
+      .end = start_time + total_work_time,
+      .payload = work
+    });
+
+    pending.erase(pending.begin() + which_pending);
+  }
+
+private:
+  capacity_scheduler_t scheduler;
+
+  priority_queue_least<in_progress_t<T>> in_progress;
+
+  // these things can happen
+  vector<T> pending;
+};
 
 template <typename T>
 struct worker_t {
@@ -162,7 +280,7 @@ struct forward_state_t {
   };
 
   struct join_t {
-    uint64_t flops;
+    optional<einsummable_t> einsummable;
     vector<rid_t> deps;
     set<int> outs; // get all refinement bids that depend on this join
   };
@@ -263,7 +381,16 @@ struct forward_state_t {
 
   graph_node_info_t const& get_ginfo(int gid) const;
 
-  uint64_t extra_elems_to(jid_t jid, int loc) const;
+  // Count the number of elements moved if jid is
+  // set to have location loc. Only jids dependent
+  // on id will be accessed in get_loc.
+  //
+  // The join must be set at jid and any set locations
+  // in this object are ignored.
+  uint64_t count_elements_to(
+    std::function<int(jid_t)> get_loc,
+    jid_t jid,
+    int loc) const;
 
 private:
   // ec = Event Completed
@@ -274,7 +401,7 @@ private:
   // be assigned
   void ec_assign_partition(int gid);
 
-  // Once refis (and refinement_partition) is setup, it may the
+  // Once refis (and refinement_partition) is setup, it may be the
   // case that an output graph node can have the the joins setup
   void ec_setup_refis(int gid);
 
@@ -314,7 +441,7 @@ private:
 
   set<int> can_partition;
 
-  vector<worker_t<jid_t>> apply_workers;
+  vector<capacity_worker_t<jid_t>> apply_workers;
 
   // each worker processes rid,uid pairs
   vector<worker_t<tuple<rid_t,int>>> move_workers;

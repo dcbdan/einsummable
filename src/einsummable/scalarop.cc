@@ -577,17 +577,8 @@ bool scalarop_t::is_castable() const {
 
 bool scalarop_t::is_mul() const {
   string self = write_with_ss(*this);
-  vector<string> xs {
-    "*[hole@0,hole@1]",
-    "*[hole@1,hole@0]"};
-
-    for(auto const& x: xs) {
-    if(self == x) {
-      return true;
-    }
-  }
-
-  return false;
+  return self == "*[hole@0,hole@1]" ||
+         self == "*[hole@1,hole@0]"  ;
 }
 
 bool scalarop_t::is_constant_of(float val) const {
@@ -663,6 +654,10 @@ scalarop_t scalarop_t::make_add() {
 scalarop_t scalarop_t::make_mul() {
   return parse_with_ss<scalarop_t>("*[hole@0,hole@1]");
 }
+// x0 / x1
+scalarop_t scalarop_t::make_div() {
+  return parse_with_ss<scalarop_t>("*[hole@0,power{-1}[hole@1]]");
+}
 // min(x0, x1)
 scalarop_t scalarop_t::make_min() {
   return parse_with_ss<scalarop_t>("ite_<[hole@0,hole@1,hole@0,hole@1]");
@@ -691,6 +686,10 @@ scalarop_t scalarop_t::make_sub() {
 scalarop_t scalarop_t::make_increment(float val) {
   string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalarop_t>("+[hole@0," + constant + "]");
+}
+
+scalarop_t scalarop_t::make_exp() {
+  return parse_with_ss<scalarop_t>("exp[hole@0]");
 }
 
 scalarop_t scalarop_t::make_relu() {

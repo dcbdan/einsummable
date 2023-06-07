@@ -12,6 +12,8 @@ double simulate(
   graph_t const& graph,
   vector<placement_t> const& pls);
 
+// TODO: name this something else;
+//       single_loc_no_partition maybe
 vector<placement_t> single_loc_placements(graph_t const& graph);
 
 vector<partition_t> autopartition(
@@ -44,6 +46,9 @@ struct mcmc_t {
   bool step();
 
   vector<placement_t> random_change() const;
+
+  int num_locs() const;
+  int num_workers() const;
 
   int random_gid() const;
 

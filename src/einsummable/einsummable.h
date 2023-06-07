@@ -16,11 +16,6 @@ struct einsummable_t {
   // may be none when out_rank == join_rank
   optional<castable_t> castable;
 
-  // Note: this sort of simplification can be made at the
-  // kernel level:
-  //   ijkl,klmn->ijmn is the same as
-  //   a b, b c ->a c
-
   // Consider batched matrix multiply into
   // the same output:
   //   bij,bjk->ik
@@ -35,6 +30,12 @@ struct einsummable_t {
     int out_rank,
     scalarop_t join,
     optional<castable_t> castable = std::nullopt);
+
+  // Note: this sort of simplification can be made at the
+  // kernel level:
+  //   ijkl,klmn->ijmn is the same as
+  //   a b, b c ->a c
+  einsummable_t merge_adjacent_dims() const;
 
   string to_wire() const;
   static einsummable_t from_wire(string const& str);
@@ -61,6 +62,10 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     int out_rank);
 
+  static optional<vector<uint64_t>> construct_join_shape(
+    vector<vector<int>> const& inns,
+    vector<vector<uint64_t>> const& inn_shapes);
+
   vector<uint64_t> out_shape() const;
 
   vector<vector<uint64_t>> inn_shapes() const;
@@ -69,6 +74,12 @@ struct einsummable_t {
 
   string str() const;
 
+  std::size_t hash() const;
+
+  // A straight elementwise operation can be computed by
+  //   for(i = 0, i != product(join_shape); ++i) {
+  //     out[i] = join(inn1[i], ..., innN[i]);
+  //   }
   // Note on straight-elementwise vs elementwise in this context:
   // Here (ij->ij) and (ijk,ijk->ijk) are straight_elementwise,
   // but               (ikj,ijk->ijk) is elementwise but not straight
@@ -76,10 +87,10 @@ struct einsummable_t {
   //                   (ijk,ijk->ij) is not elementwise since an aggregation
   //                   happens.
   bool is_straight_elementwise() const;
-  // TODO: what is ij,i->ij ? That is, the left input can be donated but
-  //                          this returns false
 
   bool has_aggregation() const;
+
+  bool is_contraction() const;
 
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
@@ -114,6 +125,52 @@ struct einsummable_t {
 
     return ret;
   }
+
+  template <typename T, typename F>
+  static optional<vector<T>>
+  construct_join_shape_(
+    vector<vector<int>> const& inns,
+    vector<vector<T>> const& inn_shapes,
+    T const& unassigned,
+    F equals)
+  {
+    if(inns.size() != inn_shapes.size()) {
+      return std::nullopt;
+    }
+
+    vector<T> join_shape;
+    for(int which_inn = 0; which_inn != inns.size(); ++which_inn) {
+      auto const& shape = inn_shapes[which_inn];
+      auto const& is = inns[which_inn];
+      for(int inn_i = 0; inn_i != is.size(); ++inn_i) {
+        int const& out_i = is[inn_i];
+        T const& inn_sz = shape[inn_i];
+
+        if(out_i >= join_shape.size()) {
+          join_shape.resize(out_i+1, unassigned);
+        }
+        T& out_sz = join_shape[out_i];
+        if(equals(out_sz, unassigned)) {
+          out_sz = inn_sz;
+        } else {
+          if(!equals(out_sz, inn_sz)) {
+            return std::nullopt;
+          }
+        }
+      }
+    }
+
+    if(join_shape.size() == 0) {
+      return std::nullopt;
+    }
+
+    auto iter = std::find(join_shape.begin(), join_shape.end(), unassigned);
+    if(iter != join_shape.end()) {
+      return std::nullopt;
+    }
+
+    return join_shape;
+  }
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
@@ -122,3 +179,12 @@ std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c)
 
 std::istream& operator>>(std::istream& inn, castable_t& c);
 
+template <> struct std::hash<einsummable_t> {
+  inline std::size_t operator()(einsummable_t const& e) const
+  {
+    return e.hash();
+  }
+};
+
+bool operator==(einsummable_t const& lhs, einsummable_t const& rhs);
+bool operator!=(einsummable_t const& lhs, einsummable_t const& rhs);

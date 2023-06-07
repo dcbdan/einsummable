@@ -43,6 +43,8 @@ add_base_application("copyregion"      "exps" "copyregion")
 add_base_application("scalarop"        "exps" "scalarop")
 add_base_application("forwardsim"      "exps" "forwardsim")
 add_base_application("allocator_test"  "exps" "allocator_test")
+add_base_application("gwriter"         "exps" "gwriter")
+add_base_application("deepff"          "exps" "deepff")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
@@ -76,20 +78,38 @@ if(${CPU_EXECUTION_ENGINE})
     MKL::MKL)
   endfunction()
 
-  add_cpu_application("cpuexec"    "exps" "cpuexec")
-  add_cpu_application("cpuexec_ff" "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_ew" "exps" "cpuexec_ew")
-  add_cpu_application("cpuexec_touch" "exps" "cpuexec_touch")
+  add_cpu_application("cpuexec"         "exps" "cpuexec")
+  add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
+  add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
+  add_cpu_application("cpuexec_ew"      "exps" "cpuexec_ew")
+  add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_matmul" "exps" "cpuexec_matmul")
+  add_cpu_application("cpuexec_matmul"  "exps" "cpuexec_matmul")
 endif()
 
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)
 
-  find_package(CUDA REQUIRED)
-  find_package(CUDAToolkit)
+  find_package(CUDA 11.0 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
+  include_directories(${CUTENSOR_ROOT}/include)
+
+  # set the right architecture
+  include(FindCUDA/select_compute_arch)
+  CUDA_DETECT_INSTALLED_GPUS(INSTALLED_GPU_CCS_1)
+  string(STRIP "${INSTALLED_GPU_CCS_1}" INSTALLED_GPU_CCS_2)
+  string(REPLACE " " ";" INSTALLED_GPU_CCS_3 "${INSTALLED_GPU_CCS_2}")
+  string(REPLACE "." "" CUDA_ARCH_LIST "${INSTALLED_GPU_CCS_3}")
+  SET(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_LIST})
+  set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
+
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
+  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
+
+  add_library(cutensor SHARED IMPORTED)
+  set_target_properties(cutensor PROPERTIES
+    IMPORTED_LOCATION "${CUTENSOR_ROOT}/lib/11.0/libcutensor.so"
+    INTERFACE_INCLUDE_DIRECTORIES "${CUTENSOR_ROOT}/include")
 
   add_library(gpu_execution_engine
     STATIC
@@ -97,18 +117,26 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${CP_FILES}
+    ${CU_FILES}
   )
 
   function(add_gpu_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)
+
   target_link_libraries(${exec}
     gpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
-    -lcutensor)
+    cutensor
+    cudart
+    cublasLt)
+
   endfunction()
 
   # call add_gpu_application here
+  add_gpu_application("gpuexec_touch"  "exps" "gpuexec_touch")
+  add_gpu_application("cutensorexp"  "exps" "cutensorexp")
   add_gpu_application("loopTest" "exps" "GPU_test")
 endif()

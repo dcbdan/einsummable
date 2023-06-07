@@ -44,6 +44,97 @@ einsummable_t::einsummable_t(
   }
 }
 
+einsummable_t einsummable_t::merge_adjacent_dims() const {
+  int join_rank = join_shape.size();
+
+  auto count_adjacent = [](int r, vector<int> const& is) {
+    auto iter = std::find(is.begin(), is.end(), r);
+    if(iter == is.end()) {
+      return -1;
+    }
+    int c = r;
+    for(; iter != is.end(); ++iter) {
+      if(*iter == c) {
+        c++;
+      } else {
+        break;
+      }
+    }
+    return c-r;
+  };
+
+  // for each index, return the new index and the count and the size
+  map<int, tuple<int, int>> merges;
+
+  int r = 0;
+  int new_r = 0;
+  while(r != join_rank) {
+    int n_adj = count_adjacent(r, inns[0]);
+    for(int i = 1; i != inns.size(); ++i) {
+      if(n_adj == 1) {
+        break;
+      }
+      int n = count_adjacent(r, inns[i]);
+      if(n != -1) {
+        if(n_adj == -1) {
+          n_adj = n;
+        } else {
+          n_adj = std::min(n_adj, n);
+        }
+      }
+    }
+    if(r < out_rank) {
+      // Consider 0123->012
+      // n_adj @ 0 = 4 but it can only be 3
+      n_adj = std::min(n_adj, out_rank - r);
+    }
+
+    merges.insert({r, {new_r, n_adj}});
+    r += n_adj;
+    new_r += 1;
+  }
+
+  if(merges.size() == join_rank) {
+    return *this;
+  }
+
+  vector<uint64_t> new_join_shape;
+  {
+    int r = 0;
+    while(r != join_rank) {
+      auto const& [_, n_adj] = merges.at(r);
+
+      uint64_t sz = 1;
+      for(int i = r; i != r + n_adj; ++i) {
+        sz *= join_shape[r];
+      }
+
+      new_join_shape.push_back(sz);
+
+      r += n_adj;
+    }
+  }
+
+  int new_out_rank = std::get<0>(merges.at(out_rank));
+
+  vector<vector<int>> new_inns;
+  for(auto const& inn: inns) {
+    new_inns.emplace_back();
+    vector<int>& new_inn = new_inns.back();
+
+    int i = 0;
+    while(i != inn.size()) {
+      auto const& [new_r, n_adj] = merges.at(inn[i]);
+      new_inn.push_back(new_r);
+      i += n_adj;
+    }
+  }
+
+  return einsummable_t(
+    new_join_shape, new_inns, new_out_rank,
+    join, castable);
+}
+
 einsummable_t einsummable_t::from_proto(es_proto::Einsummable const& e) {
   vector<uint64_t> join_shape;
   {
@@ -296,6 +387,15 @@ bool einsummable_t::valid_inns_out(
   return true;
 }
 
+optional<vector<uint64_t>>
+einsummable_t::construct_join_shape(
+  vector<vector<int>> const& inns,
+  vector<vector<uint64_t>> const& inn_shapes)
+{
+  uint64_t d = 0;
+  return construct_join_shape_(inns, inn_shapes, d, std::equal_to<>());
+}
+
 vector<uint64_t> einsummable_t::out_shape() const {
   return vector<uint64_t>(
     join_shape.begin(),
@@ -327,7 +427,6 @@ string einsummable_t::str() const {
   vector<char> letters(join_shape.size());
   std::iota(letters.begin(), letters.end(), 'a');
 
-
   auto words = get_inputs_from_join(letters);
 
   std::ostringstream ss;
@@ -343,6 +442,22 @@ string einsummable_t::str() const {
   return ss.str();
 }
 
+std::size_t einsummable_t::hash() const {
+  std::hash<string>   h_str;
+  std::hash<int>      h_int;
+  std::hash<uint64_t> h_uint;
+
+  std::size_t ret = h_str(str() + write_with_ss(join));
+
+  for(auto const j: join_shape) {
+    hash_combine_impl(ret, h_uint(j));
+  }
+  if(castable) {
+    hash_combine_impl(ret, h_int(int(castable.value())));
+  }
+  return ret;
+};
+
 bool einsummable_t::is_straight_elementwise() const {
   vector<int> reference(join_shape.size());
   std::iota(reference.begin(), reference.end(), 0);
@@ -356,6 +471,13 @@ bool einsummable_t::is_straight_elementwise() const {
 
 bool einsummable_t::has_aggregation() const {
   return out_rank < join_shape.size();
+}
+
+bool einsummable_t::is_contraction() const {
+  return inns.size() == 2               &&
+    has_aggregation()                   &&
+    castable.value() == castable_t::add &&
+    join.is_mul();
 }
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
@@ -415,4 +537,24 @@ std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c)
   return out;
 }
 
+bool operator==(einsummable_t const& lhs, einsummable_t const& rhs) {
+  if(!vector_equal(lhs.join_shape, rhs.join_shape)) {
+    return false;
+  }
+  if(lhs.inns.size() != rhs.inns.size()) {
+    return false;
+  }
+  for(int i = 0; i != lhs.inns.size(); ++i) {
+    if(!vector_equal(lhs.inns[i], rhs.inns[i])) {
+      return false;
+    }
+  }
+  if(lhs.out_rank != rhs.out_rank) {
+    return false;
+  }
+  return lhs.join == rhs.join && lhs.castable == rhs.castable;
+}
 
+bool operator!=(einsummable_t const& lhs, einsummable_t const& rhs) {
+  return !(lhs == rhs);
+}

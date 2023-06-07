@@ -4,6 +4,23 @@
 #include "../base/placement.h"
 #include "einsummable.h"
 
+struct concat_t {
+  concat_t(int dim, vector<vector<uint64_t>> const& input_shapes);
+
+  int const dim;
+  vector<vector<uint64_t>> const inn_shapes;
+
+  int num_inns() const { return inn_shapes.size(); }
+
+  vector<uint64_t> shape() const;
+
+  vector<uint64_t> dim_parts() const;
+
+  vector<tuple<uint64_t, uint64_t>> get_hrect(int which_inn) const;
+
+  vector<uint64_t> get_offsets() const;
+};
+
 struct graph_t {
   // Methods to construct a graph object
   // {{{
@@ -17,6 +34,10 @@ struct graph_t {
   int insert_formation(
     int inn,
     bool is_save = true);
+
+  int insert_concat(
+    int dim,
+    vector<int> inns);
 
   // For each non-save node, make sure it gets marked as save if it isn't used
   // elsewhere.
@@ -46,6 +67,12 @@ struct graph_t {
 
   // }}}
 
+  // create a partition where every node is unpartitioned
+  vector<partition_t> make_singleton_partition() const;
+  // create a placement where every node is unpartitioned
+  // and every block is at loc 0
+  vector<placement_t> make_singleton_placement() const;
+
   vector<uint64_t> out_shape(int id) const;
 
   vector<int> get_order() const;
@@ -58,82 +85,55 @@ public:
 
   struct input_t {
     vector<uint64_t> shape;
-
-    vector<uint64_t> out_shape() const { return shape; }
   };
 
   struct formation_t {
     vector<uint64_t> shape;
     bool is_save; // if this is false, it is a temporary
-
-    vector<uint64_t> out_shape() const { return shape; }
   };
-
 
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, formation_t, einsummable_t>;
+    using _op_t = std::variant<input_t, formation_t, concat_t, einsummable_t>;
 
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t       x): op_t(_op_t(x)) {}
     op_t(formation_t   x): op_t(_op_t(x)) {}
+    op_t(concat_t      x): op_t(_op_t(x)) {}
     op_t(einsummable_t x): op_t(_op_t(x)) {}
 
-    vector<uint64_t> out_shape() const {
-      return std::visit([](auto x){ return x.out_shape(); }, op);
-    }
-    int out_rank() const {
-      return this->out_shape().size();
-    }
+    vector<uint64_t> out_shape() const;
+    vector<uint64_t> shape() const;
 
-    vector<uint64_t> shape() const {
-      if(std::holds_alternative<input_t>(op)) {
-        return std::get<input_t>(op).shape;
-      }
-      if(std::holds_alternative<formation_t>(op)) {
-        return std::get<formation_t>(op).shape;
-      }
-      if(std::holds_alternative<einsummable_t>(op)) {
-        return std::get<einsummable_t>(op).join_shape;
-      }
-      throw std::runtime_error("graph::op_t should not reach");
-      return {};
-    }
-
-    int rank() const {
-      return this->shape().size();
-    }
+    int out_rank() const { return this->out_shape().size(); }
+    int rank() const { return this->shape().size(); }
 
     bool is_save() const {
       return is_formation() && get_formation().is_save;
     }
-    bool is_formation() const {
-      return std::holds_alternative<formation_t>(op);
-    }
-    bool is_input() const {
-      return std::holds_alternative<input_t>(op);
-    }
+
+    bool is_input()       const { return std::holds_alternative<input_t>(op);     }
+    bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
+    bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
     }
 
-    einsummable_t const& get_einsummable() const {
-      return std::get<einsummable_t>(op);
-    }
-    einsummable_t& get_einsummable() {
-      return std::get<einsummable_t>(op);
-    }
     bool has_aggregation() const {
       return is_einsummable() && get_einsummable().has_aggregation();
     }
 
-    formation_t const& get_formation() const {
-      return std::get<formation_t>(op);
+    input_t       const& get_input()     const { return std::get<input_t>(op);     }
+    formation_t   const& get_formation() const { return std::get<formation_t>(op); }
+    formation_t        & get_formation()       { return std::get<formation_t>(op); }
+    concat_t      const& get_concat()    const { return std::get<concat_t>(op);    }
+    einsummable_t const& get_einsummable() const {
+      return std::get<einsummable_t>(op);
     }
-    formation_t& get_formation() {
-      return std::get<formation_t>(op);
+    castable_t    const& get_castable() const {
+      return get_einsummable().castable.value();
     }
 
     _op_t op;
@@ -157,6 +157,11 @@ public:
 private:
   int insert(op_t const& op, vector<int> inns);
 };
+
+// graph_constructor_t is for building a graph
+// object with associated placements.
+// graph_writer_t is for building a graph object
+// but returning a virtual tensor object
 
 struct graph_constructor_t {
   int insert_input(
@@ -190,6 +195,18 @@ struct graph_constructor_t {
     int inn,
     bool is_save = true);
 
+  int insert_concat(
+    placement_t placement,
+    int dim,
+    vector<int> inns);
+  int insert_concat(
+    partition_t partition,
+    int dim,
+    vector<int> inns);
+  int insert_concat(
+    int dim,
+    vector<int> inns);
+
   vector<placement_t> get_placements() const;
 
   graph_t graph;
@@ -211,3 +228,146 @@ graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk);
 
+// TODO:
+//   This is not valid but should be:
+//     graph_writer_t w;
+//     auto t = w.input({100,100});
+//     t = t.view({10,10,10,10});
+//   The reason it is not valid is because all inputs must
+//   currently be declared with the finest used dimension sizes.
+//
+//   What should happen instead is at t.view(...), it is determined
+//   which dimensions need to be set finer and that should be
+//   somehow propagated up the graph.
+//   An implementation that does this might not be desirable as it
+//   would be error prone: graph_t does checks when constructing
+//   the graph and offers no facilities to do such modifications.
+//
+//   Perhaps the preferable implementation would be upon encountering
+//   a dimension that needs to be made finer, to detect all the usages
+//   of the dimension and create an entirely new graph within the
+//   graph_writer_t. This would not be efficient for lots of encounters,
+//   but efficiency should not be the concern here.
+struct graph_writer_t {
+  struct tensor_t {
+    tensor_t transpose(int i, int j) const;
+    tensor_t view(vector<uint64_t> shape) const;
+    vector<uint64_t> const& get_shape() const { return shape; }
+    void save();
+    int get_id() const { return id; }
+
+    tensor_t& operator=(tensor_t const&);
+  private:
+    friend class graph_writer_t;
+
+    tensor_t(
+      vector<uint64_t> const& shape,
+      vector<uint64_t> const& full_shape,
+      int id,
+      graph_writer_t& self);
+
+    vector<uint64_t> shape;
+
+    vector<uint64_t> full_shape;
+    vector<int> modes;
+
+    int id;
+
+    graph_writer_t& self;
+
+  private:
+    // after this, the modes are 0,1,...,full_shape.size()-1
+    void physically_permute();
+    vector<tuple<int,int>> get_breaks() const;
+    vector<vector<uint64_t>> _full_shape() const;
+
+    static vector<tuple<int,int>> get_breaks_(
+      vector<uint64_t> const& shape,
+      vector<uint64_t> const& full_shape);
+  };
+
+  struct to_einsummable_info_t {
+    vector<uint64_t> full_join_shape;
+    vector<uint64_t> join_shape;
+    vector<vector<int>> full_inns;
+    int full_out_rank;
+    int out_rank;
+
+    vector<uint64_t> get_out_full_shape() const;
+
+    vector<uint64_t> get_out_shape() const;
+
+    einsummable_t build_einsummable(
+      scalarop_t scalarop,
+      optional<castable_t> castable = std::nullopt) const;
+  };
+
+  graph_t const& get_graph() const { return graph; }
+
+  // the core ops
+
+  tensor_t input(
+    vector<uint64_t> shape);
+
+  tensor_t contraction(
+    string str,
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+
+  tensor_t reduction(
+    string str,
+    castable_t castable,
+    tensor_t const& inn);
+
+  tensor_t ew( // ew = elementwise
+    string str,
+    scalarop_t op,
+    tensor_t const& inn);
+  tensor_t ew(
+    string str,
+    scalarop_t op,
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+  tensor_t ew(
+    string str,
+    scalarop_t op,
+    vector<tensor_t> const& inns);
+
+  tensor_t concat(
+    int dim,
+    vector<tensor_t> const& inns);
+
+  // helper ops that dispatch to the core ops
+
+  // add two tensors with the same shape
+  tensor_t add(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+
+  // straight elementwise scale
+  tensor_t scale(
+    float val,
+    tensor_t const& inn);
+
+  // supports ij,jk->ik and
+  //         ...ij,...jk->...ik and
+  //         ...ij,jk->ik       and
+  //         ij,...jk->ik
+  tensor_t matmul(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+
+  // take the softmax over the last dimension
+  tensor_t softmax(
+    tensor_t const& inn);
+private:
+  graph_t graph;
+
+  int _insert_elementwise(
+    string str,
+    scalarop_t op,
+    int id);
+
+  optional<to_einsummable_info_t>
+  make_einsummable_info(string str, vector<tensor_t> const& inns);
+};
