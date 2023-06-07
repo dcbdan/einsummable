@@ -452,14 +452,146 @@ build_simple_reduction(
 cutensor_kernel_t
 build_cutensor_elementwise(cutensor_elementwise_op_t op)
 {
+  typedef float floatTypeCompute;
+  cudaDataType_t typeA = CUDA_R_32F;
+  cudaDataType_t typeB = CUDA_R_32F;
+  cudaDataType_t typeC = CUDA_R_32F;
+  cudaDataType_t typeCompute = CUDA_R_32F;
   if(std::holds_alternative<cutensor_elementwise_op_t::unary_t>(op.op)){
+    auto unary = std::get<cutensor_elementwise_op_t::unary_t>(op.op);
+    
+    std::vector<int> modeA = unary.arg.modes;
+    int nmodeA = modeA.size();
 
+    
+    vector<int64_t> extent_A;
+    for(auto const& mode: modeA) {
+      extent_A.push_back(op.join_shape[mode]);
+    }
+
+
+    floatTypeCompute alpha = (floatTypeCompute)unary.arg.scale;
+
+    return [modeA,nmodeA,extent_A,alpha]
+    (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
+      cutensorTensorDescriptor_t descA;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descA,
+                  nmodeA,
+                  extentA.data(),
+                  NULL /* stride */,
+                  typeA, CUTENSOR_OP_IDENTITY));
+
+
+      cutensorPermutation(&handle,
+                (void*)&alpha, inns[0], &descA, modeA.data(),
+                out, &descA, modeA.data(),
+                out, &descC, modeC.data(), 
+                typeCompute, stream);
+    };
   }
   else if(std::holds_alternative<cutensor_elementwise_op_t::binary_t>(op.op)){
+    auto binary = std::get<cutensor_elementwise_op_t::binary_t>(op.op);
     
+    std::vector<int> modeA = binary.lhs.modes;
+    std::vector<int> modeC = binary.rhs.modes;
+    int nmodeA = modeA.size();
+    int nmodeC = modeC.size();
+    
+    vector<int64_t> extent_A;
+    for(auto const& mode: modeA) {
+      extent_A.push_back(op.join_shape[mode]);
+    }
+    vector<int64_t> extent_C;
+    for(auto const& mode: modeC) {
+      extent_C.push_back(op.join_shape[mode]);
+    }
+
+    floatTypeCompute alpha = (floatTypeCompute)binary.lhs.scale;
+    floatTypeCompute gamma = (floatTypeCompute)binary.rhs.scale;
+    return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,alpha,gamma]
+    (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
+      cutensorTensorDescriptor_t descA;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descA,
+                  nmodeA,
+                  extentA.data(),
+                  NULL /* stride */,
+                  typeA, CUTENSOR_OP_IDENTITY));
+
+      cutensorTensorDescriptor_t descC;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descC,
+                  nmodeC,
+                  extentC.data(),
+                  NULL /* stride */,
+                  typeC, CUTENSOR_OP_IDENTITY));
+      cutensorElementwiseBinary(&handle,
+                (void*)&alpha, inns[0], &descA, modeA.data(),
+                (void*)&gamma, inns[1], &descC, modeC.data(),
+                out, &descC, modeC.data(),
+                binary.op, typeCompute, stream);
+    };
   }
   else if(std::holds_alternative<cutensor_elementwise_op_t::ternary_t>(op.op)){
+    auto ternary = std::get<cutensor_elementwise_op_t::ternary_t>(op.op);
     
+    std::vector<int> modeA = ternary.a0.modes;
+    std::vector<int> modeB = ternary.a1.modes;
+    std::vector<int> modeC = ternary.a2.modes;
+    int nmodeA = modeA.size();
+    int nmodeB = modeB.size();
+    int nmodeC = modeC.size();
+    
+    vector<int64_t> extent_A;
+    for(auto const& mode: modeA) {
+      extent_A.push_back(op.join_shape[mode]);
+    }
+    vector<int64_t> extent_B;
+    for(auto const& mode: modeB) {
+      extent_B.push_back(op.join_shape[mode]);
+    }
+
+    vector<int64_t> extent_C;
+    for(auto const& mode: modeC) {
+      extent_C.push_back(op.join_shape[mode]);
+    }
+
+    floatTypeCompute alpha = (floatTypeCompute)ternary.a0.scale;
+    floatTypeCompute beta  = (floatTypeCompute)ternary.a1.scale;
+    floatTypeCompute gamma = (floatTypeCompute)ternary.a2.scale;
+    return [modeA,modeB,modeC,nmodeA,nmodeB,nmodeC,extent_A,extent_B,extent_C,alpha,beta,gamma]
+    (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
+      cutensorTensorDescriptor_t descA;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descA,
+                  nmodeA,
+                  extentA.data(),
+                  NULL /* stride */,
+                  typeA, CUTENSOR_OP_IDENTITY));
+
+      cutensorTensorDescriptor_t descB;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descB,
+                  nmodeB,
+                  extentB.data(),
+                  NULL /* stride */,
+                  typeB, CUTENSOR_OP_IDENTITY));
+
+      cutensorTensorDescriptor_t descC;
+      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+                  &descC,
+                  nmodeC,
+                  extentC.data(),
+                  NULL /* stride */,
+                  typeC, CUTENSOR_OP_IDENTITY));
+      cutensorElementwiseTrinary(&handle,
+                (void*)&alpha, inns[0], &descA, modeA.data(),
+                (void*)&beta , inns[1], &descB, modeB.data(),
+                (void*)&gamma, inns[2], &descC, modeC.data(),
+                              out, &descC, modeC.data(),
+                ternary.op_0_1, ternary.op_01_2, typeCompute, stream);
+    };
   }
 
   return {};
@@ -470,6 +602,17 @@ make_cutensor_elementwise_op(
   einsummable_t const& e)
 {
   // TODO
+  cutensor_elementwise_op_t op;
+  op.join_shape = e.join_shape;
+
+  if(e.inns.size()==1){
+
+  }else if(e.inns.size()==2){
+  
+  }else if(e.inns.size()==3){
+  
+  }
+
   return std::nullopt;
 }
 
