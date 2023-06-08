@@ -4,9 +4,33 @@
 #include "../src/einsummable/scalarop.h"
 #include "../src/execution/gpu/execute.h"
 
+#include <cstdio>
 #include <fstream>
 #include <memory>
 
+void mem_check(memgraph_t const& m){
+  for (int idx = 0; idx != m.nodes.size(); ++idx){
+    auto const& node = m.nodes[idx];
+    for (auto input_idx: node.inns){
+      // Our Node x has Node y as its input
+      if (m.nodes[input_idx].outs.find(idx) == m.nodes[input_idx].outs.end()){
+        // But Node y doesn't have Node x as its output
+        std::printf("Error: Node %d has node % d as its input but node %d doesn't have node %d as its output\n", 
+          idx, input_idx, input_idx, idx);
+        exit(1);
+      }
+    }
+    for (auto output_idx: node.outs){
+      // Our Node x has Node y as its output
+      if (m.nodes[output_idx].inns.find(idx) == m.nodes[output_idx].inns.end()){
+        // But Node y doesn't have Node x as its input
+        std::printf("Error: Node %d has node % d as its output but node %d doesn't have node %d as its input\n", 
+          idx, output_idx, output_idx, idx);
+        exit(1);
+      }
+    }
+  }
+}
 
 struct random_placement_t {
   placement_t operator()(vector<uint64_t> const& total_shape) {
@@ -86,21 +110,23 @@ int main() {
   // print the number of nodes in the graph
     std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
     // print the input and output of every node
-    // for(int i = 0; i < memgraph.nodes.size(); ++i) {
-    //   std::cout << "Node " << i << " has input: ";
-    //   for(auto in: memgraph.nodes[i].inns) {
-    //     std::cout << in << " ";
-    //   }
-    //   std::cout << "and output: ";
-    //   for(auto out: memgraph.nodes[i].outs) {
-    //     std::cout << out << " ";
-    //   }
-    //   std::cout << std::endl;
-    // }
+    for(int i = 0; i < memgraph.nodes.size(); ++i) {
+      std::cout << "Node " << i << " has input: ";
+      for(auto in: memgraph.nodes[i].inns) {
+        std::cout << in << " ";
+      }
+      std::cout << "and output: ";
+      for(auto out: memgraph.nodes[i].outs) {
+        std::cout << out << " ";
+      }
+      std::cout << std::endl;
+    }
 
-    // std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
-    // std::ofstream f("mm3d_mem_lowest_dep.gv");
-    // memgraph.print_graphviz(f);
+    std::ofstream f("deepff.gv");
+    memgraph.print_graphviz(f);
+    mem_check(memgraph);
+    
     uint64_t buffer_size = 0;
     execute(memgraph);
+    
 }

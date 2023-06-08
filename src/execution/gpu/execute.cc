@@ -22,16 +22,20 @@ cudaStream_t cuda_create_stream() {
 
 // update memgraph node when it is finished; modify the dependency counter of the node
 // return a vector of ready nodes if there are any
-vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &memgraph, int node_idx) {
+vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &memgraph, int node_idx, std::map<int, int> &num_nodes_remaining) {
+    // TODO: hard coded index 0 since we only have 1 device
+    num_nodes_remaining[0] -= 1;
     vector<int> ready_nodes;
     for (auto out: memgraph.nodes[node_idx].outs){
         dependency_count[out] -= 1;
+        // print the node that got decremented
+        printf("Node %d has dependencies decreased\n", out);
         if (dependency_count[out] == 0){
             ready_nodes.push_back(out);
         }
     }
     // print a update message
-    std::cout << "Node " << node_idx << " finished execution." << std::endl;
+    printf("Node %d finished execution\n", node_idx);
     return ready_nodes;
 }
 
@@ -52,10 +56,13 @@ std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
 }
 
 bool is_complete(std::map<int, int> &dependency_count) {
+    auto idx = 0;
     for (auto it = dependency_count.begin(); it != dependency_count.end(); it++){
         if (it->second != 0){
+            std::cout << "Node " << idx << " has " << it->second << " dependencies" << std::endl;
             return false;
         }
+        idx++;
     }
     return true;
 }
@@ -78,6 +85,7 @@ struct callback_data_t {
   const memgraph_t* memgraph = new memgraph_t();
   std::queue<int>* pending_queue;
   int node_idx;
+  std::map<int, int>* num_nodes_remaining;
 
   void operator()() {
     std::mutex& m = *m_ptr;
@@ -85,7 +93,7 @@ struct callback_data_t {
     {
       std::unique_lock lk(m);
       // update the queue since this node is finished
-      auto new_nodes = node_update(*dependency_count, *memgraph, node_idx);
+      auto new_nodes = node_update(*dependency_count, *memgraph, node_idx, *num_nodes_remaining);
       add_to_queue(*pending_queue, new_nodes);      
     }
     cv.notify_all();
@@ -122,7 +130,7 @@ void gpu_execute_state_t::run() {
             // TODO: get the mapping from the node id to the cutensor plan
             if (node.op.is_input() || node.op.is_del()){
                 // do nothing but add the node to the finished queue
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx);
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
                 add_to_queue(pending_queue, new_nodes);
             }
             else if (node.op.is_apply()){
@@ -141,6 +149,8 @@ void gpu_execute_state_t::run() {
                 data->dependency_count = &dependency_count;
                 data->memgraph = &memgraph;
                 data->pending_queue = &pending_queue;
+                data->num_nodes_remaining = &num_nodes_remaining;
+                // add the callback
                 cudaStreamAddCallback(
                     stream,
                     [](CUstream_st*, cudaError, void* raw_data) {
@@ -158,7 +168,7 @@ void gpu_execute_state_t::run() {
                 // std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;\
 
                 // also updating just to check the loop
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx);
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
                 add_to_queue(pending_queue, new_nodes);
             }
         }
@@ -166,13 +176,17 @@ void gpu_execute_state_t::run() {
         if (is_complete(num_nodes_remaining)){
             // if the dependency count for all node is 0, then we are done
             // else throw an error
-            if (is_complete(dependency_count)){
-                std::cout << "All nodes finished execution." << std::endl;
-                break;
+            if (!is_complete(dependency_count)){
+                std::cout << "Error: All nodes finished execution but the dependency count doesn't match." << std::endl;
+                exit(1);
+            }
+            else if (pending_queue.size() != 0) {
+                std::cout << "Error: All nodes finished execution but there are still nodes in the queue." << std::endl;
+                exit(1);
             }
             else{
-                std::cout << "Error: All nodes finished execution but there are still nodes in the queue." << std::endl;
-                exit(0);
+                std::cout << "All nodes finished execution." << std::endl;
+                exit(1);
             }
             exit(0);
         }
