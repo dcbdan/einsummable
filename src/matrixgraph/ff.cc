@@ -9,15 +9,15 @@ ff_sqdiff_update(
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
-      scalarop_t::from_string("hole@0"),
-      scalarop_t::make_scale(learning_rate)
+      scalarop_t::from_string("hole|f32@0"),
+      scalarop_t::make_scale(scalar_t(learning_rate))
     }
   );
 
   scalarop_t relu = scalarop_t::make_relu();
 
   scalarop_t squared_difference =
-    scalarop_t::from_string("power{2}[+[hole@0,*[hole@1,constant{-1}]]]");
+    scalarop_t::from_string("power{2}[+[hole|f32@0,*[hole|f32@1,constant{f32|-1}]]]");
 
   matrixgraph_t mgraph;
 

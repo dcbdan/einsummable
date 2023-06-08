@@ -34,7 +34,7 @@ void main01() {
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
-      scalarop_t::from_string("hole@0"),
+      scalarop_t::from_string("hole|f32@0"),
       scalarop_t::make_scale(0.1)
     }
   );
@@ -72,7 +72,7 @@ void main01() {
 }
 
 int main02() {
-  //scalarop_t s = scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]");
+  //scalarop_t s = scalarop_t::from_string("+[hole|f32@0,*[*[hole|f32@1,constant{0.1}],constant{-1}]]");
   //print_elementwise_function(s);
   //main01();
 
@@ -111,7 +111,7 @@ int main03() {
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
-      scalarop_t::from_string("hole@0"),
+      scalarop_t::from_string("hole|f32@0"),
       scalarop_t::make_scale(0.1)
     }
   );
@@ -145,16 +145,16 @@ int main03() {
 int main() {
   // Print the for loops
   vector<scalarop_t> ops = {
-    scalarop_t::from_string("*[ite_<[hole@0,constant{0},constant{0},constant{1}],hole@1]"),
-    scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.3}],constant{-1}]]"),
-    scalarop_t::from_string("+[hole@0,*[hole@1,constant{-1}]]"),
-    scalarop_t::from_string("+[hole@0,hole@1]"),
-    scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.1}],constant{-1}]]"),
-    scalarop_t::from_string("power{2}[+[hole@0,*[hole@1,constant{-1}]]]"),
-    scalarop_t::from_string("*[constant{2},+[hole@0,*[hole@1,constant{-1}]]]"),
-    scalarop_t::from_string("*[hole@0,hole@1]"),
-    scalarop_t::from_string("+[hole@0,*[*[hole@1,constant{0.001}],constant{-1}]]"),
-    scalarop_t::from_string("ite_<[hole@0,constant{0},constant{0},hole@0]")
+    scalarop_t::from_string("*[ite_<[hole|f32@0,constant{0},constant{0},constant{1}],hole|f32@1]"),
+    scalarop_t::from_string("+[hole|f32@0,*[*[hole|f32@1,constant{0.3}],constant{-1}]]"),
+    scalarop_t::from_string("+[hole|f32@0,*[hole|f32@1,constant{-1}]]"),
+    scalarop_t::from_string("+[hole|f32@0,hole|f32@1]"),
+    scalarop_t::from_string("+[hole|f32@0,*[*[hole|f32@1,constant{0.1}],constant{-1}]]"),
+    scalarop_t::from_string("power{2}[+[hole|f32@0,*[hole|f32@1,constant{-1}]]]"),
+    scalarop_t::from_string("*[constant{2},+[hole|f32@0,*[hole|f32@1,constant{-1}]]]"),
+    scalarop_t::from_string("*[hole|f32@0,hole|f32@1]"),
+    scalarop_t::from_string("+[hole|f32@0,*[*[hole|f32@1,constant{0.001}],constant{-1}]]"),
+    scalarop_t::from_string("ite_<[hole|f32@0,constant{0},constant{0},hole|f32@0]")
   };
 
   set<string> so_far;

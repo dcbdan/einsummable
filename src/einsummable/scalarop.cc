@@ -8,6 +8,22 @@ void istream_expect(std::istream& inn, string const& xs) {
   }
 }
 
+compare_t compare_flip(compare_t c) {
+  switch(c) {
+    case compare_t::lt:
+      return compare_t::ge;
+    case compare_t::gt:
+      return compare_t::le;
+    case compare_t::eq:
+      return compare_t::eq;
+    case compare_t::le:
+      return compare_t::gt;
+    case compare_t::ge:
+      return compare_t::lt;
+  }
+  throw std::runtime_error("compare_flip: should not reach");
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
@@ -47,6 +63,10 @@ void scalar_t::_copy_to_data(uint8_t const* other, int n) {
 }
 
 scalar_t scalar_t::zero(dtype_t dtype) {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no zero provided for c64");
+  }
+
   switch(dtype) {
     case dtype_t::f16:
       return scalar_t(float16_t(0.0));
@@ -54,13 +74,15 @@ scalar_t scalar_t::zero(dtype_t dtype) {
       return scalar_t(float(0.0));
     case dtype_t::f64:
       return scalar_t(double(0.0));
-    case dtype_t::c64:
-      return std::complex<float>(0.0, 0.0);
   }
   throw std::runtime_error("should not reach");
 }
 
 scalar_t scalar_t::one(dtype_t dtype) {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no one provided for c64");
+  }
+
   switch(dtype) {
     case dtype_t::f16:
       return scalar_t(float16_t(1.0));
@@ -68,8 +90,22 @@ scalar_t scalar_t::one(dtype_t dtype) {
       return scalar_t(float(1.0));
     case dtype_t::f64:
       return scalar_t(double(1.0));
-    case dtype_t::c64:
-      return std::complex<float>(1.0, 0.0);
+  }
+  throw std::runtime_error("should not reach");
+}
+
+scalar_t scalar_t::negative_one(dtype_t dtype) {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no negative one provided for c64");
+  }
+
+  switch(dtype) {
+    case dtype_t::f16:
+      return scalar_t(float16_t(-1.0));
+    case dtype_t::f32:
+      return scalar_t(float(-1.0));
+    case dtype_t::f64:
+      return scalar_t(double(-1.0));
   }
   throw std::runtime_error("should not reach");
 }
@@ -79,8 +115,38 @@ scalar_t scalar_t::convert(scalar_t const& other, dtype_t new_dtype)
   if(other.dtype == new_dtype) {
     return other;
   }
-  // TODO
-  throw std::runtime_error("scalar_t::convert: not implemented");
+  if(other.dtype == dtype_t::c64) {
+    throw std::runtime_error("cannot convert from complex");
+  }
+  if(other.dtype == dtype_t::f16) {
+    float16_t const& v = other.f16();
+    if(new_dtype == dtype_t::f32) {
+      return scalar_t(float(v));
+    } else if(new_dtype == dtype_t::f64) {
+      return scalar_t(double(v));
+    } else {
+      throw std::runtime_error("scalar_t::convert: should not reach");
+    }
+  } else if(other.dtype == dtype_t::f32) {
+    float const& v = other.f32();
+    if(new_dtype == dtype_t::f16) {
+      return scalar_t(float16_t(v));
+    } else if(new_dtype == dtype_t::f64) {
+      return scalar_t(double(v));
+    } else {
+      throw std::runtime_error("scalar_t::convert: should not reach");
+    }
+  } else if(other.dtype == dtype_t::f64) {
+    double const& v = other.f64();
+    if(new_dtype == dtype_t::f16) {
+      return scalar_t(float16_t(v));
+    } else if(new_dtype == dtype_t::f32) {
+      return scalar_t(float(v));
+    } else {
+      throw std::runtime_error("scalar_t::convert: should not reach");
+    }
+  }
+  throw std::runtime_error("scalar_t::convert: should not reach");
 }
 
 float16_t& scalar_t::f16() { return *reinterpret_cast<float16_t*>(data); }
@@ -105,6 +171,22 @@ op_t op_t::make_constant(scalar_t value) {
   };
 }
 
+op_t op_t::make_hole(int arg, dtype_t dtype) {
+  return op_t {
+    .op = hole{ arg, dtype }
+  };
+}
+
+op_t op_t::make_ite(compare_t c) {
+  return op_t {
+    .op = ite{ c }
+  };
+}
+
+string op_t::h_str(int arg, dtype_t dtype) {
+  return write_with_ss(make_hole(arg, dtype));
+}
+
 bool op_t::is_constant() const { return std::holds_alternative< constant >(op); }
 bool op_t::is_hole()     const { return std::holds_alternative< hole     >(op); }
 bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
@@ -112,16 +194,21 @@ bool op_t::is_mul()      const { return std::holds_alternative< mul      >(op); 
 bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); }
 bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
 bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
+bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
 
 int op_t::get_which_input() const { return std::get<hole>(op).arg; }
 
+dtype_t op_t::get_hole_dtype() const { return std::get<hole>(op).dtype; }
+
+op_t::hole op_t::get_hole() const { return std::get<hole>(op); }
+
 double op_t::get_power() const { return std::get<power>(op).to_the; }
 
 compare_t op_t::get_ite_compare() const { return std::get<ite>(op).compare; }
 
-op_t::hole op_t::get_hole() const { return std::get<hole>(op); }
+dtype_t op_t::get_convert() const { return std::get<convert>(op).dtype; }
 
 int op_t::num_inputs() const {
   if(is_constant() || is_hole()) {
@@ -163,6 +250,9 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const {
   }
   if(is_ite()) {
     return _eval_ite(get_ite_compare(), xs[0], xs[1], xs[2], xs[3]);
+  }
+  if(is_convert()){
+    return _eval_convert(get_convert(), xs[0]);
   }
   throw std::runtime_error("should not reach");
 }
@@ -231,16 +321,36 @@ scalar_t op_t::_eval_mul(scalar_t lhs, scalar_t rhs)
 
 scalar_t op_t::_eval_exp(scalar_t inn)
 {
-  // TODO
-  throw std::runtime_error("_eval_exp not impl");
-  return scalar_t();
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("cannot exp complex");
+  }
+  if(inn.dtype == dtype_t::f16) {
+    return scalar_t(half_float::exp(inn.f16()));
+  }
+  if(inn.dtype == dtype_t::f32) {
+    return scalar_t(std::exp(inn.f32()));
+  }
+  if(inn.dtype == dtype_t::f64) {
+    return scalar_t(std::exp(inn.f64()));
+  }
+  throw std::runtime_error("_eval_exp: should not reach");
 }
 
 scalar_t op_t::_eval_power(double to_the, scalar_t inn)
 {
-  // TODO
-  throw std::runtime_error("_eval_power not impl");
-  return scalar_t();
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("cannot power complex");
+  }
+  if(inn.dtype == dtype_t::f16) {
+    return scalar_t(half_float::pow(inn.f16(), float16_t(to_the)));
+  }
+  if(inn.dtype == dtype_t::f32) {
+    return scalar_t(std::pow(inn.f32(), float(to_the)));
+  }
+  if(inn.dtype == dtype_t::f64) {
+    return scalar_t(std::pow(inn.f64(), to_the));
+  }
+  throw std::runtime_error("_eval_exp: should not reach");
 }
 
 scalar_t op_t::_eval_ite(
@@ -252,6 +362,17 @@ scalar_t op_t::_eval_ite(
     throw std::runtime_error("eval_ite");
   }
   return _compare(c, lhs, rhs) ? if_t : if_f;
+}
+
+scalar_t op_t::_eval_convert(dtype_t dtype, scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64 || dtype == dtype_t::c64) {
+    throw std::runtime_error("not converting between complex");
+  }
+  if(inn.dtype == dtype) {
+    throw std::runtime_error("not allowing no ops");
+  }
+  return scalar_t::convert(inn, dtype);
 }
 
 optional<dtype_t> op_t::_type_add(dtype_t lhs, dtype_t rhs) {
@@ -298,6 +419,45 @@ optional<dtype_t> op_t::_type_ite(
   return if_true;
 }
 
+optional<dtype_t> op_t::_type_convert(dtype_t inn, dtype_t out) {
+  if(inn == dtype_t::c64 || out == dtype_t::c64) {
+    return std::nullopt;
+  }
+  if(inn == out) {
+    return std::nullopt;
+  }
+  return out;
+}
+
+optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
+  if(is_constant()) {
+    if(inns.size() != 0) { return std::nullopt; }
+    return get_constant().dtype;
+  } else if(is_hole()) {
+    if(inns.size() != 0) { return std::nullopt; }
+    return get_hole_dtype();
+  } else if(is_add()) {
+    if(inns.size() != 2) { return std::nullopt; }
+    return _type_add(inns[0], inns[1]);
+  } else if(is_mul()) {
+    if(inns.size() != 2) { return std::nullopt; }
+    return _type_mul(inns[0], inns[1]);
+  } else if(is_exp()) {
+    if(inns.size() != 1) { return std::nullopt; }
+    return _type_exp(inns[0]);
+  } else if(is_power()) {
+    if(inns.size() != 1) { return std::nullopt; }
+    return _type_power(inns[0]);
+  } else if(is_ite()) {
+    if(inns.size() != 4) { return std::nullopt; }
+    return _type_ite(inns[0], inns[1], inns[2], inns[3]);
+  } else if(is_convert()) {
+    return _type_convert(inns[0], get_convert());
+  } else {
+    throw std::runtime_error("type_of should not reach");
+  }
+}
+
 template<typename T>
 bool _compare_helper(compare_t c, T const& lhs, T const& rhs)
 {
@@ -335,6 +495,10 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 }
 
 node_t node_t::derivative(int arg) const {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no derivatives with respect to complex");
+  }
+
   if(op.is_constant()) {
     return node_t {
       .op = op_t::make_constant(scalar_t::zero(op.get_constant().dtype)),
@@ -487,15 +651,28 @@ node_t node_t::simplify_once() const {
   vector<node_t> new_children =
     vector_from_each_method(children, node_t, simplify);
 
+  {
+    node_t self {
+      .op = op,
+      .dtype = dtype,
+      .children = new_children
+    };
+
+    auto maybe_normalize_order = self.normalize_order();
+    if(maybe_normalize_order) {
+      return maybe_normalize_order.value();
+    }
+  }
+
   // Case: Add
   if(op.is_add()) {
     // Check for 0 + x or x + 0
     node_t& lhs = new_children[0];
     node_t& rhs = new_children[1];
-    if(lhs.op.is_constant() && lhs.op.get_constant() == 0.0) {
+    if(lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::zero(dtype)) {
       return rhs;
     }
-    if(rhs.op.is_constant() && rhs.op.get_constant() == 0.0) {
+    if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::zero(dtype)) {
       return lhs;
     }
   }
@@ -511,17 +688,17 @@ node_t node_t::simplify_once() const {
     node_t& lhs = new_children[0];
     node_t& rhs = new_children[1];
     if(
-      (lhs.op.is_constant() && lhs.op.get_constant() == 0.0) ||
-      (rhs.op.is_constant() && rhs.op.get_constant() == 0.0))
+      (lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::zero(dtype)) ||
+      (rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::zero(dtype)))
     {
       return parse_with_ss<node_t>("constant{0}");
     }
 
     // Check for 1*x or x*1
-    if(lhs.op.is_constant() && lhs.op.get_constant() == 1.0) {
+    if(lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::one(dtype)) {
       return rhs;
     }
-    if(rhs.op.is_constant() && rhs.op.get_constant() == 1.0) {
+    if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::one(dtype)) {
       return lhs;
     }
   }
@@ -567,6 +744,66 @@ node_t node_t::simplify_once() const {
   };
 }
 
+optional<node_t> node_t::normalize_order() const {
+  auto is_ordered = [](node_t const& lhs, node_t const& rhs) {
+    int l = lhs.max_hole();
+    int r = rhs.max_hole();
+    if(r < l) {
+      return false;
+    }
+    if(l == r && lhs != rhs) {
+      string sl = write_with_ss(l);
+      string sr = write_with_ss(r);
+      if(sr < sl) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  if(op.is_add() || op.is_mul()) {
+    node_t const& lhs = children[0];
+    node_t const& rhs = children[1];
+    if(!is_ordered(lhs, rhs)) {
+      return node_t {
+        .op = op,
+        .dtype = dtype,
+        .children = {rhs, lhs}
+      };
+    }
+
+    return std::nullopt;
+  }
+
+  if(op.is_ite()) {
+    bool fix_co = !is_ordered(children[0], children[1]);
+    bool fix_tt = !is_ordered(children[2], children[3]);
+    if(fix_co || fix_tt) {
+      vector<node_t> new_children = children;
+
+      op_t new_op = op;
+      if(fix_co) {
+        new_op = op_t::make_ite(compare_flip(op.get_ite_compare()));
+        std::swap(new_children[0], new_children[1]);
+      }
+
+      if(fix_tt) {
+        std::swap(new_children[2], new_children[3]);
+      }
+
+      return node_t {
+        .op = new_op,
+        .dtype = dtype,
+        .children = new_children
+      };
+    }
+
+    return std::nullopt;
+  }
+
+  return std::nullopt;
+}
+
 string node_t::to_cppstr(std::function<string(int)> w) const {
   if(op.is_constant()) {
     return write_with_ss(op.get_constant());
@@ -593,6 +830,17 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
     auto i3 = children[3].to_cppstr(w);
     auto c = write_with_ss(op.get_ite_compare());
     return "(" + i0 + c + i1 + "?" + i2 + ":" + i3 + ")";
+  } else if(op.is_convert()) {
+    auto inn = children[0].to_cppstr(w);
+    switch(op.get_convert()) {
+      case dtype_t::f16:
+        return "float16_t(" + inn + ")";
+      case dtype_t::f32:
+        return "float(" + inn + ")";
+      case dtype_t::f64:
+        return "double(" + inn + ")";
+      }
+      throw std::runtime_error("should not reach");
   } else {
     throw std::runtime_error("to_cppstr: should not reach");
   }
@@ -658,6 +906,17 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     auto i3 = children[3].to_cpp_bytes(bytes);
     auto c = write_with_ss(op.get_ite_compare());
     return "(" + i0 + c + i1 + "?" + i2 + ":" + i3 + ")";
+  } else if(op.is_convert()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    switch(op.get_convert()) {
+      case dtype_t::f16:
+        return "float16_t(" + inn + ")";
+      case dtype_t::f32:
+        return "float(" + inn + ")";
+      case dtype_t::f64:
+        return "double(" + inn + ")";
+      }
+      throw std::runtime_error("should not reach");
   } else {
     throw std::runtime_error("to_cpp_bytes: should not reach");
   }
@@ -725,6 +984,19 @@ void node_t::replace_at_holes(vector<node_t> const& replace_nodes)
 
 } // scalar_ns
 
+dtype_t& _default_dtype() {
+  static dtype_t d = dtype_t::f32;
+  return d;
+}
+
+dtype_t const& default_dtype() {
+  return _default_dtype();
+}
+
+void set_default_dtype(dtype_t new_dtype) {
+  _default_dtype() = new_dtype;
+}
+
 scalarop_t::scalarop_t() {}
 
 scalarop_t::scalarop_t(scalar_ns::node_t const& node)
@@ -771,46 +1043,23 @@ bool scalarop_t::is_binary() const {
 }
 
 bool scalarop_t::is_castable() const {
-  string self = write_with_ss(*this);
+  return is_add() || is_mul() || is_min() || is_max();
+}
 
-  // TODO: this is not correct anymore
-  vector<string> xs {
-    "*[hole@0,hole@1]",
-    "*[hole@1,hole@0]",
-    "+[hole@0,hole@1]",
-    "+[hole@1,hole@0]",
-    // A lot of ways to write min and max...
-    "ite_<[hole@0,hole@1,hole@0,hole@1]",
-    "ite_<=[hole@0,hole@1,hole@0,hole@1]",
-    "ite_>[hole@0,hole@1,hole@0,hole@1]",
-    "ite_>=[hole@0,hole@1,hole@0,hole@1]",
-    "ite_<[hole@0,hole@1,hole@1,hole@0]",
-    "ite_<=[hole@0,hole@1,hole@1,hole@0]",
-    "ite_>[hole@0,hole@1,hole@1,hole@0]",
-    "ite_>=[hole@0,hole@1,hole@1,hole@0]",
-    "ite_<[hole@1,hole@0,hole@0,hole@1]",
-    "ite_<=[hole@1,hole@0,hole@0,hole@1]",
-    "ite_>[hole@1,hole@0,hole@0,hole@1]",
-    "ite_>=[hole@1,hole@0,hole@0,hole@1]",
-    "ite_<[hole@1,hole@0,hole@1,hole@0]",
-    "ite_<=[hole@1,hole@0,hole@1,hole@0]",
-    "ite_>[hole@1,hole@0,hole@1,hole@0]",
-    "ite_>=[hole@1,hole@0,hole@1,hole@0]"
-  };
-
-  for(auto const& x: xs) {
-    if(self == x) {
-      return true;
-    }
-  }
-
-  return false;
+bool scalarop_t::is_add() const {
+  return *this == make_add(node.dtype);
 }
 
 bool scalarop_t::is_mul() const {
-  string self = write_with_ss(*this);
-  return self == "*[hole@0,hole@1]" ||
-         self == "*[hole@1,hole@0]"  ; // TODO: not correct anymore
+  return *this == make_mul(node.dtype);
+}
+
+bool scalarop_t::is_min() const {
+  return *this == make_min(node.dtype);
+}
+
+bool scalarop_t::is_max() const {
+  return *this == make_max(node.dtype);
 }
 
 bool scalarop_t::is_constant_of(scalar_t val) const {
@@ -874,70 +1123,82 @@ scalarop_t scalarop_t::from_string(string const& str) {
   return parse_with_ss<scalarop_t>(str);
 }
 
-// TODO: anywhere that says hole is incorrect
-
-scalarop_t scalarop_t::make_identity() {
-  return parse_with_ss<scalarop_t>("hole@0");
+scalarop_t scalarop_t::make_identity(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>(h0);
 }
 
 // x0 + x1
-scalarop_t scalarop_t::make_add() {
-  return parse_with_ss<scalarop_t>("+[hole@0,hole@1]");
+scalarop_t scalarop_t::make_add(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  return parse_with_ss<scalarop_t>("+["+h0+","+h1+"]");
 }
 // x0 * x1
-scalarop_t scalarop_t::make_mul() {
-  return parse_with_ss<scalarop_t>("*[hole@0,hole@1]");
+scalarop_t scalarop_t::make_mul(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  return parse_with_ss<scalarop_t>("*["+h0+","+h1+"]");
 }
 // x0 / x1
-scalarop_t scalarop_t::make_div() {
-  return parse_with_ss<scalarop_t>("*[hole@0,power{-1}[hole@1]]");
+scalarop_t scalarop_t::make_div(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  return parse_with_ss<scalarop_t>("*["+h0+",power{-1}["+h1+"]]");
 }
 // min(x0, x1)
-scalarop_t scalarop_t::make_min() {
-  return parse_with_ss<scalarop_t>("ite_<[hole@0,hole@1,hole@0,hole@1]");
+scalarop_t scalarop_t::make_min(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  return parse_with_ss<scalarop_t>("ite_<["+h0+","+h1+","+h0+","+h1+"]");
 }
 // max(x0, x1)
-scalarop_t scalarop_t::make_max() {
-  return parse_with_ss<scalarop_t>("ite_>[hole@0,hole@1,hole@0,hole@1]");
+scalarop_t scalarop_t::make_max(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  return parse_with_ss<scalarop_t>("ite_>["+h0+","+h1+","+h0+","+h1+"]");
 }
 // xn * val
-scalarop_t scalarop_t::make_scale_which(float val, int arg) {
-  string hole = "hole@" + write_with_ss(arg);
+scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
+  string hole = op_t::h_str(arg, val.dtype);
   string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalarop_t>("*[" + hole + "," + constant + "]");
 }
 // x0 * val
-scalarop_t scalarop_t::make_scale(float val) {
+scalarop_t scalarop_t::make_scale(scalar_t val) {
   return make_scale_which(val, 0);
 }
 // x0 - x1
-scalarop_t scalarop_t::make_sub() {
-  string negate = write_with_ss(make_scale_which(-1.0, 1));
-  string op = "+[hole@0," + negate + "]";
+scalarop_t scalarop_t::make_sub(dtype_t dtype) {
+  string negate = write_with_ss(make_scale_which(scalar_t::negative_one(dtype), 1));
+  string h0 = op_t::h_str(0, dtype);
+  string op = "+["+h0+"," + negate + "]";
   return parse_with_ss<scalarop_t>(op);
 }
 // x0 + val
-scalarop_t scalarop_t::make_increment(float val) {
+scalarop_t scalarop_t::make_increment(scalar_t val) {
   string constant = "constant{" + write_with_ss(val) + "}";
-  return parse_with_ss<scalarop_t>("+[hole@0," + constant + "]");
+  string h0 = op_t::h_str(0, val.dtype);
+  return parse_with_ss<scalarop_t>("+["+h0+"," + constant + "]");
 }
 
-scalarop_t scalarop_t::make_exp() {
-  return parse_with_ss<scalarop_t>("exp[hole@0]");
+scalarop_t scalarop_t::make_exp(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
-scalarop_t scalarop_t::make_relu() {
-  string arg0 = "hole@0";
-  string zero = "constant{0}";
+scalarop_t scalarop_t::make_relu(dtype_t dtype) {
+  string arg0 = op_t::h_str(0, dtype);
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
   string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
   return parse_with_ss<scalarop_t>(ite);
 }
 
-scalarop_t scalarop_t::make_relu_deriv() {
-  return make_relu().derivative(0);
+scalarop_t scalarop_t::make_relu_deriv(dtype_t dtype) {
+  return make_relu(dtype).derivative(0);
 }
 
-scalarop_t scalarop_t::make_from_castable(castable_t c) {
+scalarop_t scalarop_t::make_from_castable(castable_t c, dtype_t dtype) {
   if(c == castable_t::add) {
     return make_add();
   }  else if(c == castable_t::mul) {
@@ -1121,7 +1382,7 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
   if(op.is_constant()) {
     out << "constant{" << op.get_constant() << "}";
   } else if(op.is_hole()) {
-    out << "hole@" << op.get_which_input();
+    out << "hole|" << op.get_hole_dtype() << "@" << op.get_which_input();
   } else if(op.is_add()) {
     out << "+";
   } else if(op.is_mul()) {
@@ -1132,6 +1393,8 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "power{" << op.get_power() << "}";
   } else if(op.is_ite()) {
     out << "ite_" << op.get_ite_compare();
+  } else if(op.is_convert()) {
+    out << "to_" << op.get_convert();
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -1175,6 +1438,11 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
     compare_t c;
     inn >> c;
     op.op = scalar_ns::op_t::ite{ .compare = c };
+  } else if(c == 't') {
+    istream_expect(inn, "to_");
+    dtype_t d;
+    inn >> d;
+    op.op = scalar_ns::op_t::convert{ .dtype = d };
   } else {
     throw std::runtime_error("should not happen");
   }
@@ -1219,11 +1487,21 @@ std::istream& operator>>(std::istream& inn, node_t& node) {
       node.children.emplace_back();
       inn >> node.children.back();
     }
-    // TODO: set dtype here
-  } else {
-    // TODO: set dtype here
   }
   istream_expect(inn, "]");
+
+  vector<dtype_t> inn_dtypes;
+  inn_dtypes.reserve(node.children.size());
+  for(node_t const& child: node.children) {
+    inn_dtypes.push_back(child.dtype);
+  }
+
+  optional<dtype_t> maybe_dtype = node.op.type_of(inn_dtypes);
+  if(!maybe_dtype) {
+    throw std::runtime_error("type failure in node parse");
+  }
+  node.dtype = maybe_dtype.value();
+
   return inn;
 }
 
