@@ -502,6 +502,7 @@ node_t node_t::derivative(int arg) const {
   if(op.is_constant()) {
     return node_t {
       .op = op_t::make_constant(scalar_t::zero(op.get_constant().dtype)),
+      .dtype = dtype,
       .children = {}
     };
   }
@@ -510,11 +511,13 @@ node_t node_t::derivative(int arg) const {
     if(arg == op.get_which_input()) {
       return node_t {
         .op = op_t::make_constant(scalar_t::one(op.get_hole().dtype)),
+        .dtype = dtype,
         .children = {}
       };
     } else {
       return node_t {
         .op = op_t::make_constant(scalar_t::zero(op.get_hole().dtype)),
+        .dtype = dtype,
         .children = {}
       };
     }
@@ -529,6 +532,7 @@ node_t node_t::derivative(int arg) const {
 
     return node_t {
       .op = parse_with_ss<op_t>("+"),
+      .dtype = dtype,
       .children = {deri_lhs, deri_rhs}
     };
   }
@@ -691,7 +695,7 @@ node_t node_t::simplify_once() const {
       (lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::zero(dtype)) ||
       (rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::zero(dtype)))
     {
-      return parse_with_ss<node_t>("constant{0}");
+      return make_constant(scalar_t::zero(dtype));
     }
 
     // Check for 1*x or x*1
@@ -711,7 +715,7 @@ node_t node_t::simplify_once() const {
     // check for x^0 or x^1
     double i = op.get_power();
     if(i == 0.0) {
-      return parse_with_ss<node_t>("constant{1}");
+      return make_constant(scalar_t::one(dtype));
     }
     if(i == 1.0) {
       node_t& inn = new_children[0];
@@ -740,6 +744,7 @@ node_t node_t::simplify_once() const {
 
   return node_t {
     .op = op,
+    .dtype = dtype,
     .children = new_children
   };
 }
@@ -1213,6 +1218,10 @@ scalarop_t scalarop_t::make_from_castable(castable_t c, dtype_t dtype) {
 }
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    return false;
+  }
+
   switch(lhs.dtype) {
     case dtype_t::f16:
       return lhs.f16() == rhs.f16();
@@ -1473,6 +1482,13 @@ std::istream& operator>>(std::istream& inn, node_t& node) {
 
   int n = node.op.num_inputs();
   if(n == 0) {
+    if(node.op.is_constant()) {
+      node.dtype = node.op.get_constant().dtype;
+    } else if(node.op.is_hole()) {
+      node.dtype = node.op.get_hole_dtype();
+    } else {
+      throw std::runtime_error("parse node: invalid op with no inputs");
+    }
     return inn;
   }
 
