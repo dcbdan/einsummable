@@ -27,15 +27,16 @@
     } \
   }
 
-_binary_ew_loop(b0,((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]));
+_binary_ew_loop(b0,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]));
 _binary_ew_loop(b1,(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4))))));
 _binary_ew_loop(b2,(x0[i]+(x1[i]*(*((float*)(d+0))))));
 _binary_ew_loop(b3,(x0[i]+x1[i]));
-_binary_ew_loop(b4,std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4)))));
-_binary_ew_loop(b5,((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4)))))));
+_binary_ew_loop(b4,std::pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4)))));
+_binary_ew_loop(b5,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i]))));
 _binary_ew_loop(b6,(x0[i]*x1[i]));
+_binary_ew_loop(b7,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i]))));
 
-_unary_ew_loop(u0,(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i]));
+_unary_ew_loop(u0,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]));
 
 std::function<void(uint8_t const*, uint64_t, float*, float const*)>
 get_unary_kernel(string const& op_str)
@@ -44,7 +45,7 @@ get_unary_kernel(string const& op_str)
     void(uint8_t const*, uint64_t, float*, float const*)>;
 
   static map<string, kernel_t> kernels = {
-    {"(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i])",u0}
+    {"((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])",u0}
   };
 
   auto iter = kernels.find(op_str);
@@ -61,13 +62,14 @@ get_binary_kernel(string const& op_str)
     void(uint8_t const*, uint64_t, float*, float const*, float const*)>;
 
   static map<string, kernel_t> kernels = {
-    {"((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])",b0},
+    {"(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])",b0},
     {"(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4)))))",b1},
     {"(x0[i]+(x1[i]*(*((float*)(d+0)))))",b2},
     {"(x0[i]+x1[i])",b3},
-    {"std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4))))",b4},
-    {"((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4))))))",b5},
-    {"(x0[i]*x1[i])",b6}
+    {"std::pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", b4},
+    {"((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", b5},
+    {"(x0[i]*x1[i])",b6},
+    {"(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", b7}
   };
 
   auto iter = kernels.find(op_str);

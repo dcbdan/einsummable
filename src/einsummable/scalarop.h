@@ -202,6 +202,7 @@ struct scalarop_t {
 
   bool is_castable() const;
 
+  // Check if this is exactly equal to op[hole0, hole1]
   bool is_mul() const;
   bool is_max() const;
   bool is_min() const;
