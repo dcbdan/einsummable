@@ -134,16 +134,16 @@ build_einsummable(einsummable_t const& e_)
 
       return build_cutensor_reduction(
         inn_modes, inn_shape,
-        out_modes, out_shape);
+        out_modes, out_shape,e.castable.value());
     }
 
-    if(e.inns[0] == vector<int>{0,1} && e.out_rank == 1) {
+    //if(e.inns[0] == vector<int>{0,1} && e.out_rank == 1) {
       // call a canned ij->i kernel
-      return build_simple_reduction(
-        e.join_shape[0],
-        e.join_shape[1],
-        e.castable.value());
-    }
+    //  return build_simple_reduction(
+    //    e.join_shape[0],
+    //    e.join_shape[1],
+    //    e.castable.value());
+    //}
 
     throw std::runtime_error(err_msg);
   }
@@ -241,7 +241,7 @@ void build_contraction(
   HANDLE_ERROR( cutensorInitTensorDescriptor( handle,
               &descC,
               nmodeC,
-              extent_C,
+              extent_C.data(),
               NULL,/*stride*/
               typeC, CUTENSOR_OP_IDENTITY ) );
   
@@ -262,7 +262,7 @@ void build_contraction(
   // so we should probably use a C for both C and D
 
   HANDLE_ERROR( cutensorInitContractionDescriptor( handle,
-                &desc,
+                desc,
                 &descA, modeA.data(), alignmentRequirementA,
                 &descB, modeB.data(), alignmentRequirementB,
                 &descC, modeC.data(), alignmentRequirementC,
@@ -289,8 +289,8 @@ void execute_contraction(
               CUTENSOR_ALGO_DEFAULT) );
 
   size_t worksize = 0;
-  HANDLE_ERROR( cutensorContractionGetWorkspace(handle,
-              &desc,
+  HANDLE_ERROR( cutensorContractionGetWorkspaceSize(handle,
+              desc,
               &find,
               CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
   
@@ -308,7 +308,7 @@ void execute_contraction(
   cutensorContractionPlan_t plan;
   HANDLE_ERROR( cutensorInitContractionPlan(handle,
                                             &plan,
-                                            &desc,
+                                            desc,
                                             &find,
                                             worksize) );
   
@@ -339,23 +339,34 @@ build_cutensor_reduction(
   //std::vector<int32_t> modeA{'m','h','k','v'};
   //std::vector<int32_t> modeC{'m','v'};
 
-  std::vector<int32_t> modeA = inn_modes;
-  std::vector<int32_t> modeC = out_modes;
+  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+  std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
   int32_t nmodeA = modeA.size();
   int32_t nmodeC = modeC.size();
 
 
-  // extent = size of each dimension
-  vector<int64_t> extent_A = inn_shape;
-  vector<int64_t> extent_C = out_shape;
 
-  const cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
+  std::vector<int64_t> extent_A;
+  extent_A.reserve(inn_shape.size());  // Reserve space for the new vector
 
-  if(c == castable_t::mul) { 
+  for (const auto& element : inn_shape) {
+    extent_A.push_back(static_cast<int64_t>(element));
+  }
+
+  std::vector<int64_t> extent_C;
+  extent_C.reserve(out_shape.size());  // Reserve space for the new vector
+
+  for (const auto& element : out_shape) {
+    extent_C.push_back(static_cast<int64_t>(element));
+  }
+
+  cutensorOperator_t opReduce = CUTENSOR_OP_ADD;
+
+  if(castable == castable_t::mul) { 
     opReduce = CUTENSOR_OP_MUL;
-  } else if(c == castable_t::min) { 
+  } else if(castable == castable_t::min) { 
     opReduce = CUTENSOR_OP_MIN;
-  } else if(c == castable_t::max) { 
+  } else if(castable == castable_t::max) { 
     opReduce = CUTENSOR_OP_MAX;
   }
   
@@ -370,18 +381,18 @@ build_cutensor_reduction(
     cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
 
     cutensorTensorDescriptor_t descA;
-    HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+    HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                  &descA,
                  nmodeA,
-                 extentA.data(),
+                 extent_A.data(),
                  NULL /* stride */,
                  typeA, CUTENSOR_OP_IDENTITY));
 
     cutensorTensorDescriptor_t descC;
-    HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+    HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                  &descC,
                  nmodeC,
-                 extentC.data(),
+                 extent_C.data(),
                  NULL /* stride */,
                  typeC, CUTENSOR_OP_IDENTITY));
     
@@ -390,12 +401,12 @@ build_cutensor_reduction(
     
 
     //get the memory pointer
-    float* A_d = inns[0];
+    float const* A_d = inns[0];
     float* C_d = out;
  
     //Workspace
     uint64_t worksize = 0;
-    HANDLE_ERROR(cutensorReductionGetWorkspaceSize(&handle, 
+    HANDLE_ERROR(cutensorReductionGetWorkspaceSize(handle, 
                  A_d, &descA, modeA.data(),
                  C_d, &descC, modeC.data(),
                  C_d, &descC, modeC.data(),
@@ -414,7 +425,7 @@ build_cutensor_reduction(
 
 
     cutensorStatus_t err;
-    err = cutensorReduction(&handle, 
+    err = cutensorReduction(handle, 
                 NULL/*alpha*/, A_d,
                 &descA, modeA.data(),NULL/*beta*/,  
                 out,
@@ -425,29 +436,32 @@ build_cutensor_reduction(
   };
 }
 
-cutensor_kernel_t
-build_simple_reduction(
-  uint64_t ni, uint64_t nj,
-  castable_t castable)
-{
+
+//cutensor_kernel_t
+//build_simple_reduction(
+ // uint64_t ni, uint64_t nj,
+ // castable_t castable)
+//{
   // TODO
-  return [](cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
-    for(int i=0; i<ni;i++){
-      float num = 0;
-      for(int j=0; j<nj;j++){
-        if(c == castable_t::mul) { 
-          num*=inns[0][i*nj+j];
-        } else if(c == castable_t::min) { 
-          num = std::min(num, inns[0][i*nj+j]); 
-        } else if(c == castable_t::max) { 
-          num = std::max(num, inns[0][i*nj+j]);
-        }
-      }
-      out[i] = num;
-    }
+//  return [](cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
+//    for(int i=0; i<ni;i++){
+ //     float num = 0;
+ //     for(int j=0; j<nj;j++){
+ //       if(c == castable_t::mul) { 
+  //        num*=inns[0][i*nj+j];
+  //      } else if(c == castable_t::min) { 
+  //        num = std::min(num, inns[0][i*nj+j]); 
+  //      } else if(c == castable_t::max) { 
+  //        num = std::max(num, inns[0][i*nj+j]);
+  //      }
+  //    }
+  //    out[i] = num;
+  //  }
   
-  };
-}
+  //};
+//}
+
+
 
 cutensor_kernel_t
 build_cutensor_elementwise(cutensor_elementwise_op_t op)
@@ -472,21 +486,20 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
 
     floatTypeCompute alpha = (floatTypeCompute)unary.arg.scale;
 
-    return [modeA,nmodeA,extent_A,alpha]
+    return [modeA,nmodeA,extent_A,alpha,typeA,typeCompute]
     (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
       cutensorTensorDescriptor_t descA;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descA,
                   nmodeA,
-                  extentA.data(),
+                  extent_A.data(),
                   NULL /* stride */,
                   typeA, CUTENSOR_OP_IDENTITY));
 
 
-      cutensorPermutation(&handle,
+      cutensorPermutation(handle,
                 (void*)&alpha, inns[0], &descA, modeA.data(),
                 out, &descA, modeA.data(),
-                out, &descC, modeC.data(), 
                 typeCompute, stream);
     };
   }
@@ -509,24 +522,24 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
 
     floatTypeCompute alpha = (floatTypeCompute)binary.lhs.scale;
     floatTypeCompute gamma = (floatTypeCompute)binary.rhs.scale;
-    return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,alpha,gamma]
+    return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,alpha,gamma,typeA,typeC,typeCompute,binary]
     (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
       cutensorTensorDescriptor_t descA;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descA,
                   nmodeA,
-                  extentA.data(),
+                  extent_A.data(),
                   NULL /* stride */,
                   typeA, CUTENSOR_OP_IDENTITY));
 
       cutensorTensorDescriptor_t descC;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descC,
                   nmodeC,
-                  extentC.data(),
+                  extent_C.data(),
                   NULL /* stride */,
                   typeC, CUTENSOR_OP_IDENTITY));
-      cutensorElementwiseBinary(&handle,
+      cutensorElementwiseBinary(handle,
                 (void*)&alpha, inns[0], &descA, modeA.data(),
                 (void*)&gamma, inns[1], &descC, modeC.data(),
                 out, &descC, modeC.data(),
@@ -560,32 +573,32 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
     floatTypeCompute alpha = (floatTypeCompute)ternary.a0.scale;
     floatTypeCompute beta  = (floatTypeCompute)ternary.a1.scale;
     floatTypeCompute gamma = (floatTypeCompute)ternary.a2.scale;
-    return [modeA,modeB,modeC,nmodeA,nmodeB,nmodeC,extent_A,extent_B,extent_C,alpha,beta,gamma]
+    return [modeA,modeB,modeC,nmodeA,nmodeB,nmodeC,extent_A,extent_B,extent_C,alpha,beta,gamma,typeA,typeB,typeC,typeCompute,ternary]
     (cudaStream_t stream, cutensorHandle_t const* handle, float* out, vector<float const*> inns){
       cutensorTensorDescriptor_t descA;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descA,
                   nmodeA,
-                  extentA.data(),
+                  extent_A.data(),
                   NULL /* stride */,
                   typeA, CUTENSOR_OP_IDENTITY));
 
       cutensorTensorDescriptor_t descB;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descB,
                   nmodeB,
-                  extentB.data(),
+                  extent_B.data(),
                   NULL /* stride */,
                   typeB, CUTENSOR_OP_IDENTITY));
 
       cutensorTensorDescriptor_t descC;
-      HANDLE_ERROR(cutensorInitTensorDescriptor(&handle,
+      HANDLE_ERROR(cutensorInitTensorDescriptor(handle,
                   &descC,
                   nmodeC,
-                  extentC.data(),
+                  extent_C.data(),
                   NULL /* stride */,
                   typeC, CUTENSOR_OP_IDENTITY));
-      cutensorElementwiseTrinary(&handle,
+      cutensorElementwiseTrinary(handle,
                 (void*)&alpha, inns[0], &descA, modeA.data(),
                 (void*)&beta , inns[1], &descB, modeB.data(),
                 (void*)&gamma, inns[2], &descC, modeC.data(),
