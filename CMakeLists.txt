@@ -13,6 +13,10 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
+# TODO: make sure protocol buffers are built in the correct order
+#       with respect to other files. Sometimes make -j is required
+#       when make fails
+
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
 include_directories(${PROJECT_SOURCE_DIR}/thirdparty/half-2.2.0/include)
