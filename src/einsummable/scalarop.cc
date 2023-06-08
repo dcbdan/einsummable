@@ -705,6 +705,8 @@ node_t node_t::simplify_once() const {
     if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::one(dtype)) {
       return lhs;
     }
+
+    // TODO: convert for x*x -> x^2 ?
   }
 
   // Case: Exp

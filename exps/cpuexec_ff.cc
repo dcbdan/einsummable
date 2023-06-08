@@ -9,8 +9,10 @@
 
 #include "../src/autoplace/autoplace.h"
 
+#include <fstream>
+
 void usage() {
-  std::cout << "Usage: niter dn dp dd {dws}\n"
+  std::cout << "Usage: niter dn dp dd {dws} learning_rate\n"
             << "\n"
             << "Train a feedforward neural network to predict\n"
             << "a random dn x dp data matrix\n"
@@ -47,6 +49,12 @@ void ff(
   auto pls = single_loc_placements(graph);
   auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph, pls);
 
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("wrote tg.gv");
+  }
+
   //////////
   // REWRITE ALL IDS FROM MATRIX GRAPH TO TASKGRAPH
   x = inputs_g_to_t.at(m_to_g.at(x))(0,0);
@@ -82,6 +90,7 @@ void ff(
     buffer_y->random(-0.05, 0.05);
     buffers.insert({y, buffer_y});
   }
+
   // Set init weights
   for(int i = 0; i != ws.size(); ++i) {
     int const& w = ws[i];
@@ -118,14 +127,16 @@ int main(int argc, char** argv) {
   int niter;
   uint64_t dn, dp, dd;
   vector<uint64_t> dws;
+  float learning_rate;
   try {
     niter          = parse_with_ss<int>(     argv[1]);
     dn             = parse_with_ss<uint64_t>(argv[2]);
     dp             = parse_with_ss<uint64_t>(argv[3]);
     dd             = parse_with_ss<uint64_t>(argv[4]);
-    for(int i = 5; i != argc; ++i) {
+    for(int i = 5; i != argc-1; ++i) {
       dws.push_back( parse_with_ss<uint64_t>(argv[i]));
     }
+    learning_rate = parse_with_ss<float>(argv[argc-1]);
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -137,5 +148,5 @@ int main(int argc, char** argv) {
     throw std::runtime_error("This program is not distributed");
   }
 
-  ff(mpi, dn, dp, dd, dws, niter, 0.001);
+  ff(mpi, dn, dp, dd, dws, niter, learning_rate);
 }
