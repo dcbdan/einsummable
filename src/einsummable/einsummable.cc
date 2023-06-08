@@ -115,7 +115,15 @@ einsummable_t einsummable_t::merge_adjacent_dims() const {
     }
   }
 
-  int new_out_rank = std::get<0>(merges.at(out_rank));
+  int new_out_rank;
+  {
+    auto iter = merges.find(out_rank);
+    if(iter == merges.end()){
+      new_out_rank = new_join_shape.size();
+    } else {
+      new_out_rank = std::get<0>(merges.at(out_rank));
+    }
+  }
 
   vector<vector<int>> new_inns;
   for(auto const& inn: inns) {
