@@ -1119,7 +1119,8 @@ graph_writer_t::scale(
   string x(inn.shape.size(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
-  return ew(x + "->" + x, scalarop_t::make_scale(val), inn);
+  // TODO: will need to deal with dtypes
+  return ew(x + "->" + x, scalarop_t::make_scale(scalar_t(val)), inn);
 }
 
 int graph_writer_t::_insert_elementwise(

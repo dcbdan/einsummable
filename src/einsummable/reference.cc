@@ -442,7 +442,7 @@ void reference_einsummable_inplace(
 
   scalarop_t const& joinop = einsummable.join;
   auto eval = [&joinop](vector<float> const& xs){
-    return joinop.eval(xs);
+    return 1.0; // TODO joinop.eval(xs);
   };
 
   // do the initialization
