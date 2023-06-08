@@ -546,7 +546,7 @@ int matrixgraph_t::build_grad_term_ewb_arg(
 
   // TODO: can simplifications be made if constant of zero?
   if(deri_op.is_constant()) {
-    float val = deri_op.eval({});
+    float val = deri_op.eval({}).f32();
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 
@@ -617,7 +617,7 @@ int matrixgraph_t::build_grad_term_ew_inn(
 
   // TODO: can simplifications be made if constant of zero?
   if(deri_op.is_constant()) {
-    float val = deri_op.eval({});
+    float val = deri_op.eval({}).f32();
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 

@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <complex>
 #include <variant>
 #include <tuple>
 #include <set>
