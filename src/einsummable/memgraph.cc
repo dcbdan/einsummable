@@ -217,7 +217,7 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
-  for(auto const& inn: deps) {
+  for(auto const& inn: inns) {
     nodes[inn].outs.insert(ret);
   }
 
