@@ -106,7 +106,7 @@ einsummable_t einsummable_t::merge_adjacent_dims() const {
 
       uint64_t sz = 1;
       for(int i = r; i != r + n_adj; ++i) {
-        sz *= join_shape[r];
+        sz *= join_shape[i];
       }
 
       new_join_shape.push_back(sz);
