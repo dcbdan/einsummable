@@ -15,7 +15,7 @@ struct touchdim_t {
 struct touch_t {
   vector<touchdim_t> selection;
   optional<castable_t> castable;
-  dtype_t dtype; // TODO: make sure this is correctly set everywhere
+  dtype_t dtype;
 
   // Merge out dimensions that are fully copied.
   // So
@@ -52,6 +52,7 @@ struct taskgraph_t {
 
   int insert_input(
     int loc,
+    dtype_t dtype,
     vector<uint64_t> shape,
     bool is_save = false);
 
@@ -81,6 +82,7 @@ struct taskgraph_t {
 
   int new_partial(
     int loc,
+    dtype_t dtype,
     vector<uint64_t> write_shape,
     bool is_save = false);
 
@@ -98,6 +100,7 @@ struct taskgraph_t {
   // }}}
 
   uint64_t get_size_at(int id) const;
+  uint64_t get_nelem_at(int id) const;
 
   // find all partial inputs that can be consumed and
   // consume them
@@ -133,7 +136,8 @@ struct taskgraph_t {
 private:
   struct input_t {
     int loc;
-    uint64_t size;
+    dtype_t dtype;
+    uint64_t nelem;
   };
   struct apply_t {
     int loc;
@@ -144,7 +148,8 @@ private:
     int src;
     int dst;
     int inn;
-    uint64_t size;
+    dtype_t dtype;
+    uint64_t nelem;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -239,6 +244,7 @@ private:
     bool is_straight_copy() const;
 
     int loc;
+    dtype_t dtype;
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
   };
@@ -266,12 +272,15 @@ public:
 
     _op_t op;
 
-    uint64_t tensor_size() const;
+    int out_loc() const;
+
+    dtype_t out_dtype() const;
+
+    uint64_t out_size() const;
+
+    uint64_t out_nelem() const;
 
     set<int> inputs() const;
-
-    partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
-    partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
 
     bool is_input() const {
       return std::holds_alternative<input_t>(op);
@@ -292,21 +301,7 @@ public:
     bool is_no_op_partialize() const {
       return is_partialize() && get_partialize().is_straight_copy();
     }
-    int output_loc() const {
-      if(is_input()) {
-        return std::get<input_t>(op).loc;
-      }
-      if(is_apply()) {
-        return std::get<apply_t>(op).loc;
-      }
-      if(is_move()) {
-        return std::get<move_t>(op).dst;
-      }
-      if(is_partialize()) {
-        return std::get<partialize_t>(op).loc;
-      }
-      throw std::runtime_error("should not reach: output_loc");
-    }
+
     input_t const& get_input() const {
       return std::get<input_t>(op);
     }
@@ -316,8 +311,13 @@ public:
     move_t const& get_move() const {
       return std::get<move_t>(op);
     }
+
+    partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
+
+    partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+
     vector<vector<tuple<int, touch_t>>> get_touches() const {
-      return std::get<partialize_t>(op).as_touches_from();
+      return get_partialize().as_touches_from();
     }
   };
 
