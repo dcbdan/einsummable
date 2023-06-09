@@ -1,85 +1,286 @@
 #include "reference.h"
 #include "../base/hrect.h"
 
-buffer_t make_buffer(uint64_t size) {
-  return std::make_shared<buffer_holder_t>(size);
-}
-buffer_t make_buffer_reference(float* data, uint64_t size) {
-  return std::make_shared<buffer_holder_t>(data, size);
-}
+dbuffer_t::dbuffer_t()
+  : dtype(default_dtype()),
+    data(nullptr)
+{}
 
-void buffer_holder_t::random(float lower, float upper) {
-  std::uniform_real_distribution<float> dist(lower, upper);
-  auto gen = [&dist]{ return dist(random_gen()); };
-  std::generate(data, data+size, gen);
-}
-
-vector<float> buffer_holder_t::as_vector() const {
-  vector<float> ret;
-  ret.reserve(size);
-  std::copy(data, data + size, std::back_inserter(ret));
-  return ret;
-}
-
-bool operator==(buffer_t const& lhs, buffer_t const& rhs) {
-  return *lhs == *rhs;
-}
-bool operator!=(buffer_t const& lhs, buffer_t const& rhs) {
-  return !(lhs == rhs);
-}
-bool operator==(buffer_holder_t const& lhs, buffer_holder_t const& rhs) {
-  if(lhs.size != rhs.size) {
-    return false;
-  }
-  for(int i = 0; i != lhs.size; ++i) {
-    if(lhs.data[i] != rhs.data[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs) {
-  return !(lhs == rhs);
-}
-
-bool is_close(buffer_t const& lhs, buffer_t const& rhs, float eps) {
-  buffer_holder_t const& l = *lhs;
-  buffer_holder_t const& r = *rhs;
-  return is_close(l, r, eps);
-}
-bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps) {
-  if(lhs.size != rhs.size) {
-    return false;
-  }
-  for(int i = 0; i != lhs.size; ++i) {
-    if(!is_close(lhs.data[i], rhs.data[i], eps)) {
-      return false;
-    }
-  }
-  return true;
-}
-bool is_close(float lhs, float rhs, float eps) {
-  return (lhs <= rhs + eps) && (lhs >= rhs - eps);
-}
-bool is_close(
-  buffer_t const& lhs, uint64_t offset_lhs,
-  buffer_t const& rhs, uint64_t offset_rhs,
-  uint64_t size,
-  float eps)
+dbuffer_t::dbuffer_t(dtype_t d, buffer_t b)
+  : dtype(d), data(b)
 {
-  if(lhs->size < offset_lhs + size) {
+  if(data->size % dtype_size(dtype) != 0) {
+    throw std::runtime_error("invalid dbuffer data size");
+  }
+}
+
+void dbuffer_t::zeros() {
+  fill(scalar_t::zero(dtype));
+}
+
+void dbuffer_t::ones() {
+  scalar_t val;
+  if(dtype == dtype_t::c64) {
+    val = scalar_t(std::complex<float>(1.0, 1.0));
+  } else {
+    val = scalar_t::one(dtype);
+  }
+
+  fill(val);
+}
+
+void dbuffer_t::fill(scalar_t val) {
+  if(dtype == dtype_t::f16) {
+    auto ptr = f16();
+    std::fill(ptr, ptr + nelem(), val.f16());
+  } else if(dtype == dtype_t::f32) {
+    auto ptr = f32();
+    std::fill(ptr, ptr + nelem(), val.f32());
+  } else if(dtype == dtype_t::f64) {
+    auto ptr = f32();
+    std::fill(ptr, ptr + nelem(), val.f32());
+  } else if(dtype == dtype_t::c64) {
+    auto ptr = f32();
+    std::fill(ptr, ptr + nelem(), val.f32());
+  } else {
+    throw std::runtime_error("should not reach fill");
+  }
+}
+
+void dbuffer_t::iota(int start) {
+  if(dtype == dtype_t::f16) {
+    auto ptr = f16();
+    std::iota(ptr, ptr + nelem(), start*1.0);
+  } else if(dtype == dtype_t::f32) {
+    auto ptr = f32();
+    std::iota(ptr, ptr + nelem(), start*1.0);
+  } else if(dtype == dtype_t::f64) {
+    auto ptr = f32();
+    std::iota(ptr, ptr + nelem(), start*1.0);
+  } else if(dtype == dtype_t::c64) {
+    auto ptr = f32();
+    std::iota(ptr, ptr + nelem(), start*1.0);
+  } else {
+    throw std::runtime_error("should not reach fill");
+  }
+}
+
+void dbuffer_t::random() {
+  string b = "0.0";
+  string e = "1.0";
+  if(dtype == dtype_t::c64) {
+    view_c64_as_f32().random();
+  } else if(dtype == dtype_t::f16) {
+    random(
+      scalar_t(parse_with_ss<float16_t>(b)),
+      scalar_t(parse_with_ss<float16_t>(e)));
+  } else if(dtype == dtype_t::f32) {
+    random(
+      scalar_t(parse_with_ss<float>(b)),
+      scalar_t(parse_with_ss<float>(e)));
+  } else if(dtype == dtype_t::f64) {
+    random(
+      scalar_t(parse_with_ss<double>(b)),
+      scalar_t(parse_with_ss<double>(e)));
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+template <typename T>
+void _uniform_random_fill(
+  T lower,
+  T upper,
+  T* data,
+  uint64_t size)
+{
+  std::uniform_real_distribution<T> dist(lower, upper);
+  auto gen = [&dist]{ return dist(random_gen()); };
+  std::generate(data, data + size, gen);
+}
+
+template <>
+void _uniform_random_fill(
+  float16_t lower,
+  float16_t upper,
+  float16_t* data,
+  uint64_t size)
+{
+  std::uniform_real_distribution<float> dist(lower, upper);
+  auto gen = [&dist]{ return float16_t(dist(random_gen())); };
+  std::generate(data, data + size, gen);
+}
+
+void dbuffer_t::random(scalar_t lower, scalar_t upper) {
+  if(lower.dtype != dtype || upper.dtype != dtype || dtype == dtype_t::c64) {
+    throw std::runtime_error("msut be float dtype; scalars must be same");
+  }
+
+  if(dtype == dtype_t::f16) {
+    _uniform_random_fill(lower.f16(), upper.f16(), f16(), nelem());
+  } else if(dtype == dtype_t::f32) {
+    _uniform_random_fill(lower.f32(), upper.f32(), f32(), nelem());
+  } else if(dtype == dtype_t::f64) {
+    _uniform_random_fill(lower.f64(), upper.f64(), f64(), nelem());
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+dbuffer_t dbuffer_t::view_c64_as_f32() {
+  if(dtype != dtype_t::c64) {
+    throw std::runtime_error("expect c64");
+  }
+  return dbuffer_t(dtype_t::f32, data);
+}
+
+dbuffer_t dbuffer_t::view_f32_as_c64() {
+  if(dtype != dtype_t::f32) {
+    throw std::runtime_error("expect f32");
+  }
+  if(nelem() % 2 != 0) {
+    throw std::runtime_error("must have even number of elems");
+  }
+  return dbuffer_t(dtype_t::c64, data);
+}
+
+scalar_t dbuffer_t::sum() const {
+  if(dtype == dtype_t::f16) {
+    return scalar_t(
+      std::accumulate(f16(), f16() + nelem(), float16_t(0.0)));
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(
+      std::accumulate(f32(), f32() + nelem(), float(0.0)));
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(
+      std::accumulate(f64(), f64() + nelem(), double(0.0)));
+  } else if(dtype == dtype_t::c64) {
+    return scalar_t(
+      std::accumulate(c64(), c64() + nelem(), std::complex<float>(0.0, 0.0)));
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+uint64_t dbuffer_t::nelem() const {
+  if(data->size % dtype_size(dtype) != 0) {
+    throw std::runtime_error("incorrect size for dtype");
+  }
+  return data->size % dtype_size(dtype);
+}
+
+void dbuffer_t::set(uint64_t which_elem, scalar_t const& val) {
+  if(dtype != val.dtype) {
+    throw std::runtime_error("invalid dtype");
+  }
+  if(dtype == dtype_t::f16) {
+    f16()[which_elem] = val.f16();
+  } else if(dtype == dtype_t::f32) {
+    f32()[which_elem] = val.f32();
+  } else if(dtype == dtype_t::f64) {
+    f64()[which_elem] = val.f64();
+  } else if(dtype == dtype_t::c64) {
+    c64()[which_elem] = val.c64();
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+void dbuffer_t::agg_into(uint64_t which_elem, castable_t castable, scalar_t const& val) {
+  scalarop_t op = scalarop_t::make_from_castable(castable, dtype);
+  set(
+    which_elem,
+    op.eval({get(which_elem), val}));
+}
+
+scalar_t dbuffer_t::get(uint64_t which_elem) const {
+  if(dtype == dtype_t::f16) {
+    return scalar_t(f16()[which_elem]);
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(f32()[which_elem]);
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(f64()[which_elem]);
+  } else if(dtype == dtype_t::c64) {
+    return scalar_t(c64()[which_elem]);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+float16_t* dbuffer_t::f16() {
+  if(dtype != dtype_t::f16) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<float16_t*>(data->data);
+}
+float* dbuffer_t::f32() {
+  if(dtype != dtype_t::f32) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<float*>(data->data);
+}
+double* dbuffer_t::f64() {
+  if(dtype != dtype_t::f64) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<double*>(data->data);
+}
+std::complex<float>* dbuffer_t::c64() {
+  if(dtype != dtype_t::c64) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<std::complex<float>*>(data->data);
+}
+
+float16_t const* dbuffer_t::f16() const {
+  if(dtype != dtype_t::f16) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<float16_t*>(data->data);
+}
+float const* dbuffer_t::f32() const {
+  if(dtype != dtype_t::f32) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<float*>(data->data);
+}
+double const* dbuffer_t::f64() const {
+  if(dtype != dtype_t::f64) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<double*>(data->data);
+}
+std::complex<float> const* dbuffer_t::c64() const {
+  if(dtype != dtype_t::c64) { throw std::runtime_error("incroect dtype"); }
+  return reinterpret_cast<std::complex<float>*>(data->data);
+}
+
+dbuffer_t make_dbuffer(dtype_t dtype, uint64_t num_elems) {
+  return dbuffer_t(dtype, make_buffer(dtype_size(dtype) * num_elems));
+}
+
+bool is_close(dbuffer_t const& ll, dbuffer_t const& rr, float eps) {
+  if(ll.dtype != rr.dtype || ll.nelem() != rr.nelem()) {
     return false;
   }
-  if(rhs->size < offset_rhs + size) {
-    return false;
-  }
-  float* raw_lhs = lhs->data + offset_lhs;
-  float* raw_rhs = rhs->data + offset_rhs;
-  for(int i = 0; i != size; ++i) {
-    if(!is_close(raw_lhs[i], raw_rhs[i], eps)) {
-      return false;
+
+  uint64_t n = ll.nelem();
+  auto const& dtype = ll.dtype;
+  if(dtype == dtype_t::f16) {
+    auto lhs = ll.f16();
+    auto rhs = rr.f16();
+    for(int i = 0; i != n; ++i) {
+      if(!is_close(lhs[i], rhs[i], eps)){ return false; }
     }
+  } else if(dtype == dtype_t::f32) {
+    auto lhs = ll.f32();
+    auto rhs = rr.f32();
+    for(int i = 0; i != n; ++i) {
+      if(!is_close(lhs[i], rhs[i], eps)){ return false; }
+    }
+  } else if(dtype == dtype_t::f64) {
+    auto lhs = ll.f64();
+    auto rhs = rr.f64();
+    for(int i = 0; i != n; ++i) {
+      if(!is_close(lhs[i], rhs[i], eps)){ return false; }
+    }
+  } else if(dtype == dtype_t::c64) {
+    auto lhs = ll.c64();
+    auto rhs = rr.c64();
+    for(int i = 0; i != n; ++i) {
+      if(!is_close(lhs[i].real(), rhs[i].real(), eps)){ return false; }
+      if(!is_close(lhs[i].imag(), rhs[i].imag(), eps)){ return false; }
+    }
+  } else {
+    throw std::runtime_error("should not reach fill");
   }
+
   return true;
 }
 
@@ -366,34 +567,22 @@ buffer_t unpartition_buffer(
   return out_buffer;
 }
 
-std::function<void(float&, float)> einsummable_update(castable_t op)
-{
-  if(op == castable_t::add) {
-    return [](float& v, float a) {
-      v += a;
-    };
-  } else if(op == castable_t::mul) {
-    return [](float& v, float a) {
-      v *= a;
-    };
-  } else if(op == castable_t::min) {
-    return [](float& v, float a) {
-      v = std::min(v,a);
-    };
-  } else if(op == castable_t::max) {
-    return [](float& v, float a) {
-      v = std::max(v,a);
-    };
-  } else {
-    throw std::runtime_error("einsummable_update not implemented");
-  }
-}
-
 buffer_t reference_einsummable(
   einsummable_t const& einsummable,
   vector<buffer_t> const& inputs)
 {
-  buffer_t ret = make_buffer(product(einsummable.out_shape()));
+  buffer_t ret = make_buffer(einsummable.out_size());
+
+  reference_einsummable_inplace(einsummable, ret, inputs);
+
+  return ret;
+}
+
+dbuffer_t reference_einsummable(
+  einsummable_t const& einsummable,
+  vector<dbuffer_t> const& inputs)
+{
+  dbuffer_t ret = make_dbuffer(einsummable.out_dtype(), einsummable.out_nelem());
 
   reference_einsummable_inplace(einsummable, ret, inputs);
 
@@ -404,6 +593,22 @@ void reference_einsummable_inplace(
   einsummable_t const& einsummable,
   buffer_t& ret,
   vector<buffer_t> const& inputs)
+{
+  dbuffer_t dret(einsummable.out_dtype(), ret);
+
+  vector<dbuffer_t> inns;
+  inns.reserve(inputs.size());
+  for(int i = 0; i != inputs.size(); ++i) {
+    inns.emplace_back(einsummable.inn_dtype(i), inputs[i]);
+  }
+
+  reference_einsummable_inplace(einsummable, dret, inns);
+}
+
+void reference_einsummable_inplace(
+  einsummable_t const& einsummable,
+  dbuffer_t& ret,
+  vector<dbuffer_t> const& inputs)
 {
   auto const& join_shape = einsummable.join_shape;
   auto mid = join_shape.begin() + einsummable.out_rank;
@@ -420,36 +625,36 @@ void reference_einsummable_inplace(
     throw std::runtime_error("invalid input to reference einsummable");
   }
   for(int i = 0; i != inputs.size(); ++i) {
-    auto const& buffer = inputs[i];
+    auto const& dbuffer = inputs[i];
     auto const& shape  = inn_shapes[i];
-    if(buffer->size != product(shape)) {
-      throw std::runtime_error("incorrect input size to reference einsummable");
+    if(dbuffer.nelem() != product(shape)) {
+      throw std::runtime_error("incorrect number of elem to reference einsummable");
     }
   }
 
+  auto inn_dtypes = einsummable.inn_dtypes();
+
   auto get_inputs = [&](vector<uint64_t> const& join_index) {
-    vector<float> inns;
+    vector<scalar_t> inns;
     inns.reserve(inn_shapes.size());
-    for(int i = 0; i != inn_shapes.size(); ++i) {
-      auto const& buffer = inputs[i];
+    for(int i = 0; i != inputs.size(); ++i) {
+      dbuffer_t const& dbuffer = inputs[i];
       auto const& shape = inn_shapes[i];
       auto inn_index = einsummable.get_input_from_join(join_index, i);
       int which = indexer_utils<uint64_t>::idxs_to_index(shape, inn_index);
-      inns.push_back(buffer->data[which]);
+      inns.push_back(dbuffer.get(which));
     }
     return inns;
   };
 
-  scalarop_t const& joinop = einsummable.join;
-  auto eval = [&joinop](vector<float> const& xs){
-    return 1.0; // TODO joinop.eval(xs);
-  };
+  auto const& join_op = einsummable.join;
 
   // do the initialization
   do {
     auto join_index = vector_concatenate(out_index, agg_index);
     auto out_i = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
-    ret->data[out_i] = eval(get_inputs(join_index));
+    vector<scalar_t> inn_scalars = get_inputs(join_index);
+    ret.set(out_i, join_op.eval(inn_scalars));
   } while(indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 
   if(agg_shape.size() == 0) {
@@ -457,7 +662,7 @@ void reference_einsummable_inplace(
     return;
   }
 
-  auto update = einsummable_update(einsummable.castable.value());
+  castable_t const& castable = einsummable.castable.value();
 
   out_index = vector<uint64_t>(out_shape.size(), 0);
   do {
@@ -467,7 +672,8 @@ void reference_einsummable_inplace(
     // Then proceed.
     while(indexer_utils<uint64_t>::increment_idxs(agg_shape, agg_index)) {
       auto join_index = vector_concatenate(out_index, agg_index);
-      update(ret->data[out_i], eval(get_inputs(join_index)));
+      vector<scalar_t> inn_scalars = get_inputs(join_index);
+      ret.agg_into(out_i, castable, join_op.eval(inn_scalars));
     }
     agg_index = vector<uint64_t>(agg_shape.size(), 0);
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
@@ -477,6 +683,19 @@ buffer_t reference_concat(
   concat_t const& concat,
   vector<buffer_t> const& inns)
 {
+  vector<dbuffer_t> dinns;
+  dinns.reserve(inns.size());
+  for(int i = 0; i != inns.size(); ++i) {
+    dinns.emplace_back(concat.dtype, inns[i]);
+  }
+
+  return reference_concat(concat, dinns).data;
+}
+
+dbuffer_t reference_concat(
+  concat_t const& concat,
+  vector<dbuffer_t> const& inns)
+{
   if(inns.size() != concat.inn_shapes.size()) {
     throw std::runtime_error("incorrect number of inputs");
   }
@@ -485,13 +704,13 @@ buffer_t reference_concat(
 
   vector<uint64_t> offsets = concat.get_offsets();
 
-  buffer_t ret = make_buffer(product(out_shape));
+  dbuffer_t ret = make_dbuffer(concat.dtype, product(out_shape));
 
   for(int i = 0; i != inns.size(); ++i) {
-    buffer_t const& inn = inns[i];
+    dbuffer_t const& inn = inns[i];
     vector<uint64_t> const& inn_shape = concat.inn_shapes[i];
 
-    if(inn->size != product(inn_shape)) {
+    if(inn.nelem() != product(inn_shape)) {
       throw std::runtime_error("incorrectly sized input");
     }
 
@@ -499,36 +718,85 @@ buffer_t reference_concat(
 
     vector<tuple<uint64_t, uint64_t>> hrect = concat.get_hrect(i);
     auto out_index = vector_mapfst(hrect);
-   do {
+    do {
       vector<uint64_t> inn_index = out_index;
       inn_index[concat.dim] -= offset;
 
       auto out_idx = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
       auto inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
 
-      ret->data[out_idx] = inn->data[inn_idx];
+      ret.set(out_idx, inn.get(inn_idx));
     } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, out_index));
   }
 
   return ret;
 }
 
-std::function<void(float&, float const&)> reference_touch_update(
-  std::optional<castable_t> castable)
+template <typename T>
+std::function<void(T&, T const&)>
+reference_touch_update(optional<castable_t> const& c)
 {
-  if(castable) {
-    return einsummable_update(castable.value());
+  if(c) {
+    auto const& op = c.value();
+
+    if(op == castable_t::add) {
+      return [](T& v, T a) {
+        v += a;
+      };
+    } else if(op == castable_t::mul) {
+      return [](T& v, T a) {
+        v *= a;
+      };
+    } else if(op == castable_t::min) {
+      return [](T& v, T a) {
+        v = std::min(v,a);
+      };
+    } else if(op == castable_t::max) {
+      return [](T& v, T a) {
+        v = std::max(v,a);
+      };
+    } else {
+      throw std::runtime_error("ref touch update not implemented");
+    }
   } else {
-    return [](float& val, float const& inn) {
-      val = inn;
+    return [](T& out, T const& inn) {
+      out = inn;
     };
   }
 }
 
-void reference_touch(
+template <>
+std::function<void(std::complex<float>&, std::complex<float> const&)>
+reference_touch_update(optional<castable_t> const& c)
+{
+  using T = std::complex<float>;
+
+  if(c) {
+    auto const& op = c.value();
+
+    if(op == castable_t::add) {
+      return [](T& v, T a) {
+        v += a;
+      };
+    } else if(op == castable_t::mul) {
+      return [](T& v, T a) {
+        v *= a;
+      };
+    } else {
+      throw std::runtime_error("ref touch update complex not implemented");
+    }
+  } else {
+    return [](T& out, T const& inn) {
+      out = inn;
+    };
+  }
+}
+
+template <typename T>
+void _reference_touch(
   touch_t const& touch,
-  buffer_t& out,
-  buffer_t const& inn)
+  T* out,
+  T const* inn)
 {
   vector<uint64_t> shape = vector_from_each_member(
     touch.selection, uint64_t, size);
@@ -546,7 +814,7 @@ void reference_touch(
   vector<uint64_t> index_inn(shape.size());
   vector<uint64_t> index_out(shape.size());
 
-  auto update = reference_touch_update(touch.castable);
+  auto update = reference_touch_update<T>(touch.castable);
 
   do {
     index_inn = vector_add(index, offset_inn);
@@ -555,8 +823,39 @@ void reference_touch(
     index_out = vector_add(index, offset_out);
     int idx_out = indexer_utils<uint64_t>::idxs_to_index(shape_out, index_out);
 
-    update(out->data[idx_out], inn->data[idx_inn]);
+    update(out[idx_out], inn[idx_inn]);
   } while(indexer_utils<uint64_t>::increment_idxs(shape, index));
+}
+
+void reference_touch(
+  touch_t const& touch,
+  buffer_t out,
+  buffer_t const inn)
+{
+  reference_touch(
+    touch,
+    dbuffer_t(touch.dtype, out),
+    dbuffer_t(touch.dtype, inn));
+}
+
+void reference_touch(
+  touch_t const& touch,
+  dbuffer_t out,
+  dbuffer_t inn)
+{
+  auto const& dtype = touch.dtype;
+
+  if(dtype == dtype_t::f16) {
+    _reference_touch(touch, out.f16(), inn.f16());
+  } else if(dtype == dtype_t::f32) {
+    _reference_touch(touch, out.f32(), inn.f32());
+  } else if(dtype == dtype_t::f64) {
+    _reference_touch(touch, out.f64(), inn.f64());
+  } else if(dtype == dtype_t::c64) {
+    _reference_touch(touch, out.c64(), inn.c64());
+  } else {
+    throw std::runtime_error("should not reach fill");
+  }
 }
 
 tensor_t<buffer_t> get_partitioned_buffer(

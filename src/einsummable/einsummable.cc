@@ -410,6 +410,36 @@ vector<uint64_t> einsummable_t::out_shape() const {
     join_shape.begin() + out_rank);
 }
 
+vector<dtype_t> einsummable_t::inn_dtypes() const {
+  vector<dtype_t> ret;
+  ret.reserve(inns.size());
+  for(int i = 0; i != inns.size(); ++i) {
+    ret.push_back(inn_dtype(i));
+  }
+  return ret;
+}
+
+dtype_t einsummable_t::inn_dtype(int which_inn) const {
+  auto maybe_dtype = join.inn_dtype(which_inn);
+  if(!maybe_dtype) {
+    throw std::runtime_error(
+      "einsummable_t::inn_dtype: maybe arg not used?");
+  }
+  return maybe_dtype.value();
+}
+
+dtype_t einsummable_t::out_dtype() const {
+  return join.dtype();
+}
+
+uint64_t einsummable_t::out_size() const {
+  return out_nelem() * dtype_size(out_dtype());
+}
+
+uint64_t einsummable_t::out_nelem() const {
+  return product(out_shape());
+}
+
 vector<vector<uint64_t>> einsummable_t::inn_shapes() const {
   vector<vector<uint64_t>> ret(inns.size());
   for(int i = 0; i != inns.size(); ++i) {

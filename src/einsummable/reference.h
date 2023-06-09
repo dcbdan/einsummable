@@ -2,50 +2,56 @@
 #include "../base/setup.h"
 
 #include "../base/tensor.h"
+#include "../base/buffer.h"
+
 #include "graph.h"
 #include "taskgraph.h"
 #include "memgraph.h"
 
-#include <memory>
+struct dbuffer_t {
+  dbuffer_t();
+  dbuffer_t(dtype_t, buffer_t);
 
-struct buffer_holder_t {
-  buffer_holder_t(uint64_t size): size(size), own(true) { data = new float[size]; }
-  buffer_holder_t(float* data, uint64_t size): size(size), own(false), data(data) {}
-  ~buffer_holder_t() { if(own) { delete[] data; } }
+  void zeros();
+  void ones();
+  void fill(scalar_t val);
+  void iota(int start = 0);
+  void random();
+  void random(scalar_t lower, scalar_t upper);
 
-  void zeros() { fill(0.0); }
-  void ones()  { fill(1.0); }
-  void fill(float v) { std::fill(data, data + size, v); }
-  void iota(int start = 0) { std::iota(data, data + size, start); }
-  void random(float lower = 0.0, float upper = 1.0);
+  dbuffer_t view_c64_as_f32();
+  dbuffer_t view_f32_as_c64();
 
-  float sum() const { return std::accumulate(data, data + size, 0.0); }
+  scalar_t sum() const;
 
-  vector<float> as_vector() const;
+  uint64_t nelem() const;
 
-  uint64_t size;
-  bool own;
-  float* data;
+  void set(uint64_t which_elem, scalar_t const& val);
+  void agg_into(uint64_t which_elem, castable_t, scalar_t const& val);
+  scalar_t get(uint64_t which_elem) const;
+
+  float16_t          * f16();
+  float              * f32();
+  double             * f64();
+  std::complex<float>* c64();
+
+  float16_t           const* f16() const;
+  float               const* f32() const;
+  double              const* f64() const;
+  std::complex<float> const* c64() const;
+
+  dtype_t dtype;
+  buffer_t data;
 };
 
-using buffer_t = std::shared_ptr<buffer_holder_t>;
+dbuffer_t make_dbuffer(dtype_t, uint64_t num_elems);
 
-buffer_t make_buffer(uint64_t size);
-buffer_t make_buffer_reference(float* data, uint64_t size);
+template <typename T>
+bool is_close(T const& lhs, T const& rhs, float eps = 1e-3) {
+  return (lhs <= rhs + T(eps)) && (lhs >= rhs - T(eps));
+}
 
-bool operator==(buffer_t const& lhs, buffer_t const& rhs);
-bool operator!=(buffer_t const& lhs, buffer_t const& rhs);
-bool operator==(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
-bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
-
-bool is_close(buffer_t const& lhs, buffer_t const& rhs, float eps = 1e-3);
-bool is_close(buffer_holder_t const& lhs, buffer_holder_t const& rhs, float eps = 1e-3);
-bool is_close(float lhs, float rhs, float eps = 1e-3);
-bool is_close(
-  buffer_t const& lhs, uint64_t offset_lhs,
-  buffer_t const& rhs, uint64_t offset_rhs,
-  uint64_t size,
-  float eps = 1e-3);
+bool is_close(dbuffer_t const& lhs, dbuffer_t const& rhs, float eps = 1e-3);
 
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
@@ -70,20 +76,36 @@ buffer_t unpartition_buffer(
 buffer_t reference_einsummable(
   einsummable_t const& einsummable,
   vector<buffer_t> const& inputs);
+dbuffer_t reference_einsummable(
+  einsummable_t const& einsummable,
+  vector<dbuffer_t> const& inputs);
 
+// TODO
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
   buffer_t& out,
   vector<buffer_t> const& inputs);
+void reference_einsummable_inplace(
+  einsummable_t const& einsummable,
+  dbuffer_t& out,
+  vector<dbuffer_t> const& inputs);
 
+// TODO
 buffer_t reference_concat(
   concat_t const& concat,
   vector<buffer_t> const& inputs);
+dbuffer_t reference_concat(
+  concat_t const& concat,
+  vector<dbuffer_t> const& inputs);
 
 void reference_touch(
   touch_t const& touch,
-  buffer_t& out,
-  buffer_t const& inn);
+  buffer_t out,
+  buffer_t const inn);
+void reference_touch(
+  touch_t const& touch,
+  dbuffer_t out,
+  dbuffer_t const inn);
 
 tensor_t<buffer_t> get_partitioned_buffer(
   map<int, buffer_t> items,

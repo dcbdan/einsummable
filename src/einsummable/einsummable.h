@@ -66,7 +66,17 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
 
+  dtype_t out_dtype() const;
+
+  uint64_t out_size() const;
+
+  uint64_t out_nelem() const;
+
   vector<uint64_t> out_shape() const;
+
+  vector<dtype_t> inn_dtypes() const;
+
+  dtype_t inn_dtype(int which_inn) const;
 
   vector<vector<uint64_t>> inn_shapes() const;
 

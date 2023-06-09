@@ -9,6 +9,7 @@ struct concat_t {
 
   int const dim;
   vector<vector<uint64_t>> const inn_shapes;
+  dtype_t dtype; // TODO make sure this is properly set
 
   int num_inns() const { return inn_shapes.size(); }
 
