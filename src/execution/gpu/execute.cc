@@ -1,4 +1,5 @@
 #include "execute.h"
+#include "kernels.h"
 #include <cstdlib>
 #include <driver_types.h>
 #include <iostream>
@@ -29,7 +30,7 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
     for (auto out: memgraph.nodes[node_idx].outs){
         dependency_count[out] -= 1;
         // print the node that got decremented
-        printf("Node %d has dependencies decreased\n", out);
+        // printf("Node %d has dependencies decreased\n", out);
         if (dependency_count[out] == 0){
             ready_nodes.push_back(out);
         }
@@ -59,7 +60,6 @@ bool is_complete(std::map<int, int> &dependency_count) {
     auto idx = 0;
     for (auto it = dependency_count.begin(); it != dependency_count.end(); it++){
         if (it->second != 0){
-            std::cout << "Node " << idx << " has " << it->second << " dependencies" << std::endl;
             return false;
         }
         idx++;
@@ -68,11 +68,21 @@ bool is_complete(std::map<int, int> &dependency_count) {
 }
 
 // calling cuda malloc to allocate memory for a given size
-void* cuda_malloc(size_t size) {
+float* gpu_allocate_memory(size_t size) {
   void* ret;
   if(cudaMalloc(&ret, size) != cudaSuccess) {
     throw std::runtime_error("cuda_malloc");
   }
+  return (float*)ret;
+}
+
+// helper function to get the input memory pointers from a vector of mem_t
+// input memory pointers are mem[1: n]
+std::vector<float const*> get_input_mem_ptrs(std::vector<mem_t> mem, float *memory_base_ptr) {
+  std::vector<float const*> ret;
+    for (int i = 1; i < mem.size(); i++) {
+        ret.push_back(memory_base_ptr + mem[i].offset);
+    }
   return ret;
 }
 
@@ -120,7 +130,7 @@ void gpu_execute_state_t::run() {
             });
         }
         // execute things that are in the apply_queue until the queue is empty
-        while (pending_queue.size() != 0){
+        while (pending_queue.size() != 0) {
             // get the first element in the queue
             auto node_idx = pending_queue.front();
             auto node = memgraph.nodes[node_idx];
@@ -128,7 +138,7 @@ void gpu_execute_state_t::run() {
             pending_queue.pop();
             // execute the node
             // TODO: get the mapping from the node id to the cutensor plan
-            if (node.op.is_input() || node.op.is_del()){
+            if (node.op.is_input() || node.op.is_del()) {
                 // do nothing but add the node to the finished queue
                 auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
                 add_to_queue(pending_queue, new_nodes);
@@ -139,6 +149,38 @@ void gpu_execute_state_t::run() {
 
                 // we run the dummy kernel with the stream
                 dummy_dispatch(nullptr, nullptr, stream);
+
+                auto memory_vector = node.op.get_apply().mems;
+
+                if (node.op.is_touch()) {
+                    // CASE: TOUCH
+                    auto touch_kernel = build_touch(node.op.get_touch());
+                    // TODO: Does touch only have one input memory?
+                    touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
+                }
+                else {
+                    auto my_einsummable = node.op.get_einsummable();
+                    if (my_einsummable.is_contraction()){
+                        // CASE: CONTRACTION
+                        // merge the adjacent dims
+                        einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
+                        // print an error if we didn't find my_einsum_merged in the map
+                        auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
+                        if (einsum_iter == einsum_to_contraction.end()){
+                            std::cout << "Error: contraction descriptor found in the map, Node idx: "<< node_idx << std::endl;
+                        }
+                        auto contraction_descriptor = einsum_iter->second;
+                        execute_contraction(stream, handle, &contraction_descriptor, memory_base_ptr + memory_vector[0].offset,
+                            memory_base_ptr + memory_vector[1].offset, memory_base_ptr + memory_vector[2].offset);
+                    }
+                    else {
+                        // CASE: OTHER EINSUMMABLE
+                        auto cutensor_kernel = build_einsummable(my_einsummable);
+                        cutensor_kernel(stream, handle, memory_base_ptr + memory_vector[0].offset, 
+                            get_input_mem_ptrs(memory_vector, memory_base_ptr));
+                    }
+                }
+
 
                 // after execution, we attach the stream with a callback function
                 // get all the metadata needed for the callback
@@ -161,7 +203,7 @@ void gpu_execute_state_t::run() {
                     },
                     static_cast<void*>(data),
                     0
-                    );
+                );
             }
             else{
                 // print a message saying that the operation is not supported and this operation's type
@@ -186,7 +228,7 @@ void gpu_execute_state_t::run() {
             }
             else{
                 std::cout << "All nodes finished execution." << std::endl;
-                exit(1);
+                exit(0);
             }
             exit(0);
         }

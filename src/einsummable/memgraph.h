@@ -1,7 +1,9 @@
 #pragma once
 #include "../base/setup.h"
 
+#include "einsummable.h"
 #include "taskgraph.h"
+#include <variant>
 
 struct memloc_t;
 
@@ -198,6 +200,18 @@ public:
     load_t       const& get_load()       const { return std::get<load_t>(op);       }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
     del_t        const& get_del()        const { return std::get<del_t>(op);        }
+
+    // check and get einsummable
+    bool is_einsummable() const { return is_apply() && std::holds_alternative<einsummable_t>(get_apply().op); }
+    bool is_touch()       const { return is_apply() && std::holds_alternative<touch_t>(get_apply().op); }
+    einsummable_t get_einsummable() const { 
+      if (!is_einsummable()) throw std::runtime_error("trying to get einsummable for an non-einsummable op");
+      return std::get<einsummable_t>(get_apply().op); 
+    }
+    touch_t get_touch() const { 
+      if (!is_touch()) throw std::runtime_error("trying to get touch for an non-touch op");
+      return std::get<touch_t>(get_apply().op); 
+    }
 
     // get all the memlocs touched by
     // this operation
