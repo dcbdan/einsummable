@@ -55,10 +55,10 @@ void dbuffer_t::iota(int start) {
     auto ptr = f32();
     std::iota(ptr, ptr + nelem(), start*1.0);
   } else if(dtype == dtype_t::f64) {
-    auto ptr = f32();
+    auto ptr = f64();
     std::iota(ptr, ptr + nelem(), start*1.0);
   } else if(dtype == dtype_t::c64) {
-    auto ptr = f32();
+    auto ptr = c64();
     std::iota(ptr, ptr + nelem(), start*1.0);
   } else {
     throw std::runtime_error("should not reach fill");
@@ -166,7 +166,7 @@ uint64_t dbuffer_t::nelem() const {
   if(data->size % dtype_size(dtype) != 0) {
     throw std::runtime_error("incorrect size for dtype");
   }
-  return data->size % dtype_size(dtype);
+  return data->size / dtype_size(dtype);
 }
 
 void dbuffer_t::set(uint64_t which_elem, scalar_t const& val) {
@@ -591,7 +591,7 @@ dbuffer_t reference_einsummable(
 
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
-  buffer_t& ret,
+  buffer_t ret,
   vector<buffer_t> const& inputs)
 {
   dbuffer_t dret(einsummable.out_dtype(), ret);
@@ -607,7 +607,7 @@ void reference_einsummable_inplace(
 
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
-  dbuffer_t& ret,
+  dbuffer_t ret,
   vector<dbuffer_t> const& inputs)
 {
   auto const& join_shape = einsummable.join_shape;
@@ -897,14 +897,31 @@ void fill_buffer_map(
   }
 }
 
-std::ostream& operator<<(std::ostream& out, buffer_t const& buffer)
-{
-  out << "buffer[" << buffer->size << "]{";
-  if(buffer->size > 0) {
-    out << buffer->data[0];
-    for(uint64_t i = 1; i != buffer->size; ++i) {
-      out << "," << buffer->data[i];
+template <typename T>
+void _print_elems(std::ostream& out, T const* v, int n) {
+  if(n > 0) {
+    out << v[0];
+    for(int i = 1; i != n; ++i) {
+      out << "," << v[i];
     }
+  }
+}
+
+std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer)
+{
+  auto const& dtype = dbuffer.dtype;
+  uint64_t n = dbuffer.nelem();
+  out << "dbuffer[" << dtype << "|" << n << "]{";
+  if(dtype == dtype_t::f16) {
+    _print_elems(out, dbuffer.f16(), n);
+  } else if(dtype == dtype_t::f32) {
+    _print_elems(out, dbuffer.f32(), n);
+  } else if(dtype == dtype_t::f64) {
+    _print_elems(out, dbuffer.f64(), n);
+  } else if(dtype == dtype_t::c64) {
+    _print_elems(out, dbuffer.c64(), n);
+  } else {
+    throw std::runtime_error("should not reach");
   }
   out << "}";
   return out;
