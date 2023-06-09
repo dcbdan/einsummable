@@ -138,4 +138,7 @@ if(${GPU_EXECUTION_ENGINE})
   # call add_gpu_application here
   add_gpu_application("gpuexec_touch"  "exps" "gpuexec_touch")
   #add_gpu_application("cutensorexp"  "exps" "cutensorexp")
+  add_gpu_application("test_alignment"  "exps" "test_alignment")
+  add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
+  
 endif()

@@ -191,12 +191,12 @@ void build_contraction(
   }
 
   // TODO
-  auto nmodeA = e.inns[0].size();
-  auto nmodeB = e.inns[1].size();
+  int nmodeA = e.inns[0].size();
+  int nmodeB = e.inns[1].size();
 
   //***************************
   //dimension of C 
-  auto nmodeC = e.out_rank;
+  int nmodeC = e.out_rank;
 
   // CUDA types
   cudaDataType_t typeA = CUDA_R_32F;
@@ -244,22 +244,25 @@ void build_contraction(
               extent_C.data(),
               NULL,/*stride*/
               typeC, CUTENSOR_OP_IDENTITY ) );
+
+  //printf("Initialize cuTENSOR and tensor descriptors\n");
   
   //******************************************
   // get the memory pointers to the tensors
   
 
-  uint32_t alignmentRequirementA = 0;
+  uint32_t alignmentRequirementA = 16;
 
-  uint32_t alignmentRequirementB = 0;
+  uint32_t alignmentRequirementB = 16;
   
-  uint32_t alignmentRequirementC = 0;
+  uint32_t alignmentRequirementC = 16;
   
 
 
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
+
 
   HANDLE_ERROR( cutensorInitContractionDescriptor( handle,
                 desc,
@@ -269,6 +272,8 @@ void build_contraction(
                 &descC, modeC.data(), alignmentRequirementC,
                 typeCompute) );
 
+
+  printf("Initialize contraction descriptor\n");
 
 }
 
@@ -281,6 +286,9 @@ void execute_contraction(
   float const* rhs)
 {
   // TODO
+  typedef float floatTypeCompute;
+  floatTypeCompute alpha = (floatTypeCompute)1.0f;
+  floatTypeCompute beta  = (floatTypeCompute)1.0f;
 
   // Set the algorithm to use
   cutensorContractionFind_t find;
@@ -311,16 +319,28 @@ void execute_contraction(
                                             desc,
                                             &find,
                                             worksize) );
+
+  printf("Create plan for contraction\n");
   
   cutensorStatus_t err;
 
+  void* A_d = (void*)lhs;
+  void* B_d = (void*)rhs;
+  void* C_d = (void*)out;
 
-  err = cutensorContraction(handle, &plan, NULL, lhs,
-                            rhs, NULL, out, out,
+  err = cutensorContraction(handle, &plan, (void*)&alpha, A_d,
+                            B_d, (void*)&beta, C_d, C_d,
                             work, worksize, stream);
 
   cudaDeviceSynchronize();
 
+  // Check for errors
+  if(err != CUTENSOR_STATUS_SUCCESS)
+  {
+      printf("ERROR: %s\n", cutensorGetErrorString(err));
+  }
+
+  printf("Execute contraction from plan\n");
   
 }
 
