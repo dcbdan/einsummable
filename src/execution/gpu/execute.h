@@ -109,7 +109,7 @@ struct gpu_execute_state_t
                         // create a cutensor descriptor
                         cutensorContractionDescriptor_t desc;
                         // when building the contraction we already merge the adjacent dims so we don't need to do it here
-                        build_contraction(&desc, my_einsum_merged);
+                        build_contraction(&desc, handle, my_einsum_merged);
                         // add the contraction to the map
                         einsum_to_contraction[my_einsum_merged] = desc;
                     }

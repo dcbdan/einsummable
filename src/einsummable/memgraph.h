@@ -34,6 +34,8 @@ struct allocator_settings_t {
   uint8_t alignment; // 2^alignment
 
   static allocator_settings_t default_settings();
+
+  static allocator_settings_t gpu_alignment_settings();
 };
 
 struct memgraph_t {
@@ -63,7 +65,8 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<int> const& which_cache,
     vector<uint64_t> mem_sizes = {},
-    allocator_settings_t settings = allocator_settings_t::default_settings());
+    // NOTE: this got changed to satisfy the GPU alignment
+    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
 
   void print_graphviz(std::ostream& out) const;
 
@@ -211,8 +214,7 @@ public:
       return std::get<touch_t>(get_apply().op); 
     }
 
-    // get all the memlocs touched by
-    // this operation
+    // get all the memlocs touched by this operation
     vector<memloc_t> get_memlocs() const;
 
     memloc_t get_output_memloc() const;

@@ -23,6 +23,14 @@ allocator_settings_t allocator_settings_t::default_settings()
   };
 }
 
+allocator_settings_t allocator_settings_t::gpu_alignment_settings()
+{
+  return allocator_settings_t {
+    .strat = allocator_strat_t::lowest_dependency,
+    .alignment = 4
+  };
+}
+
 memgraph_t::memgraph_t(
   int nl, int nc, vector<int> const& cs)
   : num_compute_locs(nl), num_cache_locs(nc), cache_locs(cs)
