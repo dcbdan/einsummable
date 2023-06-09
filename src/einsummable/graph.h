@@ -5,11 +5,11 @@
 #include "einsummable.h"
 
 struct concat_t {
-  concat_t(int dim, vector<vector<uint64_t>> const& input_shapes);
+  concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
 
   int const dim;
+  dtype_t dtype;
   vector<vector<uint64_t>> const inn_shapes;
-  dtype_t dtype; // TODO make sure this is properly set
 
   int num_inns() const { return inn_shapes.size(); }
 
@@ -26,7 +26,8 @@ struct graph_t {
   // Methods to construct a graph object
   // {{{
   int insert_input(
-    vector<uint64_t> shape);
+    vector<uint64_t> shape,
+    dtype_t dtype = default_dtype());
 
   int insert_einsummable(
     einsummable_t e,
@@ -76,6 +77,8 @@ struct graph_t {
 
   vector<uint64_t> out_shape(int id) const;
 
+  dtype_t out_dtype(int id) const;
+
   vector<int> get_order() const;
 
   void print() const;
@@ -85,10 +88,12 @@ struct graph_t {
 public:
 
   struct input_t {
+    dtype_t dtype;
     vector<uint64_t> shape;
   };
 
   struct formation_t {
+    dtype_t dtype;
     vector<uint64_t> shape;
     bool is_save; // if this is false, it is a temporary
   };
@@ -110,6 +115,8 @@ public:
 
     int out_rank() const { return this->out_shape().size(); }
     int rank() const { return this->shape().size(); }
+
+    dtype_t out_dtype() const;
 
     bool is_save() const {
       return is_formation() && get_formation().is_save;
@@ -166,11 +173,14 @@ private:
 
 struct graph_constructor_t {
   int insert_input(
-    placement_t placement);
+    placement_t placement,
+    dtype_t dtype = default_dtype());
   int insert_input(
-    partition_t partition);
+    partition_t partition,
+    dtype_t dtype = default_dtype());
   int insert_input(
-    vector<uint64_t> shape);
+    vector<uint64_t> shape,
+    dtype_t dtype = default_dtype());
 
   int insert_einsummable(
     placement_t placement,
@@ -256,6 +266,7 @@ struct graph_writer_t {
     vector<uint64_t> const& get_shape() const { return shape; }
     void save();
     int get_id() const { return id; }
+    dtype_t get_dtype() const;
 
     tensor_t& operator=(tensor_t const&);
   private:
@@ -308,7 +319,8 @@ struct graph_writer_t {
   // the core ops
 
   tensor_t input(
-    vector<uint64_t> shape);
+    vector<uint64_t> shape,
+    dtype_t dtype = default_dtype());
 
   tensor_t contraction(
     string str,
