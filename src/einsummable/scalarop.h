@@ -9,6 +9,8 @@ compare_t compare_flip(compare_t);
 
 enum class dtype_t { f16, f32, f64, c64 };
 
+uint64_t dtype_size(dtype_t);
+
 struct scalar_t {
   scalar_t();
   explicit scalar_t(float16_t);
@@ -29,13 +31,16 @@ struct scalar_t {
 
   static scalar_t convert(scalar_t const&, dtype_t);
 
-  // not valid for complex
   static scalar_t zero(dtype_t);
+
+  // not valid for complex
   static scalar_t one(dtype_t);
   static scalar_t negative_one(dtype_t);
   // (Only a very narrow subset of
   //  complex ops are supported, and preventing
-  //  these from returning complex makes that easier.)
+  //  these from returning complex makes that easier.
+  //  Also, sometimes you want 1 + 1i and sometimes
+  //  you want 1 + 0i...
 
   dtype_t dtype;
   uint8_t data[8];
@@ -159,8 +164,14 @@ struct node_t {
   void remap_holes(map<int, int> const& fmap);
 
   void replace_at_holes(vector<node_t> const& replace_ops);
+
+  // get the arg types of all holes; if the same arg hole
+  // appears with different dtype, throw an error
+  map<int, dtype_t> hole_types() const;
 private:
   node_t simplify_once() const;
+
+  void _hole_types(map<int, dtype_t>&) const;
 
   // make transformations like (hole1 + hole0) -> (hole0 + hole1)
   // at the top level node
@@ -187,6 +198,10 @@ struct scalarop_t {
   scalarop_t derivative(int arg) const;
 
   scalarop_t simplify() const;
+
+  dtype_t dtype() const { return node.dtype; }
+
+  optional<dtype_t> inn_dtype(int arg) const;
 
   void remap_inputs(map<int, int> const& remap);
 
@@ -261,6 +276,7 @@ struct scalarop_t {
     std::ostream& out, scalarop_t const& op);
 private:
   node_t node;
+  map<int, dtype_t> arg_types;
 };
 
 std::ostream& operator<<(std::ostream& out, dtype_t const& c);

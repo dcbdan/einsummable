@@ -24,6 +24,20 @@ compare_t compare_flip(compare_t c) {
   throw std::runtime_error("compare_flip: should not reach");
 }
 
+uint64_t dtype_size(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return 16;
+    case dtype_t::f32:
+      return 32;
+    case dtype_t::f64:
+      return 64;
+    case dtype_t::c64:
+      return 64;
+  }
+  throw std::runtime_error("should not reach");
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
@@ -63,10 +77,6 @@ void scalar_t::_copy_to_data(uint8_t const* other, int n) {
 }
 
 scalar_t scalar_t::zero(dtype_t dtype) {
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("no zero provided for c64");
-  }
-
   switch(dtype) {
     case dtype_t::f16:
       return scalar_t(float16_t(0.0));
@@ -74,6 +84,8 @@ scalar_t scalar_t::zero(dtype_t dtype) {
       return scalar_t(float(0.0));
     case dtype_t::f64:
       return scalar_t(double(0.0));
+    case dtype_t::c64:
+      return scalar_t(std::complex<float>(0.0, 0.0));
   }
   throw std::runtime_error("should not reach");
 }
@@ -989,6 +1001,32 @@ void node_t::replace_at_holes(vector<node_t> const& replace_nodes)
   }
 }
 
+map<int, dtype_t> node_t::hole_types() const {
+  map<int, dtype_t> ret;
+  _hole_types(ret);
+  return ret;
+}
+
+void node_t::_hole_types(map<int, dtype_t>& ret) const {
+  if(op.is_hole()) {
+    auto hole = op.get_hole();
+    auto iter = ret.find(hole.arg);
+    if(iter == ret.end()) {
+      ret.insert({hole.arg, hole.dtype});
+    } else {
+      if(hole.dtype != iter->second) {
+        throw std::runtime_error(
+          "This node_t has same arg holes with different "
+          "dtypes");
+      }
+    }
+  } else {
+    for(auto const& child: children) {
+      child._hole_types(ret);
+    }
+  }
+}
+
 } // scalar_ns
 
 dtype_t& _default_dtype() {
@@ -1007,7 +1045,7 @@ void set_default_dtype(dtype_t new_dtype) {
 scalarop_t::scalarop_t() {}
 
 scalarop_t::scalarop_t(scalar_ns::node_t const& node)
-  : node(node.simplify())
+  : node(node.simplify()), arg_types(node.hole_types())
 {}
 
 scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
@@ -1020,6 +1058,15 @@ scalarop_t scalarop_t::derivative(int arg) const {
 
 scalarop_t scalarop_t::simplify() const {
   return scalarop_t(node.simplify());
+}
+
+optional<dtype_t> scalarop_t::inn_dtype(int arg) const {
+  auto iter = arg_types.find(arg);
+  if(iter == arg_types.end()) {
+    return std::nullopt;
+  } else {
+    return iter->second;
+  }
 }
 
 void scalarop_t::remap_inputs(map<int, int> const& remap) {

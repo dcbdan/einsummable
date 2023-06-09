@@ -15,6 +15,7 @@ struct touchdim_t {
 struct touch_t {
   vector<touchdim_t> selection;
   optional<castable_t> castable;
+  dtype_t dtype; // TODO: make sure this is correctly set everywhere
 
   // Merge out dimensions that are fully copied.
   // So
