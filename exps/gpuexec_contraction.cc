@@ -11,6 +11,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define HANDLE_ERROR(x)                                               \
+{ const auto err = x;                                                 \
+  if( err != CUTENSOR_STATUS_SUCCESS )                                \
+  { printf("Error: %s\n", cutensorGetErrorString(err));  } \
+};
 
 bool checkArrays3D(float* arr1, float* arr2, int totalSize) {
     for (int i = 0; i < totalSize; ++i) {
@@ -187,7 +192,7 @@ int main(){
 
     //printf("Define modes and extents\n");
 
-    
+
 
     // Allocate on device
     void *A_d, *B_d, *C_d;
@@ -369,7 +374,7 @@ int main(){
 
 
     bool areEqual = checkArrays3D(out1, out2, totalSize);
-    
+
     // Whether the results from our kernels and using cutensor directly is the same:
     if (areEqual) {
         printf("The arrays are the same.\n");

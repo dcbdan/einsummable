@@ -9,13 +9,6 @@
 #include <cuda_runtime.h>
 #include <cutensor.h>
 
-#define HANDLE_ERROR(x)                                               \
-{ const auto err = x;                                                 \
-  if( err != CUTENSOR_STATUS_SUCCESS )                                \
-  { printf("Error: %s\n", cutensorGetErrorString(err));  } \
-};
-
-
 using touch_kernel_t = std::function<
     void(cudaStream_t, float*, float const*)
   >;
@@ -51,14 +44,6 @@ build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape,
   castable_t castable);
-
-// create a canned ij->i kernel that does not use
-// cutensor. (cutensor reduction can only do this
-// for the add castable)
-//cutensor_kernel_t
-//build_simple_reduction(
- // uint64_t ni, uint64_t nj,
- // castable_t castable);
 
 struct cutensor_elementwise_op_t {
   struct arg_t {
@@ -115,3 +100,5 @@ cutensor_kernel_t
 build_straight_elementwise(
   scalarop_t op,
   uint64_t size);
+
+void handle_cutensor_error(cutensorStatus_t const& err);

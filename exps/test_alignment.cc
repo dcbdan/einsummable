@@ -13,6 +13,12 @@
 #include <unordered_map>
 #include <vector>
 
+#define HANDLE_ERROR(x)                                               \
+{ const auto err = x;                                                 \
+  if( err != CUTENSOR_STATUS_SUCCESS )                                \
+  { printf("Error: %s\n", cutensorGetErrorString(err));  } \
+};
+
 #define HANDLE_CUDA_ERROR(x)                                      \
 { const auto err = x;                                             \
   if( err != cudaSuccess )                                        \
@@ -40,7 +46,7 @@ int main(){
     size_t elementsA = 1;
     for (auto mode : modeA)
         elementsA *= extent[mode];
-    
+
     size_t sizeA = sizeof(floatTypeA) * elementsA;
 
     void *A_d;
@@ -56,7 +62,7 @@ int main(){
 
     HANDLE_CUDA_ERROR(cudaMemcpy(A_d, A, sizeA, cudaMemcpyHostToDevice));
 
-    
+
 
     cutensorStatus_t err;
     cutensorHandle_t* handle;
@@ -70,7 +76,7 @@ int main(){
                  NULL,/*stride*/
                  typeA, CUTENSOR_OP_IDENTITY));
 
-    
+
 
     int diffs[] = {1, 2, 4, 8, 16, 32, 64, 128};
     const int iterations = 100; // Specify the desired number of iterations here
@@ -88,7 +94,7 @@ int main(){
                   &descA,
                   &alignmentRequirementA));
             std::cout << "Alignment requirement at offset " << offset << " with diff " << diff << ": " << alignmentRequirementA << std::endl;
-            
+
         }
     }
 
