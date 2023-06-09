@@ -164,6 +164,7 @@ void gpu_execute_state_t::run() {
             }
             else if (node.op.is_apply()){
                 // create a cuda stream since for apply we need to execute that on a cuda stream always
+                // TODO: may need to keep a pool of streams
                 cudaStream_t stream = cuda_create_stream();
 
                 // we run the dummy kernel with the stream

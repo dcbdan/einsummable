@@ -28,6 +28,7 @@ build_einsummable(einsummable_t const& einsummable);
 // the einsummable is not a contraction
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
+  cutensorHandle_t const* handle,
   einsummable_t const& einsummable);
 
 void execute_contraction(
@@ -41,14 +42,7 @@ void execute_contraction(
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
-  vector<int> out_modes, vector<uint64_t> out_shape);
-
-// create a canned ij->i kernel that does not use
-// cutensor. (cutensor reduction can only do this
-// for the add castable)
-cutensor_kernel_t
-build_simple_reduction(
-  uint64_t ni, uint64_t nj,
+  vector<int> out_modes, vector<uint64_t> out_shape,
   castable_t castable);
 
 struct cutensor_elementwise_op_t {
@@ -106,3 +100,5 @@ cutensor_kernel_t
 build_straight_elementwise(
   scalarop_t op,
   uint64_t size);
+
+void handle_cutensor_error(cutensorStatus_t const& err);
