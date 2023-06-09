@@ -29,7 +29,8 @@ touch_t touch_t::simplify() const {
 
   return touch_t {
     .selection = new_selection,
-    .castable = castable
+    .castable = castable,
+    .dtype = dtype
   };
 }
 
@@ -136,6 +137,7 @@ struct taskgraph_make_state_t {
 
   // Partialize the data into the partial ids at outs.
   void relational_touch(
+    dtype_t dtype,
     vector<uint64_t>   const& offset_inn,
     vector<uint64_t>   const& offset_out,
     vector<uint64_t>   const& size,
@@ -143,6 +145,7 @@ struct taskgraph_make_state_t {
     multiple_tensor_t  const& outs);
 
   multiple_tensor_t initialize_partials(
+    dtype_t dtype,
     multiple_placement_t const& placement);
 
   // Grab gid from it's refined tensor in the form of the
@@ -174,6 +177,7 @@ struct taskgraph_make_state_t {
   // Note: the join_result can include agg'd dimensions, in which case
   //       a castable must be given
   multiple_tensor_t construct_refinement_tensor(
+    dtype_t dtype,
     placement_t const& join_placement,
     tensor_t<int> join_result,
     multiple_placement_t const& refinement,
@@ -224,6 +228,7 @@ taskgraph_t::make(
 }
 
 void taskgraph_make_state_t::relational_touch(
+  dtype_t dtype,
   vector<uint64_t>   const& offset_inn,
   vector<uint64_t>   const& offset_out,
   vector<uint64_t>   const& size,
@@ -349,7 +354,8 @@ void taskgraph_make_state_t::relational_touch(
 
       touch_t touch {
         .selection = selection,
-        .castable = std::nullopt
+        .castable = std::nullopt,
+        .dtype = dtype
       };
       // Note: one could put a castable argument here
 
@@ -363,6 +369,7 @@ void taskgraph_make_state_t::relational_touch(
 }
 
 multiple_tensor_t taskgraph_make_state_t::initialize_partials(
+  dtype_t dtype,
   multiple_placement_t const& placement)
 {
   auto out_shape = placement.partition.block_shape();
@@ -380,7 +387,7 @@ multiple_tensor_t taskgraph_make_state_t::initialize_partials(
     auto& ret_at = ret.at(out_index);
     ret_at.reserve(locs.size());
     for(auto const& loc: locs) {
-      int builder_id = taskgraph.new_partial(loc, write_shape);
+      int builder_id = taskgraph.new_partial(loc, dtype, write_shape);
       ret_at.push_back(
         multiple_tensor_t::locid_t {
           .loc = loc,
@@ -397,6 +404,7 @@ taskgraph_make_state_t::form_from_refinement(
   int gid,
   multiple_placement_t const& placement)
 {
+  dtype_t dtype = graph.out_dtype(gid);
   multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
 
   // verify that the refinement partition
@@ -410,12 +418,13 @@ taskgraph_make_state_t::form_from_refinement(
   }
 
   // initialize multiple_tensor_t for the outs by creating new partializes
-  multiple_tensor_t ret = initialize_partials(placement);
+  multiple_tensor_t ret = initialize_partials(dtype, placement);
 
   // now add to all the partial builders inside ret
   vector<uint64_t> total_shape = placement.partition.total_shape();
   vector<uint64_t> offsets(total_shape.size(), 0);
   relational_touch(
+    dtype,
     offsets, offsets, placement.partition.total_shape(),
     refine_tensor,
     ret);
@@ -506,9 +515,10 @@ taskgraph_make_state_t::form_concat(int gid) {
   }
 
   // form the output partials
+  dtype_t dtype = node.op.out_dtype();
   multiple_placement_t mpl =
     multiple_placement_t::from_single_placement(pl);
-  multiple_tensor_t ret = initialize_partials(mpl);
+  multiple_tensor_t ret = initialize_partials(dtype, mpl);
 
   vector<uint64_t> dim_offset = concat.get_offsets();
 
@@ -526,6 +536,7 @@ taskgraph_make_state_t::form_concat(int gid) {
     offset_out[concat.dim] = dim_offset[which_inn];
 
     relational_touch(
+      dtype,
       offset_inn,
       offset_out,
       inn.partition.total_shape(),
@@ -551,7 +562,7 @@ taskgraph_make_state_t::compute_input(int gid) {
   do {
     int const& loc = pl.locations.at(index);
     auto subtensor_shape = pl.partition.tensor_shape_at(index);
-    ret.at(index) = taskgraph.insert_input(loc, subtensor_shape);
+    ret.at(index) = taskgraph.insert_input(loc, node.op.out_dtype(), subtensor_shape);
   } while(increment_idxs(shape, index));
 
   return ret;
@@ -567,7 +578,7 @@ taskgraph_make_state_t::compute_einsummable(int gid)
     throw std::runtime_error("compute_einsummable must have einsummable node");
   }
 
-  einsummable_t const& base_einsummable = std::get<einsummable_t>(node.op.op);
+  einsummable_t const& base_einsummable = node.op.get_einsummable();
 
   // Get the inputs
   vector<multiple_tensor_t> inputs;
@@ -641,6 +652,7 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
   }
 
   multiple_tensor_t ret = construct_refinement_tensor(
+    node.op.out_dtype(),
     placements[join_gid],
     join_result,
     usage_placement,
@@ -697,6 +709,7 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
 
 multiple_tensor_t
 taskgraph_make_state_t::construct_refinement_tensor(
+  dtype_t dtype,
   placement_t const& join_placement,
   tensor_t<int> join_result,
   multiple_placement_t const& refinement,
@@ -843,7 +856,7 @@ taskgraph_make_state_t::construct_refinement_tensor(
       // A constructor to modify ids of refined_tensor
       auto maybe_init_ref_id_as_partial = [&](int& ref_id, int loc) {
         if(ref_id == -1) {
-          ref_id = taskgraph.new_partial(loc, refinement_shape);
+          ref_id = taskgraph.new_partial(loc, dtype, refinement_shape);
         } else {
           auto const& node = taskgraph.nodes[ref_id];
           if(!node.op.is_partialize()) {
@@ -867,7 +880,8 @@ taskgraph_make_state_t::construct_refinement_tensor(
       }
       touch_t _selection_to_refinement_touch {
         .selection = _selection_to_refinement_ts,
-        .castable = maybe_castable
+        .castable = maybe_castable,
+        .dtype = dtype
       };
       // ref_id by reference!
       auto add_selection_to_refinement = [&](int loc, int& ref_id, int sel_id) {
@@ -890,7 +904,8 @@ taskgraph_make_state_t::construct_refinement_tensor(
       }
       touch_t _out_to_refinement_touch {
         .selection = _out_to_refinement_ts,
-        .castable = maybe_castable
+        .castable = maybe_castable,
+        .dtype = dtype
       };
       // ref_id by reference!
       auto add_out_to_refinement = [&](int loc, int& ref_id, int partial_id) {
@@ -1434,12 +1449,14 @@ std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
 
 int taskgraph_t::insert_input(
   int loc,
+  dtype_t dtype,
   vector<uint64_t> shape,
   bool is_save)
 {
   input_t input {
     .loc = loc,
-    .size = product(shape)
+    .dtype = dtype,
+    .nelem = product(shape)
   };
 
   return insert(input, is_save);
@@ -1464,7 +1481,7 @@ int taskgraph_t::insert_einsummable(
   for(int i = 0; i != inns.size(); ++i) {
     int const& inn = inns[i];
     auto const& inn_shape = inn_shapes[i];
-    if(nodes[inn].op.tensor_size() != product(inn_shape)) {
+    if(nodes[inn].op.out_nelem() != product(inn_shape)) {
       throw std::runtime_error("insert_einsummable: input has wrong size");
     }
  }
@@ -1482,7 +1499,8 @@ int taskgraph_t::insert_move(
     .src = src,
     .dst = dst,
     .inn = inn,
-    .size = nodes[inn].op.tensor_size()
+    .dtype = nodes[inn].op.out_dtype(),
+    .nelem = nodes[inn].op.out_nelem()
   };
 
   return insert(move, is_save);
@@ -1523,6 +1541,7 @@ int taskgraph_t::insert_consumed_aggregate(
 
   return insert(partialize_t {
       .loc = loc,
+      .dtype = nodes[inns[0]].op.out_dtype(),
       .write_shape = {sz},
       .units = {unit}
     },
@@ -1553,23 +1572,28 @@ int taskgraph_t::insert_select_subset(
     });
   }
 
+  dtype_t dtype = nodes[inn].op.out_dtype();
+
   touch_t touch {
     .selection = ts,
-    .castable = optional<castable_t>()
+    .castable = optional<castable_t>(),
+    .dtype = dtype
   };
 
-  int ret = new_partial(loc, write_shape, is_save);
+  int ret = new_partial(loc, dtype, write_shape, is_save);
   add_to_partial(ret, inn, touch);
   return ret;
 }
 
 int taskgraph_t::new_partial(
   int loc,
+  dtype_t dtype,
   vector<uint64_t> write_shape,
   bool is_save)
 {
   return insert(partialize_t {
       .loc = loc,
+      .dtype = dtype,
       .write_shape = write_shape,
       .units = {}
     },
@@ -1659,7 +1683,7 @@ void taskgraph_t::add_to_partial_the_full_aggregate(
   bool consume)
 {
   auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
-  if(nodes[id_inn].op.tensor_size() != product(write_shape)) {
+  if(nodes[id_inn].op.out_nelem() != product(write_shape)) {
     throw std::runtime_error("invalid input size when adding aggregate");
   }
 
@@ -1677,7 +1701,8 @@ void taskgraph_t::add_to_partial_the_full_aggregate(
 
   touch_t touch {
     .selection = ts,
-    .castable = optional<castable_t>(castable)
+    .castable = optional<castable_t>(castable),
+    .dtype = nodes[id_inn].op.out_dtype()
   };
 
   add_to_partial(id_out, id_inn, touch, consume);
@@ -1685,7 +1710,12 @@ void taskgraph_t::add_to_partial_the_full_aggregate(
 
 uint64_t taskgraph_t::get_size_at(int id) const
 {
-  return nodes[id].op.tensor_size();
+  return nodes[id].op.out_size();
+}
+
+uint64_t taskgraph_t::get_nelem_at(int id) const
+{
+  return nodes[id].op.out_nelem();
 }
 
 vector<int> taskgraph_t::get_order() const {
@@ -1751,7 +1781,7 @@ bool taskgraph_t::all_valid_partialize() const {
 int taskgraph_t::num_locs() const {
   int ret = 0;
   for(auto const& node: nodes) {
-    ret = std::max(ret, 1 + node.op.output_loc());
+    ret = std::max(ret, 1 + node.op.out_loc());
     if(node.op.is_move()) {
       ret = std::max(ret, 1 + node.op.get_move().src);
     }
@@ -1763,7 +1793,7 @@ uint64_t taskgraph_t::total_elems_moved() const {
   uint64_t ret = 0;
   for(auto const& node: nodes) {
     if(node.op.is_move()) {
-      ret += node.op.get_move().size;
+      ret += node.op.get_move().nelem;
     }
   }
   return ret;
@@ -1786,11 +1816,12 @@ string taskgraph_t::to_wire() const {
     es_proto::TaskGraphNode* n = tg.add_nodes();
 
     if(node.op.is_input()) {
-      auto const& [loc,size] = node.op.get_input();
+      auto const& [loc,dtype,nelem] = node.op.get_input();
 
       es_proto::TGInput* i = n->mutable_input();
       i->set_loc(loc);
-      i->set_size(size);
+      i->set_dtype(write_with_ss(dtype));
+      i->set_nelem(nelem);
     } else if(node.op.is_apply()) {
       auto const& [loc, inns, einsummable] = node.op.get_apply();
 
@@ -1805,18 +1836,20 @@ string taskgraph_t::to_wire() const {
       es_proto::Einsummable* e = a->mutable_einsummable();
       einsummable.to_proto(*e);
     } else if(node.op.is_move()) {
-      auto const& [src,dst,inn,size] = node.op.get_move();
+      auto const& [src,dst,inn,dtype,nelem] = node.op.get_move();
 
       es_proto::TGMove* m = n->mutable_move();
       m->set_src(src);
       m->set_dst(dst);
       m->set_inn(inn);
-      m->set_size(size);
+      m->set_dtype(write_with_ss(dtype));
+      m->set_nelem(nelem);
     } else if(node.op.is_partialize()) {
-      auto const& [loc, write_shape, units] = node.op.get_partialize();
+      auto const& [loc, dtype, write_shape, units] = node.op.get_partialize();
 
       es_proto::TGPartialize* t = n->mutable_partialize();
       t->set_loc(loc);
+      t->set_dtype(write_with_ss(dtype));
 
       for(uint64_t const& d: write_shape){
         t->add_write_shape(d);
@@ -1873,8 +1906,9 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
     if(n.has_input()) {
       auto const& i = n.input();
+      dtype_t dtype = parse_with_ss<dtype_t>(i.dtype());
       ret.nodes.emplace_back(
-        op_t(input_t { i.loc(), i.size() }),
+        op_t(input_t { i.loc(), dtype, i.nelem() }),
         is_save);
     } else if(n.has_apply()) {
       auto const& a = n.apply();
@@ -1889,8 +1923,9 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         is_save);
     } else if(n.has_move()) {
       auto const& m = n.move();
+      dtype_t dtype = parse_with_ss<dtype_t>(m.dtype());
       ret.nodes.emplace_back(
-        op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
+        op_t(move_t { m.src(), m.dst(), m.inn(), dtype, m.nelem() }),
         is_save);
     } else if(n.has_partialize()) {
       auto const& p = n.partialize();
@@ -1937,8 +1972,11 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         });
       }
 
+      dtype_t dtype = parse_with_ss<dtype_t>(p.dtype());
+
       partialize_t partialize {
         .loc = p.loc(),
+        .dtype = dtype,
         .write_shape = write_shape,
         .units = units
       };
@@ -1989,34 +2027,53 @@ bool operator!=(
   return !(lhs == rhs);
 }
 
-uint64_t taskgraph_t::op_t::tensor_size() const
+dtype_t taskgraph_t::op_t::out_dtype() const
 {
-  if(std::holds_alternative<input_t>(op)) {
-    return std::get<input_t>(op).size;
-  } else if(std::holds_alternative<apply_t>(op)) {
-    return product(std::get<apply_t>(op).einsummable.out_shape());
-  } else if(std::holds_alternative<move_t>(op)) {
-    return std::get<move_t>(op).size;
-  } else if(std::holds_alternative<partialize_t>(op)) {
-    return product(std::get<partialize_t>(op).write_shape);
+  if(is_input()) {
+    return get_input().dtype;
+  } else if(is_apply()) {
+    return get_apply().einsummable.out_dtype();
+  } else if(is_move()) {
+    return get_move().dtype;
+  } else if(is_partialize()) {
+    return get_partialize().dtype;
   } else {
     throw std::runtime_error("should not reach");
-    return 0;
+  }
+}
+
+uint64_t taskgraph_t::op_t::out_size() const
+{
+  return dtype_size(out_dtype()) * out_nelem();
+}
+
+uint64_t taskgraph_t::op_t::out_nelem() const
+{
+  if(is_input()) {
+    return get_input().nelem;;
+  } else if(is_apply()) {
+    return get_apply().einsummable.out_nelem();
+  } else if(is_move()) {
+    return get_move().nelem;
+  } else if(is_partialize()) {
+    return product(get_partialize().write_shape);
+  } else {
+    throw std::runtime_error("should not reach");
   }
 }
 
 set<int> taskgraph_t::op_t::inputs() const
 {
-  if(std::holds_alternative<input_t>(op)) {
+  if(is_input()) {
     return {};
-  } else if(std::holds_alternative<apply_t>(op)) {
-    auto const& inns = std::get<apply_t>(op).inns;
+  } else if(is_apply()) {
+    auto const& inns = get_apply().inns;
     return set<int>(inns.begin(), inns.end());
-  } else if(std::holds_alternative<move_t>(op)) {
-    return {std::get<move_t>(op).inn};
-  } else if(std::holds_alternative<partialize_t>(op)) {
+  } else if(is_move()) {
+    return {get_move().inn};
+  } else if(is_partialize()) {
     set<int> ret;
-    for(auto const& partial_unit: std::get<partialize_t>(op).units) {
+    for(auto const& partial_unit: get_partialize().units) {
       for(auto const& input: partial_unit.inputs) {
         ret.insert(input.id);
       }
@@ -2026,6 +2083,22 @@ set<int> taskgraph_t::op_t::inputs() const
     throw std::runtime_error("should not reach");
     return {};
   }
+}
+
+int taskgraph_t::op_t::out_loc() const {
+  if(is_input()) {
+    return get_input().loc;
+  }
+  if(is_apply()) {
+    return get_apply().loc;
+  }
+  if(is_move()) {
+    return get_move().dst;
+  }
+  if(is_partialize()) {
+    return get_partialize().loc;
+  }
+  throw std::runtime_error("should not reach: out_loc");
 }
 
 vector<vector<tuple<int, touch_t>>>
@@ -2062,7 +2135,11 @@ taskgraph_t::partialize_t::get_touch(int which_unit, int which_touch) const
   }
   return {
     input.id,
-    touch_t { .selection = ts, .castable = unit.castable }
+    touch_t {
+      .selection = ts,
+      .castable = unit.castable,
+      .dtype = dtype
+    }
   };
 }
 
@@ -2166,25 +2243,25 @@ void taskgraph_t::print() const {
 
     std::cout << "node " << id;
     if(node.is_save) {
-      std::cout << " (save to loc " << node.op.output_loc() << ")";
+      std::cout << " (save to loc " << node.op.out_loc() << ")";
     }
     std::cout << std::endl;
 
     auto inputs = node.op.inputs();
     std::cout << "inputs: " << vector<int>(inputs.begin(), inputs.end()) << std::endl;
-    std::cout << "tensor size: " << node.op.tensor_size() << std::endl;
+    std::cout << "tensor size: " << node.op.out_nelem() << std::endl;
 
     if(node.op.is_input()) {
-      auto const& [loc, _0] = node.op.get_input();
+      auto const& [loc, _0, _1] = node.op.get_input();
       std::cout << "input | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_apply()) {
       auto const& [loc, _0, _1] = node.op.get_apply();
       std::cout << "apply | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_move()) {
-      auto const& [src, dst, _0, _1] = node.op.get_move();
+      auto const& [src, dst, _0, _1, _2] = node.op.get_move();
       std::cout << "move | loc[" << src << "] -> loc[" << dst << "]" << std::endl;
     } else if(node.op.is_partialize()) {
-      int loc = node.op.output_loc();
+      int loc = node.op.out_loc();
       std::cout << "partialize | loc[" << loc << "]" << std::endl;
     }
 
@@ -2224,7 +2301,7 @@ void taskgraph_t::print_graphviz(
 
     // set label and color
     if(op.is_input()) {
-      auto const& [loc, _] = node.op.get_input();
+      auto const& [loc, _0, _1] = node.op.get_input();
       if(loc < colors.size()) {
         color = colors[loc];
       }
@@ -2237,12 +2314,12 @@ void taskgraph_t::print_graphviz(
       label = "apply" + write_with_ss(id) + "@loc["
         + write_with_ss(loc) + "]" + write_with_ss(e);
     } else if(op.is_move()) {
-      auto const& [src, dst, _0, _1] = node.op.get_move();
+      auto const& [src, dst, _0, _1, _2] = node.op.get_move();
       string src_ = write_with_ss(src);
       string dst_ = write_with_ss(dst);
       label = "move" + write_with_ss(id) + "@loc" + src_ + "->" + dst_;
     } else if(op.is_partialize()) {
-      int loc = node.op.output_loc();
+      int loc = node.op.out_loc();
       if(loc < colors.size()) {
         color = colors[loc];
       }
@@ -2287,7 +2364,7 @@ std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {
 }
 
 std::ostream& operator<<(std::ostream& out, touch_t const& t) {
-  out << t.castable << " " << t.selection;
+  out << t.castable << " " << t.selection << " " << t.dtype;
   return out;
 }
 

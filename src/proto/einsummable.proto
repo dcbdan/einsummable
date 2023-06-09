@@ -25,11 +25,13 @@ message TouchDim {
 message Touch {
   repeated TouchDim selection = 1;
   optional string castable = 2;
+  required string dtype = 3;
 }
 
 message TGInput {
   required int32 loc = 1;
-  required uint64 size = 2;
+  required string dtype = 2;
+  required uint64 nelem = 3;
 }
 message TGApply {
   required int32 loc = 1;
@@ -40,7 +42,8 @@ message TGMove {
   required int32 src = 1;
   required int32 dst = 2;
   required int32 inn = 3;
-  required uint64 size = 4;
+  required string dtype = 4;
+  required uint64 nelem = 5;
 }
 
 message InnRegionDim {
@@ -64,8 +67,9 @@ message TGPartialUnit {
 }
 message TGPartialize {
   required int32 loc = 1;
-  repeated uint64 write_shape = 2;
-  repeated TGPartialUnit units = 3;
+  required string dtype = 2;
+  repeated uint64 write_shape = 3;
+  repeated TGPartialUnit units = 4;
 }
 
 message TaskGraphNode {

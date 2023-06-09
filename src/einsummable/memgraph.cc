@@ -519,8 +519,8 @@ void memgraph_make_state_t::allocate_inputs() {
         ); // Also: this implementation would have a
            //       memory leak on non-used-non-saved inputs
       }
-      int loc = node.op.output_loc();
-      uint64_t sz = node.op.tensor_size();
+      int loc = node.op.out_loc();
+      uint64_t sz = node.op.out_size();
       auto [offset, deps] = allocators[loc].allocate(sz);
       if(deps.size() != 0) {
         throw std::runtime_error("The alligator is broken");
@@ -586,7 +586,7 @@ void memgraph_make_state_t::add_to_memgraph(
     // the input nodes
     mems[0] = mem_t {
       .offset = out_offset,
-      .size = node.op.tensor_size()
+      .size = node.op.out_size()
     };
 
     op = op_t(apply_t {
@@ -596,7 +596,8 @@ void memgraph_make_state_t::add_to_memgraph(
       .group = -1
     });
   } else if(node.op.is_move()) {
-    auto const& [src,dst,task_inn,size] = node.op.get_move();
+    auto const& [src,dst,task_inn,dtype,nelem] = node.op.get_move();
+    uint64_t size = dtype_size(dtype)*nelem;
 
     deps.insert(task_to_mem(task_inn));
 
@@ -622,11 +623,11 @@ void memgraph_make_state_t::add_to_memgraph(
 
     mem_t inn_mem {
       .offset = current_tensors.at(task_inn),
-      .size = taskgraph.nodes[task_inn].op.tensor_size()
+      .size = taskgraph.nodes[task_inn].op.out_size()
     };
     mem_t out_mem {
       .offset = get_output_alloc_if_necc(id, deps),
-      .size = node.op.tensor_size(),
+      .size = node.op.out_size(),
     };
 
     op = op_t(apply_t {
@@ -744,12 +745,12 @@ void memgraph_make_state_t::try_to_delete(int task_id)
       return;
     }
 
-    int loc = node.op.output_loc();
+    int loc = node.op.out_loc();
     uint64_t offset = current_tensors.at(task_id);
     del_t del {
       .loc = loc,
       .offset = offset,
-      .size = node.op.tensor_size()
+      .size = node.op.out_size()
     };
 
     // The delete of task_id depends on
@@ -792,7 +793,7 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
   auto const& node = taskgraph.nodes[task_id];
 
   mem_t output_mem;
-  output_mem.size = node.op.tensor_size();
+  output_mem.size = node.op.out_size();
   // output_mem.offset needs to be set
 
   bool did_get_donation = false;
@@ -828,7 +829,7 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
   //       the input can be donated
 
   if(!did_get_donation) {
-    int loc = node.op.output_loc();
+    int loc = node.op.out_loc();
     auto [offset_, ds] = allocators[loc].allocate(output_mem.size);
     output_mem.offset = offset_;
     deps.insert(ds.begin(), ds.end());

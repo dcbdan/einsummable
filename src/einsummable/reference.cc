@@ -346,7 +346,7 @@ map<int, buffer_t> reference_compute_taskgraph(
     auto const& node = taskgraph.nodes[id];
 
     if(node.op.is_input()) {
-      tensors[id] = {node.op.output_loc(), inputs.at(id)};
+      tensors[id] = {node.op.out_loc(), inputs.at(id)};
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
 
@@ -372,9 +372,9 @@ map<int, buffer_t> reference_compute_taskgraph(
 
       tensors[id] = std::make_tuple(move.dst, buffer_dst);
     } else if(node.op.is_partialize()) {
-      int loc = node.op.output_loc();
+      int loc = node.op.out_loc();
 
-      buffer_t write = make_buffer(node.op.tensor_size());
+      buffer_t write = make_buffer(node.op.out_size());
       tensors[id] = {loc, write};
 
       // Note: ignoring consummables
