@@ -1254,13 +1254,13 @@ scalarop_t scalarop_t::make_relu_deriv(dtype_t dtype) {
 
 scalarop_t scalarop_t::make_from_castable(castable_t c, dtype_t dtype) {
   if(c == castable_t::add) {
-    return make_add();
+    return make_add(dtype);
   }  else if(c == castable_t::mul) {
-    return make_mul();
+    return make_mul(dtype);
   } else if(c == castable_t::min) {
-    return make_min();
+    return make_min(dtype);
   } else if(c == castable_t::max) {
-    return make_max();
+    return make_max(dtype);
   } else {
     throw std::runtime_error("should not reach");
   }

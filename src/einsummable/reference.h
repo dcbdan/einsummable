@@ -53,10 +53,12 @@ bool is_close(T const& lhs, T const& rhs, float eps = 1e-3) {
 
 bool is_close(dbuffer_t const& lhs, dbuffer_t const& rhs, float eps = 1e-3);
 
+// TODO: make this for dbuffers and typecheck
 map<int, buffer_t> reference_compute_graph(
   graph_t const& graph,
   map<int, buffer_t> const& inputs);
 
+// TODO: make this for dbuffers and typecheck
 map<int, buffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
   map<int, buffer_t> const& inputs);
@@ -80,17 +82,15 @@ dbuffer_t reference_einsummable(
   einsummable_t const& einsummable,
   vector<dbuffer_t> const& inputs);
 
-// TODO
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
-  buffer_t& out,
+  buffer_t out,
   vector<buffer_t> const& inputs);
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
-  dbuffer_t& out,
+  dbuffer_t out,
   vector<dbuffer_t> const& inputs);
 
-// TODO
 buffer_t reference_concat(
   concat_t const& concat,
   vector<buffer_t> const& inputs);
@@ -120,5 +120,5 @@ void fill_buffer_map(
   tensor_t<int> keys,
   tensor_t<buffer_t> values);
 
-std::ostream& operator<<(std::ostream& out, buffer_t const& buffer);
+std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer);
 

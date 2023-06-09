@@ -216,30 +216,49 @@ string einsummable_t::to_wire() const
 inline
 einsummable_t _einsummable_matmul_helper(
   uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype,
   string str)
 {
   auto [inns,_] = einsummable_t::parse_str(str);
-  return einsummable_t({di, dk, dj}, inns, 2, scalarop_t::make_mul(), castable_t::add);
+  return einsummable_t(
+    {di, dk, dj}, inns, 2,
+    scalarop_t::make_mul(dtype),
+    castable_t::add);
 }
 
-einsummable_t einsummable_t::from_matmul(uint64_t di, uint64_t dj, uint64_t dk) {
-  return from_matmul_ss(di, dj, dk);
+einsummable_t einsummable_t::from_matmul(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype)
+{
+  return from_matmul_ss(di, dj, dk, dtype);
 }
 
-einsummable_t einsummable_t::from_matmul_ss(uint64_t di, uint64_t dj, uint64_t dk) {
-  return _einsummable_matmul_helper(di, dj, dk, "ij,jk->ik");
+einsummable_t einsummable_t::from_matmul_ss(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype)
+{
+  return _einsummable_matmul_helper(di, dj, dk, dtype, "ij,jk->ik");
 }
 
-einsummable_t einsummable_t::from_matmul_ts(uint64_t di, uint64_t dj, uint64_t dk) {
-  return _einsummable_matmul_helper(di, dj, dk, "ji,jk->ik");
+einsummable_t einsummable_t::from_matmul_ts(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype)
+{
+  return _einsummable_matmul_helper(di, dj, dk, dtype, "ji,jk->ik");
 }
 
-einsummable_t einsummable_t::from_matmul_st(uint64_t di, uint64_t dj, uint64_t dk) {
-  return _einsummable_matmul_helper(di, dj, dk, "ij,kj->ik");
+einsummable_t einsummable_t::from_matmul_st(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype)
+{
+  return _einsummable_matmul_helper(di, dj, dk, dtype, "ij,kj->ik");
 }
 
-einsummable_t einsummable_t::from_matmul_tt(uint64_t di, uint64_t dj, uint64_t dk) {
-  return _einsummable_matmul_helper(di, dj, dk, "ji,kj->ik");
+einsummable_t einsummable_t::from_matmul_tt(
+  uint64_t di, uint64_t dj, uint64_t dk,
+  dtype_t dtype)
+{
+  return _einsummable_matmul_helper(di, dj, dk, dtype, "ji,kj->ik");
 }
 
 einsummable_t einsummable_t::with_new_shape(
