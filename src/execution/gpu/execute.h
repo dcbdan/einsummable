@@ -11,6 +11,8 @@
 #include <thread>
 #include <cuda_runtime.h>
 #include <variant>
+#include <mutex>
+#include <condition_variable>
 
 using memgraph_t = memgraph_t;
 
@@ -58,6 +60,10 @@ struct gpu_execute_state_t
     float* memory_base_ptr;
 
     std::unordered_map<einsummable_t, cutensorContractionDescriptor_t> einsum_to_contraction;
+
+    // synchronization variables used by the callback function
+    std::mutex m;
+    std::condition_variable cv;
     
     // a map from the node of the memgraph to the cutensor plan 
     // we only have plans for operation contraction, so we only need to store the plans for those nodes

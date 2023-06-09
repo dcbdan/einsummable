@@ -28,10 +28,6 @@ memgraph_t::memgraph_t(
   : num_compute_locs(nl), num_cache_locs(nc), cache_locs(cs)
 {}
 
-memgraph_t::memgraph_t()
-  : num_compute_locs(0), num_cache_locs(0), cache_locs(std::vector<int>{})
-{}
-
 void memgraph_t::print_graphviz(std::ostream& out) const {
   using std::endl;
 

@@ -4,9 +4,6 @@
 #include <driver_types.h>
 #include <iostream>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <cuda_runtime.h>
 #include <vector>
 
 
@@ -37,6 +34,8 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
     }
     // print a update message
     printf("Node %d finished execution\n", node_idx);
+    // print the number of nodes remaining
+    printf("Number of nodes remaining: %d\n", num_nodes_remaining[0]);
     return ready_nodes;
 }
 
@@ -92,7 +91,7 @@ struct callback_data_t {
   std::mutex* m_ptr;
   std::condition_variable* cv_ptr;
   std::map<int, int>* dependency_count;
-  const memgraph_t* memgraph = new memgraph_t();
+  memgraph_t const* memgraph; 
   std::queue<int>* pending_queue;
   int node_idx;
   std::map<int, int>* num_nodes_remaining;
@@ -120,100 +119,7 @@ void execute(const memgraph_t &memgraph){
 void gpu_execute_state_t::run() {
 
     while (true){
-        std::mutex m;
-        // wait till some node finishes and notifies the cv
-        std::condition_variable cv;
-        {
-            std::unique_lock lk(m);
-            cv.wait(lk, [&]{
-                return pending_queue.size() > 0;
-            });
-        }
-        // execute things that are in the apply_queue until the queue is empty
-        while (pending_queue.size() != 0) {
-            // get the first element in the queue
-            auto node_idx = pending_queue.front();
-            auto node = memgraph.nodes[node_idx];
-            // remove the first element from the queue
-            pending_queue.pop();
-            // execute the node
-            // TODO: get the mapping from the node id to the cutensor plan
-            if (node.op.is_input() || node.op.is_del()) {
-                // do nothing but add the node to the finished queue
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
-                add_to_queue(pending_queue, new_nodes);
-            }
-            else if (node.op.is_apply()){
-                // create a cuda stream since for apply we need to execute that on a cuda stream always
-                cudaStream_t stream = cuda_create_stream();
 
-                // we run the dummy kernel with the stream
-                dummy_dispatch(nullptr, nullptr, stream);
-
-                auto memory_vector = node.op.get_apply().mems;
-
-                if (node.op.is_touch()) {
-                    // CASE: TOUCH
-                    auto touch_kernel = build_touch(node.op.get_touch());
-                    // TODO: Does touch only have one input memory?
-                    touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
-                }
-                else {
-                    auto my_einsummable = node.op.get_einsummable();
-                    if (my_einsummable.is_contraction()){
-                        // CASE: CONTRACTION
-                        // merge the adjacent dims
-                        einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
-                        // print an error if we didn't find my_einsum_merged in the map
-                        auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
-                        if (einsum_iter == einsum_to_contraction.end()){
-                            std::cout << "Error: contraction descriptor found in the map, Node idx: "<< node_idx << std::endl;
-                        }
-                        auto contraction_descriptor = einsum_iter->second;
-                        execute_contraction(stream, handle, &contraction_descriptor, memory_base_ptr + memory_vector[0].offset,
-                            memory_base_ptr + memory_vector[1].offset, memory_base_ptr + memory_vector[2].offset);
-                    }
-                    else {
-                        // CASE: OTHER EINSUMMABLE
-                        auto cutensor_kernel = build_einsummable(my_einsummable);
-                        cutensor_kernel(stream, handle, memory_base_ptr + memory_vector[0].offset, 
-                            get_input_mem_ptrs(memory_vector, memory_base_ptr));
-                    }
-                }
-
-
-                // after execution, we attach the stream with a callback function
-                // get all the metadata needed for the callback
-                callback_data_t* data = new callback_data_t;
-                data->m_ptr = &m;
-                data->cv_ptr = &cv;
-                data->node_idx = node_idx;
-                data->dependency_count = &dependency_count;
-                data->memgraph = &memgraph;
-                data->pending_queue = &pending_queue;
-                data->num_nodes_remaining = &num_nodes_remaining;
-                // add the callback
-                cudaStreamAddCallback(
-                    stream,
-                    [](CUstream_st*, cudaError, void* raw_data) {
-                        callback_data_t* data = static_cast<callback_data_t*>(raw_data);
-                        callback_data_t& f = *data;
-                        f();
-                        delete data;
-                    },
-                    static_cast<void*>(data),
-                    0
-                );
-            }
-            else{
-                // print a message saying that the operation is not supported and this operation's type
-                // std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;\
-
-                // also updating just to check the loop
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
-                add_to_queue(pending_queue, new_nodes);
-            }
-        }
         // if the num_nodes_remaining is 0, then we are done
         if (is_complete(num_nodes_remaining)){
             // if the dependency count for all node is 0, then we are done
@@ -232,5 +138,102 @@ void gpu_execute_state_t::run() {
             }
             exit(0);
         }
+
+        {
+            std::unique_lock lk(m);
+            cv.wait(lk, [&]{
+                return pending_queue.size() > 0;
+            });
+        }
+
+        // execute things that are in the apply_queue until the queue is empty
+        while (pending_queue.size() != 0) {
+            // get the first element in the queue
+            auto node_idx = pending_queue.front();
+            auto node = memgraph.nodes[node_idx];
+            // remove the first element from the queue
+            pending_queue.pop();
+            // execute the node
+            if (node.op.is_input() || node.op.is_del()) {
+                std::unique_lock lk(m);
+                // do nothing but add the node to the finished queue
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
+                add_to_queue(pending_queue, new_nodes);
+                lk.unlock();
+
+            }
+            else if (node.op.is_apply()){
+                // create a cuda stream since for apply we need to execute that on a cuda stream always
+                cudaStream_t stream = cuda_create_stream();
+
+                // we run the dummy kernel with the stream
+                dummy_dispatch(nullptr, nullptr, stream);
+
+                // auto memory_vector = node.op.get_apply().mems;
+
+                // if (node.op.is_touch()) {
+                //     // CASE: TOUCH
+                //     auto touch_kernel = build_touch(node.op.get_touch());
+                //     // TODO: Does touch only have one input memory?
+                //     touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
+                // }
+                // else {
+                //     auto my_einsummable = node.op.get_einsummable();
+                //     if (my_einsummable.is_contraction()){
+                //         // CASE: CONTRACTION
+                //         // merge the adjacent dims
+                //         einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
+                //         // print an error if we didn't find my_einsum_merged in the map
+                //         auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
+                //         if (einsum_iter == einsum_to_contraction.end()){
+                //             std::cout << "Error: contraction descriptor found in the map, Node idx: "<< node_idx << std::endl;
+                //         }
+                //         auto contraction_descriptor = einsum_iter->second;
+                //         execute_contraction(stream, handle, &contraction_descriptor, memory_base_ptr + memory_vector[0].offset,
+                //             memory_base_ptr + memory_vector[1].offset, memory_base_ptr + memory_vector[2].offset);
+                //     }
+                //     else {
+                //         // CASE: OTHER EINSUMMABLE
+                //         auto cutensor_kernel = build_einsummable(my_einsummable);
+                //         cutensor_kernel(stream, handle, memory_base_ptr + memory_vector[0].offset, 
+                //             get_input_mem_ptrs(memory_vector, memory_base_ptr));
+                //     }
+                // }
+
+                // after execution, we attach the stream with a callback function
+                // get all the metadata needed for the callback
+                callback_data_t* data = new callback_data_t;
+                data->m_ptr = &m;
+                data->cv_ptr = &cv;
+                data->node_idx = node_idx;
+                data->dependency_count = &dependency_count;
+                data->memgraph = &memgraph;
+                data->pending_queue = &pending_queue;
+                data->num_nodes_remaining = &num_nodes_remaining;
+
+                // add the callback
+                cudaStreamAddCallback(
+                    stream,
+                    [](CUstream_st*, cudaError, void* raw_data) {
+                        callback_data_t* data = static_cast<callback_data_t*>(raw_data);
+                        callback_data_t& f = *data;
+                        f();
+                        delete data;
+                    },
+                    static_cast<void*>(data),
+                    0
+                );
+            }
+            else{
+                // print a message saying that the operation is not supported and this operation's type
+                // std::cout << "Operation not supported: Type is among the following - move, evict, load" << std::endl;\
+                // also updating just to check the loop
+                std::unique_lock lk(m);
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
+                add_to_queue(pending_queue, new_nodes);
+                lk.unlock();
+            }
+        }
+        
     }
 }
