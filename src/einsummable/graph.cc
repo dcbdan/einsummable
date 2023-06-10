@@ -374,8 +374,9 @@ void graph_t::print() const {
   for(int id = 0; id != nodes.size(); ++id) {
     auto const& node = nodes[id];
 
-    std::cout << "node id: " << id
-      << " with out shape " << node.op.out_shape() << std::endl;
+    std::cout << "node id]: " << id
+      << " with out shape " << node.op.out_shape()
+      << " | " << node.op.out_dtype() << std::endl;
     std::cout << "inputs: " << node.inns << std::endl;
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;

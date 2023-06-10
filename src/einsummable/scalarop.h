@@ -199,7 +199,7 @@ struct scalarop_t {
 
   scalarop_t simplify() const;
 
-  dtype_t dtype() const { return node.dtype; }
+  dtype_t out_dtype() const { return node.dtype; }
 
   optional<dtype_t> inn_dtype(int arg) const;
 

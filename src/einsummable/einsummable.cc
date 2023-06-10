@@ -448,7 +448,7 @@ dtype_t einsummable_t::inn_dtype(int which_inn) const {
 }
 
 dtype_t einsummable_t::out_dtype() const {
-  return join.dtype();
+  return join.out_dtype();
 }
 
 uint64_t einsummable_t::out_size() const {
