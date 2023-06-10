@@ -994,7 +994,7 @@ taskgraph_make_state_t::construct_refinement_tensor(
         }
       } else {
         // Here there are multiple partials which means partialize_t
-        // objects may need to be created, but the same cases holds
+        // objects may need to be created, but the same cases hold
 
         for(int loc: required_locs) {
           // intialize as partials if still uninitialized
@@ -1521,11 +1521,14 @@ int taskgraph_t::insert_consumed_aggregate(
     throw std::runtime_error("invalid insert_consumed_aggregate argument");
   }
 
-  uint64_t sz = get_size_at(inns[0]);
+  uint64_t sz = get_nelem_at(inns[0]);
 
   vector<input_op_t> inputs;
   inputs.reserve(inns.size());
   for(auto const& inn: inns) {
+    if(sz != get_nelem_at(inn)) {
+      throw std::runtime_error("not all the same size: insert consumed agg");
+    }
     inputs.push_back(input_op_t {
       .id = inn,
       .consumable = true,
@@ -2050,7 +2053,7 @@ uint64_t taskgraph_t::op_t::out_size() const
 uint64_t taskgraph_t::op_t::out_nelem() const
 {
   if(is_input()) {
-    return get_input().nelem;;
+    return get_input().nelem;
   } else if(is_apply()) {
     return get_apply().einsummable.out_nelem();
   } else if(is_move()) {
@@ -2249,14 +2252,14 @@ void taskgraph_t::print() const {
 
     auto inputs = node.op.inputs();
     std::cout << "inputs: " << vector<int>(inputs.begin(), inputs.end()) << std::endl;
-    std::cout << "tensor size: " << node.op.out_nelem() << std::endl;
+    std::cout << "tensor nelem: " << node.op.out_nelem() << std::endl;
 
     if(node.op.is_input()) {
       auto const& [loc, _0, _1] = node.op.get_input();
       std::cout << "input | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_apply()) {
-      auto const& [loc, _0, _1] = node.op.get_apply();
-      std::cout << "apply | loc[" << loc << "]" << std::endl;
+      auto const& [loc, _, e] = node.op.get_apply();
+      std::cout << "apply | loc[" << loc << "] " << e << std::endl;
     } else if(node.op.is_move()) {
       auto const& [src, dst, _0, _1, _2] = node.op.get_move();
       std::cout << "move | loc[" << src << "] -> loc[" << dst << "]" << std::endl;
