@@ -2,7 +2,7 @@
 #include "../../base/setup.h"
 
 #include "../../einsummable/taskgraph.h"
-#include "../../einsummable/reference.h" // dbuffer_t
+#include "../../einsummable/dbuffer.h"
 
 #include "mpi_class.h"
 
