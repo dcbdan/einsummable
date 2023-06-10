@@ -358,5 +358,5 @@ void main05() {
 }
 
 int main() {
-  main02();
+  main05();
 }

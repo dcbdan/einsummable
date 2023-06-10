@@ -149,6 +149,7 @@ vector<placement_t> load_balanced_placement(
       }
     }
 
+    // TODO: this is not taking into account the dtype
     auto get_score = [&](int bid, int loc) {
       return twolayer.count_elements_to(
         get_loc,
