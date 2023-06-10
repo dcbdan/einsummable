@@ -189,10 +189,13 @@ scalar_t dbuffer_t::sum() const {
 }
 
 uint64_t dbuffer_t::nelem() const {
-  if(data->size % dtype_size(dtype) != 0) {
+  if(size() % dtype_size(dtype) != 0) {
     throw std::runtime_error("incorrect size for dtype");
   }
-  return data->size / dtype_size(dtype);
+  return size() / dtype_size(dtype);
+}
+uint64_t const& dbuffer_t::size() const {
+  return data->size;
 }
 
 void dbuffer_t::set(uint64_t which_elem, scalar_t const& val) {
@@ -315,6 +318,11 @@ void _assert_correct_dtype(string err_msg, dtype_t dtype, dbuffer_t const& data)
     throw std::runtime_error("incorrect dtype: " + err_msg);
   }
 }
+void _assert_correct_size(string err_msg, uint64_t size, dbuffer_t const& data) {
+  if(size != data.size()) {
+    throw std::runtime_error("incorrect size: " + err_msg);
+  }
+}
 
 map<int, dbuffer_t> reference_compute_graph(
   graph_t const& graph,
@@ -328,14 +336,20 @@ map<int, dbuffer_t> reference_compute_graph(
     auto const& node = graph.nodes[id];
 
     if(node.op.is_formation()) {
-      auto expected_dtype = node.op.get_formation().dtype;
+      auto const& f = node.op.get_formation();
+      auto const& expected_dtype = f.dtype;
+      auto expected_size = dtype_size(f.dtype) * product(f.shape);
       auto const& t = tensors[node.inns[0]];
       _assert_correct_dtype("formation", expected_dtype, t);
+      _assert_correct_size("formation", expected_size, t);
       tensors[id] = t;
     } else if(node.op.is_input()) {
       auto const& t = inputs.at(id);
-      auto expected_dtype = node.op.get_input().dtype;
+      auto const& ii = node.op.get_input();
+      auto const& expected_dtype = ii.dtype;
+      auto expected_size = dtype_size(ii.dtype) * product(ii.shape);
       _assert_correct_dtype("input", expected_dtype, t);
+      _assert_correct_size("input", expected_size, t);
       tensors[id] = t;
     } else if(node.op.is_einsummable()) {
       vector<dbuffer_t> inns;
@@ -387,9 +401,12 @@ map<int, dbuffer_t> reference_compute_taskgraph(
     auto const& node = taskgraph.nodes[id];
 
     if(node.op.is_input()) {
-      dtype_t const& expected_dtype = node.op.get_input().dtype;
+      auto const& ii = node.op.get_input();
+      dtype_t const& expected_dtype = ii.dtype;
+      uint64_t expected_size = dtype_size(ii.dtype) * ii.nelem;
       auto const& t = inputs.at(id);
       _assert_correct_dtype("tg input", expected_dtype, t);
+      _assert_correct_size("tg input", expected_size, t);
       tensors[id] = {node.op.out_loc(), t};
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();

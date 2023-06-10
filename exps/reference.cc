@@ -904,15 +904,15 @@ void test_random_goofy_ff() {
 
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  //main10();
+  main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
 
-  for(int i = 0; i != 10; ++i) {
-    test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
-    DOUT(i+1);
-  }
+  //for(int i = 0; i != 10; ++i) {
+  //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
+  //  DOUT(i+1);
+  //}
 
   //main13();
   //main14();
