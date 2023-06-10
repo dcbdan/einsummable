@@ -370,6 +370,35 @@ mem_t memgraph_t::op_t::get_output_mem() const {
   return get_output_memloc().as_mem();
 }
 
+bool memgraph_t::apply_t::is_einsummable() const {
+  return std::holds_alternative<einsummable_t>(op);
+}
+
+bool memgraph_t::apply_t::is_touch() const {
+  return std::holds_alternative<touch_t>(op);
+}
+
+einsummable_t const&
+memgraph_t::apply_t::get_einsummable() const {
+  return std::get<einsummable_t>(op);
+}
+
+touch_t const&
+memgraph_t::apply_t::get_touch() const {
+  return std::get<touch_t>(op);
+}
+
+dtype_t
+memgraph_t::apply_t::out_dtype() const {
+  if(is_einsummable()) {
+    return get_einsummable().out_dtype();
+  }
+  if(is_touch()) {
+    return get_touch().dtype;
+  }
+  throw std::runtime_error("should not reach");
+}
+
 // Get all (inn, which_touch_t) from partialize node out
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
   taskgraph_t const& taskgraph,
@@ -519,8 +548,8 @@ void memgraph_make_state_t::allocate_inputs() {
         ); // Also: this implementation would have a
            //       memory leak on non-used-non-saved inputs
       }
-      int loc = node.op.output_loc();
-      uint64_t sz = node.op.tensor_size();
+      int loc = node.op.out_loc();
+      uint64_t sz = node.op.out_size();
       auto [offset, deps] = allocators[loc].allocate(sz);
       if(deps.size() != 0) {
         throw std::runtime_error("The alligator is broken");
@@ -565,10 +594,11 @@ void memgraph_make_state_t::add_to_memgraph(
 
     vector<mem_t> mems(1 + inns.size());
 
+    auto inn_dtypes = es.inn_dtypes();
     auto inn_shapes = es.inn_shapes();
     for(int i = 0; i != inns.size(); ++i) {
       int const& task_inn = inns[i];
-      auto sz = product(inn_shapes[i]);
+      auto sz = dtype_size(inn_dtypes[i]) * product(inn_shapes[i]);
       mems[i+1] = mem_t {
         .offset = current_tensors.at(task_inn),
         .size = sz
@@ -586,7 +616,7 @@ void memgraph_make_state_t::add_to_memgraph(
     // the input nodes
     mems[0] = mem_t {
       .offset = out_offset,
-      .size = node.op.tensor_size()
+      .size = node.op.out_size()
     };
 
     op = op_t(apply_t {
@@ -596,7 +626,8 @@ void memgraph_make_state_t::add_to_memgraph(
       .group = -1
     });
   } else if(node.op.is_move()) {
-    auto const& [src,dst,task_inn,size] = node.op.get_move();
+    auto const& [src,dst,task_inn,dtype,nelem] = node.op.get_move();
+    uint64_t size = dtype_size(dtype)*nelem;
 
     deps.insert(task_to_mem(task_inn));
 
@@ -622,11 +653,11 @@ void memgraph_make_state_t::add_to_memgraph(
 
     mem_t inn_mem {
       .offset = current_tensors.at(task_inn),
-      .size = taskgraph.nodes[task_inn].op.tensor_size()
+      .size = taskgraph.nodes[task_inn].op.out_size()
     };
     mem_t out_mem {
       .offset = get_output_alloc_if_necc(id, deps),
-      .size = node.op.tensor_size(),
+      .size = node.op.out_size(),
     };
 
     op = op_t(apply_t {
@@ -744,12 +775,12 @@ void memgraph_make_state_t::try_to_delete(int task_id)
       return;
     }
 
-    int loc = node.op.output_loc();
+    int loc = node.op.out_loc();
     uint64_t offset = current_tensors.at(task_id);
     del_t del {
       .loc = loc,
       .offset = offset,
-      .size = node.op.tensor_size()
+      .size = node.op.out_size()
     };
 
     // The delete of task_id depends on
@@ -792,7 +823,7 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
   auto const& node = taskgraph.nodes[task_id];
 
   mem_t output_mem;
-  output_mem.size = node.op.tensor_size();
+  output_mem.size = node.op.out_size();
   // output_mem.offset needs to be set
 
   bool did_get_donation = false;
@@ -828,7 +859,7 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
   //       the input can be donated
 
   if(!did_get_donation) {
-    int loc = node.op.output_loc();
+    int loc = node.op.out_loc();
     auto [offset_, ds] = allocators[loc].allocate(output_mem.size);
     output_mem.offset = offset_;
     deps.insert(ds.begin(), ds.end());

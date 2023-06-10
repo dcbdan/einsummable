@@ -45,14 +45,15 @@ int main() {
   vector<int> permute(inn_shape.size());
   std::iota(permute.begin(), permute.end(), 0);
 
-  buffer_t inn = std::make_shared<buffer_holder_t>(sz);
-  inn->iota();
+  dtype_t dtype = dtype_t::f32;
+  dbuffer_t inn = make_dbuffer(dtype, sz);
+  inn.iota();
 
-  buffer_t out1 = std::make_shared<buffer_holder_t>(sz);
-  buffer_t out2 = std::make_shared<buffer_holder_t>(sz);
+  dbuffer_t out1 = make_dbuffer(dtype, sz);
+  dbuffer_t out2 = make_dbuffer(dtype, sz);
 
-  out1->zeros();
-  out2->zeros();
+  out1.zeros();
+  out2.zeros();
 
   permute_t kernel(1024);
   do {
@@ -64,7 +65,7 @@ int main() {
 
     {
       raii_print_time_elapsed_t gremlin("kernel      ");
-      kernel(inn_shape, permute, out2->data, inn->data);
+      kernel(inn_shape, permute, out2.f32(), inn.f32());
     }
 
     if(out1 != out2) {

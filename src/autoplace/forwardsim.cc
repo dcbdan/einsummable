@@ -600,6 +600,7 @@ bool forward_state_t::can_setup_refis(int gid) const {
 
 void forward_state_t::setup_refis(int graph_id) {
   auto const& node = graph.nodes[graph_id];
+  uint64_t dtype_sz = dtype_size(node.op.out_dtype());
   auto& ginfo = ginfos[graph_id];
 
   partition_t const& join_partition = ginfo.partition.value();
@@ -645,7 +646,7 @@ void forward_state_t::setup_refis(int graph_id) {
 
       auto& refi = refis[idxs_to_index(refi_shape, refi_index)];
       refi.units.push_back(agg_unit_t {
-        .size = product(read_shape),
+        .size = dtype_sz * product(read_shape),
         .deps = {}
       });
 

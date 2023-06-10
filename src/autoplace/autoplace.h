@@ -16,11 +16,6 @@ double simulate(
 //       single_loc_no_partition maybe
 vector<placement_t> single_loc_placements(graph_t const& graph);
 
-vector<partition_t> autopartition(
-  graph_t const& graph,
-  equal_items_t<int> eqs,
-  int nloc);
-
 equal_items_t<int> construct_equal_placements(graph_t const& graph);
 void construct_equal_placements_inplace(graph_t const& graph, equal_items_t<int>&);
 

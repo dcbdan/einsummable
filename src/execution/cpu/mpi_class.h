@@ -1,6 +1,6 @@
 #pragma once
 #include "../../base/setup.h"
-#include "../../einsummable/reference.h" // buffer
+#include "../../base/buffer.h"
 
 #include <mpi.h>
 

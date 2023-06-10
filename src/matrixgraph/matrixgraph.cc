@@ -540,13 +540,13 @@ int matrixgraph_t::build_grad_term_ewb_arg(
 
   scalarop_t deri_op = op.derivative(arg);
 
-  if(deri_op.is_constant_of(1.0)) {
+  if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
     return node_grad;
   }
 
   // TODO: can simplifications be made if constant of zero?
   if(deri_op.is_constant()) {
-    float val = deri_op.eval({});
+    scalar_t val = deri_op.eval({});
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 
@@ -576,7 +576,7 @@ int matrixgraph_t::build_grad_term_ewb_arg(
     //   x0 -> x0
     scalarop_t combined = scalarop_t::combine(
       scalarop_t::make_mul(),
-      {deri_fixed, scalarop_t::from_string("hole@0")});
+      {deri_fixed, scalarop_t::make_identity(default_dtype())});
 
     return insert_ewb(combined, inn, node_grad);
   } else if(which_inputs.size() == 2) {
@@ -611,13 +611,13 @@ int matrixgraph_t::build_grad_term_ew_inn(
 
   scalarop_t deri_op = op.derivative(0);
 
-  if(deri_op.is_constant_of(1.0)) {
+  if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
     return node_grad;
   }
 
   // TODO: can simplifications be made if constant of zero?
   if(deri_op.is_constant()) {
-    float val = deri_op.eval({});
+    scalar_t val = deri_op.eval({});
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 
@@ -630,7 +630,7 @@ int matrixgraph_t::build_grad_term_ew_inn(
   //   x0 -> x0
   scalarop_t combined = scalarop_t::combine(
     scalarop_t::make_mul(),
-    {deri_op, scalarop_t::from_string("hole@0")});
+    {deri_op, scalarop_t::make_identity(default_dtype())});
 
   return insert_ewb(combined, inn, node_grad);
 }
@@ -735,7 +735,6 @@ matrixgraph_t::compile(vector<int> const& saves) const
         inns.push_back(id);
       }
     }
-
 
     set<int> nodeset = compute_nodeset(saves, inns, true);
 

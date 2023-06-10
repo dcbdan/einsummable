@@ -218,14 +218,14 @@ int main(int argc, char** argv)
     taskgraph = taskgraph_t::from_wire(taskgraph_str);
   }
 
-  map<int, buffer_t> tensors;
+  map<int, dbuffer_t> tensors;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
-      auto const& [rank, size] = node.op.get_input();
+      auto const& [rank, dtype, nelem] = node.op.get_input();
       if(mpi.this_rank == rank) {
-        buffer_t buffer = std::make_shared<buffer_holder_t>(size);
-        buffer->random(-0.0003, 0.003);
+        dbuffer_t buffer = make_dbuffer(dtype, nelem);
+        buffer.random("-0.0003", "0.003");
         tensors.insert({id, buffer});
       }
     }

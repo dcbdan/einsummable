@@ -7,29 +7,30 @@
 
 #include <thread>
 
-void print_elementwise_function(scalarop_t op);
+using kernel_t = std::function<void(void*, vector<void const*>)>;
+using touch_kernel_t = std::function<void(void*, void const*)>;
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_unary_elementwise_kernel(
   int num_threads,
   uint64_t n,
   scalarop_t unary_op);
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_binary_elementwise_kernel(
   int num_threads,
   uint64_t n,
   scalarop_t binary_op);
 
-// TODO: Does this guy need to be multithreaded?
+// Note: This could be multithreaded.
 //       That should be straightforward to do:
 //       Partition the touch operation into the
 //       number of threads and call each of
 //       those touches in parallel.
-std::function<void(float*, float const*)>
+touch_kernel_t
 build_touch(touch_t const& touch);
 
-std::function<void(float*, vector<float const*>)>
+kernel_t
 build_einsummable(
   int num_threads, // passed to build_*_elementwise_kernel
   einsummable_t const& einsummable);
@@ -40,25 +41,27 @@ build_einsummable(
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs,
-  float const& beta);
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  bool is_zero_else_one);
 
 void matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs);
+  void* out,
+  void const* lhs,
+  void const* rhs);
 
 // b<ij> , b<jk> -> b<ik>
 //
@@ -69,6 +72,7 @@ void matrix_multiply(
 //   bij,bjk->ik
 // by just looping over the batched dimension
 void batch_matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,
@@ -78,8 +82,8 @@ void batch_matrix_multiply(
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs);
+  void* out,
+  void const* lhs,
+  void const* rhs);
 
 

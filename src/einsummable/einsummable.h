@@ -45,12 +45,22 @@ struct einsummable_t {
 
   // ij,jk->ik
   // 02 21  01
-  static einsummable_t from_matmul(uint64_t di, uint64_t dj, uint64_t dk);
+  static einsummable_t from_matmul(
+    uint64_t di, uint64_t dj, uint64_t dk,
+    dtype_t dtype = default_dtype());
 
-  static einsummable_t from_matmul_ss(uint64_t di, uint64_t dj, uint64_t dk); // ij,jk->ik
-  static einsummable_t from_matmul_ts(uint64_t di, uint64_t dj, uint64_t dk); // ji,jk->ik
-  static einsummable_t from_matmul_st(uint64_t di, uint64_t dj, uint64_t dk); // ij,kj->ik
-  static einsummable_t from_matmul_tt(uint64_t di, uint64_t dj, uint64_t dk); // ji,kj->ik
+  static einsummable_t from_matmul_ss( // ij,jk->ik
+    uint64_t di, uint64_t dj, uint64_t dk,
+    dtype_t dtype = default_dtype());
+  static einsummable_t from_matmul_ts( // ji,jk->ik
+    uint64_t di, uint64_t dj, uint64_t dk,
+    dtype_t dtype = default_dtype());
+  static einsummable_t from_matmul_st( // ij,kj->ik
+    uint64_t di, uint64_t dj, uint64_t dk,
+    dtype_t dtype = default_dtype());
+  static einsummable_t from_matmul_tt( // ji,kj->ik
+    uint64_t di, uint64_t dj, uint64_t dk,
+    dtype_t dtype = default_dtype());
 
   static einsummable_t with_new_shape(
     einsummable_t const& e, vector<uint64_t> const& new_join_shape);
@@ -66,7 +76,17 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
 
+  dtype_t out_dtype() const;
+
+  uint64_t out_size() const;
+
+  uint64_t out_nelem() const;
+
   vector<uint64_t> out_shape() const;
+
+  vector<dtype_t> inn_dtypes() const;
+
+  dtype_t inn_dtype(int which_inn) const;
 
   vector<vector<uint64_t>> inn_shapes() const;
 
