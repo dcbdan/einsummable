@@ -27,13 +27,13 @@ compare_t compare_flip(compare_t c) {
 uint64_t dtype_size(dtype_t dtype) {
   switch(dtype) {
     case dtype_t::f16:
-      return 16;
+      return 2;
     case dtype_t::f32:
-      return 32;
+      return 4;
     case dtype_t::f64:
-      return 64;
+      return 8;
     case dtype_t::c64:
-      return 64;
+      return 8;
   }
   throw std::runtime_error("should not reach");
 }

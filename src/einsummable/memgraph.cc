@@ -370,6 +370,35 @@ mem_t memgraph_t::op_t::get_output_mem() const {
   return get_output_memloc().as_mem();
 }
 
+bool memgraph_t::apply_t::is_einsummable() const {
+  return std::holds_alternative<einsummable_t>(op);
+}
+
+bool memgraph_t::apply_t::is_touch() const {
+  return std::holds_alternative<touch_t>(op);
+}
+
+einsummable_t const&
+memgraph_t::apply_t::get_einsummable() const {
+  return std::get<einsummable_t>(op);
+}
+
+touch_t const&
+memgraph_t::apply_t::get_touch() const {
+  return std::get<touch_t>(op);
+}
+
+dtype_t
+memgraph_t::apply_t::out_dtype() const {
+  if(is_einsummable()) {
+    return get_einsummable().out_dtype();
+  }
+  if(is_touch()) {
+    return get_touch().dtype;
+  }
+  throw std::runtime_error("should not reach");
+}
+
 // Get all (inn, which_touch_t) from partialize node out
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
   taskgraph_t const& taskgraph,

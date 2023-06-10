@@ -19,6 +19,8 @@ struct dbuffer_t {
   void random();
   void random(scalar_t lower, scalar_t upper);
 
+  dbuffer_t copy();
+
   dbuffer_t view_c64_as_f32();
   dbuffer_t view_f32_as_c64();
 
@@ -53,72 +55,59 @@ bool is_close(T const& lhs, T const& rhs, float eps = 1e-3) {
 
 bool is_close(dbuffer_t const& lhs, dbuffer_t const& rhs, float eps = 1e-3);
 
-// TODO: make this for dbuffers and typecheck
-map<int, buffer_t> reference_compute_graph(
+map<int, dbuffer_t> reference_compute_graph(
   graph_t const& graph,
-  map<int, buffer_t> const& inputs);
+  map<int, dbuffer_t> const& inputs);
 
-// TODO: make this for dbuffers and typecheck
-map<int, buffer_t> reference_compute_taskgraph(
+map<int, dbuffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
-  map<int, buffer_t> const& inputs);
+  map<int, dbuffer_t> const& inputs);
 
 void reference_compute_memgraph(
   memgraph_t const& memgraph,
   vector<buffer_t>& compute_location_buffers);
 
-tensor_t<buffer_t> partition_buffer(
+tensor_t<dbuffer_t> partition_buffer(
   partition_t const& partition,
-  buffer_t const& buffer);
+  dbuffer_t const& buffer);
 
-buffer_t unpartition_buffer(
+dbuffer_t unpartition_buffer(
   partition_t const& partition,
-  tensor_t<buffer_t> const& buffer);
+  tensor_t<dbuffer_t> const& buffer);
 
-buffer_t reference_einsummable(
-  einsummable_t const& einsummable,
-  vector<buffer_t> const& inputs);
 dbuffer_t reference_einsummable(
   einsummable_t const& einsummable,
   vector<dbuffer_t> const& inputs);
 
 void reference_einsummable_inplace(
   einsummable_t const& einsummable,
-  buffer_t out,
-  vector<buffer_t> const& inputs);
-void reference_einsummable_inplace(
-  einsummable_t const& einsummable,
   dbuffer_t out,
   vector<dbuffer_t> const& inputs);
 
-buffer_t reference_concat(
-  concat_t const& concat,
-  vector<buffer_t> const& inputs);
 dbuffer_t reference_concat(
   concat_t const& concat,
   vector<dbuffer_t> const& inputs);
 
 void reference_touch(
   touch_t const& touch,
-  buffer_t out,
-  buffer_t const inn);
-void reference_touch(
-  touch_t const& touch,
   dbuffer_t out,
   dbuffer_t const inn);
 
-tensor_t<buffer_t> get_partitioned_buffer(
-  map<int, buffer_t> items,
+tensor_t<dbuffer_t> get_partitioned_buffer(
+  map<int, dbuffer_t> items,
   tensor_t<int> whiches);
 
-map<int, buffer_t> init_buffer_map(
+map<int, dbuffer_t> init_buffer_map(
   tensor_t<int> keys,
-  tensor_t<buffer_t> values);
+  tensor_t<dbuffer_t> values);
 
 void fill_buffer_map(
-  map<int, buffer_t>& items,
+  map<int, dbuffer_t>& items,
   tensor_t<int> keys,
-  tensor_t<buffer_t> values);
+  tensor_t<dbuffer_t> values);
 
 std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer);
+
+bool operator==(dbuffer_t const& lhs, dbuffer_t const& rhs);
+bool operator!=(dbuffer_t const& lhs, dbuffer_t const& rhs);
 

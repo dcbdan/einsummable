@@ -24,4 +24,5 @@ bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
 bool operator==(buffer_t const& lhs, buffer_t const& rhs);
 bool operator!=(buffer_t const& lhs, buffer_t const& rhs);
 
-
+std::ostream& operator<<(std::ostream& out, buffer_holder_t const& b);
+std::ostream& operator<<(std::ostream& out, buffer_t const& b);

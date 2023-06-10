@@ -54,45 +54,47 @@ int main01() {
   return 0;
 }
 
-//int main02() {
-//  partition_t partition({
-//    partdim_t::split(4, 1),
-//    partdim_t::split(4, 2)
-//  });
-//
-//  buffer_t tensor = std::make_shared<buffer_holder_t>(4*4);
-//  tensor->iota(0);
-//
-//  tensor_t<buffer_t> ptensor = partition_buffer(partition, tensor);
-//  for(auto const& buffer_t: ptensor.get()) {
-//    std::cout << buffer_t << std::endl;
-//  }
-//  return 0;
-//}
-//
-//int main03() {
-//  partition_t partition({
-//    partdim_t::split(3, 1),
-//    partdim_t::split(4, 2),
-//    partdim_t::split(5, 3)
-//  });
-//
-//  buffer_t tensor = std::make_shared<buffer_holder_t>(3*4*5);
-//  tensor->iota(99);
-//
-//  tensor_t<buffer_t> ptensor = partition_buffer(partition, tensor);
-//
-//  buffer_t tensor_again = unpartition_buffer(partition, ptensor);
-//
-//  if(!vector_equal(tensor->as_vector(), tensor_again->as_vector())) {
-//    std::cout << "Did not correctly undo the partition" << std::endl;
-//  } else {
-//    std::cout << "done." << std::endl;
-//  }
-//
-//  return 0;
-//}
-//
+int main02() {
+  partition_t partition({
+    partdim_t::split(4, 1),
+    partdim_t::split(4, 2)
+  });
+
+  dtype_t dtype = dtype_t::f64;
+  dbuffer_t tensor = make_dbuffer(dtype, 4*4);
+  tensor.iota(0);
+
+  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+  for(auto const& buffer: ptensor.get()) {
+    std::cout << buffer << std::endl;
+  }
+  return 0;
+}
+
+int main03() {
+  partition_t partition({
+    partdim_t::split(3, 1),
+    partdim_t::split(4, 2),
+    partdim_t::split(5, 3)
+  });
+
+  dtype_t dtype = dtype_t::f16;
+  dbuffer_t tensor = make_dbuffer(dtype, 3*4*5);
+  tensor.iota(99);
+
+  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+
+  dbuffer_t tensor_again = unpartition_buffer(partition, ptensor);
+
+  if(tensor != tensor_again) {
+    std::cout << "Did not correctly undo the partition" << std::endl;
+  } else {
+    std::cout << "done." << std::endl;
+  }
+
+  return 0;
+}
+
 //int main04() {
 //  buffer_t b1 = std::make_shared<buffer_holder_t>(10);
 //  buffer_t b2 = b1;
@@ -888,5 +890,6 @@ int main(int argc, char** argv) {
   //set_seed(1);
   //test_random_goofy_ff();
 
-  main01();
+  main02();
+  main03();
 }

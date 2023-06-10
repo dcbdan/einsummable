@@ -29,4 +29,18 @@ bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs) {
   return !(lhs == rhs);
 }
 
-
+std::ostream& operator<<(std::ostream& out, buffer_holder_t const& b) {
+  out << "buffer[" << b.size << "]{";
+  if(b.size > 0) {
+    out << uint32_t(b.data[0]);
+    for(int i = 1; i != b.size; ++i) {
+      out << "," << uint32_t(b.data[i]);
+    }
+  }
+  out << "}";
+  return out;
+}
+std::ostream& operator<<(std::ostream& out, buffer_t const& b) {
+  out << (*b);
+  return out;
+}
