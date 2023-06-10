@@ -69,14 +69,16 @@ int main(int argc, char** argv) {
   //}
 
   // Initialize the input tensors to all ones
-  map<int, buffer_t> tensors;
+  map<int, dbuffer_t> tensors;
   for(auto const& [gid, inn_blocks]: input_blocks) {
     for(auto const& inn: inn_blocks.get()) {
       auto const& node = taskgraph.nodes[inn];
-      uint64_t const& size = node.op.get_input().size;
-      buffer_t buffer = std::make_shared<buffer_holder_t>(size);
-      buffer->ones();
-      tensors.insert({inn, buffer});
+      auto const& [rank, dtype, nelem] = node.op.get_input();
+      if(mpi.this_rank == rank) {
+        dbuffer_t buffer = make_dbuffer(dtype, nelem);
+        buffer.random("-0.0003", "0.003");
+        tensors.insert({inn, buffer});
+      }
     }
   }
 

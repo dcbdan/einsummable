@@ -36,11 +36,11 @@ void dbuffer_t::fill(scalar_t val) {
     auto ptr = f32();
     std::fill(ptr, ptr + nelem(), val.f32());
   } else if(dtype == dtype_t::f64) {
-    auto ptr = f32();
-    std::fill(ptr, ptr + nelem(), val.f32());
+    auto ptr = f64();
+    std::fill(ptr, ptr + nelem(), val.f64());
   } else if(dtype == dtype_t::c64) {
-    auto ptr = f32();
-    std::fill(ptr, ptr + nelem(), val.f32());
+    auto ptr = c64();
+    std::fill(ptr, ptr + nelem(), val.c64());
   } else {
     throw std::runtime_error("should not reach fill");
   }
@@ -64,11 +64,9 @@ void dbuffer_t::iota(int start) {
   }
 }
 
-void dbuffer_t::random() {
-  string b = "0.0";
-  string e = "1.0";
+void dbuffer_t::random(string b, string e) {
   if(dtype == dtype_t::c64) {
-    view_c64_as_f32().random();
+    view_c64_as_f32().random(b,e);
   } else if(dtype == dtype_t::f16) {
     random(
       scalar_t(parse_with_ss<float16_t>(b)),

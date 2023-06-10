@@ -12,7 +12,7 @@ struct dbuffer_t {
   void ones();
   void fill(scalar_t val);
   void iota(int start = 0);
-  void random();
+  void random(string lower = "0.0", string upper = "1.0");
   void random(scalar_t lower, scalar_t upper);
 
   dbuffer_t copy();

@@ -139,6 +139,10 @@ struct cpu_exec_state_t {
     map<int, dbuffer_t>& tensors,
     int num_apply_kernel_threads);
 
+  // make sure all kernels are available; print out a helpful
+  // message if not and then die
+  void verify_kernels();
+
   // launch the threads and wait for the threads to finish
   void run(int n_apply, int n_touch, int n_send, int n_recv);
 
@@ -258,6 +262,7 @@ cpu_exec_state_t::cpu_exec_state_t(
     num_recv_post_remaining(0),
     num_apply_kernel_threads(n_ts)
 {
+  // .. make sure all the kernels are available
   // .. tell mkl how many threads to use
   // 0. set num_remaining
   // 1. Set num_usages_remaining
@@ -265,6 +270,8 @@ cpu_exec_state_t::cpu_exec_state_t(
   // 3. register every partialize node at this location with touches_progress
   // 4. register every send from here
   // 5. register every recv to   here
+
+  verify_kernels();
 
   mkl_set_num_threads(num_apply_kernel_threads);
 
@@ -340,6 +347,25 @@ cpu_exec_state_t::cpu_exec_state_t(
   // what input tensors are ready initially
   for(auto const& input_id: input_ids) {
     notify_tensor_ready(input_id);
+  }
+}
+
+void cpu_exec_state_t::verify_kernels() {
+  string err_msg = "";
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& [_0, _1, e] = node.op.get_apply();
+      try {
+        build_einsummable(num_apply_kernel_threads, e);
+      } catch(...) {
+        err_msg += write_with_ss(e) + "|" + write_with_ss(e.join);
+      }
+    }
+  }
+  if(err_msg != "") {
+    throw std::runtime_error(
+      "cpu exec state: some kernels requested are not avaialable" +
+      err_msg);
   }
 }
 

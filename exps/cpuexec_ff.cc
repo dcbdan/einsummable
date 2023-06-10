@@ -31,6 +31,8 @@ void ff(
   vector<uint64_t> dws,
   int niter, float learning_rate)
 {
+  dtype_t dtype = default_dtype();
+
   ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate);
   matrixgraph_t const& mgraph = ff_info.mgraph;
 
@@ -76,18 +78,18 @@ void ff(
   taskgraph.nodes[x].is_save = true;
   taskgraph.nodes[y].is_save = true;
 
-  map<int, buffer_t> buffers;
+  map<int, dbuffer_t> buffers;
 
   // Set x
   {
-    buffer_t buffer_x = std::make_shared<buffer_holder_t>(dn*dp);
-    buffer_x->random(-0.05, 0.05);
+    dbuffer_t buffer_x = make_dbuffer(dtype, dn*dp);
+    buffer_x.random("-0.05", "0.05");
     buffers.insert({x, buffer_x});
   }
   // Set y
   {
-    buffer_t buffer_y = std::make_shared<buffer_holder_t>(dn*dd);
-    buffer_y->random(-0.05, 0.05);
+    dbuffer_t buffer_y = make_dbuffer(dtype, dn*dd);
+    buffer_y.random("-0.05", "0.05");
     buffers.insert({y, buffer_y});
   }
 
@@ -97,8 +99,8 @@ void ff(
     auto [w_d0,w_d1] = ff_info.shape_wi(i);
     uint64_t w_sz = w_d0*w_d1;
 
-    buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
-    buffer_w->random(-0.05, 0.05);
+    dbuffer_t buffer_w = make_dbuffer(dtype, w_sz);
+    buffer_w.random("-0.05", "0.05");
     buffers.insert({w, buffer_w});
   }
 
@@ -106,7 +108,7 @@ void ff(
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
-    float loss = buffers.at(sqdiff)->sum();
+    float loss = buffers.at(sqdiff).sum().f32();
     //if(i % 75 == 0) {
       std::cout << "loss: " << loss << std::endl;
     //}
