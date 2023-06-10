@@ -483,12 +483,15 @@ void reference_compute_memgraph(
 
         vector<dbuffer_t> inn_buffers;
         for(int i = 1; i != mems.size(); ++i) {
+          int which_arg = i-1;
+          dtype_t inn_dtype = einsummable.inn_dtype(which_arg);
+
           inn_buffers.push_back(
-            make_dbuffer_at(loc, mems[i], einsummable.inn_dtype(i)));
+            make_dbuffer_at(loc, mems[i], inn_dtype));
         }
 
         reference_einsummable_inplace(einsummable, out_buffer, inn_buffers);
-      } else if(apply.is_touch()){
+      } else if(apply.is_touch()) {
         touch_t touch = apply.get_touch();
 
         vector<dbuffer_t> inn_buffers;

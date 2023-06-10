@@ -263,10 +263,10 @@ void test_make_memgraph_without_evict(
   vector<placement_t> const& placements,
   map<int, dbuffer_t> full_inns)
 {
-  graph.print();
-  for(int i = 0; i != graph.nodes.size(); ++i) {
-    DOUT(i << ": " << placements[i].partition);
-  }
+  //graph.print();
+  //for(int i = 0; i != graph.nodes.size(); ++i) {
+  //  DOUT(i << ": " << placements[i].partition);
+  //}
 
   tuple<
     map<int, tensor_t<int> >,
@@ -275,11 +275,11 @@ void test_make_memgraph_without_evict(
     _info0 = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
-  {
-    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
-    std::ofstream f("exp_reference_taskgraph.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+  //  std::ofstream f("exp_reference_taskgraph.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   int num_locs = taskgraph.num_locs();
 
@@ -909,8 +909,10 @@ int main(int argc, char** argv) {
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
 
-  set_seed(0);
-  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
+  for(int i = 0; i != 10; ++i) {
+    test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
+    DOUT(i+1);
+  }
 
   //main13();
   //main14();

@@ -594,10 +594,11 @@ void memgraph_make_state_t::add_to_memgraph(
 
     vector<mem_t> mems(1 + inns.size());
 
+    auto inn_dtypes = es.inn_dtypes();
     auto inn_shapes = es.inn_shapes();
     for(int i = 0; i != inns.size(); ++i) {
       int const& task_inn = inns[i];
-      auto sz = product(inn_shapes[i]);
+      auto sz = dtype_size(inn_dtypes[i]) * product(inn_shapes[i]);
       mems[i+1] = mem_t {
         .offset = current_tensors.at(task_inn),
         .size = sz
