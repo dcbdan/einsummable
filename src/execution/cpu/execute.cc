@@ -388,14 +388,13 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         out_buffer = make_dbuffer(node.op.out_dtype(), node.op.out_nelem());
       }
 
-      // TODO
-      // vector<float const*> raw_inputs;
-      // raw_inputs.reserve(inputs.size());
-      // for(auto& buffer: inputs) {
-      //   raw_inputs.push_back(buffer->data);
-      // }
+      vector<void const*> raw_inputs;
+      raw_inputs.reserve(inputs.size());
+      for(auto const& buffer: inputs) {
+        raw_inputs.push_back(buffer.ptr());
+      }
 
-      // kernel(out_buffer->data, raw_inputs);
+      kernel(out_buffer.ptr(), raw_inputs);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -442,7 +441,7 @@ void cpu_exec_state_t::touch_runner(int runner_id)
       dbuffer_t& out_buffer = _ps[0];
       dbuffer_t& inn_buffer = _is[0];
 
-      //kernel(out_buffer->data, inn_buffer->data);
+      kernel(out_buffer.ptr(), inn_buffer.ptr());
     }
 
     this->completed_touch(inn_tensor, unit_id);
