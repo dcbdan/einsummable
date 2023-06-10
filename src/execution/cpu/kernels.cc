@@ -12,7 +12,16 @@ template <>
 inline float16_t _pow(float16_t const& v, double const& power) {
   return half_float::pow(v, float16_t(power));
 }
-// TODO: probably do the same thing with std::exp and half_float::exp
+
+template <typename T>
+inline T _exp(T const& v) {
+  return std::exp(v);
+}
+
+template <>
+inline float16_t _exp(float16_t const& v) {
+  return half_float::exp(v);
+}
 
 #define _unary_ew_loop(name, TO, T, op) \
   void name( \
