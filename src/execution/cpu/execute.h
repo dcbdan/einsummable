@@ -2,7 +2,7 @@
 #include "../../base/setup.h"
 
 #include "../../einsummable/taskgraph.h"
-#include "../../einsummable/reference.h" // buffer_t
+#include "../../einsummable/reference.h" // dbuffer_t
 
 #include "mpi_class.h"
 
@@ -36,5 +36,5 @@ void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
   mpi_t& mpi,
-  map<int, buffer_t>& tensors);
+  map<int, dbuffer_t>& tensors);
 
