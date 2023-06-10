@@ -7,29 +7,30 @@
 
 #include <thread>
 
-void print_elementwise_function(scalarop_t op);
+using kernel_t = std::function<void(void*, vector<void const*>)>;
+using touch_kernel_t = std::function<void(void*, void const*)>;
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_unary_elementwise_kernel(
   int num_threads,
   uint64_t n,
   scalarop_t unary_op);
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_binary_elementwise_kernel(
   int num_threads,
   uint64_t n,
   scalarop_t binary_op);
 
-// TODO: Does this guy need to be multithreaded?
+// Note: This could be multithreaded.
 //       That should be straightforward to do:
 //       Partition the touch operation into the
 //       number of threads and call each of
 //       those touches in parallel.
-std::function<void(float*, float const*)>
+touch_kernel_t
 build_touch(touch_t const& touch);
 
-std::function<void(float*, vector<float const*>)>
+kernel_t
 build_einsummable(
   int num_threads, // passed to build_*_elementwise_kernel
   einsummable_t const& einsummable);
