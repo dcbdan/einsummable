@@ -229,6 +229,8 @@ struct scalarop_t {
   string to_cppstr(std::function<string(int)> write_hole) const;
   tuple<string, vector<uint8_t>> to_cpp_bytes() const;
 
+  string type_signature() const;
+
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)
   static scalarop_t combine(scalarop_t op, vector<scalarop_t> const& ops);

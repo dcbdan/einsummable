@@ -358,14 +358,14 @@ void cpu_exec_state_t::verify_kernels() {
       try {
         build_einsummable(num_apply_kernel_threads, e);
       } catch(...) {
-        err_msg += write_with_ss(e) + "|" + write_with_ss(e.join);
+        err_msg += "\n" + write_with_ss(e) + "\n" + write_with_ss(e.join);
       }
     }
   }
   if(err_msg != "") {
     throw std::runtime_error(
-      "cpu exec state: some kernels requested are not avaialable" +
-      err_msg);
+      "cpu exec state: some kernels requested are not avaialable\n" +
+      err_msg + "\n");
   }
 }
 

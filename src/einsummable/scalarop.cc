@@ -1137,6 +1137,33 @@ scalarop_t::to_cpp_bytes() const
   return {str, bytes};
 }
 
+string scalarop_t::type_signature() const
+{
+  string ret = "";
+  auto add_to_ret = [&](int i) {
+    auto maybe = inn_dtype(i);
+    if(maybe) {
+      ret += write_with_ss(maybe.value());
+    } else {
+      ret += "_";
+    }
+  };
+
+  int nholes = 1 + node.max_hole();
+  if(nholes == 0) {
+    //
+  } else {
+    add_to_ret(0);
+    for(int i = 1; i != nholes; ++i) {
+      ret += ",";
+      add_to_ret(i);
+    }
+  }
+  ret += "->" + write_with_ss(out_dtype());
+
+  return ret;
+}
+
 // Example: combining_op = (y0 * y1) + y2, ops = (x0 + x1, x0 + x1, 7*x0), this replaces
 // y0 with x0 + x1 and
 // y1 with x2 + x3 and

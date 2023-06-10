@@ -32,34 +32,64 @@
     } \
   }
 
+//ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]
+//f32->f32
+_unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
+
+//power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b0,float,float,float,std::pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4)))))
+
+//*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b1,float,float,float,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i]))))
+
+//*[hole|f32@0,hole|f32@1]
+///f32,f32->f32
+_binary_ew_loop(b2,float,float,float,(x0[i]*x1[i]))
+
+//*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]
+//f32,f32->f32
+_binary_ew_loop(b3,float,float,float,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]))
+
+//+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b4,float,float,float,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i]))))
+
 std::function<void(uint8_t const*, uint64_t, void*, void const*)>
-get_unary_kernel(string const& op_str)
+get_unary_kernel(string const& str)
 {
   using kernel_t = std::function<
     void(uint8_t const*, uint64_t, void*, void const*)>;
 
   static map<string, kernel_t> kernels = {
+    { "f32->f32|((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])", u0 }
   };
 
-  auto iter = kernels.find(op_str);
+  auto iter = kernels.find(str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + str);
   }
   return iter->second;
 }
 
 std::function<void(uint8_t const*, uint64_t, void*, void const*, void const*)>
-get_binary_kernel(string const& op_str)
+get_binary_kernel(string const& str)
 {
   using kernel_t = std::function<
     void(uint8_t const*, uint64_t, void*, void const*, void const*)>;
 
   static map<string, kernel_t> kernels = {
+    { "f32,f32->f32|std::pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", b0 },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", b1 },
+    { "f32,f32->f32|(x0[i]*x1[i])", b2 },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", b3 },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", b4 },
   };
 
-  auto iter = kernels.find(op_str);
+  auto iter = kernels.find(str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + str);
   }
   return iter->second;
 }
@@ -89,7 +119,8 @@ build_unary_elementwise_kernel(
   }
 
   auto [op_str, bytes] = op.to_cpp_bytes();
-  auto f = get_unary_kernel(op_str);
+  string key = op.type_signature() + "|" + op_str;
+  auto f = get_unary_kernel(key);
 
   if(num_threads == 0 || n < num_threads) {
     return [f,n,bytes](void* out, vector<void const*> inns) {
@@ -99,7 +130,12 @@ build_unary_elementwise_kernel(
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges,bytes](void* out, vector<void const*> inns) {
+  vector<uint64_t> strides;
+  strides.reserve(2);
+  strides.push_back(dtype_size(op.out_dtype()));
+  strides.push_back(dtype_size(op.inn_dtype(0).value()));
+
+  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
     vector<std::thread> ts;
     void const* inn = inns[0];
     for(auto const& [lower,upper]: ranges) {
@@ -107,8 +143,8 @@ build_unary_elementwise_kernel(
         f,
         bytes.data(),
         upper-lower,
-        (void*)((char*)out + lower),
-        (void*)((char*)inn + lower));
+        (void*)((char*)out + strides[0]*lower),
+        (void*)((char*)inn + strides[1]*lower));
     }
     for(auto& t: ts) {
       t.join();
@@ -127,7 +163,8 @@ build_binary_elementwise_kernel(
   }
 
   auto [op_str, bytes] = op.to_cpp_bytes();
-  auto f = get_binary_kernel(op_str);
+  string key = op.type_signature() + "|" + op_str;
+  auto f = get_binary_kernel(key);
 
   if(num_threads == 0 || n < num_threads) {
     return [f,n,bytes](void* out, vector<void const*> inns) {
@@ -137,7 +174,13 @@ build_binary_elementwise_kernel(
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges,bytes](void* out, vector<void const*> inns) {
+  vector<uint64_t> strides;
+  strides.reserve(3);
+  strides.push_back(dtype_size(op.out_dtype()));
+  strides.push_back(dtype_size(op.inn_dtype(0).value()));
+  strides.push_back(dtype_size(op.inn_dtype(1).value()));
+
+  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
     vector<std::thread> ts;
     void const* lhs = inns[0];
     void const* rhs = inns[1];
@@ -146,9 +189,9 @@ build_binary_elementwise_kernel(
         f,
         bytes.data(),
         upper-lower,
-        (void*)((char*)out + lower),
-        (void*)((char*)lhs + lower),
-        (void*)((char*)rhs + lower));
+        (void*)((char*)out + strides[0]*lower),
+        (void*)((char*)lhs + strides[1]*lower),
+        (void*)((char*)rhs + strides[2]*lower));
     }
     for(auto& t: ts) {
       t.join();
