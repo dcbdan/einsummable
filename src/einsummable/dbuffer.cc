@@ -235,6 +235,9 @@ scalar_t dbuffer_t::get(uint64_t which_elem) const {
   }
 }
 
+void      * dbuffer_t::ptr()       { return data->data; }
+void const* dbuffer_t::ptr() const { return data->data; }
+
 float16_t* dbuffer_t::f16() {
   if(dtype != dtype_t::f16) { throw std::runtime_error("incroect dtype"); }
   return reinterpret_cast<float16_t*>(data->data);

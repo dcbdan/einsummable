@@ -41,25 +41,27 @@ build_einsummable(
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs,
-  float const& beta);
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  bool is_zero_else_one);
 
 void matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs);
+  void* out,
+  void const* lhs,
+  void const* rhs);
 
 // b<ij> , b<jk> -> b<ik>
 //
@@ -70,6 +72,7 @@ void matrix_multiply(
 //   bij,bjk->ik
 // by just looping over the batched dimension
 void batch_matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,
@@ -79,8 +82,8 @@ void batch_matrix_multiply(
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs);
+  void* out,
+  void const* lhs,
+  void const* rhs);
 
 

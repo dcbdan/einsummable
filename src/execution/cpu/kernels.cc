@@ -445,42 +445,100 @@ build_touch(touch_t const& touch_)
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs,
-  float const& beta)
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  bool is_zero_else_one)
 {
-  cblas_sgemm(
-    CblasRowMajor,
-    trans_lhs ? CblasTrans : CblasNoTrans,
-    trans_rhs ? CblasTrans : CblasNoTrans,
-    ni,nk,nj,
-    1.0f,
-    lhs,
-    trans_lhs ? ni : nj,
-    rhs,
-    trans_rhs ? nj : nk,
-    beta,
-    out,
-    nk);
+  if(dtype == dtype_t::f16) {
+    using f16_t = MKL_F16;
+    // Use the half library (float16_t) to set one and zero,
+    // then convert it to whatever type mkl sets MKL_F16 to.
+    float16_t one_(1.0);
+    float16_t zero_(0.0);
+    f16_t& one  = reinterpret_cast<f16_t&>(one_);
+    f16_t& zero = reinterpret_cast<f16_t&>(zero_);
+
+    cblas_hgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      one,
+      (f16_t const*)lhs,
+      trans_lhs ? ni : nj,
+      (f16_t const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? zero : one,
+      (f16_t*)out,
+      nk);
+  } else if(dtype == dtype_t::f32) {
+    cblas_sgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      1.0f,
+      (float const*)lhs,
+      trans_lhs ? ni : nj,
+      (float const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? 0.0f : 1.0f,
+      (float*)out,
+      nk);
+  } else if(dtype == dtype_t::f64) {
+    cblas_dgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      1.0,
+      (double const*)lhs,
+      trans_lhs ? ni : nj,
+      (double const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? 0.0 : 1.0,
+      (double*)out,
+      nk);
+  } else if(dtype == dtype_t::c64) {
+    std::complex<float> one(1.0, 0.0);
+    std::complex<float> zero(0.0, 0.0);
+    cblas_cgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      (void*)&one,
+      lhs,
+      trans_lhs ? ni : nj,
+      rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? (void*)&zero : (void*)&one,
+      out,
+      nk);
+  } else {
+    throw std::runtime_error("matmul type missing");
+  }
 }
 
 void matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  void* out,
+  void const* lhs,
+  void const* rhs)
 {
-  matrix_multiply_update(ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, 0.0);
+  matrix_multiply_update(dtype, ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, true);
 }
 
 // b<ij> , b<jk> -> b<ik>
@@ -492,6 +550,7 @@ void matrix_multiply(
 //   bij,bjk->ik
 // by just looping over the batched dimension
 void batch_matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,
@@ -501,30 +560,42 @@ void batch_matrix_multiply(
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  void* _out,
+  void const* _lhs,
+  void const* _rhs)
 {
   if(nb == 1) {
-    matrix_multiply(ni,nj,nk,trans_lhs, trans_rhs, out, lhs, rhs);
+    matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
   }
 
-  uint64_t offset_lhs = batched_lhs ? ni*nj : 0 ;
-  uint64_t offset_rhs = batched_rhs ? nj*nk : 0 ;
+  uint8_t      * out = (uint8_t      *)_out;
+  uint8_t const* lhs = (uint8_t const*)_lhs;
+  uint8_t const* rhs = (uint8_t const*)_rhs;
+
+  uint64_t offset_lhs = batched_lhs ? dtype_size(dtype)*ni*nj : 0 ;
+  uint64_t offset_rhs = batched_rhs ? dtype_size(dtype)*nj*nk : 0 ;
   if(batched_out) {
-    uint64_t offset_out = ni*nk;
+    uint64_t offset_out = dtype_size(dtype)*ni*nk;
     for(int b = 0; b != nb; ++b) {
-      matrix_multiply(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs);
+      matrix_multiply(
+        dtype, ni, nj, nk, trans_lhs, trans_rhs,
+        (void*)out, (void const*)lhs, (void const*)rhs);
       lhs += offset_lhs;
       rhs += offset_rhs;
       out += offset_out;
     }
   } else {
-    matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 0.0);
+    matrix_multiply_update(
+      dtype, ni, nj, nk, trans_lhs, trans_rhs,
+      (void*)out, (void const*)lhs, (void const*)rhs,
+      true);
     lhs += offset_lhs;
     rhs += offset_rhs;
     for(int b = 1; b != nb; ++b) {
-      matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 1.0);
+      matrix_multiply_update(
+        dtype, ni, nj, nk, trans_lhs, trans_rhs,
+        (void*)out, (void const*)lhs, (void const*)rhs,
+        false);
       lhs += offset_lhs;
       rhs += offset_rhs;
     }
@@ -580,13 +651,15 @@ _make_matrix_multiply(
     }
   }
 
-  return [ni,nj,nk,trans_lhs,trans_rhs]
+  auto dtype = einsummable.out_dtype();
+  return [dtype,ni,nj,nk,trans_lhs,trans_rhs]
     (void* out, vector<void const*> inns)
   {
-  //  return matrix_multiply(
-  //    ni,nj,nk,
-  //    trans_lhs,trans_rhs,
-  //    out, inns[0], inns[1]);
+    return matrix_multiply(
+      dtype,
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      out, inns[0], inns[1]);
   };
 }
 
@@ -722,14 +795,16 @@ _make_batch_matrix_multiply(
     }
   }
 
-  return [nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
+  auto dtype = e.out_dtype();
+  return [dtype,nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
     (void* out, vector<void const*> inns)
   {
-  //  return batch_matrix_multiply(
-  //    nb,batched_out,batched_lhs,batched_rhs,
-  //    ni,nj,nk,
-  //    trans_lhs,trans_rhs,
-  //    out, inns[0], inns[1]);
+    return batch_matrix_multiply(
+      dtype,
+      nb,batched_out,batched_lhs,batched_rhs,
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      out, inns[0], inns[1]);
   };
 }
 

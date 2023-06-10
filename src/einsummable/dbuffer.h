@@ -29,6 +29,9 @@ struct dbuffer_t {
   void agg_into(uint64_t which_elem, castable_t, scalar_t const& val);
   scalar_t get(uint64_t which_elem) const;
 
+  void* ptr();
+  void const* ptr() const;
+
   float16_t          * f16();
   float              * f32();
   double             * f64();

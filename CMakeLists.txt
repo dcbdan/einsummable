@@ -90,6 +90,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_matmul"  "exps" "cpuexec_matmul")
+  add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
 endif()
 
 if(${GPU_EXECUTION_ENGINE})
