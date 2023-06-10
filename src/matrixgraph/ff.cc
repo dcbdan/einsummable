@@ -4,20 +4,33 @@ ff_sqdiff_t
 ff_sqdiff_update(
   uint64_t dn, uint64_t dp, uint64_t dd,
   vector<uint64_t> dws,
-  float learning_rate)
+  float learning_rate,
+  dtype_t dtype)
 {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("ff_sqdiff_update does not support complex");
+  }
+
+  dtype_t dtype_before = default_dtype();
+  set_default_dtype(dtype);
+
+  string ds = write_with_ss(dtype);
+
+  scalar_t lr = scalar_t(learning_rate).convert(dtype);
+
   scalarop_t gradupdate = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
-      scalarop_t::from_string("hole|f32@0"),
-      scalarop_t::make_scale(scalar_t(learning_rate))
+      scalarop_t::from_string("hole|"+ds+"@0"),
+      scalarop_t::make_scale(lr)
     }
   );
 
   scalarop_t relu = scalarop_t::make_relu();
 
   scalarop_t squared_difference =
-    scalarop_t::from_string("power{2}[+[hole|f32@0,*[hole|f32@1,constant{f32|-1}]]]");
+    scalarop_t::from_string(
+      "power{2}[+[hole|"+ds+"@0,*[hole|"+ds+"@1,constant{"+ds+"|-1}]]]");
 
   matrixgraph_t mgraph;
 
@@ -52,8 +65,11 @@ ff_sqdiff_update(
     wsnew.push_back(mgraph.insert_ewb(gradupdate, w, g));
   }
 
+  set_default_dtype(dtype_before);
+
   return ff_sqdiff_t {
     .mgraph = mgraph,
+    .dtype = dtype,
     .dn = dn,
     .dp = dp,
     .dd = dd,

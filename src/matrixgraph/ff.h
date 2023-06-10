@@ -3,6 +3,7 @@
 
 struct ff_sqdiff_t {
   matrixgraph_t mgraph;
+  dtype_t dtype;
 
   uint64_t dn;
   uint64_t dp;
@@ -44,4 +45,5 @@ ff_sqdiff_t
 ff_sqdiff_update(
   uint64_t dn, uint64_t dp, uint64_t dd,
   vector<uint64_t> dws,
-  float learning_rate);
+  float learning_rate,
+  dtype_t dtype = dtype_t::f32);

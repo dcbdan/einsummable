@@ -409,6 +409,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
           break;
         }
       }
+
       // If not, allocate.
       if(!(out_buffer.data)) {
         out_buffer = make_dbuffer(node.op.out_dtype(), node.op.out_nelem());

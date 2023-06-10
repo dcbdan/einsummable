@@ -32,8 +32,10 @@ void ff(
   vector<uint64_t> dws,
   int niter, float learning_rate)
 {
-  ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate);
+  ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate,dtype);
   matrixgraph_t const& mgraph = ff_info.mgraph;
+
+  set_default_dtype(dtype);
 
   int x             = ff_info.x;
   int y             = ff_info.y;
@@ -107,10 +109,10 @@ void ff(
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
-    float loss = buffers.at(sqdiff).sum().f32();
-    //if(i % 75 == 0) {
-      std::cout << "loss: " << loss << std::endl;
-    //}
+    if(i % 75 == 0) {
+      scalar_t loss = buffers.at(sqdiff).sum();
+      std::cout << "loss: " << loss.str() << std::endl;
+    }
 
     for(int i = 0; i != ws.size(); ++i) {
       int const& w    = ws[i];
@@ -127,7 +129,21 @@ void print_loop_kernel_info() {
     "*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
     "*[hole|f32@0,hole|f32@1]",
     "*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]",
-    "+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]"
+    "+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]",
+    "ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},hole|f16@0]",
+    "power{2}[+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[constant{f16|2},+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[hole|f16@0,hole|f16@1]",
+    "*[ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},constant{f16|1}],hole|f16@1]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},hole|f64@0]",
+    "power{2}[+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[constant{f64|2},+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[hole|f64@0,hole|f64@1]",
+    "*[ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},constant{f64|1}],hole|f64@1]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]"
   };
 
   auto to_type_str = [](dtype_t const& d) {
@@ -209,5 +225,5 @@ int main(int argc, char** argv) {
     throw std::runtime_error("This program is not distributed");
   }
 
-  ff(dtype_t::f32, mpi, dn, dp, dd, dws, niter, learning_rate);
+  ff(dtype_t::f64, mpi, dn, dp, dd, dws, niter, learning_rate);
 }

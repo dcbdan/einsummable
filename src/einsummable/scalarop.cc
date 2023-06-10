@@ -122,6 +122,10 @@ scalar_t scalar_t::negative_one(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+scalar_t scalar_t::convert(dtype_t d) const {
+  return scalar_t::convert(*this, d);
+}
+
 scalar_t scalar_t::convert(scalar_t const& other, dtype_t new_dtype)
 {
   if(other.dtype == new_dtype) {
@@ -159,6 +163,20 @@ scalar_t scalar_t::convert(scalar_t const& other, dtype_t new_dtype)
     }
   }
   throw std::runtime_error("scalar_t::convert: should not reach");
+}
+
+string scalar_t::str() const {
+  switch(dtype) {
+    case dtype_t::f16:
+      return write_with_ss(f16());
+    case dtype_t::f32:
+      return write_with_ss(f32());
+    case dtype_t::f64:
+      return write_with_ss(f64());
+    case dtype_t::c64:
+      return write_with_ss(c64());
+  }
+  throw std::runtime_error("should not reach");
 }
 
 float16_t& scalar_t::f16() { return *reinterpret_cast<float16_t*>(data); }
@@ -838,10 +856,10 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
     return "(" + lhs + "*" + rhs + ")";
   } else if(op.is_exp()) {
     auto inn = children[0].to_cppstr(w);
-    return "std::exp(" + inn + ")";
+    return "_exp(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cppstr(w);
-    return "std::pow(" + inn + "," + write_with_ss(op.get_power()) + ")";
+    return "_pow(" + inn + "," + write_with_ss(op.get_power()) + ")";
   } else if(op.is_ite()) {
     auto i0 = children[0].to_cppstr(w);
     auto i1 = children[1].to_cppstr(w);
@@ -912,12 +930,12 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     return "(" + lhs + "*" + rhs + ")";
   } else if(op.is_exp()) {
     auto inn = children[0].to_cpp_bytes(bytes);
-    return "std::exp(" + inn + ")";
+    return "_exp(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cpp_bytes(bytes);
     auto offset = push_into_bytes(bytes, op.get_power());
     auto power = access_data_str("double", "d", offset);
-    return "std::pow(" + inn + "," + power + ")";
+    return "_pow(" + inn + "," + power + ")";
   } else if(op.is_ite()) {
     auto i0 = children[0].to_cpp_bytes(bytes);
     auto i1 = children[1].to_cpp_bytes(bytes);
@@ -1044,8 +1062,8 @@ void set_default_dtype(dtype_t new_dtype) {
 
 scalarop_t::scalarop_t() {}
 
-scalarop_t::scalarop_t(scalar_ns::node_t const& node)
-  : node(node.simplify()), arg_types(node.hole_types())
+scalarop_t::scalarop_t(scalar_ns::node_t const& n)
+  : node(n.simplify()), arg_types(node.hole_types())
 {}
 
 scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
