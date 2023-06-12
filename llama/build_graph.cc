@@ -5,6 +5,32 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
+// Helpful structure for llama model
+struct ModelArgs_t {
+  ModelArgs_t(int dim=512, 
+  int n_layers = 8, 
+  int n_head = 8, 
+  int vocab_size = -1, 
+  int multiple_of = 256, 
+  float norms_eps = 1e-5,
+  int max_batch_size = 32,
+  int max_seq_len = 2048): 
+  dim(dim), n_layers(n_layers), n_head(n_head), 
+  vocab_size(vocab_size), multiple_of(multiple_of), norms_eps(norms_eps),
+  max_batch_size(max_batch_size), max_seq_len(max_seq_len);
+
+  int dim;
+  int n_layers;
+  int n_head;
+  int vocab_size;
+  int multiple_of;
+  float norms_eps;
+  int max_batch_size;
+  int max_seq_len;
+
+}
+
+
 
 
 struct RMSNorm_t {
@@ -39,7 +65,7 @@ struct attention_t {
     head_dim = args.dim / args.n_heads;
 
     //input tensors
-    vector<uint64_t> kqv_initshape = {n_local_heads, head_dim, model_args.dim};
+    vector<uint64_t> kqv_initshape = {model_args.dim, n_local_heads, head_dim}; //outshape comes first because F.linear is A^tx, so shape is (out_features, in_features)
     vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
     wq = writer.input(kqv_initshape);
@@ -130,9 +156,9 @@ struct transformer_block_t {
     n_heads = args.n_heads;
     dim = args.dim;
     head_dim = args.dim / args.n_head;
+    //TODO: loop the input_names mappping and insert to our own map for both att and ffn
     attention = attention_t(w, "attention.", args, world_size);
     feed_forward = feedforward_t(w, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
-
 
 
   }
@@ -157,47 +183,50 @@ struct transformer_block_t {
 };
 
 
-// Helpful structure for llama model
-struct ModelArgs_t {
-  ModelArgs_t(int dim=512, 
-  int n_layers = 8, 
-  int n_head = 8, 
-  int vocab_size = -1, 
-  int multiple_of = 256, 
-  float norms_eps = 1e-5,
-  int max_batch_size = 32,
-  int max_seq_len = 2048): 
-  dim(dim), n_layers(n_layers), n_head(n_head), 
-  vocab_size(vocab_size), multiple_of(multiple_of), norms_eps(norms_eps),
-  max_batch_size(max_batch_size), max_seq_len(max_seq_len);
-
-  int dim;
-  int n_layers;
-  int n_head;
-  int vocab_size;
-  int multiple_of;
-  float norms_eps;
-  int max_batch_size;
-  int max_seq_len;
-
-}
-
-
-
 struct transformer_t {
-  attention_t(graph_writer_t& w, std::string name, ModelArgs_t params, int world_size): 
+  attention_t(graph_writer_t& w, 
+  std::string name, 
+  ModelArgs_t params, 
+  int world_size): 
     writer(w), params(params){
     vocab_size = params.vocab_size;
     n_layers = params.n_layers;
 
+    vector<uint64_t> tok_embedding_shape = {vocab_size, dim};
+    tok_embedding_weight = writer.input(tok_embedding_shape);
+    input_names.insert(tok_embedding_weight.get_id(), "tok_embeddings.weight");
+    for (int layer_id = 0; layer_id < n_layers; layer_id ++){
+      //loop over input_map and insert into our own map.
+      transformer_block_t block = transformer_block_t(writer, layer_id, params, world_size);
+      layers.push_back(block);
+      map<int, string> inner_names = block.input_map();
+      for (auto x = inner_names.begin(); x != inner_names.end(); ++x) {
+        int tensor_id = x->first;
+        std::string name = x->second;
+        input_names.insert(tensor_id, "layers." + std::to_string(layer_id) + "." + name;)
+      } 
+    }
 
+    norm = RMSNorm_t(writer, "norm.weight", params.dim, params.norm_eps);
+    vector<uint64_t> output_shape = {vocab_size, dim};
+    output_weight = writer.input(output_shape);
+    input_names.insert(output_weight.get_id(), "output.weight");
+
+    //TODO:freqciqs?
   }
 
   /* Get and return the mapping?*/
-  map<int, string> input_map();
+  map<int, string> input_map(){
+    return input_names;
+  };
 
 
   graph_writer_t& writer;
+  map<int,string> input_names;
   ModelArgs_t params; 
   int vocab_size;
+  vector<transformer_block_t> layers;
+  RMSNorm_t norm;
+  tensor_t tok_embedding_weight;
+  tensor_t output_weight;
 };
