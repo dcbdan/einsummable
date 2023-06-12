@@ -380,15 +380,6 @@ build_cutensor_reduction(
     floatTypeCompute alpha = (floatTypeCompute)1.0f;
     floatTypeCompute beta  = (floatTypeCompute)0.0f;
 
-    for (size_t i = 0; i < extent_A.size(); i++) {
-        std::cout << extent_A.data()[i] << " ";
-    }
-    std::cout << std::endl;
-    for (size_t i = 0; i < extent_C.size(); i++) {
-            std::cout << extent_C.data()[i] << " ";
-    }
-    std::cout << std::endl;
-
     cutensorTensorDescriptor_t descA;
     handle_cutensor_error(
       cutensorInitTensorDescriptor(handle,
@@ -406,16 +397,9 @@ build_cutensor_reduction(
                  extent_C.data(),
                  NULL /* stride */,
                  typeC, CUTENSOR_OP_IDENTITY));
-    
-    std::cout << sizeA << std::endl;
-    std::cout << sizeC << std::endl;
 
-    //get the memory pointer
-    void *A_d, *C_d;
-    cudaMalloc((void**)&A_d, sizeA);
-    cudaMalloc((void**)&C_d, sizeC);
-    cudaMemcpy(C_d, out, sizeC, cudaMemcpyHostToDevice);
-    cudaMemcpy(A_d, inns[0], sizeA, cudaMemcpyHostToDevice);
+    void *A_d = (void*)inns[0];
+    void* C_d = (void*)out;
 
     uint64_t worksize = 0;
     handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
@@ -439,14 +423,7 @@ build_cutensor_reduction(
                 (const void*)&beta,  C_d, &descC, modeC.data(), 
                                      C_d, &descC, modeC.data(), 
                 opReduce, typeCompute, work, worksize,stream);
-    
-    cudaMemcpy(out, C_d, sizeC, cudaMemcpyDeviceToHost);
 
-
-    for (size_t i = 0; i < 10; i++) {
-      std::cout << out[i] << " ";
-    }
-    std::cout << std::endl;
   };
 
   

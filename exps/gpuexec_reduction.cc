@@ -118,9 +118,20 @@ int main(){
     cudaMemcpy(C_d, C, sizeC, cudaMemcpyHostToDevice);
     cudaMemcpy(A_d, A, sizeA, cudaMemcpyHostToDevice);
 
+    float* out;
+    float* inn0;
+
+    cudaMalloc(&inn0, sizeA);
+    cudaMalloc(&out, sizeC);
+
+    cudaMemcpy(out, C, sizeC, cudaMemcpyHostToDevice);
+    cudaMemcpy(inn0, A, sizeA, cudaMemcpyHostToDevice);
+     
+
+
     //float* out = C;
     std::vector<float const*> inns;
-    inns.push_back(A);
+    inns.push_back(inn0);
 
 
     std::vector<int64_t> extent_A;
@@ -136,15 +147,18 @@ int main(){
     }
 
 
+
     // Call execute_contraction
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    func(stream,handle,C, inns);
+    func(stream,handle,out, inns);
 
 
 
     cudaStreamDestroy(stream);
+
+    cudaMemcpy(C, out,sizeC, cudaMemcpyDeviceToHost);
 
     printf("Reduction Executed!\n");
 

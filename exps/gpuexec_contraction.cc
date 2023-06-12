@@ -373,7 +373,7 @@ int main(){
     cudaMemcpy(out2, C_out,sizeC, cudaMemcpyDeviceToHost);
 
 
-    bool areEqual = checkArrays3D(out1, out2, totalSize);
+    bool areEqual = checkArrays3D(out1, out2, elementsC);
 
     // Whether the results from our kernels and using cutensor directly is the same:
     if (areEqual) {
