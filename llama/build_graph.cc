@@ -63,7 +63,7 @@ struct attention_t {
     head_dim = args.dim / args.n_heads;
 
     //input tensors
-    vector<uint64_t> kqv_initshape = {model_args.dim, n_local_heads, head_dim}; //outshape comes first because F.linear is A^tx, so shape is (out_features, in_features)
+    vector<uint64_t> kqv_initshape = {model_args.dim, n_local_heads, head_dim}; //outshape comes first because F.linear is xA^t, so shape is (out_features, in_features)
     vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
     wq = writer.input(kqv_initshape);
@@ -80,6 +80,34 @@ struct attention_t {
     //TODO: not sure about the size of wo.weight. wo starts at dim so n_head*headdim so no need view
     wo = writer.input(kqv_initshape);
     input_names.insert(wo.get_id(), name + "wo.weight");
+
+  }
+
+  /**
+   * @brief Forward function of the attention block
+   * 
+   * @param x the input to attention block
+   * @param start_pos 
+   * @param freqs_cis 
+   * @param mask 
+   * @return tensor_t 
+   */
+  tensor_t forward(tensor_t x, int start_pos, tensor_t freqs_cis, optional<tensor_t> mask) {
+    vector<uint64_t> input_shape = x.get_shape();
+    uint64_t bsz = input_shape[0];
+    uint64_t seqlen = input_shape[1];
+    tensor_t xq = xq.transpose(0,1); //->transpose->x * xq^t
+    tensor_t xk = xk.transpose(0,1);
+    tensor_t xv = xv.transpose(0,1);
+    xq = writer.matmul(x, xq);
+    xq = writer.matmul(x, xk);
+    xq = writer.matmul(x, xv);
+
+    vector<uint64_t> initial_view_shape = {bsz, seqlen, n_local_heads, head_dim};
+    xq = xq.view(initial_view_shape);
+    xk = xk.view(initial_view_shape);
+    xv = xv.view(initial_view_shape);
+
 
   }
 
@@ -223,11 +251,16 @@ struct transformer_t {
     }
 
     norm = RMSNorm_t(writer, "norm.weight", params.dim, params.norm_eps);
+    
+    //TODO: for the output weight from dim->vocab_size, we also do it in frontend?
     vector<uint64_t> output_shape = {vocab_size, dim};
     output_weight = writer.input(output_shape);
     input_names.insert(output_weight.get_id(), "output.weight");
 
     //TODO:freqciqs?
+
+    /*Note for us: we still need to have code to convert the token embeddings
+    back to vocab size on c++ side, but we don't have the */
   }
 
   /* Get and return the mapping?*/
