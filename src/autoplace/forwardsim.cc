@@ -262,6 +262,14 @@ set<int> const& forward_state_t::can_assign_partition() const {
   return can_partition;
 }
 
+void forward_state_t::assign_placement(int gid, placement_t const& pl) {
+  assign_partition(gid, pl.partition);
+  auto const& locs = pl.locations.get();
+  for(int bid = 0; bid != locs.size(); ++bid) {
+    assign_location(jid_t{ gid, bid }, locs[bid]);
+  }
+}
+
 void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
   if(new_part.total_shape() != graph.nodes[gid].op.shape()) {
     throw std::runtime_error("given partition has incorrect total shape");

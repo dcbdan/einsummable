@@ -55,7 +55,8 @@ std::ostream& operator<<(std::ostream& out, svg_box_t const& box);
 svg_box_t row_background(
   int which_row,
   int width,
-  int row_height);
+  int row_height,
+  string color = "");
 
 struct svg_text_t {
   tuple<int,int> top_left;
@@ -77,6 +78,13 @@ void timeplot(
   std::ostream& out,
   vector<timeplot_ns::box_t> const& boxes,
   int row_height,
+  int min_box_width,
+  optional<double> actual_makespan = std::nullopt);
+
+void timeplot_with_subrow(
+  std::ostream& out,
+  vector<timeplot_ns::box_t> const& boxes,
+  int sub_row_height,
   int min_box_width,
   optional<double> actual_makespan = std::nullopt);
 

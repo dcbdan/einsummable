@@ -10,12 +10,7 @@ double simulate(
   forward_state_t state(cluster, graph);
 
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& pl = pls[gid];
-    state.assign_partition(gid, pl.partition);
-    vector<int> const& locs = pl.locations.get();
-    for(int bid = 0; bid != locs.size(); ++bid) {
-      state.assign_location({gid, bid}, locs[bid]);
-    }
+    state.assign_placement(gid, pls[gid]);
   }
 
   double makespan = 0.0;

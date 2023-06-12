@@ -45,9 +45,12 @@ std::ostream& operator<<(std::ostream& out, svg_box_t const& box) {
 svg_box_t row_background(
   int which_row,
   int width,
-  int row_height)
+  int row_height,
+  string color)
 {
-  string color = which_row % 2 == 0 ? "lightblue" : "pink";
+  if(color == "") {
+    color = which_row % 2 == 0 ? "lightblue" : "pink";
+  }
   return svg_box_t {
     .top_left = {0,row_height * which_row},
     .bot_right = {width,row_height * (which_row + 1)},
@@ -99,6 +102,56 @@ tuple<svg_box_t, svg_text_t> task_box(
   };
   return {svg_box, svg_text};
 }
+
+struct subrow_former_t {
+  // return the first subrow that has nothing happening
+  // in (beg,end)
+  int operator()(double beg, double end) {
+    for(int i = 0; i != items.size(); ++i) {
+      if(insert(beg, end, items[i])) {
+        return i;
+      }
+    }
+    items.emplace_back();
+    items.back().push_back({beg,end});
+    return items.size() - 1;
+  }
+
+  int num_subrows() const {
+    return items.size();
+  }
+
+  vector<vector<tuple<double,double>>> items;
+
+private:
+  static bool
+  insert(
+    double beg, double end,
+    vector<tuple<double, double>>& is)
+  {
+    // It'd scale better if 'is' is always sorted...
+    // But the svg size will be too big to view before
+    // this becomes slow
+    for(auto const& i: is) {
+      if(intersect({beg,end}, i)) {
+        return false;
+      }
+    }
+    is.emplace_back(beg,end);
+    return true;
+  }
+
+  static bool intersect(
+    tuple<double, double> const& lhs,
+    tuple<double, double> const& rhs)
+  {
+    auto const& [bl,el] = lhs;
+    auto const& [br,er] = rhs;
+    double b = std::max(bl,br);
+    double e = std::min(el,er);
+    return b < e;
+  }
+};
 
 }
 
@@ -179,3 +232,114 @@ void timeplot(
 
   out << "</svg>" << endl;
 }
+
+void timeplot_with_subrow(
+  std::ostream& out,
+  vector<timeplot_ns::box_t> const& boxes,
+  int subrow_height,
+  int min_box_width,
+  optional<double> actual_makespan)
+{
+  int max_image_width = 20000;
+
+  using namespace timeplot_ns;
+
+  double minboxtime = -1.0;
+  int nrow = 0;
+  double makespan = 0.0;
+  for(auto const& box: boxes) {
+    if(box.stop - box.start == 0.0) {
+      continue;
+    }
+    if(minboxtime < 0) {
+      minboxtime = box.stop - box.start;
+    } else {
+      minboxtime = std::min(minboxtime, box.stop - box.start);
+    }
+    nrow = std::max(nrow, box.row + 1);
+    makespan = std::max(makespan, box.stop);
+  }
+
+  if(actual_makespan) {
+    if(actual_makespan.value() < makespan) {
+      throw std::runtime_error("provided makespan less than boxes values!");
+    }
+    makespan = actual_makespan.value();
+  }
+
+  vector<int> num_subrows;
+  vector<int> which_subrow;
+  {
+    vector<subrow_former_t> formers(nrow);
+    for(auto const& box: boxes) {
+      which_subrow.push_back(
+        formers[box.row](box.start, box.stop));
+    }
+    for(auto const& former: formers) {
+      num_subrows.push_back(former.num_subrows());
+    }
+  }
+  int nsubrow =
+    std::accumulate(num_subrows.begin(), num_subrows.end(), 0);
+
+  std::function<int(double)> time_to_int;
+
+  time_to_int = [&](double time) {
+    return double_to_int((time / minboxtime) * min_box_width);
+  };
+
+  if(time_to_int(makespan) > max_image_width) {
+    time_to_int = [&](double time) {
+      return double_to_int((max_image_width * 1.0) * time / makespan);
+    };
+  }
+
+  int width  = time_to_int(makespan);
+  int height = nsubrow * subrow_height;
+
+  out << "<svg width=" << quote(width) << " height=" << quote(height) << ">" << endl;
+
+  {
+    int i = 0;
+    for(int r = 0; r != nrow; ++r) {
+      string color = r % 2 == 0 ? "lightblue" : "pink";
+      int nsr = num_subrows[r];
+      for(int z = 0; z != nsr; ++z) {
+        out << row_background(i, width, subrow_height, color);
+        i++;
+      }
+    }
+  }
+
+  vector<int> offsets(num_subrows.size());
+  std::exclusive_scan(
+    num_subrows.begin(), num_subrows.end(),
+    offsets.begin(),
+    0);
+  for(int b = 0; b != boxes.size(); ++b) {
+    auto const& [row,start,stop,label] = boxes[b];
+    int const& row_subrow = which_subrow[b];
+    int subrow = offsets[row] + row_subrow;
+
+    if(stop - start == 0.0) {
+      continue;
+    }
+    int istart = time_to_int(start);
+    int istop  = time_to_int(stop);
+
+    if(istop - istart < 30) {
+      continue;
+    }
+
+    auto [box,text] = task_box(
+      subrow, subrow_height,
+      istart, istop,
+      label);
+
+    out << box;
+    out << text;
+  }
+
+  out << "</svg>" << endl;
+}
+
