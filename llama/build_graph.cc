@@ -206,14 +206,10 @@ struct transformer_t {
   std::string name, 
   ModelArgs_t params, 
   int world_size,
-  tensor_t): 
+  tensor_t embedded_token): //size should be [tokensize, dim] 
     writer(w), params(params){
-    vocab_size = params.vocab_size;
     n_layers = params.n_layers;
 
-    vector<uint64_t> tok_embedding_shape = {vocab_size, dim};
-    tok_embedding_weight = writer.input(tok_embedding_shape);
-    input_names.insert(tok_embedding_weight.get_id(), "tok_embeddings.weight");
     for (int layer_id = 0; layer_id < n_layers; layer_id ++){
       //loop over input_map and insert into our own map.
       transformer_block_t block = transformer_block_t(writer, layer_id, params, world_size);
@@ -246,6 +242,5 @@ struct transformer_t {
   int vocab_size;
   vector<transformer_block_t> layers;
   RMSNorm_t norm;
-  tensor_t tok_embedding_weight;
   tensor_t output_weight;
 };
