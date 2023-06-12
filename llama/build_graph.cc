@@ -5,6 +5,30 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
+
+
+struct RMSNorm_t {
+
+  RMSNorm_t(graph_writer_t& w, 
+  string name, //should be "ffn_norm." or "attention_norm"
+  int dim,
+  float eps = 1e-6)
+  : writer(w), eps(eps){
+    vector<uint64_t> weights_shape = {dim};
+    weights = writer.input(weights_shape);
+    input_names.insert(weights.get_id(), "weight");
+  }
+    
+  map<int, string> input_names;
+  graph_writer_t& writer;
+  float eps;
+
+  tensor_t weight;
+  
+}
+
+
+
 struct attention_t {
   attention_t(graph_writer_t& w, 
   string name, //should be "attention."
@@ -29,10 +53,9 @@ struct attention_t {
     wv = writer.input(kqv_initshape);
     input_names.insert(wv.get_id(), "wv.weight");
     wv = wv.view(kqv_reshape);
-    //TODO: not sure about the size of wo.weight
+    //TODO: not sure about the size of wo.weight. wo starts at dim so n_head*headdim so no need view
     wo = writer.input(kqv_initshape);
     input_names.insert(wo.get_id(), "wo.weight");
-    wo = wo.view(kqv_reshape);
 
   }
 
@@ -64,11 +87,12 @@ struct feedforward_t {
   { 
     // add to the writer
 
-    silu = ...
+    // silu = ...
 
-    hidden_dim = ...
-    multiple_of = ...
+    hidden_dim = 2 * hidden_dim / 3;
+    hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) / multiple_of)
 
+    vector<uint64_t> w1w3shape = {hidden_dim, dim};
     w1 = writer.input(...)
     input_names.insert(w1.get_id(), ...);
     w1 = w1.view(...)
@@ -131,17 +155,6 @@ struct transformer_block_t {
   graph_writer_t& writer;
   map<int, string> input_names;
 };
-
-
-
-struct RMSNorm_t {
-  // ...
-}
-
-
-
-
-
 
 
 // Helpful structure for llama model
