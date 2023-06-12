@@ -10,6 +10,10 @@ compare_t compare_flip(compare_t);
 enum class dtype_t { f16, f32, f64, c64 };
 
 uint64_t dtype_size(dtype_t);
+bool dtype_is_real(dtype_t);
+bool dtype_is_complex(dtype_t);
+// Assumption: could be the case that there is something
+//             other than real and complex (in the future)
 
 struct scalar_t {
   scalar_t();

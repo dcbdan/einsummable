@@ -190,6 +190,97 @@ int graph_t::insert_formation(
     {inn});
 }
 
+int graph_constructor_t::insert_to_complex(
+  placement_t placement,
+  int inn)
+{
+  int ret = graph.insert_to_complex(inn);
+  if(!vector_equal(graph.out_shape(ret), placement.total_shape())) {
+    throw std::runtime_error("invalid shape: insert_to_complex (constructing)");
+  }
+
+  placements.insert({ret, placement});
+  return ret;
+}
+
+int graph_constructor_t::insert_to_complex(
+  partition_t partition,
+  int inn)
+{
+  return this->insert_to_complex(placement_t(partition), inn);
+}
+
+int graph_constructor_t::insert_to_complex(
+  int inn)
+{
+  auto shape = graph.out_shape(inn);
+  shape.back() /= 2;
+  return this->insert_to_complex(partition_t::singleton(shape), inn);
+}
+
+int graph_t::insert_to_complex(int inn)
+{
+  if(out_dtype(inn) != dtype_t::f32) {
+    throw std::runtime_error("can only convert to dtype_t::c64");
+  }
+  vector<uint64_t> shape = out_shape(inn);
+  if(shape.back() % 2 == 1) {
+    throw std::runtime_error("must have last even last input dim");
+  }
+  shape.back() /= 2;
+
+  return this->insert(
+    complexer_t {
+      .dtype = dtype_t::c64,
+      .shape = shape
+    },
+    {inn});
+}
+
+int graph_constructor_t::insert_to_real(
+  placement_t placement,
+  int inn)
+{
+  int ret = graph.insert_to_real(inn);
+  if(!vector_equal(graph.out_shape(ret), placement.total_shape())) {
+    throw std::runtime_error("invalid shape: insert_to_real (constructing)");
+  }
+
+  placements.insert({ret, placement});
+  return ret;
+}
+
+int graph_constructor_t::insert_to_real(
+  partition_t partition,
+  int inn)
+{
+  return this->insert_to_real(placement_t(partition), inn);
+}
+
+int graph_constructor_t::insert_to_real(
+  int inn)
+{
+  auto shape = graph.out_shape(inn);
+  shape.back() *= 2;
+  return this->insert_to_real(partition_t::singleton(shape), inn);
+}
+
+int graph_t::insert_to_real(int inn)
+{
+  if(out_dtype(inn) != dtype_t::c64) {
+    throw std::runtime_error("can only convert from dtype_t::c64");
+  }
+  vector<uint64_t> shape = out_shape(inn);
+  shape.back() *= 2;
+
+  return this->insert(
+    complexer_t {
+      .dtype = dtype_t::f32,
+      .shape = shape
+    },
+    {inn});
+}
+
 int graph_constructor_t::insert_concat(
   placement_t placement,
   int dim,
@@ -255,12 +346,42 @@ int graph_t::insert_concat(
   return this->insert(concat_t(dim, dtype, shapes), inns);
 }
 
+dtype_t graph_t::complexer_t::inn_dtype() const {
+  if(dtype == dtype_t::f32) {
+    return dtype_t::c64;
+  }
+  if(dtype == dtype_t::c64) {
+    return dtype_t::f32;
+  }
+  throw std::runtime_error("inn_dtype complexer: invalid dtype");
+}
+
+vector<uint64_t>
+graph_t::complexer_t::inn_shape() const {
+  vector<uint64_t> ret = shape;
+  if(dtype_is_real(dtype)) {
+    ret.back() *= 2;
+    return ret;
+  } else if(dtype_is_complex(dtype)) {
+    if(ret.back() % 2 == 1) {
+      throw std::runtime_error("invalid complexer shape");
+    }
+    ret.back() /= 2;
+    return ret;
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
 dtype_t graph_t::op_t::out_dtype() const {
   if(is_input()) {
     return get_input().dtype;
   }
   if(is_formation()) {
     return get_formation().dtype;
+  }
+  if(is_complexer()) {
+    return get_complexer().dtype;
   }
   if(is_concat()) {
     return get_concat().dtype;
@@ -279,6 +400,9 @@ graph_t::op_t::out_shape() const {
   if(is_formation()) {
     return get_formation().shape;
   }
+  if(is_complexer()) {
+    return get_complexer().shape;
+  }
   if(is_concat()) {
     return get_concat().shape();
   }
@@ -295,6 +419,9 @@ graph_t::op_t::shape() const {
   }
   if(is_formation()) {
     return get_formation().shape;
+  }
+  if(is_complexer()) {
+    return get_complexer().shape;
   }
   if(is_concat()) {
     return get_concat().shape();
@@ -384,6 +511,12 @@ void graph_t::print() const {
       std::cout << "einsummable " << node.op.get_einsummable() << std::endl;
     } else if(node.op.is_formation()) {
       std::cout << "formation (is save = " << std::boolalpha << node.op.is_save() << ")" << std::endl;
+    } else if(node.op.is_complexer()) {
+      if(node.op.get_complexer().is_to_real()) {
+        std::cout << "complexer (to real)" << std::endl;
+      } else {
+        std::cout << "complexer (to complex)" << std::endl;
+      }
     } else if(node.op.is_concat()) {
       std::cout << "concat[dim=" << node.op.get_concat().dim << "]" << std::endl;
     } else {
@@ -739,6 +872,16 @@ dtype_t graph_writer_t::tensor_t::get_dtype() const {
   return self.graph.out_dtype(id);
 }
 
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_complex() const {
+  return self.to_complex(*this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_real() const {
+  return self.to_real(*this);
+}
+
 graph_writer_t::tensor_t&
 graph_writer_t::tensor_t::operator=(
   graph_writer_t::tensor_t const& other)
@@ -1039,6 +1182,51 @@ graph_writer_t::concat(
     full_shape,
     id,
     *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::to_real(
+  graph_writer_t::tensor_t const& inn)
+{
+  if(!dtype_is_complex(inn.get_dtype())) {
+    throw std::runtime_error("must have complex to convert to real");
+  }
+  return insert_complexer(inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::to_complex(
+  graph_writer_t::tensor_t const& inn)
+{
+  if(!dtype_is_real(inn.get_dtype())) {
+    throw std::runtime_error("must have real to convert to complex");
+  }
+  return insert_complexer(inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::insert_complexer(
+  graph_writer_t::tensor_t tensor)
+{
+  bool to_real = dtype_is_complex(tensor.get_dtype());
+
+  // Only do a permutation if the actual last dimension
+  // is not at the end
+  if(tensor.modes.back() != tensor.modes.size() - 1) {
+    tensor.physically_permute();
+  }
+
+  if(to_real) {
+    tensor.id = graph.insert_to_real(tensor.id);
+    tensor.full_shape.back() *= 2;
+    tensor.shape.back() *= 2;
+  } else {
+    tensor.id = graph.insert_to_complex(tensor.id);
+    tensor.full_shape.back() /= 2;
+    tensor.shape.back() /= 2;
+  }
+
+  return tensor;
 }
 
 graph_writer_t::tensor_t

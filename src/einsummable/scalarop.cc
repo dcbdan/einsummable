@@ -38,6 +38,34 @@ uint64_t dtype_size(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+bool dtype_is_real(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return true;
+    case dtype_t::f32:
+      return true;
+    case dtype_t::f64:
+      return true;
+    case dtype_t::c64:
+      return false;
+  }
+  throw std::runtime_error("should not reach");
+}
+
+bool dtype_is_complex(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return false;
+    case dtype_t::f32:
+      return false;
+    case dtype_t::f64:
+      return false;
+    case dtype_t::c64:
+      return true;
+  }
+  throw std::runtime_error("should not reach");
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
