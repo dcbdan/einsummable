@@ -205,7 +205,8 @@ struct transformer_t {
   attention_t(graph_writer_t& w, 
   std::string name, 
   ModelArgs_t params, 
-  int world_size): 
+  int world_size,
+  tensor_t): 
     writer(w), params(params){
     vocab_size = params.vocab_size;
     n_layers = params.n_layers;
