@@ -1,10 +1,13 @@
 #include "execute.h"
 #include "kernels.h"
 #include <cstdlib>
+#include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <iostream>
+#include <sys/types.h>
 #include <thread>
 #include <vector>
+#include <stdio.h>
 
 
 using std::thread;
@@ -16,6 +19,14 @@ cudaStream_t cuda_create_stream() {
     throw std::runtime_error("cuda_create_stream");
   }
   return ret;
+}
+
+// this 
+void printFloats(const float* ptr, int count) {
+  for (int i = 0; i < count; ++i) {
+    printf("%f ", ptr[i]);
+  }
+  printf("\n");
 }
 
 // update memgraph node when it is finished; modify the dependency counter of the node
@@ -119,7 +130,6 @@ void execute(const memgraph_t &memgraph){
 void gpu_execute_state_t::run() {
 
     while (true){
-
         // if the num_nodes_remaining is 0, then we are done
         if (is_complete(num_nodes_remaining)){
             // if the dependency count for all node is 0, then we are done
@@ -133,19 +143,32 @@ void gpu_execute_state_t::run() {
                 exit(1);
             }
             else{
+                int num_elements = 100;
+                float* cpu_input1 = (float*) malloc(num_elements);
+                float* cpu_input2 = (float*) malloc(num_elements);
+                float* cpu_output = (float*) malloc(num_elements);
+                // do cuda memcopies
+                cudaMemcpy(cpu_input1, memory_base_ptr, num_elements, cudaMemcpyDeviceToHost);
+                cudaMemcpy(cpu_input1, memory_base_ptr + 100, num_elements, cudaMemcpyDeviceToHost);
+                cudaMemcpy(cpu_input1, memory_base_ptr + 200, num_elements, cudaMemcpyDeviceToHost);
+                std::cout << "Input 1: ";
+                printFloats(cpu_input1, num_elements);
+                std::cout << "Input 2: ";
+                printFloats(cpu_input2, num_elements);
+                std::cout << "Output: ";
+                printFloats(cpu_output, num_elements);
                 std::cout << "All nodes finished execution." << std::endl;
                 exit(0);
             }
             exit(0);
         }
-
+        // locking the mutex until the queue has new things to execute
         {
             std::unique_lock lk(m);
             cv.wait(lk, [&]{
                 return pending_queue.size() > 0;
             });
         }
-
         // execute things that are in the apply_queue until the queue is empty
         while (pending_queue.size() != 0) {
             // get the first element in the queue
@@ -156,26 +179,21 @@ void gpu_execute_state_t::run() {
             // execute the node
             if (node.op.is_input() || node.op.is_del() || node.op.is_partialize()) {
                 std::unique_lock lk(m);
-                // do nothing but add the node to the finished queue
+                // do nothing but update the memgraph execution since that node is finished
                 auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
                 add_to_queue(pending_queue, new_nodes);
                 lk.unlock();
-
             }
             else if (node.op.is_apply()){
                 // create a cuda stream since for apply we need to execute that on a cuda stream always
                 // TODO: may need to keep a pool of streams
                 cudaStream_t stream = cuda_create_stream();
 
-                // we run the dummy kernel with the stream
-                dummy_dispatch(nullptr, nullptr, stream);
-
                 auto memory_vector = node.op.get_apply().mems;
 
                 if (node.op.is_touch()) {
                     // CASE: TOUCH
                     auto touch_kernel = build_touch(node.op.get_touch());
-                    // TODO: Does touch only have one input memory?
                     touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
                 }
                 else {
@@ -200,7 +218,6 @@ void gpu_execute_state_t::run() {
                             get_input_mem_ptrs(memory_vector, memory_base_ptr));
                     }
                 }
-
                 // after execution, we attach the stream with a callback function
                 // get all the metadata needed for the callback
                 callback_data_t* data = new callback_data_t;

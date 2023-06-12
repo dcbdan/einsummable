@@ -100,9 +100,9 @@ int main(int argc, char** argv) {
       std::cout << std::endl;
     }
 
-    // std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
-    // std::ofstream f("mm3d_mem_lowest_dep.gv");
-    // memgraph.print_graphviz(f);
+    std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
+    std::ofstream f("mm3d_mem_lowest_dep.gv");
+    memgraph.print_graphviz(f);
     uint64_t buffer_size = 0;
     execute(memgraph);
   }

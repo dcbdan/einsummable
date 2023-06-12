@@ -13,6 +13,7 @@
 #include <variant>
 #include <mutex>
 #include <condition_variable>
+#include <vector>
 
 using memgraph_t = memgraph_t;
 
@@ -54,7 +55,10 @@ struct gpu_execute_state_t
     // for now there's only one device, so we only need one entry
     std::map<int, int> num_nodes_remaining;
 
-    // cutensor related:
+    std::vector<int> group_id_executing;
+
+    std::map<int, std::vector<int>> groupID_to_nodeIDX;
+
     cutensorHandle_t* handle;
 
     float* memory_base_ptr;
