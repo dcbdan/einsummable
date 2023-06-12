@@ -88,6 +88,7 @@ int main(){
     for(auto mode : modeC)
         elementsC *= e.join_shape[mode];
 
+    // f64 -> double
     typedef float floatTypeA;
     typedef float floatTypeB;
     typedef float floatTypeC;
@@ -382,9 +383,9 @@ int main(){
         printf("The arrays are different.\n");
     }
 
-    //for (int i = 0; i < 100; ++i) {
-    //    std::cout << "The element " << i << " for out 1 " << out1[i] << " for out 2 " << out2[i] << std::endl;
-    //}
+    for (int i = 0; i < 100; ++i) {
+       std::cout << "The element " << i << " for out 1 " << out1[i] << " for out 2 " << out2[i] << std::endl;
+    }
 
     return 0;
 }

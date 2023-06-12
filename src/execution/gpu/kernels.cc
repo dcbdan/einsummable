@@ -281,20 +281,8 @@ void execute_contraction(
 
   
   size_t worksize = 0;
-  handle_cutensor_error( cutensorContractionGetWorkspaceSize(handle,
-              desc,
-              &find,
-              CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
-  
   void *work = nullptr;
-  if(worksize > 0)
-  {
-      if( cudaSuccess != cudaMalloc(&work, worksize) ) 
-      {
-          work = nullptr;
-          worksize = 0;
-      }
-  }
+
 
   cutensorContractionPlan_t plan;
   handle_cutensor_error(
@@ -303,7 +291,7 @@ void execute_contraction(
       &plan,
       desc,
       &find,
-      worksize) );
+      0) );
 
   cutensorStatus_t err;
 
@@ -314,7 +302,7 @@ void execute_contraction(
   handle_cutensor_error(
     cutensorContraction(handle, &plan, (void*)&alpha, A_d,
                         B_d, (void*)&beta, C_d, C_d,
-                        work, worksize, stream) );
+                        nullptr, 0, stream) );
 
 }
 
@@ -610,7 +598,7 @@ make_cutensor_elementwise_op(
   }
 
   //(arg0 - val * arg1)
-  // op.op = cutensor_elementwise_op_t::binary_t{/*cuTensor no op for diff?*/,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{val,CUTENSOR_OP_IDENTITY,e.inns[1]}}
+  // op.op = cutensor_elementwise_op_t::binary_t{/*/,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{val,CUTENSOR_OP_IDENTITY,e.inns[1]}}
 
   //(relu(arg0))
   // op.op = cutensor_elementwise_op_t::unary_t{{1.0f,CUTENSOR_OP_RELU,e.inns[1]}}
