@@ -31,8 +31,6 @@ struct ModelArgs_t {
 }
 
 
-
-
 struct RMSNorm_t {
 
   RMSNorm_t(graph_writer_t& w, 
@@ -42,7 +40,7 @@ struct RMSNorm_t {
   : writer(w), eps(eps){
     vector<uint64_t> weights_shape = {dim};
     weights = writer.input(weights_shape);
-    input_names.insert(weights.get_id(), "weight");
+    input_names.insert(weights.get_id(), name + "weight");
   }
     
   map<int, string> input_names;
@@ -69,24 +67,26 @@ struct attention_t {
     vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
     wq = writer.input(kqv_initshape);
-    input_names.insert(wq.get_id(), "wq.weight");
+    input_names.insert(wq.get_id(), name + "wq.weight");
     wq = wq.view(kqv_reshape);
 
     wk = writer.input(kqv_initshape);
-    input_names.insert(wk.get_id(), "wk.weight");
+    input_names.insert(wk.get_id(), name + "wk.weight");
     wk = wk.view(kqv_reshape);
 
     wv = writer.input(kqv_initshape);
-    input_names.insert(wv.get_id(), "wv.weight");
+    input_names.insert(wv.get_id(), name + "wv.weight");
     wv = wv.view(kqv_reshape);
     //TODO: not sure about the size of wo.weight. wo starts at dim so n_head*headdim so no need view
     wo = writer.input(kqv_initshape);
-    input_names.insert(wo.get_id(), "wo.weight");
+    input_names.insert(wo.get_id(), name + "wo.weight");
 
   }
 
   /* Get and return the mapping?*/
-  map<int, string> input_map();
+  map<int, string> input_map(){
+    return input_names;
+  };
 
 
   map<int, string> input_names;
@@ -101,6 +101,8 @@ struct attention_t {
   tensor_t wv;
   tensor_t wo;
 };
+
+
 
 struct feedforward_t {
   feedforward_t(
@@ -136,7 +138,9 @@ struct feedforward_t {
     // return self.w2(F.silu(self.w1(x)) * self.w3(x))
   }
 
-  map<int, string> input_map();
+  map<int, string> input_map(){
+    return input_names;
+  };
 
   graph_writer_t& writer;
   map<int, string> input_names;
@@ -159,15 +163,32 @@ struct transformer_block_t {
     //TODO: loop the input_names mappping and insert to our own map for both att and ffn
     attention = attention_t(w, "attention.", args, world_size);
     feed_forward = feedforward_t(w, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
+    //Attention_t names mapping
+    map<int, string> att_inner_names = attention.input_map();
+    for (auto x = att_inner_names.begin(); x != att_inner_names.end(); ++x) {
+      int tensor_id = x->first;
+      std::string name = x->second;
+      input_names.insert(tensor_id, "layers." + std::to_string(layer_id) + "." + name;)
+    }
+    //feed_forward names mapping
+    map<int, string> ff_inner_names = feed_forward.input_map();
+    for (auto x = ff_inner_names.begin(); x != ff_inner_names.end(); ++x) {
+      int tensor_id = x->first;
+      std::string name = x->second;
+      input_names.insert(tensor_id, "layers." + std::to_string(layer_id) + "." + name;)
+    }
 
-
+    attention_norm = RMSNorm_t(writer, "attention_norm.", args.dim, args.norms_eps);
+    ffn_norm = RMSNorm_t(writer, "ffn_norm.", args.dim, args.norms_eps);
   }
 
   int forward(tensor_t x, uint64_t start_pos, tensor_t freqs_cis, tensor_t mask) {
 
   }
 
-  map<int, string> input_map();
+  map<int, string> input_map(){
+    return input_names;
+  };
 
   int n_heads;
   int dim;
@@ -203,7 +224,7 @@ struct transformer_t {
       for (auto x = inner_names.begin(); x != inner_names.end(); ++x) {
         int tensor_id = x->first;
         std::string name = x->second;
-        input_names.insert(tensor_id, "layers." + std::to_string(layer_id) + "." + name;)
+        input_names.insert(tensor_id, name;)
       } 
     }
 
