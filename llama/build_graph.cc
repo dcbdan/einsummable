@@ -107,31 +107,28 @@ struct attention_t {
 struct feedforward_t {
   feedforward_t(
     graph_writer_t& w,
-    string name, //should pass in "feed_forward"
+    string name, //should pass in "feed_forward."
     vector<uint64_t> dim,
     uint64_t hidden_dim,
     uint64_t multiple_of)
     : writer(w)
   { 
-    // add to the writer
-
     // silu = ...
 
     hidden_dim = 2 * hidden_dim / 3;
-    hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) / multiple_of)
+    hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) / multiple_of);
 
     vector<uint64_t> w1w3shape = {hidden_dim, dim};
-    w1 = writer.input(...)
-    input_names.insert(w1.get_id(), ...);
-    w1 = w1.view(...)
+    vector<uint64_t> w2shape = {dim, hidden_dim};
+    //TODO: still have to view? 
+    w1 = writer.input(w1w3shape);
+    input_names.insert(w1.get_id(), name + "w1.weight");
 
-    w2 = writer.input(...)
-    input_names.insert(w2.get_id(), ...);
-    w2 = w2.view(...)
+    w2 = writer.input(w2shape)
+    input_names.insert(w2.get_id(), name + "w2.weight");
 
-    w3 = writer.input(...)
-    input_names.insert(w3.get_id(), ...);
-    w3 = w3.view(...)
+    w3 = writer.input(w1w3shape)
+    input_names.insert(w3.get_id(), name + "w3.weight");
   }
 
   tensor_t forward(tensor_t x) {
