@@ -165,14 +165,6 @@ void build_contraction(
     throw std::runtime_error("build_contraction must be given a contraction");
   }
 
-  //Assuming we are doing C = A contraction B
-
-  // if we have mhkn, ukvh -> munv
-  // then we should have:
-  //   std::vector<int> modeC{'m','u','n','v'};
-  //   std::vector<int> modeA{'m','h','k','n'};
-  //   std::vector<int> modeB{'u','k','v','h'};
-
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeB = e.inns[1];
   std::vector<int> modeC;
@@ -182,8 +174,6 @@ void build_contraction(
 
   int nmodeA = e.inns[0].size();
   int nmodeB = e.inns[1].size();
-
-  //dimension of C
   int nmodeC = e.out_rank;
 
   // CUDA types
@@ -304,12 +294,6 @@ build_cutensor_reduction(
   vector<int> out_modes, vector<uint64_t> out_shape,
   castable_t castable)
 {
-  // Same as contraction
-  // If we have mhkv->mv
-  // Then we should have:
-  //   std::vector<int32_t> modeA{'m','h','k','v'};
-  //   std::vector<int32_t> modeC{'m','v'};
-
   std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
   std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
   int32_t nmodeA = modeA.size();
