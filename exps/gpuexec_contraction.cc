@@ -280,18 +280,18 @@ int main(){
 
     //printf("Initialize contraction descriptor\n");
 
-    //for (size_t i = 0; i < modeA.size(); i++) {
-    //    std::cout << modeA.data()[i] << " ";
-    //}
-    //std::cout << std::endl;
-    //for (size_t i = 0; i < modeB.size(); i++) {
-    //        std::cout << modeB.data()[i] << " ";
-    //}
-    //std::cout << std::endl;
-    //for (size_t i = 0; i < modeC.size(); i++) {
-    //        std::cout << modeC.data()[i] << " ";
-    //}
-    //std::cout << std::endl;
+    for (size_t i = 0; i < modeA.size(); i++) {
+        std::cout << modeA.data()[i] << " ";
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < modeB.size(); i++) {
+            std::cout << modeB.data()[i] << " ";
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < modeC.size(); i++) {
+            std::cout << modeC.data()[i] << " ";
+    }
+    std::cout << std::endl;
 
 
     /* ***************************** */

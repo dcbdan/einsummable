@@ -233,6 +233,19 @@ void build_contraction(
   uint32_t alignmentRequirementB = 16;
   uint32_t alignmentRequirementC = 16;
 
+  for (size_t i = 0; i < modeA.size(); i++) {
+        std::cout << modeA.data()[i] << " ";
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < modeB.size(); i++) {
+            std::cout << modeB.data()[i] << " ";
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < modeC.size(); i++) {
+            std::cout << modeC.data()[i] << " ";
+    }
+    std::cout << std::endl;
+
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
@@ -266,6 +279,23 @@ void execute_contraction(
       handle, &find,
       CUTENSOR_ALGO_DEFAULT) );
 
+  
+  size_t worksize = 0;
+  handle_cutensor_error( cutensorContractionGetWorkspaceSize(handle,
+              desc,
+              &find,
+              CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
+  
+  void *work = nullptr;
+  if(worksize > 0)
+  {
+      if( cudaSuccess != cudaMalloc(&work, worksize) ) 
+      {
+          work = nullptr;
+          worksize = 0;
+      }
+  }
+
   cutensorContractionPlan_t plan;
   handle_cutensor_error(
     cutensorInitContractionPlan(
@@ -273,7 +303,7 @@ void execute_contraction(
       &plan,
       desc,
       &find,
-      0) );
+      worksize) );
 
   cutensorStatus_t err;
 
@@ -284,7 +314,7 @@ void execute_contraction(
   handle_cutensor_error(
     cutensorContraction(handle, &plan, (void*)&alpha, A_d,
                         B_d, (void*)&beta, C_d, C_d,
-                        nullptr, 0, stream) );
+                        work, worksize, stream) );
 
 }
 
@@ -324,7 +354,19 @@ build_cutensor_reduction(
     throw std::runtime_error("should not reach: missing castable");
   }
 
-  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce](
+  size_t elementsA = 1;
+  for (int i=0;i<inn_shape.size();++i){
+    elementsA *= inn_shape[i];
+  }
+  size_t elementsC = 1;
+  for (int i=0;i<out_shape.size();++i){
+    elementsC *= out_shape[i];
+  }
+
+  size_t sizeA = sizeof(float) * elementsA;
+  size_t sizeC = sizeof(float) * elementsC;
+
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC](
     cudaStream_t stream,
     cutensorHandle_t const* handle,
     float* out,
@@ -333,6 +375,19 @@ build_cutensor_reduction(
     cudaDataType_t typeA = CUDA_R_32F;
     cudaDataType_t typeC = CUDA_R_32F;
     cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+
+    typedef float floatTypeCompute;
+    floatTypeCompute alpha = (floatTypeCompute)1.0f;
+    floatTypeCompute beta  = (floatTypeCompute)0.0f;
+
+    for (size_t i = 0; i < extent_A.size(); i++) {
+        std::cout << extent_A.data()[i] << " ";
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < extent_C.size(); i++) {
+            std::cout << extent_C.data()[i] << " ";
+    }
+    std::cout << std::endl;
 
     cutensorTensorDescriptor_t descA;
     handle_cutensor_error(
@@ -351,19 +406,50 @@ build_cutensor_reduction(
                  extent_C.data(),
                  NULL /* stride */,
                  typeC, CUTENSOR_OP_IDENTITY));
+    
+    std::cout << sizeA << std::endl;
+    std::cout << sizeC << std::endl;
 
     //get the memory pointer
-    float const* A_d = inns[0];
-    float* C_d = out;
+    void *A_d, *C_d;
+    cudaMalloc((void**)&A_d, sizeA);
+    cudaMalloc((void**)&C_d, sizeC);
+    cudaMemcpy(C_d, out, sizeC, cudaMemcpyHostToDevice);
+    cudaMemcpy(A_d, inns[0], sizeA, cudaMemcpyHostToDevice);
+
+    uint64_t worksize = 0;
+    handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
+                 A_d, &descA, modeA.data(),
+                 C_d, &descC, modeC.data(),
+                 C_d, &descC, modeC.data(),
+                 opReduce, typeCompute, &worksize));
+    void *work = nullptr;
+    if (worksize > 0)
+    {
+        if (cudaSuccess != cudaMalloc(&work, worksize))
+        {
+            work = nullptr;
+            worksize = 0;
+        }
+    } 
 
     cutensorStatus_t err;
-    err = cutensorReduction(handle,
-                NULL/*alpha*/, A_d,
-                &descA, modeA.data(),NULL/*beta*/,
-                out,
-                &descC, modeC.data(), out, &descC, modeC.data(),
-                opReduce, typeCompute, nullptr, 0, stream);
+     err = cutensorReduction(handle, 
+                (const void*)&alpha, A_d, &descA, modeA.data(),
+                (const void*)&beta,  C_d, &descC, modeC.data(), 
+                                     C_d, &descC, modeC.data(), 
+                opReduce, typeCompute, work, worksize,stream);
+    
+    cudaMemcpy(out, C_d, sizeC, cudaMemcpyDeviceToHost);
+
+
+    for (size_t i = 0; i < 10; i++) {
+      std::cout << out[i] << " ";
+    }
+    std::cout << std::endl;
   };
+
+  
 }
 
 cutensor_kernel_t
@@ -539,8 +625,22 @@ make_cutensor_elementwise_op(
   }else if(e.inns.size()==2){
 
   }else if(e.inns.size()==3){
+    //op.op = cutensor_elementwise_op_t::ternary_t{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}};
+
+    //cutensor_elementwise_op_t op = {e.joinshape,{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}}}
+    //return op;
 
   }
+
+  //(arg0 - val * arg1)
+  // op.op = cutensor_elementwise_op_t::binary_t{/*cuTensor no op for diff?*/,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{val,CUTENSOR_OP_IDENTITY,e.inns[1]}}
+
+  //(relu(arg0))
+  // op.op = cutensor_elementwise_op_t::unary_t{{1.0f,CUTENSOR_OP_RELU,e.inns[1]}}
+
+  // max(arg0, arg1)
+  // op.op = cutensor_elementwise_op_t::binary_t{CUTENSOR_OP_MAX,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{1.0f,CUTENSOR_OP_IDENTITY,e.inns[1]}}
+  //
 
   return std::nullopt;
 }
