@@ -552,30 +552,49 @@ partition_t union_partitions(vector<partition_t> const& ps)
 }
 
 void forward_state_t::setup_refinement_partition(int join_id) {
+  // Note that the refinement partition is with respect to the real dtype
   auto const& join_node = graph.nodes[join_id];
+  dtype_t join_dtype = join_node.op.out_dtype();
+  bool join_is_complex = dtype_is_complex(join_dtype);
+
   vector<partition_t> usage_partitions;
   usage_partitions.reserve(2*join_node.outs.size());
+  auto insert_usage = [&](partition_t p) {
+    if(join_is_complex) {
+      double_last_dim_inplace(p);
+    }
+    usage_partitions.push_back(p);
+  };
+
   for(auto const& out_id: join_node.outs) {
     auto const& out_node = graph.nodes[out_id];
     auto const& out_part = ginfos[out_id].partition.value();
     if(out_node.op.is_formation()) {
-      usage_partitions.push_back(out_part);
+      insert_usage(out_part);
+    } else if(out_node.op.is_complexer()) {
+      if(join_is_complex) {
+        // complex -> real
+        usage_partitions.push_back(out_part);
+      } else {
+        // real -> complex
+        usage_partitions.push_back(double_last_dim(out_part));
+      }
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect
       auto const& einsummable = out_node.op.get_einsummable();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_id) {
-          usage_partitions.emplace_back(einsummable.get_input_from_join(
+          insert_usage(partition_t(einsummable.get_input_from_join(
             out_part.partdims,
-            which_input));
+            which_input)));
         }
       }
     } else if(out_node.op.is_concat()) {
       auto const& concat = out_node.op.get_concat();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_id) {
-          usage_partitions.push_back(concat_get_input_partition(
+          insert_usage(concat_get_input_partition(
             out_part, concat, which_input));
         }
       }
@@ -608,15 +627,26 @@ bool forward_state_t::can_setup_refis(int gid) const {
 
 void forward_state_t::setup_refis(int graph_id) {
   auto const& node = graph.nodes[graph_id];
-  uint64_t dtype_sz = dtype_size(node.op.out_dtype());
+
   auto& ginfo = ginfos[graph_id];
 
-  partition_t const& join_partition = ginfo.partition.value();
+  partition_t        join_partition = ginfo.partition.value();
   partition_t const& refi_partition = ginfo.refinement_partition.value();
 
   int join_rank = node.op.rank();
   int out_rank  = node.op.out_rank();
   int agg_rank  = join_rank - out_rank;
+
+  // fix join_partition and dtype_sz so that they are
+  // with respect to reals
+  dtype_t _dtype = node.op.out_dtype();
+  uint64_t dtype_sz = dtype_size(_dtype);
+  if(dtype_is_complex(_dtype)) {
+    partdim_t& pd = join_partition.partdims[out_rank-1];
+    pd = partdim_t::from_sizes(vector_double(pd.sizes()));
+
+    dtype_sz /= 2;
+  }
 
   auto join_shape = join_partition.block_shape();
   auto const& _join_partdims = join_partition.partdims;
@@ -735,6 +765,9 @@ void forward_state_t::setup_joins(int graph_id) {
   auto const& node = graph.nodes[graph_id];
   auto& ginfo = ginfos[graph_id];
 
+  dtype_t join_dtype = node.op.out_dtype();
+  bool join_is_complex = dtype_is_complex(join_dtype);
+
   partition_t const& join_partition = ginfo.partition.value();
 
   auto join_block_shape = join_partition.block_shape();
@@ -756,6 +789,7 @@ void forward_state_t::setup_joins(int graph_id) {
     // flops
     //   input: 0
     //   formation: 0
+    //   complexer: 0
     //   concat: 0
     //   einsummable: the tensor block size
     // (the join_t stores an optional einsummable_t)
@@ -771,6 +805,7 @@ void forward_state_t::setup_joins(int graph_id) {
     //   input nodes: {}
     //   concat nodes: have to figure it out
     //   formation nodes: same as a straight einsummable op
+    //   complexer nodes: same as a straight einsummable op
     //   einsummable nodes: reach into each input and grab it
     if(node.op.is_input()) {
       join_info.deps = {};
@@ -788,6 +823,14 @@ void forward_state_t::setup_joins(int graph_id) {
             inn_hrect,
             hrect_intersect(join_hrect, inn_hrect));
 
+          // If this concat is complex, then inn_ginfo.refinement_partitition
+          // is still real. So the corresponding copy_rect is actually doubled
+          if(join_is_complex) {
+            auto& [b,e] = copy_hrect.back();
+            b *= 2;
+            e *= 2;
+          }
+
           int const& inn = node.inns[which_inn];
           auto& inn_ginfo = ginfos[inn];
           partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
@@ -804,7 +847,7 @@ void forward_state_t::setup_joins(int graph_id) {
       }
     } else {
       optional<einsummable_t> maybe_einsummable;
-      if(node.op.is_formation()) {
+      if(node.op.is_formation() || node.op.is_complexer()) {
         auto op_shape = node.op.shape();
         int rank = op_shape.size();
 
@@ -816,7 +859,7 @@ void forward_state_t::setup_joins(int graph_id) {
           op_shape,
           inns,
           rank,
-          scalarop_t::make_identity()); // will not be used
+          scalarop_t::make_identity(join_dtype));
       } else {
         maybe_einsummable = node.op.get_einsummable();
       }
@@ -836,6 +879,15 @@ void forward_state_t::setup_joins(int graph_id) {
 
         auto const& e = maybe_einsummable.value();
         auto inn_hrect = e.get_input_from_join(hrect, which_inn);
+
+        // If the inn is complex, then the inn_partition is still
+        // wrt real on the last dimension, so double the complex
+        // last to get the real inn_hrect
+        if(dtype_is_complex(e.inn_dtype(which_inn))) {
+          auto& [bi,ei] = inn_hrect.back();
+          bi *= 2;
+          ei *= 2;
+        }
 
         auto inn_region = inn_partition.get_region(inn_hrect);
         vector<int> inn_index = vector_mapfst(inn_region);

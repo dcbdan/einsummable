@@ -238,8 +238,6 @@ struct taskgraph_make_state_t {
   static dtype_t complex_to_real(dtype_t);
 };
 
-void double_last_dim_inplace(partition_t&          p);
-void double_last_dim_inplace(placement_t&          p);
 void double_last_dim_inplace(multiple_placement_t& p);
 void double_last_dim_inplace(multiple_tensor_t&    p);
 
@@ -255,8 +253,6 @@ _DOUBLE_LAST_DIM_(placement_t)
 _DOUBLE_LAST_DIM_(multiple_placement_t)
 _DOUBLE_LAST_DIM_(multiple_tensor_t)
 
-void halve_last_dim_inplace(partition_t&          p);
-void halve_last_dim_inplace(placement_t&          p);
 void halve_last_dim_inplace(multiple_placement_t& p);
 void halve_last_dim_inplace(multiple_tensor_t&    p);
 

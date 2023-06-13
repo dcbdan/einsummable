@@ -324,6 +324,8 @@ struct forward_state_t {
 
     optional<partition_t> partition;
     optional<vector<int>> locs;
+    // Note that partition is with respect
+    // to the graph dtype (as one would expect)
 
     // -1 = has been comptued
     //  0 = can be computed or is being computed
@@ -333,6 +335,11 @@ struct forward_state_t {
     optional<vector<join_t>> joins;
 
     optional<partition_t> refinement_partition;
+    // Note that the refinement_partition is with respect to
+    // the _real_ dtype (so if this nodes out dtype is c64,
+    // then the refinement partittion has it's last dimension
+    // double as if it as f32s)
+
     optional<vector<refinement_t>> refis;
     optional<vector<move_status_t>> move_status;
   };

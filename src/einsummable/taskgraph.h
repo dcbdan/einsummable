@@ -346,6 +346,18 @@ placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat);
 
+partition_t double_last_dim(partition_t const& p);
+placement_t double_last_dim(placement_t const& p);
+
+void double_last_dim_inplace(partition_t& p);
+void double_last_dim_inplace(placement_t& p);
+
+partition_t halve_last_dim(partition_t const& p);
+placement_t halve_last_dim(placement_t const& p);
+
+void halve_last_dim_inplace(partition_t& p);
+void halve_last_dim_inplace(placement_t& p);
+
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);
