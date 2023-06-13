@@ -240,9 +240,16 @@ struct transformer_t {
   writer(w), params(params){
     n_layers = params.n_layers;
 
+    //Insert token_embedding weight into mapping (add it to graph because we want to give it a tensor_id)
     vector<uint64_t> tok_embed_shape = {params.vocab_size, params.dim};
     tensor_t tok_embed_weight = writer.input(tok_embed_shape, dtype::f16);
-    
+    input_names.insert(tok_embed_weight.get_id(), "tok_embeddings.weight");
+
+    //Insert freq_cis into freq_cis_map so we know size of freq_cis when we create it during execution
+    vector<uint64_t> freq_cis_shape = {params.dim / params.n_heads, params.max_seq_len * 2};
+    tensor_t freq_cis_tensor = writer.input(freq_cis_shape, dtype::f16);
+    freq_cis_map.insert(freq_cis_tensor.get_id(), freq_cis_shape);
+
     for (int layer_id = 0; layer_id < n_layers; layer_id ++){
       //loop over input_map and insert into our own map.
       transformer_block_t block = transformer_block_t(writer, layer_id, params, world_size);
@@ -257,15 +264,9 @@ struct transformer_t {
 
     norm = RMSNorm_t(writer, "norm.weight", params.dim, params.norm_eps);
     
-    //TODO: for the output weight from dim->vocab_size, we also do it in frontend?
     vector<uint64_t> output_shape = {vocab_size, dim};
     output_weight = writer.input(output_shape, dtype::f16);
     input_names.insert(output_weight.get_id(), "output.weight");
-
-    //TODO:freqciqs?
-
-    /*Note for us: we still need to have code to convert the token embeddings
-    back to vocab size on c++ side, but we don't have the */
   }
 
   tensor_t 
