@@ -344,6 +344,9 @@ struct forward_state_t {
   // get all gids that can currently be given a partition
   set<int> const& can_assign_partition() const;
 
+  // call assign_partition and then assign_location for each block
+  void assign_placement(int gid, placement_t const& pl);
+
   void assign_partition(int gid, partition_t const& part);
 
   void assign_location(jid_t jid, int loc);
