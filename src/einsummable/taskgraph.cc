@@ -120,6 +120,49 @@ vector<tuple<int,int>> get_concat_input_region(
 
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
+// Note that to_complex and to_real graph_t operations should
+// become no ops at the taskgraph level when the partitions
+// line up.
+//
+// Example:
+//   graph_constructor_t g;
+//   inn = insert input into g of shape {8}, f32, with partition {4,4}
+//   out = have g convert inn to complex with partition {2,2}
+// Should become
+//   taskgraph tg
+//   id0 = insert input of shape {4}, f32
+//   id1 = insert input of shape {4}, f32
+// where id0 refers to the first  partition of inn and out,
+//       id1 refers to the second partition of inn and out
+//
+// As the interface between graph and taskgraph, taskgraph_make_state_t
+// has to be careful with how complex dtypes. First of all, all the
+// given placements are typed with respect to a dtype. In the example,
+// out would have a {2,2} partition. However, from the perspective of
+// the taskgraph, N complex is just 2*N reals = 2*N*sizeof(that real)
+// bytes.
+//
+// taskgraph_make_state_t has this notion of wrt_graph and wrt_real.
+// With respect to graph: the associated partitioning and sizing
+//   is corresponding to the dtype in the graph object (out = {2,2})
+// With respect to real: all complex dtypes have the last dimension
+//   flattened. (out partitition = {4,4})
+//
+// Example:
+//   inn =                           shape {8}, dtype f32, partition {5,3},
+//   out = inn converted to complex; shape {4}, dtype c64, partition {2,2}
+// For the taskgraph:
+//   (inn = (id0, id1))
+//     where
+//      id0 = inn[0:5]
+//      id1 = inn[5:8];
+//
+//   id2[0:4] = id0[0:4]
+//   id3[0:1] = id0[4:5]
+//   id3[1:4] = id1[0:3]
+//
+//   (out = (id2,id3))
+//
 struct taskgraph_make_state_t {
   taskgraph_make_state_t(graph_t const& graph, vector<placement_t> const& placements)
     : graph(graph), placements(placements)
@@ -134,6 +177,7 @@ struct taskgraph_make_state_t {
 
   // Map from gid to the refined tensor formed from that gid.
   map<int, multiple_tensor_t> refined_tensors;
+  // ^ wrt real
 
   // Partialize the data into the partial ids at outs.
   void relational_touch(
@@ -143,21 +187,27 @@ struct taskgraph_make_state_t {
     vector<uint64_t>   const& size,
     multiple_tensor_t  const& inns,
     multiple_tensor_t  const& outs);
+  // ^ wrt dtype
 
   multiple_tensor_t initialize_partials(
     dtype_t dtype,
     multiple_placement_t const& placement);
+  // ^ wrt dtype
 
   // Grab gid from it's refined tensor in the form of the
   // given multiple placement
   multiple_tensor_t form_from_refinement(
     int gid,
-    multiple_placement_t const& placement);
+    multiple_placement_t const& placement,
+    bool wrt_graph = true);
+  // ^ wrt graph if wrt_graph else wrt_real (including the returned value!)
+  // TODO: have a cache for this method
+
   // this dispatches to the multiple tensor form_from_refinement
   tensor_t<int> form_from_refinement(
     int gid,
-    placement_t const& placement);
-  // TODO: have a cache for this method
+    placement_t const& placement,
+    bool wrt_graph = true);
 
   tensor_t<int> form_concat(int gid);
 
@@ -172,7 +222,8 @@ struct taskgraph_make_state_t {
   // save into refined_tensors
   void communicate(int gid, tensor_t<int> compute_result);
 
-  multiple_placement_t construct_refinement_placement(int gid);
+  multiple_placement_t construct_refinement_placement(int gid) const;
+  // ^ wrt real
 
   // Note: the join_result can include agg'd dimensions, in which case
   //       a castable must be given
@@ -182,6 +233,9 @@ struct taskgraph_make_state_t {
     tensor_t<int> join_result,
     multiple_placement_t const& refinement,
     optional<castable_t> castable);
+  // ^ wrt dtype
+
+  static dtype_t complex_to_real(dtype_t) const;
 };
 
 void double_last_dim_inplace(partition_t&          p);
@@ -436,9 +490,23 @@ multiple_tensor_t taskgraph_make_state_t::initialize_partials(
 multiple_tensor_t
 taskgraph_make_state_t::form_from_refinement(
   int gid,
-  multiple_placement_t const& placement)
+  multiple_placement_t const& placement,
+  bool wrt_graph);
 {
   dtype_t dtype = graph.out_dtype(gid);
+
+  if(dtype_is_complex(dtype)) {
+    if(wrt_graph) {
+      auto ret = form_from_refinement(
+        gid,
+        double_last_dim(placement),
+        false);
+      return halve_last_dim(ret);
+    } else {
+      dtype = this->complex_to_real(dtype);
+    }
+  }
+
   multiple_tensor_t const& refine_tensor = refined_tensors.at(gid);
 
   // verify that the refinement partition
@@ -469,11 +537,12 @@ taskgraph_make_state_t::form_from_refinement(
 tensor_t<int>
 taskgraph_make_state_t::form_from_refinement(
   int gid,
-  placement_t const& pl)
+  placement_t const& pl,
+  bool wrt_graph)
 {
   multiple_placement_t mpl =
     multiple_placement_t::from_single_placement(pl);
-  return form_from_refinement(gid, mpl).to_tensor(pl);
+  return form_from_refinement(gid, mpl, wrt_graph).to_tensor(pl);
 }
 
 // Example
@@ -518,8 +587,6 @@ taskgraph_make_state_t::form_concat(int gid) {
 
   int rank = node.op.out_rank();
 
-  auto const& concat = node.op.get_concat();
-
   partition_t split_partition = concat_split_partition(pl.partition, concat);
 
   // TODO: calling form_from_refinement could be done on a part by
@@ -530,6 +597,8 @@ taskgraph_make_state_t::form_concat(int gid) {
   //        ^yes^yes  ^no ^no
 
   if(pl.partition == split_partition) {
+    auto const& concat = node.op.get_concat();
+
     // Note: if form_from_refinement had cache support,
     //       this would dip into that cache.
 
@@ -548,11 +617,22 @@ taskgraph_make_state_t::form_concat(int gid) {
     return tensor_t<int>::concat(concat.dim, ts);
   }
 
+  auto concat = node.op.get_concat();
+  auto pl_real = pl;
+  if(dtype_is_complex(concat.dtype)) {
+    // change the concat and the pl to be with respect to reals!
+
+    concat.dtype = complex_to_real(concat.dtype);
+    for(auto& shape: concat.inn_shapes) {
+      shape.back() *= 2;
+    }
+    double_last_dim_inplace(pl_real);
+  }
+
   // form the output partials
-  dtype_t dtype = node.op.out_dtype();
   multiple_placement_t mpl =
-    multiple_placement_t::from_single_placement(pl);
-  multiple_tensor_t ret = initialize_partials(dtype, mpl);
+    multiple_placement_t::from_single_placement(pl_real);
+  multiple_tensor_t ret = initialize_partials(concat.dtype, mpl);
 
   vector<uint64_t> dim_offset = concat.get_offsets();
 
@@ -570,7 +650,7 @@ taskgraph_make_state_t::form_concat(int gid) {
     offset_out[concat.dim] = dim_offset[which_inn];
 
     relational_touch(
-      dtype,
+      concat.dtype,
       offset_inn,
       offset_out,
       inn.partition.total_shape(),
@@ -578,7 +658,7 @@ taskgraph_make_state_t::form_concat(int gid) {
       ret);
   }
 
-  return ret.to_tensor(pl);
+  return ret.to_tensor(pl_real);
 }
 
 tensor_t<int>
@@ -665,7 +745,7 @@ taskgraph_make_state_t::form_relation(int gid)
     return form_from_refinement(inn_gid, placements.at(gid));
   }
   if(node.op.is_complexer()) {
-    // TODO
+    return form_from_refinement(inn_gid, placements.at(gid));
   }
   if(node.op.is_concat()) {
     return form_concat(gid);
@@ -688,37 +768,111 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
     maybe_castable = node.op.get_castable();
   }
 
-  multiple_tensor_t ret = construct_refinement_tensor(
-    node.op.out_dtype(),
-    placements[join_gid],
-    join_result,
-    usage_placement,
-    maybe_castable);
+  dtype_t dtype = node.op.out_dtype();
 
-  refined_tensors.insert({join_gid, ret});
+  if(dtype_is_complex(dtype)) {
+    if(maybe_castable && maybe_castable.value != castable_t::add) {
+      // In this case, an aggregation is happening across a complex datatype
+      // and it isn't just a simple addition, so usage placements will
+      // have to be halved along the last dimension.
+      //
+      // If usage_placement can't be halved, than the input placements
+      // are invalid.
+      //
+      // All that being said: I don't know what the use case is
+      // for aggregating complex values with castable_t::mul...
+      auto szs = usage_placement.partition.partdims.back().sizes();
+      for(auto const& sz: szs) {
+        if(szs % 2 == 1) {
+          throw std::runtime_error(
+            "cannot halve usage placment; try another partitioning");
+        }
+      }
+
+      // First halve usage placement
+      multiple_tensor_t ret = construct_refinement_tensor(
+        dtype,
+        placements[join_gid],
+        join_result,
+        halve_last_dim(usage_placement),
+        maybe_castable);
+
+      // then double the result
+      refined_tensors.insert({join_gid, double_last_dim(ret)});
+
+      return;
+    } else {
+      // here, we call construct_refinement_partition, which
+      // may be doing an addition aggregation, but only as if we
+      // were doing it with reals
+      //
+      // This is fine beacuse
+      //   a + b = (a.real + b.real) + (a.imag + b.imag)*i
+      multiple_tensor_t ret = construct_refinement_tensor(
+        complex_to_real(dtype),
+        double_last_dim(placements[join_gid]),
+        join_result,
+        usage_placement,
+        maybe_castable);
+
+      refined_tensors.insert({join_gid, ret});
+
+      return;
+    }
+  } else {
+    multiple_tensor_t ret = construct_refinement_tensor(
+      dtype,
+      placements[join_gid],
+      join_result,
+      usage_placement,
+      maybe_castable);
+
+    refined_tensors.insert({join_gid, ret});
+
+    return;
+  }
+  throw std::runtime_error("should not reach");
 }
 
 multiple_placement_t
 taskgraph_make_state_t::construct_refinement_placement(int join_gid)
 {
   auto const& join_node = graph.nodes[join_gid];
+  auto const& join_dtype = join_node.op.out_dtype();
+
+  bool join_is_complex = dtype_is_complex(join_dtype);
 
   vector<multiple_placement_t> usage_placements;
   usage_placements.reserve(2*join_node.outs.size());
+  auto insert_usage = [&](multiple_placement_t p) {
+    if(join_is_complex) {
+      double_last_dim_inplace(p);
+    }
+    usage_placements.push_back(p);
+  };
+
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
     auto const& out_pl   = placements[out_gid];
     if(out_node.op.is_formation()) {
-      usage_placements.push_back(
+      insert_usage(
         multiple_placement_t::from_single_placement(out_pl));
     } else if(out_node.op.is_complexer()) {
-      // TODO
+      if(join_is_complex) {
+        // complex -> real
+        usage_placements.push_back(
+          multiple_placement_t::from_single_placement(out_pl));
+      } else {
+        // real -> complex
+        usage_placements.push_back(
+          multiple_placement_t::from_single_placement(double_last_dim(out_pl)));
+      }
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage placements to collect
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
-          usage_placements.push_back(
+          insert_usage(
             multiple_placement_t::make_einsummable_input(
               out_pl,
               out_node.op.get_einsummable(),
@@ -729,7 +883,7 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
       auto const& concat = out_node.op.get_concat();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
-          usage_placements.push_back(
+          insert_usage(
             multiple_placement_t::make_concat_input(
               out_pl,
               concat,
@@ -1169,6 +1323,13 @@ taskgraph_make_state_t::construct_refinement_tensor(
   }
 
   return refined_tensor;
+}
+
+dtype_t taskgraph_make_state_t::complex_to_real(dtype_t dtype) const {
+  if(dtype == dtype_t::c64) {
+    return dtype_t::f32;
+  }
+  throw std::runtime_error("should not reach");
 }
 
 void double_last_dim_inplace(partition_t& p) {
