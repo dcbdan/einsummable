@@ -21,13 +21,41 @@ cudaStream_t cuda_create_stream() {
   return ret;
 }
 
-// this 
-void printFloats(const float* ptr, int count) {
+// prints float starting from ptr with count number of elements
+void printFloatCPU(const float* cpu_ptr, int count) {
   for (int i = 0; i < count; ++i) {
-    printf("%f ", ptr[i]);
+    printf("%.2f ", cpu_ptr[i]);
   }
   printf("\n");
 }
+
+void printFloatGPU(const float* gpu_ptr, int count) {
+  float* cpu_ptr = (float*)malloc(count * sizeof(float));
+  cudaMemcpy(cpu_ptr, gpu_ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
+  printFloatCPU(cpu_ptr, count);
+  free(cpu_ptr);
+}
+
+void init_value(float* ptr, int count, float value) {
+  // malloc memory on cpu and cudamemcpy to gpu
+  float* tmp = (float*)malloc(count * sizeof(float));
+  float* check = (float*)malloc(count * sizeof(float));
+  for (int i = 0; i < count; ++i) {
+    tmp[i] = value;
+  }
+  cudaMemcpy(ptr, tmp, count * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(tmp, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(check, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
+
+//   printFloats(tmp, count);
+//   printFloats(check, count);
+}
+
+// increment the pointer by the byte offset
+// NO LONGER NEEDED SINCE EVERYTHING IS IN FLOATS, but it's a good reference
+// float* offset_increment(float* ptr, int offset) {
+//   return (float*)((char*)ptr + offset);
+// }
 
 // update memgraph node when it is finished; modify the dependency counter of the node
 // return a vector of ready nodes if there are any
@@ -50,6 +78,7 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
     return ready_nodes;
 }
 
+// add a vector of nodes to the queue
 void add_to_queue(std::queue<int> &queue, std::vector<int> &nodes) {
     for (auto node: nodes){
         queue.push(node);
@@ -58,6 +87,7 @@ void add_to_queue(std::queue<int> &queue, std::vector<int> &nodes) {
     // std::cout << "Queue size: " << queue.size() << std::endl;
 }
 
+// get the dependency count of each node
 std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
     std::map<int, int> dependency_count;
     for (int i = 0; i < memgraph.nodes.size(); i++){
@@ -66,6 +96,7 @@ std::map<int, int> get_dependencies(const memgraph_t &memgraph) {
     return dependency_count;
 }
 
+// checj if all the nodes are finished executing
 bool is_complete(std::map<int, int> &dependency_count) {
     auto idx = 0;
     for (auto it = dependency_count.begin(); it != dependency_count.end(); it++){
@@ -144,19 +175,12 @@ void gpu_execute_state_t::run() {
             }
             else{
                 int num_elements = 100;
-                float* cpu_input1 = (float*) malloc(num_elements);
-                float* cpu_input2 = (float*) malloc(num_elements);
-                float* cpu_output = (float*) malloc(num_elements);
-                // do cuda memcopies
-                cudaMemcpy(cpu_input1, memory_base_ptr, num_elements, cudaMemcpyDeviceToHost);
-                cudaMemcpy(cpu_input1, memory_base_ptr + 100, num_elements, cudaMemcpyDeviceToHost);
-                cudaMemcpy(cpu_input1, memory_base_ptr + 200, num_elements, cudaMemcpyDeviceToHost);
                 std::cout << "Input 1: ";
-                printFloats(cpu_input1, num_elements);
+                printFloatGPU(memory_base_ptr, num_elements);
                 std::cout << "Input 2: ";
-                printFloats(cpu_input2, num_elements);
+                printFloatGPU(memory_base_ptr + 100, num_elements);
                 std::cout << "Output: ";
-                printFloats(cpu_output, num_elements);
+                printFloatGPU(memory_base_ptr + 200, num_elements);
                 std::cout << "All nodes finished execution." << std::endl;
                 exit(0);
             }
@@ -208,8 +232,14 @@ void gpu_execute_state_t::run() {
                             std::cout << "Error: contraction descriptor found in the map, Node idx: "<< node_idx << std::endl;
                         }
                         auto contraction_descriptor = einsum_iter->second;
-                        execute_contraction(stream, handle, &contraction_descriptor, memory_base_ptr + memory_vector[0].offset,
-                            memory_base_ptr + memory_vector[1].offset, memory_base_ptr + memory_vector[2].offset);
+                        // print offsets
+                        printFloatGPU(memory_base_ptr, 100);
+                        printFloatGPU(memory_base_ptr + 100, 100);
+                        std::cout << "Offsets: " << memory_vector[0].offset << ", " << memory_vector[1].offset << ", " << memory_vector[2].offset << std::endl;
+                        execute_contraction(stream, handle, &contraction_descriptor, 
+                            memory_base_ptr + memory_vector[0].offset,
+                            memory_base_ptr + memory_vector[1].offset, 
+                            memory_base_ptr + memory_vector[2].offset);
                     }
                     else {
                         // CASE: OTHER EINSUMMABLE

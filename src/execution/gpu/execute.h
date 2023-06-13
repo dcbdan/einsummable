@@ -7,6 +7,7 @@
 #include "kernels.h"
 
 #include <cstddef>
+#include <iostream>
 #include <map>
 #include <thread>
 #include <cuda_runtime.h>
@@ -25,6 +26,9 @@ using memgraph_t = memgraph_t;
   { printf("Error: %s in line %d\n", cutensorGetErrorString(err), __LINE__); exit(-1); } \
 }
 
+void test();
+
+
 // given a memgraph, traverse the graph and get all the dependencies of a node represented by node.inns()
 // return a map from the node to the number of its dependencies
 std::map<int, int> get_dependencies(const memgraph_t &memgraph);
@@ -36,6 +40,11 @@ bool is_complete(std::map<int, int> &dependency_count);
 // return a memory pointer that is allocated on the gpu
 // uses cudaMalloc
 float* gpu_allocate_memory(size_t size);
+
+// debugging; set all the values in the memory to a specific value
+void init_value(float* ptr, int count, float value);
+
+void printFloatCPU(const float* ptr, int count);
 
 struct gpu_execute_state_t 
 {
@@ -82,11 +91,8 @@ struct gpu_execute_state_t
         // get the size of the memory needed from the memgraph
         // TODO: hardcoded the 0 since we only have 1 gpu for now
         auto mem_size = memgraph.mem_sizes()[0];
-        // allocate memory for the gpu
-        memory_base_ptr = gpu_allocate_memory(mem_size);
 
         dependency_count = get_dependencies(memgraph);
-
         // in the beginning num_nodes_remaining is the number of nodes in the memgraph
         num_nodes_remaining[0] = memgraph.nodes.size();
 
@@ -120,11 +126,16 @@ struct gpu_execute_state_t
                 }
             }
         }
-         // print the size of pending_queue in the beginning
+        std::cout << "mem_size: " << mem_size << std::endl;
+        // allocate memory for the gpu
+        memory_base_ptr = gpu_allocate_memory(mem_size * sizeof(float));
+        std::cout << "Initializing all values of the inputs to 1" << std::endl;
+        init_value(memory_base_ptr, 200, 1);
         std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
     }
     void run();
     
 };
+
 
 void execute(const memgraph_t &memgraph);
