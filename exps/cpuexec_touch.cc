@@ -37,8 +37,8 @@ touchdim_t random_touchdim() {
   return ret;
 }
 
-optional<castable_t> random_castable() {
-  int i = runif(-1, 4);
+optional<castable_t> random_castable(bool with_min_max) {
+  int i = runif(-1, with_min_max ? 4 : 2);
   if(i == -1) {
     return optional<castable_t>();
   }
@@ -57,14 +57,31 @@ optional<castable_t> random_castable() {
   throw std::runtime_error("should not reach");
 }
 
+dtype_t random_dtype() {
+  dtype_t dtype;
+  int dd = runif(4);
+  if(dd == 0) {
+    dtype = dtype_t::f16;
+  } else if(dd == 1) {
+    dtype = dtype_t::f32;
+  } else if(dd == 2) {
+    dtype = dtype_t::f64;
+  } else if(dd == 3) {
+    dtype = dtype_t::c64;
+  }
+  return dtype;
+}
+
 touch_t random_touch(int sz) {
   vector<touchdim_t> selection;
   for(int i = 0; i != sz; ++i) {
     selection.push_back(random_touchdim());
   }
+  dtype_t dtype = random_dtype();
   return touch_t {
     .selection = selection,
-    .castable = random_castable()
+    .castable = random_castable(dtype != dtype_t::c64),
+    .dtype = dtype
   };
 }
 
@@ -75,14 +92,14 @@ void test_touch(touch_t const& touch) {
   uint64_t sz_out = product(shape_out);
   uint64_t sz_inn = product(shape_inn);
 
-  buffer_t out1 = std::make_shared<buffer_holder_t>(sz_out);
-  buffer_t out2 = std::make_shared<buffer_holder_t>(sz_out);
-  buffer_t out3 = std::make_shared<buffer_holder_t>(sz_out);
-  buffer_t inn  = std::make_shared<buffer_holder_t>(sz_inn);
+  dbuffer_t out1 = make_dbuffer(touch.dtype, sz_out);
+  dbuffer_t out2 = make_dbuffer(touch.dtype, sz_out);
+  dbuffer_t out3 = make_dbuffer(touch.dtype, sz_out);
+  dbuffer_t inn  = make_dbuffer(touch.dtype, sz_inn);
 
-  out1->zeros();
-  out2->zeros();
-  inn->random(-2.0, 2.0);
+  out1.zeros();
+  out2.zeros();
+  inn.random("-2.0", "2.0");
 
   {
     raii_print_time_elapsed_t gremlin("reference   ");
@@ -92,7 +109,7 @@ void test_touch(touch_t const& touch) {
   {
     auto built = build_touch(touch);
     raii_print_time_elapsed_t gremlin("built       ");
-    built(out2->data, inn->data);
+    built(out2.ptr(), inn.ptr());
   }
 
   if(out1 != out2) {

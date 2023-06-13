@@ -238,9 +238,31 @@ void main02() {
   uint64_t dp = 1000;
   uint64_t dd = 100;
   vector<uint64_t> dws{3000,3000,3000,3000};
-
   ff_sqdiff_t ff = ff_sqdiff_update(dn, dp, dd, dws, learning_rate);
   auto [graph, _] = ff.mgraph.compile();
+
+  //graph_writer_t writer;
+  //{
+  //  // just making a graph that does concat
+  //  using id_t = graph_writer_t::tensor_t;
+
+  //  uint64_t bb  = 4000;
+  //  uint64_t da  = 1500;
+  //  uint64_t db  = 1600;
+  //  uint64_t dc  = 1700;
+  //  uint64_t dab = da+db;
+
+  //  id_t x = writer.input({bb, da});
+  //  id_t w_a_b = writer.input({da,db});
+  //  id_t w_ab_c = writer.input({dab, dc});
+
+  //  id_t y = writer.matmul(x, w_a_b);
+  //  x = writer.concat(1, {x, y});
+  //  x = writer.matmul(x, w_ab_c);
+
+  //  x.save();
+  //}
+  //graph_t const& graph = writer.get_graph();
 
   vector<placement_t> placements;
   {

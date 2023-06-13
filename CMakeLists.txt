@@ -13,8 +13,13 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
+# TODO: make sure protocol buffers are built in the correct order
+#       with respect to other files. Sometimes make -j is required
+#       when make fails
+
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/half-2.2.0/include)
 include_directories(${Protobuf_INCLUDE_DIRS})
 
 add_subdirectory(src/proto)
@@ -81,10 +86,10 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec"         "exps" "cpuexec")
   add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
   add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_ew"      "exps" "cpuexec_ew")
+  add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_matmul"  "exps" "cpuexec_matmul")
+  add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
 endif()
 
 if(${GPU_EXECUTION_ENGINE})

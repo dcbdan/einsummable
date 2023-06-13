@@ -15,18 +15,20 @@ struct permute_t {
   permute_t(uint64_t min_block_size);
 
   // out_perm = {2,0,1} implies we have ijk->kij
+  template <typename T>
   void operator()(
     vector<uint64_t> inn_dims,
     vector<int> out_perm,
-    float* out,
-    float const* inn) const;
+    T* out,
+    T const* inn) const;
 
 private:
+  template <typename T>
   inline void recurse(
     vector<tuple<uint64_t,uint64_t>>& rngs,
     vector<uint64_t> const& str_inn,
     vector<uint64_t> const& str_out,
-    float* out, float const* inn) const;
+    T* out, T const* inn) const;
 
   static
   tuple<vector<uint64_t>, vector<uint64_t>>
@@ -43,3 +45,6 @@ private:
 private:
   uint64_t min_block_size;
 };
+
+#include "permute_.h"
+

@@ -262,6 +262,14 @@ set<int> const& forward_state_t::can_assign_partition() const {
   return can_partition;
 }
 
+void forward_state_t::assign_placement(int gid, placement_t const& pl) {
+  assign_partition(gid, pl.partition);
+  auto const& locs = pl.locations.get();
+  for(int bid = 0; bid != locs.size(); ++bid) {
+    assign_location(jid_t{ gid, bid }, locs[bid]);
+  }
+}
+
 void forward_state_t::assign_partition(int gid, partition_t const& new_part) {
   if(new_part.total_shape() != graph.nodes[gid].op.shape()) {
     throw std::runtime_error("given partition has incorrect total shape");
@@ -600,6 +608,7 @@ bool forward_state_t::can_setup_refis(int gid) const {
 
 void forward_state_t::setup_refis(int graph_id) {
   auto const& node = graph.nodes[graph_id];
+  uint64_t dtype_sz = dtype_size(node.op.out_dtype());
   auto& ginfo = ginfos[graph_id];
 
   partition_t const& join_partition = ginfo.partition.value();
@@ -645,7 +654,7 @@ void forward_state_t::setup_refis(int graph_id) {
 
       auto& refi = refis[idxs_to_index(refi_shape, refi_index)];
       refi.units.push_back(agg_unit_t {
-        .size = product(read_shape),
+        .size = dtype_sz * product(read_shape),
         .deps = {}
       });
 

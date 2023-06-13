@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <complex>
 #include <variant>
 #include <tuple>
 #include <set>
@@ -15,6 +16,8 @@
 #include <random>
 #include <queue>
 #include <chrono>
+
+#include "half.hpp"
 
 #define DOUT(x) \
   std::cout << x << std::endl;
@@ -66,6 +69,8 @@ using std::set;
 using std::map;
 using std::optional;
 using std::string;
+
+using float16_t = half_float::half;
 
 template <typename T>
 T product(vector<T> const& xs)

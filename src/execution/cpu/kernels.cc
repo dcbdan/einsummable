@@ -3,76 +3,144 @@
 #include <mkl_cblas.h>
 #include <mkl.h>
 
-#define _unary_ew_loop(name, op) \
+template <typename T>
+inline T _pow(T const& v, double const& power) {
+  return std::pow(v, power);
+}
+
+template <>
+inline float16_t _pow(float16_t const& v, double const& power) {
+  return half_float::pow(v, float16_t(power));
+}
+
+template <typename T>
+inline T _exp(T const& v) {
+  return std::exp(v);
+}
+
+template <>
+inline float16_t _exp(float16_t const& v) {
+  return half_float::exp(v);
+}
+
+#define _unary_ew_loop(name, TO, T, op) \
   void name( \
     uint8_t const* d, \
     uint64_t n, \
-    float* out, \
-    float const* x0) \
+    void* _out, \
+    void const* _x0) \
   { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T const* x0 = reinterpret_cast<T const*>(_x0); \
     for(uint64_t i = 0; i != n; ++i) { \
       out[i] = op; \
     } \
   }
-#define _binary_ew_loop(name, op) \
+#define _binary_ew_loop(name, TO, T0, T1, op) \
   void name( \
     uint8_t const* d, \
     uint64_t n, \
-    float* out, \
-    float const* x0, \
-    float const* x1) \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
   { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
     for(uint64_t i = 0; i != n; ++i) { \
       out[i] = op; \
     } \
   }
 
-_binary_ew_loop(b0,((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]));
-_binary_ew_loop(b1,(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4))))));
-_binary_ew_loop(b2,(x0[i]+(x1[i]*(*((float*)(d+0))))));
-_binary_ew_loop(b3,(x0[i]+x1[i]));
-_binary_ew_loop(b4,std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4)))));
-_binary_ew_loop(b5,((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4)))))));
-_binary_ew_loop(b6,(x0[i]*x1[i]));
+//ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]
+//f32->f32
+_unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
 
-_unary_ew_loop(u0,(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i]));
+//power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b0,float,float,float,_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4)))))
 
-std::function<void(uint8_t const*, uint64_t, float*, float const*)>
-get_unary_kernel(string const& op_str)
+//*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b1,float,float,float,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i]))))
+
+//*[hole|f32@0,hole|f32@1]
+///f32,f32->f32
+_binary_ew_loop(b2,float,float,float,(x0[i]*x1[i]))
+
+//*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]
+//f32,f32->f32
+_binary_ew_loop(b3,float,float,float,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]))
+
+//+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]
+//f32,f32->f32
+_binary_ew_loop(b4,float,float,float,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i]))))
+
+_unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i]))
+_binary_ew_loop(b5,float16_t,float16_t,float16_t,_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2)))))
+_binary_ew_loop(b6,float16_t,float16_t,float16_t,((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i]))))
+_binary_ew_loop(b7,float16_t,float16_t,float16_t,(x0[i]*x1[i]))
+_binary_ew_loop(b8,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i]))
+_binary_ew_loop(b9,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
+_binary_ew_loop(b10,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
+
+_unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i]))
+
+_binary_ew_loop(b11,double,double,double,_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8)))))
+_binary_ew_loop(b12,double,double,double,((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))
+_binary_ew_loop(b13,double,double,double,(x0[i]*x1[i]))
+_binary_ew_loop(b14,double,double,double,(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i]))
+_binary_ew_loop(b15,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
+_binary_ew_loop(b16,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
+
+std::function<void(uint8_t const*, uint64_t, void*, void const*)>
+get_unary_kernel(string const& str)
 {
   using kernel_t = std::function<
-    void(uint8_t const*, uint64_t, float*, float const*)>;
+    void(uint8_t const*, uint64_t, void*, void const*)>;
 
   static map<string, kernel_t> kernels = {
-    {"(x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):x0[i])",u0}
+    { "f32->f32|((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])", u0 },
+    { "f16->f16|((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i])", u1 },
+    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 }
   };
 
-  auto iter = kernels.find(op_str);
+  auto iter = kernels.find(str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + str);
   }
   return iter->second;
 }
 
-std::function<void(uint8_t const*, uint64_t, float*, float const*, float const*)>
-get_binary_kernel(string const& op_str)
+std::function<void(uint8_t const*, uint64_t, void*, void const*, void const*)>
+get_binary_kernel(string const& str)
 {
   using kernel_t = std::function<
-    void(uint8_t const*, uint64_t, float*, float const*, float const*)>;
+    void(uint8_t const*, uint64_t, void*, void const*, void const*)>;
 
   static map<string, kernel_t> kernels = {
-    {"((x0[i]<(*((float*)(d+0)))?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])",b0},
-    {"(x0[i]+((x1[i]*(*((float*)(d+0))))*(*((float*)(d+4)))))",b1},
-    {"(x0[i]+(x1[i]*(*((float*)(d+0)))))",b2},
-    {"(x0[i]+x1[i])",b3},
-    {"std::pow((x0[i]+(x1[i]*(*((float*)(d+0))))),(*((int*)(d+4))))",b4},
-    {"((*((float*)(d+0)))*(x0[i]+(x1[i]*(*((float*)(d+4))))))",b5},
-    {"(x0[i]*x1[i])",b6}
+    { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", b0 },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", b1 },
+    { "f32,f32->f32|(x0[i]*x1[i])", b2 },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", b3 },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", b4 },
+    { "f16,f16->f16|_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2))))", b5 },
+    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i])))", b6 },
+    { "f16,f16->f16|(x0[i]*x1[i])", b7 },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i])", b8 },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", b9 },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", b10 },
+    { "f64,f64->f64|_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8))))", b11 },
+    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i])))", b12 },
+    { "f64,f64->f64|(x0[i]*x1[i])", b13 },
+    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", b14 },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b15 },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 }
   };
 
-  auto iter = kernels.find(op_str);
+  auto iter = kernels.find(str);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + op_str);
+    throw std::runtime_error("kernel undefined for " + str);
   }
   return iter->second;
 }
@@ -91,7 +159,7 @@ _zip_parts(
   return ret;
 }
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_unary_elementwise_kernel(
   int num_threads,
   uint64_t n,
@@ -102,26 +170,32 @@ build_unary_elementwise_kernel(
   }
 
   auto [op_str, bytes] = op.to_cpp_bytes();
-  auto f = get_unary_kernel(op_str);
+  string key = op.type_signature() + "|" + op_str;
+  auto f = get_unary_kernel(key);
 
   if(num_threads == 0 || n < num_threads) {
-    return [f,n,bytes](float* out, vector<float const*> inns) {
+    return [f,n,bytes](void* out, vector<void const*> inns) {
       return f(bytes.data(), n, out, inns[0]);
     };
   }
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges,bytes](float* out, vector<float const*> inns) {
+  vector<uint64_t> strides;
+  strides.reserve(2);
+  strides.push_back(dtype_size(op.out_dtype()));
+  strides.push_back(dtype_size(op.inn_dtype(0).value()));
+
+  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
     vector<std::thread> ts;
-    float const* inn = inns[0];
+    void const* inn = inns[0];
     for(auto const& [lower,upper]: ranges) {
       ts.emplace_back(
         f,
         bytes.data(),
         upper-lower,
-        out + lower,
-        inn + lower);
+        (void*)((char*)out + strides[0]*lower),
+        (void*)((char*)inn + strides[1]*lower));
     }
     for(auto& t: ts) {
       t.join();
@@ -129,7 +203,7 @@ build_unary_elementwise_kernel(
   };
 }
 
-std::function<void(float*,vector<float const*>)>
+kernel_t
 build_binary_elementwise_kernel(
   int num_threads,
   uint64_t n,
@@ -140,28 +214,35 @@ build_binary_elementwise_kernel(
   }
 
   auto [op_str, bytes] = op.to_cpp_bytes();
-  auto f = get_binary_kernel(op_str);
+  string key = op.type_signature() + "|" + op_str;
+  auto f = get_binary_kernel(key);
 
   if(num_threads == 0 || n < num_threads) {
-    return [f,n,bytes](float* out, vector<float const*> inns) {
+    return [f,n,bytes](void* out, vector<void const*> inns) {
       return f(bytes.data(), n, out, inns[0], inns[1]);
     };
   }
 
   auto ranges = _zip_parts(divide_evenly(num_threads, n));
 
-  return [f,n,ranges,bytes](float* out, vector<float const*> inns) {
+  vector<uint64_t> strides;
+  strides.reserve(3);
+  strides.push_back(dtype_size(op.out_dtype()));
+  strides.push_back(dtype_size(op.inn_dtype(0).value()));
+  strides.push_back(dtype_size(op.inn_dtype(1).value()));
+
+  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
     vector<std::thread> ts;
-    float const* lhs = inns[0];
-    float const* rhs = inns[1];
+    void const* lhs = inns[0];
+    void const* rhs = inns[1];
     for(auto const& [lower,upper]: ranges) {
       ts.emplace_back(
         f,
         bytes.data(),
         upper-lower,
-        out + lower,
-        lhs + lower,
-        rhs + lower);
+        (void*)((char*)out + strides[0]*lower),
+        (void*)((char*)lhs + strides[1]*lower),
+        (void*)((char*)rhs + strides[2]*lower));
     }
     for(auto& t: ts) {
       t.join();
@@ -170,7 +251,8 @@ build_binary_elementwise_kernel(
 }
 
 #define _touch1(name, op) \
-  void name(touchdim_t const& t0, float* out, float const* inn) { \
+  template <typename T> \
+  void name(touchdim_t const& t0, T* out, T const* inn) { \
     out += t0.offset_out; \
     inn += t0.offset_inn; \
     for(uint64_t i = 0; i != t0.size; ++i) { \
@@ -179,11 +261,12 @@ build_binary_elementwise_kernel(
   }
 
 #define _touch2(name, op) \
+  template <typename T> \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
-    float* out, \
-    float const* inn) \
+    T* out, \
+    T const* inn) \
   { \
     out += t0.offset_out*t1.d_out + t1.offset_out; \
     inn += t0.offset_inn*t1.d_inn + t1.offset_inn; \
@@ -197,12 +280,13 @@ build_binary_elementwise_kernel(
   }
 
 #define _touch3(name, op) \
+  template <typename T> \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
     touchdim_t const& t2, \
-    float* out, \
-    float const* inn) \
+    T* out, \
+    T const* inn) \
   { \
     out += t0.offset_out*t1.d_out*t2.d_out + t1.offset_out*t2.d_out + t2.offset_out; \
     inn += t0.offset_inn*t1.d_inn*t2.d_inn + t1.offset_inn*t2.d_inn + t2.offset_inn; \
@@ -220,13 +304,14 @@ build_binary_elementwise_kernel(
   }
 
 #define _touch4(name, op) \
+  template <typename T> \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
     touchdim_t const& t2, \
     touchdim_t const& t3, \
-    float* out, \
-    float const* inn) \
+    T* out, \
+    T const* inn) \
   { \
     out += t0.offset_out*t1.d_out*t2.d_out*t3.d_out + \
            t1.offset_out*t2.d_out*t3.d_out + \
@@ -277,21 +362,90 @@ _touch4(touch4_mul,  out[i] *= inn[i]                  );
 _touch4(touch4_min,  out[i] =  std::min(out[i], inn[i]));
 _touch4(touch4_max,  out[i] =  std::max(out[i], inn[i]));
 
-#define _touch_lambda_1(name) \
-  [ts](float* out, float const* inn) { \
-    name(ts[0], out, inn); \
+#define _touch_lambda_f_1(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype == dtype_t::f16) { \
+      using T = float16_t; \
+      name(ts[0], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f32) { \
+      using T = float; \
+      name(ts[0], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f64) { \
+      using T = double; \
+      name(ts[0], (T*)out, (T const*)inn); \
+    } else { \
+      throw std::runtime_error("shoud not reach: touch lambda"); \
+    } \
   }
-#define _touch_lambda_2(name) \
-  [ts](float* out, float const* inn) { \
-    name(ts[0], ts[1], out, inn); \
+#define _touch_lambda_f_2(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype == dtype_t::f16) { \
+      using T = float16_t; \
+      name(ts[0], ts[1], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f32) { \
+      using T = float; \
+      name(ts[0], ts[1], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f64) { \
+      using T = double; \
+      name(ts[0], ts[1], (T*)out, (T const*)inn); \
+    } else { \
+      throw std::runtime_error("shoud not reach: touch lambda"); \
+    } \
   }
-#define _touch_lambda_3(name) \
-  [ts](float* out, float const* inn) { \
-    name(ts[0], ts[1], ts[2], out, inn); \
+#define _touch_lambda_f_3(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype == dtype_t::f16) { \
+      using T = float16_t; \
+      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f32) { \
+      using T = float; \
+      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f64) { \
+      using T = double; \
+      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
+    } else { \
+      throw std::runtime_error("shoud not reach: touch lambda"); \
+    } \
   }
-#define _touch_lambda_4(name) \
-  [ts](float* out, float const* inn) { \
-    name(ts[0], ts[1], ts[2], ts[3], out, inn); \
+#define _touch_lambda_f_4(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype == dtype_t::f16) { \
+      using T = float16_t; \
+      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f32) { \
+      using T = float; \
+      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
+    } else if(dtype == dtype_t::f64) { \
+      using T = double; \
+      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
+    } else { \
+      throw std::runtime_error("shoud not reach: touch lambda"); \
+    } \
+  }
+
+#define _touch_lambda_c_1(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
+    using T = std::complex<float>; \
+    name(ts[0], (T*)out, (T const*)inn); \
+  }
+#define _touch_lambda_c_2(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
+    using T = std::complex<float>; \
+    name(ts[0], ts[1], (T*)out, (T const*)inn); \
+  }
+#define _touch_lambda_c_3(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
+    using T = std::complex<float>; \
+    name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
+  }
+#define _touch_lambda_c_4(name) \
+  [dtype,ts](void* out, void const* inn) { \
+    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
+    using T = std::complex<float>; \
+    name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
   }
 
 // This guy is wrapped in a lambda so
@@ -308,46 +462,72 @@ _touch4(touch4_max,  out[i] =  std::max(out[i], inn[i]));
 //  }
 // which mysteriously looks like it
 // doesn't return anything.
-#define _touch_dispatch(i) \
-  [&]() -> std::function<void(float*, float const*)> { \
+#define _touch_dispatch_f(i) \
+  [&]() -> std::function<void(void*, void const*)> { \
     if(touch.castable) { \
       castable_t const& c = touch.castable.value(); \
       if(c == castable_t::add) { \
-        return _touch_lambda_##i ( touch##i##_add); \
+        return _touch_lambda_f_##i ( touch##i##_add); \
       } else if(c == castable_t::mul) { \
-        return _touch_lambda_##i ( touch##i##_mul); \
+        return _touch_lambda_f_##i ( touch##i##_mul); \
       } else if(c == castable_t::min) { \
-        return _touch_lambda_##i ( touch##i##_min); \
+        return _touch_lambda_f_##i ( touch##i##_min); \
       } else if(c == castable_t::max) { \
-        return  _touch_lambda_##i ( touch##i##_max); \
+        return  _touch_lambda_f_##i ( touch##i##_max); \
       } else { \
         throw std::runtime_error("castable should not reach"); \
       } \
     } else { \
-      return _touch_lambda_##i ( touch##i##_none); \
+      return _touch_lambda_f_##i ( touch##i##_none); \
+    } \
+  }()
+// For the complex case, don't include the min or the max
+// cases
+#define _touch_dispatch_c(i) \
+  [&]() -> std::function<void(void*, void const*)> { \
+    if(touch.castable) { \
+      castable_t const& c = touch.castable.value(); \
+      if(c == castable_t::add) { \
+        return _touch_lambda_c_##i ( touch##i##_add); \
+      } else if(c == castable_t::mul) { \
+        return _touch_lambda_c_##i ( touch##i##_mul); \
+      } else { \
+        throw std::runtime_error("castable should not reach"); \
+      } \
+    } else { \
+      return _touch_lambda_c_##i ( touch##i##_none); \
     } \
   }()
 
-std::function<void(float*, float const*)>
+touch_kernel_t
 build_touch(touch_t const& touch_)
 {
   touch_t touch = touch_.simplify();
 
+  auto const& dtype = touch.dtype;
   auto const& ts = touch.selection;
   if(ts.size() == 1) {
-    return _touch_dispatch(1);
+    return dtype == dtype_t::c64 ?
+      _touch_dispatch_c(1) :
+      _touch_dispatch_f(1) ;
   }
 
   if(ts.size() == 2) {
-    return _touch_dispatch(2);
+    return dtype == dtype_t::c64 ?
+      _touch_dispatch_c(2) :
+      _touch_dispatch_f(2) ;
   }
 
   if(ts.size() == 3) {
-    return _touch_dispatch(3);
+    return dtype == dtype_t::c64 ?
+      _touch_dispatch_c(3) :
+      _touch_dispatch_f(3) ;
   }
 
   if(ts.size() == 4) {
-    return _touch_dispatch(4);
+    return dtype == dtype_t::c64 ?
+      _touch_dispatch_c(4) :
+      _touch_dispatch_f(4) ;
   }
 
   throw std::runtime_error("touch kernel not implemented");
@@ -359,42 +539,100 @@ build_touch(touch_t const& touch_)
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs,
-  float const& beta)
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  bool is_zero_else_one)
 {
-  cblas_sgemm(
-    CblasRowMajor,
-    trans_lhs ? CblasTrans : CblasNoTrans,
-    trans_rhs ? CblasTrans : CblasNoTrans,
-    ni,nk,nj,
-    1.0f,
-    lhs,
-    trans_lhs ? ni : nj,
-    rhs,
-    trans_rhs ? nj : nk,
-    beta,
-    out,
-    nk);
+  if(dtype == dtype_t::f16) {
+    using f16_t = MKL_F16;
+    // Use the half library (float16_t) to set one and zero,
+    // then convert it to whatever type mkl sets MKL_F16 to.
+    float16_t one_(1.0);
+    float16_t zero_(0.0);
+    f16_t& one  = reinterpret_cast<f16_t&>(one_);
+    f16_t& zero = reinterpret_cast<f16_t&>(zero_);
+
+    cblas_hgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      one,
+      (f16_t const*)lhs,
+      trans_lhs ? ni : nj,
+      (f16_t const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? zero : one,
+      (f16_t*)out,
+      nk);
+  } else if(dtype == dtype_t::f32) {
+    cblas_sgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      1.0f,
+      (float const*)lhs,
+      trans_lhs ? ni : nj,
+      (float const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? 0.0f : 1.0f,
+      (float*)out,
+      nk);
+  } else if(dtype == dtype_t::f64) {
+    cblas_dgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      1.0,
+      (double const*)lhs,
+      trans_lhs ? ni : nj,
+      (double const*)rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? 0.0 : 1.0,
+      (double*)out,
+      nk);
+  } else if(dtype == dtype_t::c64) {
+    std::complex<float> one(1.0, 0.0);
+    std::complex<float> zero(0.0, 0.0);
+    cblas_cgemm(
+      CblasRowMajor,
+      trans_lhs ? CblasTrans : CblasNoTrans,
+      trans_rhs ? CblasTrans : CblasNoTrans,
+      ni,nk,nj,
+      (void*)&one,
+      lhs,
+      trans_lhs ? ni : nj,
+      rhs,
+      trans_rhs ? nj : nk,
+      is_zero_else_one ? (void*)&zero : (void*)&one,
+      out,
+      nk);
+  } else {
+    throw std::runtime_error("matmul type missing");
+  }
 }
 
 void matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& ni,
   uint64_t const& nj,
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  void* out,
+  void const* lhs,
+  void const* rhs)
 {
-  matrix_multiply_update(ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, 0.0);
+  matrix_multiply_update(dtype, ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, true);
 }
 
 // b<ij> , b<jk> -> b<ik>
@@ -406,6 +644,7 @@ void matrix_multiply(
 //   bij,bjk->ik
 // by just looping over the batched dimension
 void batch_matrix_multiply(
+  dtype_t const& dtype,
   uint64_t const& nb,
   bool const& batched_out,
   bool const& batched_lhs,
@@ -415,30 +654,42 @@ void batch_matrix_multiply(
   uint64_t const& nk,
   bool const& trans_lhs,
   bool const& trans_rhs,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  void* _out,
+  void const* _lhs,
+  void const* _rhs)
 {
   if(nb == 1) {
-    matrix_multiply(ni,nj,nk,trans_lhs, trans_rhs, out, lhs, rhs);
+    matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
   }
 
-  uint64_t offset_lhs = batched_lhs ? ni*nj : 0 ;
-  uint64_t offset_rhs = batched_rhs ? nj*nk : 0 ;
+  uint8_t      * out = (uint8_t      *)_out;
+  uint8_t const* lhs = (uint8_t const*)_lhs;
+  uint8_t const* rhs = (uint8_t const*)_rhs;
+
+  uint64_t offset_lhs = batched_lhs ? dtype_size(dtype)*ni*nj : 0 ;
+  uint64_t offset_rhs = batched_rhs ? dtype_size(dtype)*nj*nk : 0 ;
   if(batched_out) {
-    uint64_t offset_out = ni*nk;
+    uint64_t offset_out = dtype_size(dtype)*ni*nk;
     for(int b = 0; b != nb; ++b) {
-      matrix_multiply(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs);
+      matrix_multiply(
+        dtype, ni, nj, nk, trans_lhs, trans_rhs,
+        (void*)out, (void const*)lhs, (void const*)rhs);
       lhs += offset_lhs;
       rhs += offset_rhs;
       out += offset_out;
     }
   } else {
-    matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 0.0);
+    matrix_multiply_update(
+      dtype, ni, nj, nk, trans_lhs, trans_rhs,
+      (void*)out, (void const*)lhs, (void const*)rhs,
+      true);
     lhs += offset_lhs;
     rhs += offset_rhs;
     for(int b = 1; b != nb; ++b) {
-      matrix_multiply_update(ni, nj, nk, trans_lhs, trans_rhs, out, lhs, rhs, 1.0);
+      matrix_multiply_update(
+        dtype, ni, nj, nk, trans_lhs, trans_rhs,
+        (void*)out, (void const*)lhs, (void const*)rhs,
+        false);
       lhs += offset_lhs;
       rhs += offset_rhs;
     }
@@ -451,16 +702,14 @@ void batch_matrix_multiply(
 // Note: This test also won't determine that
 //   (jk,ij->ik) is actually a matrix multiply with the inputs flipped.
 //   (TODO...)
-optional<std::function<void(float*, vector<float const*>)>>
+optional<kernel_t>
 _make_matrix_multiply(
   einsummable_t const& einsummable)
 {
-  using kernel_t = std::function<void(float*, vector<float const*>)>;
-
   if(einsummable.join_shape.size() != 3 ||
      einsummable.out_rank          != 2)
   {
-    return optional<kernel_t>();
+    return std::nullopt;;
   }
 
   int i = 0;
@@ -481,7 +730,7 @@ _make_matrix_multiply(
     } else if(idxs_lhs == vector<int>({j,i})) {
       trans_lhs = true;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
   }
 
@@ -492,30 +741,30 @@ _make_matrix_multiply(
     } else if(idxs_rhs == vector<int>({k,j})) {
       trans_rhs = true;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
   }
 
-  return optional<kernel_t>(
-    [ni,nj,nk,trans_lhs,trans_rhs](float* out, vector<float const*> inns) {
-      return matrix_multiply(
-        ni,nj,nk,
-        trans_lhs,trans_rhs,
-        out, inns[0], inns[1]);
-    }
-  );
+  auto dtype = einsummable.out_dtype();
+  return [dtype,ni,nj,nk,trans_lhs,trans_rhs]
+    (void* out, vector<void const*> inns)
+  {
+    return matrix_multiply(
+      dtype,
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      out, inns[0], inns[1]);
+  };
 }
 
 // TODO: see _make_matrix_multiply todo.
 //       Also, this function is just too ugly
-optional<std::function<void(float*, vector<float const*>)>>
+optional<kernel_t>
 _make_batch_matrix_multiply(
   einsummable_t const& e)
 {
-  using kernel_t = std::function<void(float*, vector<float const*>)>;
-
   if(e.join_shape.size() != 4 || e.inns.size() != 2) {
-    return optional<kernel_t>();
+    return std::nullopt;
   }
 
   bool batched_lhs, batched_rhs, batched_out;
@@ -527,7 +776,7 @@ _make_batch_matrix_multiply(
     } else if(rank_lhs == 3) {
       batched_lhs = true;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
   }
 
@@ -538,7 +787,7 @@ _make_batch_matrix_multiply(
     } else if(rank_rhs == 3) {
       batched_rhs = true;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
   }
 
@@ -548,7 +797,7 @@ _make_batch_matrix_multiply(
     } else if(e.out_rank == 3) {
       batched_out = true;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
   }
 
@@ -578,13 +827,13 @@ _make_batch_matrix_multiply(
       b = e.inns[1][0];
     } else {
       // this is a matrix multiply, not a batched matrix multiply
-      return optional<kernel_t>();
+      return std::nullopt;
     }
 
     if(b == 2 || b == 3) {
       j = b == 3 ? 2 : 3;
     } else {
-      return optional<kernel_t>();
+      return std::nullopt;
     }
 
     i = 0;
@@ -606,7 +855,7 @@ _make_batch_matrix_multiply(
       } else if(idxs_lhs == vector<int>{b,j,i}) {
         trans_lhs == true;
       } else {
-        return optional<kernel_t>();
+        return std::nullopt;
       }
     } else {
       if(idxs_lhs == vector<int>{i,j}) {
@@ -614,7 +863,7 @@ _make_batch_matrix_multiply(
       } else if(idxs_lhs == vector<int>{j,i}) {
         trans_lhs == true;
       } else {
-        return optional<kernel_t>();
+        return std::nullopt;
       }
     }
   }
@@ -627,7 +876,7 @@ _make_batch_matrix_multiply(
       } else if(idxs_rhs == vector<int>{b,k,j}) {
         trans_rhs == true;
       } else {
-        return optional<kernel_t>();
+        return std::nullopt;
       }
     } else {
       if(idxs_rhs == vector<int>{j,k}) {
@@ -635,24 +884,25 @@ _make_batch_matrix_multiply(
       } else if(idxs_rhs == vector<int>{k,j}) {
         trans_rhs == true;
       } else {
-        return optional<kernel_t>();
+        return std::nullopt;
       }
     }
   }
 
-  return optional<kernel_t>(
-    [nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
-    (float* out, vector<float const*> inns) {
-      return batch_matrix_multiply(
-        nb,batched_out,batched_lhs,batched_rhs,
-        ni,nj,nk,
-        trans_lhs,trans_rhs,
-        out, inns[0], inns[1]);
-    }
-  );
+  auto dtype = e.out_dtype();
+  return [dtype,nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
+    (void* out, vector<void const*> inns)
+  {
+    return batch_matrix_multiply(
+      dtype,
+      nb,batched_out,batched_lhs,batched_rhs,
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      out, inns[0], inns[1]);
+  };
 }
 
-std::function<void(float*, vector<float const*>)>
+kernel_t
 build_einsummable(
   int num_threads,
   einsummable_t const& einsummable_)

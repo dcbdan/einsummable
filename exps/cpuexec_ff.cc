@@ -9,8 +9,10 @@
 
 #include "../src/autoplace/autoplace.h"
 
+#include <fstream>
+
 void usage() {
-  std::cout << "Usage: niter dn dp dd {dws}\n"
+  std::cout << "Usage: niter dn dp dd {dws} learning_rate\n"
             << "\n"
             << "Train a feedforward neural network to predict\n"
             << "a random dn x dp data matrix\n"
@@ -24,13 +26,16 @@ void usage() {
 }
 
 void ff(
+  dtype_t dtype,
   mpi_t& mpi,
   uint64_t dn, uint64_t dp, uint64_t dd,
   vector<uint64_t> dws,
   int niter, float learning_rate)
 {
-  ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate);
+  ff_sqdiff_t ff_info = ff_sqdiff_update(dn,dp,dd,dws,learning_rate,dtype);
   matrixgraph_t const& mgraph = ff_info.mgraph;
+
+  set_default_dtype(dtype);
 
   int x             = ff_info.x;
   int y             = ff_info.y;
@@ -46,6 +51,12 @@ void ff(
   auto [graph, m_to_g] = mgraph.compile(outs);
   auto pls = single_loc_placements(graph);
   auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph, pls);
+
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("wrote tg.gv");
+  }
 
   //////////
   // REWRITE ALL IDS FROM MATRIX GRAPH TO TASKGRAPH
@@ -68,28 +79,29 @@ void ff(
   taskgraph.nodes[x].is_save = true;
   taskgraph.nodes[y].is_save = true;
 
-  map<int, buffer_t> buffers;
+  map<int, dbuffer_t> buffers;
 
   // Set x
   {
-    buffer_t buffer_x = std::make_shared<buffer_holder_t>(dn*dp);
-    buffer_x->random(-0.05, 0.05);
+    dbuffer_t buffer_x = make_dbuffer(dtype, dn*dp);
+    buffer_x.random("-0.05", "0.05");
     buffers.insert({x, buffer_x});
   }
   // Set y
   {
-    buffer_t buffer_y = std::make_shared<buffer_holder_t>(dn*dd);
-    buffer_y->random(-0.05, 0.05);
+    dbuffer_t buffer_y = make_dbuffer(dtype, dn*dd);
+    buffer_y.random("-0.05", "0.05");
     buffers.insert({y, buffer_y});
   }
+
   // Set init weights
   for(int i = 0; i != ws.size(); ++i) {
     int const& w = ws[i];
     auto [w_d0,w_d1] = ff_info.shape_wi(i);
     uint64_t w_sz = w_d0*w_d1;
 
-    buffer_t buffer_w = std::make_shared<buffer_holder_t>(w_sz);
-    buffer_w->random(-0.05, 0.05);
+    dbuffer_t buffer_w = make_dbuffer(dtype, w_sz);
+    buffer_w.random("-0.05", "0.05");
     buffers.insert({w, buffer_w});
   }
 
@@ -97,10 +109,10 @@ void ff(
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
-    float loss = buffers.at(sqdiff)->sum();
-    //if(i % 75 == 0) {
-      std::cout << "loss: " << loss << std::endl;
-    //}
+    if(i % 75 == 0) {
+      scalar_t loss = buffers.at(sqdiff).sum();
+      std::cout << "loss: " << loss.str() << std::endl;
+    }
 
     for(int i = 0; i != ws.size(); ++i) {
       int const& w    = ws[i];
@@ -110,7 +122,81 @@ void ff(
   }
 }
 
+void print_loop_kernel_info() {
+  vector<string> ks = {
+    "ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]",
+    "power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
+    "*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
+    "*[hole|f32@0,hole|f32@1]",
+    "*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]",
+    "+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]",
+    "ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},hole|f16@0]",
+    "power{2}[+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[constant{f16|2},+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[hole|f16@0,hole|f16@1]",
+    "*[ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},constant{f16|1}],hole|f16@1]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},hole|f64@0]",
+    "power{2}[+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[constant{f64|2},+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[hole|f64@0,hole|f64@1]",
+    "*[ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},constant{f64|1}],hole|f64@1]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]"
+  };
+
+  auto to_type_str = [](dtype_t const& d) {
+    if(d == dtype_t::f16) {
+      return "float16_t";
+    } else if(d == dtype_t::f32) {
+      return "float";
+    } else if(d == dtype_t::f64) {
+      return "double";
+    } else if(d == dtype_t::c64) {
+      return "std::complex<float>";
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  };
+
+  int nu = 0;
+  int nb = 0;
+  int nf = 0;
+  for(auto const& s: ks) {
+    scalarop_t f = parse_with_ss<scalarop_t>(s);
+    auto const& [op_str, _] = f.to_cpp_bytes();
+    int n_inn = f.num_inputs();
+    std::cout << s << std::endl;
+    std::cout << f.type_signature() << "|" << op_str << std::endl;
+    if(n_inn == 1) {
+      auto tout = to_type_str(f.out_dtype());
+      auto tinn = to_type_str(f.inn_dtype(0).value());
+      std::cout << "_unary_ew_loop(u" << (nu++) << ","
+        << tout << "," << tinn << ","
+        << op_str << ")" << std::endl;
+    } else if(n_inn == 2) {
+      auto tout = to_type_str(f.out_dtype());
+      auto tlhs = to_type_str(f.inn_dtype(0).value());
+      auto trhs = to_type_str(f.inn_dtype(1).value());
+      std::cout << "_binary_ew_loop(b" << (nb++) << ","
+        << tout << "," << tlhs << "," << trhs << ","
+        << op_str << ")" << std::endl;
+    } else {
+      nf++;
+    }
+    std::cout << std::endl;
+  }
+
+  if(nf != 0) {
+    throw std::runtime_error("COULD NOT PROCESS ALL");
+  }
+}
+
 int main(int argc, char** argv) {
+  //print_loop_kernel_info();
+  //return 0;
+
   if(argc < 5) {
     usage();
     return 1;
@@ -118,14 +204,16 @@ int main(int argc, char** argv) {
   int niter;
   uint64_t dn, dp, dd;
   vector<uint64_t> dws;
+  float learning_rate;
   try {
     niter          = parse_with_ss<int>(     argv[1]);
     dn             = parse_with_ss<uint64_t>(argv[2]);
     dp             = parse_with_ss<uint64_t>(argv[3]);
     dd             = parse_with_ss<uint64_t>(argv[4]);
-    for(int i = 5; i != argc; ++i) {
+    for(int i = 5; i != argc-1; ++i) {
       dws.push_back( parse_with_ss<uint64_t>(argv[i]));
     }
+    learning_rate = parse_with_ss<float>(argv[argc-1]);
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -137,5 +225,5 @@ int main(int argc, char** argv) {
     throw std::runtime_error("This program is not distributed");
   }
 
-  ff(mpi, dn, dp, dd, dws, niter, 0.001);
+  ff(dtype_t::f64, mpi, dn, dp, dd, dws, niter, learning_rate);
 }

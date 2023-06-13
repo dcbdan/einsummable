@@ -1,7 +1,7 @@
 #include "graph.h"
 
-concat_t::concat_t(int d, vector<vector<uint64_t>> const& ss):
-  dim(d), inn_shapes(ss)
+concat_t::concat_t(int d, dtype_t dt, vector<vector<uint64_t>> const& ss):
+  dim(d), dtype(dt), inn_shapes(ss)
 {
   optional<string> err_msg = check_concat_shapes(dim, inn_shapes);
   if(err_msg) {
@@ -67,30 +67,33 @@ vector<uint64_t> concat_t::get_offsets() const {
 }
 
 int graph_constructor_t::insert_input(
-  placement_t placement)
+  placement_t placement, dtype_t dtype)
 {
-  int ret = graph.insert_input(placement.total_shape());
+  int ret = graph.insert_input(placement.total_shape(), dtype);
   placements.insert({ret, placement});
   return ret;
 }
 
 int graph_constructor_t::insert_input(
-  partition_t partition)
+  partition_t partition,
+  dtype_t dtype)
 {
-  return insert_input(placement_t(partition));
+  return insert_input(placement_t(partition), dtype);
 }
 
 int graph_constructor_t::insert_input(
-  vector<uint64_t> shape)
+  vector<uint64_t> shape,
+  dtype_t dtype)
 {
-  return insert_input(partition_t::singleton(shape));
+  return insert_input(partition_t::singleton(shape), dtype);
 }
 
 int graph_t::insert_input(
-  vector<uint64_t> shape)
+  vector<uint64_t> shape,
+  dtype_t dtype)
 {
   return this->insert(
-    input_t { .shape = shape },
+    input_t { .dtype = dtype, .shape = shape },
     {});
 }
 
@@ -181,6 +184,7 @@ int graph_t::insert_formation(
 {
   return this->insert(
     formation_t {
+      .dtype = out_dtype(inn),
       .shape = out_shape(inn),
       .is_save = is_save },
     {inn});
@@ -232,8 +236,15 @@ int graph_t::insert_concat(
   int dim,
   vector<int> inns)
 {
-  if(inns.size() == 1) {
+  if(inns.size() <= 1) {
     throw std::runtime_error("concat must have multiple arguments");
+  }
+
+  dtype_t dtype = out_dtype(inns[0]);
+  for(int i = 1; i != inns.size(); ++i) {
+    if(out_dtype(inns[i]) != dtype) {
+      throw std::runtime_error("dtype error at insert_concat");
+    }
   }
 
   vector<vector<uint64_t>> shapes;
@@ -241,7 +252,23 @@ int graph_t::insert_concat(
     shapes.push_back(out_shape(inn));
   }
 
-  return this->insert(concat_t(dim, shapes), inns);
+  return this->insert(concat_t(dim, dtype, shapes), inns);
+}
+
+dtype_t graph_t::op_t::out_dtype() const {
+  if(is_input()) {
+    return get_input().dtype;
+  }
+  if(is_formation()) {
+    return get_formation().dtype;
+  }
+  if(is_concat()) {
+    return get_concat().dtype;
+  }
+  if(is_einsummable()) {
+    return get_einsummable().out_dtype();
+  }
+  throw std::runtime_error("graph::op_t should not reach");
 }
 
 vector<uint64_t>
@@ -308,6 +335,10 @@ vector<uint64_t> graph_t::out_shape(int id) const {
   return nodes[id].op.out_shape();
 }
 
+dtype_t graph_t::out_dtype(int id) const {
+  return nodes[id].op.out_dtype();
+}
+
 vector<int> graph_t::get_order() const {
   // Because of the way the graph is constructed,
   // it must be the case that a valid ordering of the compute
@@ -343,8 +374,9 @@ void graph_t::print() const {
   for(int id = 0; id != nodes.size(); ++id) {
     auto const& node = nodes[id];
 
-    std::cout << "node id: " << id
-      << " with out shape " << node.op.out_shape() << std::endl;
+    std::cout << "node id]: " << id
+      << " with out shape " << node.op.out_shape()
+      << " | " << node.op.out_dtype() << std::endl;
     std::cout << "inputs: " << node.inns << std::endl;
     if(node.op.is_input()) {
       std::cout << "input" << std::endl;
@@ -703,6 +735,10 @@ void graph_writer_t::tensor_t::save() {
   id = self.graph.insert_formation(id, true);
 }
 
+dtype_t graph_writer_t::tensor_t::get_dtype() const {
+  return self.graph.out_dtype(id);
+}
+
 graph_writer_t::tensor_t&
 graph_writer_t::tensor_t::operator=(
   graph_writer_t::tensor_t const& other)
@@ -794,9 +830,10 @@ graph_writer_t::tensor_t::_full_shape() const
 
 graph_writer_t::tensor_t
 graph_writer_t::input(
-  vector<uint64_t> shape)
+  vector<uint64_t> shape,
+  dtype_t dtype)
 {
-  int id = graph.insert_input(shape);
+  int id = graph.insert_input(shape, dtype);
   return tensor_t(shape, shape, id, *this);
 }
 
@@ -1119,7 +1156,8 @@ graph_writer_t::scale(
   string x(inn.shape.size(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
-  return ew(x + "->" + x, scalarop_t::make_scale(val), inn);
+  // TODO: will need to deal with dtypes
+  return ew(x + "->" + x, scalarop_t::make_scale(scalar_t(val)), inn);
 }
 
 int graph_writer_t::_insert_elementwise(

@@ -104,6 +104,12 @@ public:
     vector<mem_t> mems;
     std::variant<einsummable_t, touch_t> op;
     int group;
+
+    bool is_einsummable() const;
+    bool is_touch() const;
+    einsummable_t const& get_einsummable() const;
+    touch_t const& get_touch() const;
+    dtype_t out_dtype() const;
   };
   // Consider an aggregation Y = X1 + X2 + X3 + X4 + X5
   // where the order that X1, ..., X5 comes available is

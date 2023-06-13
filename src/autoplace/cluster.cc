@@ -5,7 +5,10 @@ cluster_t::device_t::device_t(
   : capacity(1)
 {
   f_cost = [compute](einsummable_t const& e) {
-    uint64_t flops = product(e.join_shape);
+    // assume that forming f32 takes 2x longer
+    // than f16 and f64 4x longer than f16..
+    uint64_t dtype_diff = dtype_size(e.out_dtype());
+    uint64_t flops = product(e.join_shape) * dtype_diff;
     double time = (1.0 / compute) * flops;
     return tuple<int,double>{1, time};
   };
