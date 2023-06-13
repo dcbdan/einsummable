@@ -70,6 +70,7 @@ struct taskgraph_t {
 
   int insert_consumed_aggregate(
     int loc,
+    dtype_t dtype,
     castable_t castable,
     vector<int> inns,
     bool is_save = false);
@@ -100,7 +101,6 @@ struct taskgraph_t {
   // }}}
 
   uint64_t get_size_at(int id) const;
-  uint64_t get_nelem_at(int id) const;
 
   // find all partial inputs that can be consumed and
   // consume them
@@ -127,7 +127,7 @@ struct taskgraph_t {
 
   int num_locs() const;
 
-  uint64_t total_elems_moved() const;
+  uint64_t total_bytes_moved() const;
   uint64_t total_flops() const;
 
   string to_wire() const;
@@ -136,8 +136,7 @@ struct taskgraph_t {
 private:
   struct input_t {
     int loc;
-    dtype_t dtype;
-    uint64_t nelem;
+    uint64_t size;
   };
   struct apply_t {
     int loc;
@@ -148,8 +147,7 @@ private:
     int src;
     int dst;
     int inn;
-    dtype_t dtype;
-    uint64_t nelem;
+    uint64_t size;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -274,11 +272,7 @@ public:
 
     int out_loc() const;
 
-    dtype_t out_dtype() const;
-
     uint64_t out_size() const;
-
-    uint64_t out_nelem() const;
 
     set<int> inputs() const;
 

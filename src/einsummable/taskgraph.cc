@@ -184,6 +184,40 @@ struct taskgraph_make_state_t {
     optional<castable_t> castable);
 };
 
+void double_last_dim_inplace(partition_t&          p);
+void double_last_dim_inplace(placement_t&          p);
+void double_last_dim_inplace(multiple_placement_t& p);
+void double_last_dim_inplace(multiple_tensor_t&    p);
+
+#define _DOUBLE_LAST_DIM_(type) \
+type double_last_dim(type const& p) { \
+  auto ret = p; \
+  double_last_dim_inplace(ret); \
+  return ret; \
+}
+
+_DOUBLE_LAST_DIM_(partition_t)
+_DOUBLE_LAST_DIM_(placement_t)
+_DOUBLE_LAST_DIM_(multiple_placement_t)
+_DOUBLE_LAST_DIM_(multiple_tensor_t)
+
+void halve_last_dim_inplace(partition_t&          p);
+void halve_last_dim_inplace(placement_t&          p);
+void halve_last_dim_inplace(multiple_placement_t& p);
+void halve_last_dim_inplace(multiple_tensor_t&    p);
+
+#define _HALVE_LAST_DIM_(type) \
+type halve_last_dim(type const& p) { \
+  auto ret = p; \
+  double_last_dim_inplace(ret); \
+  return ret; \
+}
+
+_HALVE_LAST_DIM_(partition_t)
+_HALVE_LAST_DIM_(placement_t)
+_HALVE_LAST_DIM_(multiple_placement_t)
+_HALVE_LAST_DIM_(multiple_tensor_t)
+
 tuple<
   map<int, tensor_t<int> >, // for each input, the tids of the blocks
   map<int, tensor_t<int> >, // for each save id, the tids of the blocks
@@ -630,6 +664,9 @@ taskgraph_make_state_t::form_relation(int gid)
     int inn_gid = node.inns[0];
     return form_from_refinement(inn_gid, placements.at(gid));
   }
+  if(node.op.is_complexer()) {
+    // TODO
+  }
   if(node.op.is_concat()) {
     return form_concat(gid);
   }
@@ -674,6 +711,8 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid)
     if(out_node.op.is_formation()) {
       usage_placements.push_back(
         multiple_placement_t::from_single_placement(out_pl));
+    } else if(out_node.op.is_complexer()) {
+      // TODO
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage placements to collect
@@ -805,7 +844,7 @@ taskgraph_make_state_t::construct_refinement_tensor(
         } else {
           castable_t& castable = maybe_castable.value();
           int local_aggd_id =
-            taskgraph.insert_consumed_aggregate(loc, castable, ids);
+            taskgraph.insert_consumed_aggregate(loc, dtype, castable, ids);
           partials[loc] = local_aggd_id;
         }
       }
@@ -1132,6 +1171,34 @@ taskgraph_make_state_t::construct_refinement_tensor(
   return refined_tensor;
 }
 
+void double_last_dim_inplace(partition_t& p) {
+  partdim_t& partdim = p.partdims.back();
+  partdim = partdim_t::from_sizes(vector_double(partdim.sizes()));
+}
+void double_last_dim_inplace(placement_t& p) {
+  double_last_dim(p.partition);
+}
+void double_last_dim_inplace(multiple_placement_t& p) {
+  double_last_dim(p.partition);
+}
+void double_last_dim_inplace(multiple_tensor_t& p) {
+  double_last_dim(p.partition);
+}
+
+void halve_last_dim_inplace(partition_t& p) {
+  partdim_t& partdim = p.partdims.back();
+  partdim = partdim_t::from_sizes(vector_halve(partdim.sizes()));
+}
+void halve_last_dim_inplace(placement_t& p) {
+  halve_last_dim(p.partition);
+}
+void halve_last_dim_inplace(multiple_placement_t& p) {
+  halve_last_dim(p.partition);
+}
+void halve_last_dim_inplace(multiple_tensor_t& p) {
+  halve_last_dim(p.partition);
+}
+
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)
 {
   vector<set<int>> locs;
@@ -1455,8 +1522,7 @@ int taskgraph_t::insert_input(
 {
   input_t input {
     .loc = loc,
-    .dtype = dtype,
-    .nelem = product(shape)
+    .size = product(shape) * dtype_size(dtype),
   };
 
   return insert(input, is_save);
@@ -1499,8 +1565,7 @@ int taskgraph_t::insert_move(
     .src = src,
     .dst = dst,
     .inn = inn,
-    .dtype = nodes[inn].op.out_dtype(),
-    .nelem = nodes[inn].op.out_nelem()
+    .size = nodes[inn].op.out_size()
   };
 
   return insert(move, is_save);
@@ -1508,6 +1573,7 @@ int taskgraph_t::insert_move(
 
 int taskgraph_t::insert_consumed_aggregate(
   int loc,
+  dtype_t dtype,
   castable_t castable,
   vector<int> inns,
   bool is_save)
@@ -1521,12 +1587,16 @@ int taskgraph_t::insert_consumed_aggregate(
     throw std::runtime_error("invalid insert_consumed_aggregate argument");
   }
 
-  uint64_t sz = get_nelem_at(inns[0]);
+  uint64_t sz = get_size_at(inns[0]);
+  if(sz % dtype_size(dtype) != 0) {
+    throw std::runtime_error("non integer number of elements");
+  }
+  sz /= dtype_size(dtype);
 
   vector<input_op_t> inputs;
   inputs.reserve(inns.size());
   for(auto const& inn: inns) {
-    if(sz != get_nelem_at(inn)) {
+    if(sz != get_size_at(inn)) {
       throw std::runtime_error("not all the same size: insert consumed agg");
     }
     inputs.push_back(input_op_t {
@@ -1544,7 +1614,7 @@ int taskgraph_t::insert_consumed_aggregate(
 
   return insert(partialize_t {
       .loc = loc,
-      .dtype = nodes[inns[0]].op.out_dtype(),
+      .dtype = dtype,
       .write_shape = {sz},
       .units = {unit}
     },
@@ -1716,11 +1786,6 @@ uint64_t taskgraph_t::get_size_at(int id) const
   return nodes[id].op.out_size();
 }
 
-uint64_t taskgraph_t::get_nelem_at(int id) const
-{
-  return nodes[id].op.out_nelem();
-}
-
 vector<int> taskgraph_t::get_order() const {
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
@@ -1792,11 +1857,11 @@ int taskgraph_t::num_locs() const {
   return ret;
 }
 
-uint64_t taskgraph_t::total_elems_moved() const {
+uint64_t taskgraph_t::total_bytes_moved() const {
   uint64_t ret = 0;
   for(auto const& node: nodes) {
     if(node.op.is_move()) {
-      ret += node.op.get_move().nelem;
+      ret += node.op.get_move().size;
     }
   }
   return ret;
@@ -1819,12 +1884,11 @@ string taskgraph_t::to_wire() const {
     es_proto::TaskGraphNode* n = tg.add_nodes();
 
     if(node.op.is_input()) {
-      auto const& [loc,dtype,nelem] = node.op.get_input();
+      auto const& [loc,size] = node.op.get_input();
 
       es_proto::TGInput* i = n->mutable_input();
       i->set_loc(loc);
-      i->set_dtype(write_with_ss(dtype));
-      i->set_nelem(nelem);
+      i->set_size(size);
     } else if(node.op.is_apply()) {
       auto const& [loc, inns, einsummable] = node.op.get_apply();
 
@@ -1839,14 +1903,13 @@ string taskgraph_t::to_wire() const {
       es_proto::Einsummable* e = a->mutable_einsummable();
       einsummable.to_proto(*e);
     } else if(node.op.is_move()) {
-      auto const& [src,dst,inn,dtype,nelem] = node.op.get_move();
+      auto const& [src,dst,inn,size] = node.op.get_move();
 
       es_proto::TGMove* m = n->mutable_move();
       m->set_src(src);
       m->set_dst(dst);
       m->set_inn(inn);
-      m->set_dtype(write_with_ss(dtype));
-      m->set_nelem(nelem);
+      m->set_size(size);
     } else if(node.op.is_partialize()) {
       auto const& [loc, dtype, write_shape, units] = node.op.get_partialize();
 
@@ -1909,9 +1972,8 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
     if(n.has_input()) {
       auto const& i = n.input();
-      dtype_t dtype = parse_with_ss<dtype_t>(i.dtype());
       ret.nodes.emplace_back(
-        op_t(input_t { i.loc(), dtype, i.nelem() }),
+        op_t(input_t { i.loc(), i.size() }),
         is_save);
     } else if(n.has_apply()) {
       auto const& a = n.apply();
@@ -1926,9 +1988,8 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         is_save);
     } else if(n.has_move()) {
       auto const& m = n.move();
-      dtype_t dtype = parse_with_ss<dtype_t>(m.dtype());
       ret.nodes.emplace_back(
-        op_t(move_t { m.src(), m.dst(), m.inn(), dtype, m.nelem() }),
+        op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
         is_save);
     } else if(n.has_partialize()) {
       auto const& p = n.partialize();
@@ -2030,36 +2091,17 @@ bool operator!=(
   return !(lhs == rhs);
 }
 
-dtype_t taskgraph_t::op_t::out_dtype() const
-{
-  if(is_input()) {
-    return get_input().dtype;
-  } else if(is_apply()) {
-    return get_apply().einsummable.out_dtype();
-  } else if(is_move()) {
-    return get_move().dtype;
-  } else if(is_partialize()) {
-    return get_partialize().dtype;
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-}
-
 uint64_t taskgraph_t::op_t::out_size() const
 {
-  return dtype_size(out_dtype()) * out_nelem();
-}
-
-uint64_t taskgraph_t::op_t::out_nelem() const
-{
   if(is_input()) {
-    return get_input().nelem;
+    return get_input().size;
   } else if(is_apply()) {
-    return get_apply().einsummable.out_nelem();
+    return get_apply().einsummable.out_size();
   } else if(is_move()) {
-    return get_move().nelem;
+    return get_move().size;
   } else if(is_partialize()) {
-    return product(get_partialize().write_shape);
+    auto p = get_partialize()
+    return product(p.write_shape) * dtype_size(p.dtype);
   } else {
     throw std::runtime_error("should not reach");
   }
