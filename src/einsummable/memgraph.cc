@@ -626,8 +626,7 @@ void memgraph_make_state_t::add_to_memgraph(
       .group = -1
     });
   } else if(node.op.is_move()) {
-    auto const& [src,dst,task_inn,dtype,nelem] = node.op.get_move();
-    uint64_t size = dtype_size(dtype)*nelem;
+    auto const& [src,dst,task_inn,size] = node.op.get_move();
 
     deps.insert(task_to_mem(task_inn));
 

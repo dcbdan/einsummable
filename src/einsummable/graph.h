@@ -7,9 +7,9 @@
 struct concat_t {
   concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
 
-  int const dim;
+  int dim;
   dtype_t dtype;
-  vector<vector<uint64_t>> const inn_shapes;
+  vector<vector<uint64_t>> inn_shapes;
 
   int num_inns() const { return inn_shapes.size(); }
 

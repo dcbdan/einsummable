@@ -143,7 +143,8 @@ void reblock_test(
     input_gid_to_tids.at(gid_inn),
     inn_pbuffer);
 
-  auto t_out_map = reference_compute_taskgraph(taskgraph, t_input_map);
+  auto t_out_map = typed_reference_compute_taskgraph_from_graph_info(
+    taskgraph, t_input_map, graph.graph, output_gid_to_tids);
 
   tensor_t<dbuffer_t> t_out_pbuffer = get_partitioned_buffer(
     t_out_map,
@@ -222,7 +223,11 @@ void test_make_taskgraph(
   }
 
   map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
-  map<int, dbuffer_t> task_outs = reference_compute_taskgraph(taskgraph, task_inns);
+
+
+  map<int, dbuffer_t> task_outs =
+    typed_reference_compute_taskgraph_from_graph_info(
+      taskgraph, task_inns, graph, out_to_blocks);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
     tensor_t<dbuffer_t> t_part_buffer =

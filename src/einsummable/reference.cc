@@ -6,10 +6,13 @@ void _assert_correct_dtype(string err_msg, dtype_t dtype, dbuffer_t const& data)
     throw std::runtime_error("incorrect dtype: " + err_msg);
   }
 }
-void _assert_correct_size(string err_msg, uint64_t size, dbuffer_t const& data) {
-  if(size != data.size()) {
+void _assert_correct_size(string err_msg, uint64_t size, buffer_t const& data) {
+  if(size != data->size) {
     throw std::runtime_error("incorrect size: " + err_msg);
   }
+}
+void _assert_correct_size(string err_msg, uint64_t size, dbuffer_t const& data) {
+  return _assert_correct_size(err_msg, size, data.data);
 }
 
 map<int, dbuffer_t> reference_compute_graph(
@@ -65,23 +68,26 @@ map<int, dbuffer_t> reference_compute_graph(
   return outs;
 }
 
-map<int, dbuffer_t> reference_compute_taskgraph(
+map<int, buffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
-  map<int, dbuffer_t> const& inputs)
+  map<int, buffer_t> const& inputs)
 {
-  map<int, dbuffer_t> outs;
+  map<int, buffer_t> outs;
 
   // id -> (location, buffer)
-  map<int, tuple<int, dbuffer_t> > tensors;
-  auto get_at = [&tensors](int id, int loc, optional<dtype_t> dtype) {
+  map<int, tuple<int, buffer_t> > tensors;
+
+  auto get_at = [&](int id, int loc) {
     auto const& [actual_loc, buffer] = tensors.at(id);
     if(loc != actual_loc) {
       throw std::runtime_error("incorrect locs in taskgraph");
     }
-    if(dtype && dtype.value() != buffer.dtype) {
-      throw std::runtime_error("incorrect dtype in reference compute taskgraph");
-    }
+    _assert_correct_size("get_at", taskgraph.out_size(id), buffer);
     return buffer;
+  };
+
+  auto get_dbuffer_at = [&](int id, int loc, dtype_t dtype) {
+    return dbuffer_t(dtype, get_at(id, loc));
   };
 
   for(auto const& id: taskgraph.get_order())
@@ -89,11 +95,8 @@ map<int, dbuffer_t> reference_compute_taskgraph(
     auto const& node = taskgraph.nodes[id];
 
     if(node.op.is_input()) {
-      auto const& ii = node.op.get_input();
-      dtype_t const& expected_dtype = ii.dtype;
-      uint64_t expected_size = dtype_size(ii.dtype) * ii.nelem;
+      uint64_t expected_size = node.op.out_size();
       auto const& t = inputs.at(id);
-      _assert_correct_dtype("tg input", expected_dtype, t);
       _assert_correct_size("tg input", expected_size, t);
       tensors[id] = {node.op.out_loc(), t};
     } else if(node.op.is_apply()) {
@@ -101,26 +104,37 @@ map<int, dbuffer_t> reference_compute_taskgraph(
 
       vector<dbuffer_t> inputs;
       inputs.reserve(apply.inns.size());
-      for(auto const& inn: apply.inns) {
-        // reference_einsummable will check the input dtype
-        inputs.push_back(get_at(inn, apply.loc, std::nullopt));
+      auto inn_dtypes = apply.einsummable.inn_dtypes();
+      for(int which_inn = 0; which_inn != apply.inns.size(); ++which_inn) {
+        auto const& inn = apply.inns[which_inn];
+        auto const& dtype = inn_dtypes[which_inn];
+        inputs.push_back(get_dbuffer_at(inn, apply.loc, dtype));
       }
 
       tensors[id] = {
         apply.loc,
-        reference_einsummable(apply.einsummable,inputs)
+        reference_einsummable(apply.einsummable,inputs).data
       };
     } else if(node.op.is_move()) {
       auto const& move = node.op.get_move();
-      dbuffer_t buffer_src = get_at(move.inn, move.src, move.dtype);
-      dbuffer_t buffer_dst = buffer_src.copy();
+      buffer_t buffer_src = get_at(move.inn, move.src);
+
+      buffer_t buffer_dst = make_buffer(move.size);
+      std::copy(
+        buffer_src->data,
+        buffer_src->data + move.size,
+        buffer_dst->data);
+
       tensors[id] = std::make_tuple(move.dst, buffer_dst);
     } else if(node.op.is_partialize()) {
       int loc = node.op.out_loc();
-      dtype_t dtype = node.op.out_dtype();
 
-      dbuffer_t write = make_dbuffer(dtype, node.op.out_nelem());
-      tensors[id] = {loc, write};
+      auto partialize = node.op.get_partialize();
+      dtype_t const& dtype = partialize.dtype;
+      uint64_t nelem = product(partialize.write_shape);
+
+      dbuffer_t write = make_dbuffer(dtype, nelem);
+      tensors[id] = {loc, write.data};
 
       // Note: ignoring consummables
       for(vector<tuple<int, touch_t>> const& ts: node.op.get_touches()) {
@@ -138,11 +152,11 @@ map<int, dbuffer_t> reference_compute_taskgraph(
             .dtype = dtype
           },
           write,
-          get_at(inn0, loc, std::nullopt));
+          get_dbuffer_at(inn0, loc, dtype));
 
         for(int i = 1; i < ts.size(); ++i) {
           auto const& [inn, t] = ts[i];
-          reference_touch(t, write, get_at(inn, loc, std::nullopt));
+          reference_touch(t, write, get_dbuffer_at(inn, loc, dtype));
         }
       }
     } else {
@@ -621,5 +635,56 @@ void fill_buffer_map(
     auto const& v = vs[i];
     items.insert({k,v});
   }
+}
+
+map<int, dbuffer_t> to_typed_buffer_map(
+  map<int, buffer_t> const& bs,
+  map<int, dtype_t> to_dtypes)
+{
+  map<int, dbuffer_t> ret;
+  for(auto const& [key,b]: bs) {
+    auto const& dtype = to_dtypes.at(key);
+    ret.insert({key, dbuffer_t(dtype, b)});
+  }
+  return ret;
+}
+
+map<int, buffer_t> to_untyped_buffer_map(
+  map<int, dbuffer_t> const& dbs)
+{
+  map<int, buffer_t> ret;
+  for(auto const& [key,db]: dbs) {
+    ret.insert({key, db.data});
+  }
+  return ret;
+}
+
+map<int, dtype_t> typed_task_ids(
+  graph_t const& graph,
+  map<int, tensor_t<int>> const& gid_to_tids)
+{
+  map<int, dtype_t> ret;
+  for(auto const& [gid, tids]: gid_to_tids) {
+    dtype_t dtype = graph.out_dtype(gid);
+    for(auto const& tid: tids.get()) {
+      ret.insert({tid, dtype});
+    }
+  }
+  return ret;
+}
+
+map<int, dbuffer_t>
+typed_reference_compute_taskgraph_from_graph_info(
+  taskgraph_t const& taskgraph,
+  map<int, dbuffer_t> const& inputs,
+  graph_t const& graph,
+  map<int, tensor_t<int>> const& save_gid_to_tids)
+{
+  auto untyped_ret = reference_compute_taskgraph(
+    taskgraph,
+    to_untyped_buffer_map(inputs));
+  return to_typed_buffer_map(
+    untyped_ret,
+    typed_task_ids(graph, save_gid_to_tids));
 }
 

@@ -79,6 +79,7 @@ struct taskgraph_t {
     int loc,
     vector<regiondim_t> selection,
     int inn,
+    dtype_t dtype,
     bool is_save = false);
 
   int new_partial(
@@ -132,6 +133,8 @@ struct taskgraph_t {
 
   string to_wire() const;
   static taskgraph_t from_wire(string const& str);
+
+  uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
 
 private:
   struct input_t {

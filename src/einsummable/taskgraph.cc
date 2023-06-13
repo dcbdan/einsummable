@@ -235,7 +235,7 @@ struct taskgraph_make_state_t {
     optional<castable_t> castable);
   // ^ wrt dtype
 
-  static dtype_t complex_to_real(dtype_t) const;
+  static dtype_t complex_to_real(dtype_t);
 };
 
 void double_last_dim_inplace(partition_t&          p);
@@ -491,7 +491,7 @@ multiple_tensor_t
 taskgraph_make_state_t::form_from_refinement(
   int gid,
   multiple_placement_t const& placement,
-  bool wrt_graph);
+  bool wrt_graph)
 {
   dtype_t dtype = graph.out_dtype(gid);
 
@@ -585,7 +585,8 @@ taskgraph_make_state_t::form_concat(int gid) {
     throw std::runtime_error("from_concat needs concat node");
   }
 
-  int rank = node.op.out_rank();
+  auto concat = node.op.get_concat();
+  int rank = concat.shape().size();
 
   partition_t split_partition = concat_split_partition(pl.partition, concat);
 
@@ -597,8 +598,6 @@ taskgraph_make_state_t::form_concat(int gid) {
   //        ^yes^yes  ^no ^no
 
   if(pl.partition == split_partition) {
-    auto const& concat = node.op.get_concat();
-
     // Note: if form_from_refinement had cache support,
     //       this would dip into that cache.
 
@@ -617,15 +616,20 @@ taskgraph_make_state_t::form_concat(int gid) {
     return tensor_t<int>::concat(concat.dim, ts);
   }
 
-  auto concat = node.op.get_concat();
   auto pl_real = pl;
   if(dtype_is_complex(concat.dtype)) {
     // change the concat and the pl to be with respect to reals!
 
-    concat.dtype = complex_to_real(concat.dtype);
-    for(auto& shape: concat.inn_shapes) {
+    auto new_shapes = concat.inn_shapes;
+    for(auto& shape: new_shapes) {
       shape.back() *= 2;
     }
+
+    concat = concat_t(
+      concat.dim,
+      complex_to_real(concat.dtype),
+      new_shapes);
+
     double_last_dim_inplace(pl_real);
   }
 
@@ -745,6 +749,7 @@ taskgraph_make_state_t::form_relation(int gid)
     return form_from_refinement(inn_gid, placements.at(gid));
   }
   if(node.op.is_complexer()) {
+    int inn_gid = node.inns[0];
     return form_from_refinement(inn_gid, placements.at(gid));
   }
   if(node.op.is_concat()) {
@@ -771,7 +776,7 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
   dtype_t dtype = node.op.out_dtype();
 
   if(dtype_is_complex(dtype)) {
-    if(maybe_castable && maybe_castable.value != castable_t::add) {
+    if(maybe_castable && maybe_castable.value() != castable_t::add) {
       // In this case, an aggregation is happening across a complex datatype
       // and it isn't just a simple addition, so usage placements will
       // have to be halved along the last dimension.
@@ -783,7 +788,7 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
       // for aggregating complex values with castable_t::mul...
       auto szs = usage_placement.partition.partdims.back().sizes();
       for(auto const& sz: szs) {
-        if(szs % 2 == 1) {
+        if(sz % 2 == 1) {
           throw std::runtime_error(
             "cannot halve usage placment; try another partitioning");
         }
@@ -835,7 +840,7 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
 }
 
 multiple_placement_t
-taskgraph_make_state_t::construct_refinement_placement(int join_gid)
+taskgraph_make_state_t::construct_refinement_placement(int join_gid) const
 {
   auto const& join_node = graph.nodes[join_gid];
   auto const& join_dtype = join_node.op.out_dtype();
@@ -1043,7 +1048,7 @@ taskgraph_make_state_t::construct_refinement_tensor(
       }
       auto insert_out_to_selection = [&](int partial_loc, int partial_id) {
         return taskgraph.insert_select_subset(
-          partial_loc, _out_to_selection_rs, partial_id);
+          partial_loc, _out_to_selection_rs, partial_id, dtype);
       };
 
       // A constructor to modify ids of refined_tensor
@@ -1325,7 +1330,7 @@ taskgraph_make_state_t::construct_refinement_tensor(
   return refined_tensor;
 }
 
-dtype_t taskgraph_make_state_t::complex_to_real(dtype_t dtype) const {
+dtype_t taskgraph_make_state_t::complex_to_real(dtype_t dtype) {
   if(dtype == dtype_t::c64) {
     return dtype_t::f32;
   }
@@ -1704,14 +1709,17 @@ int taskgraph_t::insert_einsummable(
   if(e.inns.size() != inns.size()) {
     throw std::runtime_error("insert_einsummable: incorrect number of inputs");
   }
+  auto inn_dtypes = e.inn_dtypes();
   auto inn_shapes = e.inn_shapes();
   for(int i = 0; i != inns.size(); ++i) {
     int const& inn = inns[i];
+    auto const& inn_dtype = inn_dtypes[i];
     auto const& inn_shape = inn_shapes[i];
-    if(nodes[inn].op.out_nelem() != product(inn_shape)) {
+    uint64_t actual_size = product(inn_shape) * dtype_size(inn_dtype);
+    if(nodes[inn].op.out_size() != actual_size) {
       throw std::runtime_error("insert_einsummable: input has wrong size");
     }
- }
+  }
 
   return insert(apply, is_save);
 }
@@ -1786,6 +1794,7 @@ int taskgraph_t::insert_select_subset(
   int loc,
   vector<regiondim_t> selection,
   int inn,
+  dtype_t dtype,
   bool is_save)
 {
   vector<uint64_t> write_shape;
@@ -1805,8 +1814,6 @@ int taskgraph_t::insert_select_subset(
       .size = size
     });
   }
-
-  dtype_t dtype = nodes[inn].op.out_dtype();
 
   touch_t touch {
     .selection = ts,
@@ -1916,8 +1923,11 @@ void taskgraph_t::add_to_partial_the_full_aggregate(
   castable_t castable,
   bool consume)
 {
-  auto const& write_shape = nodes[id_out].op.get_partialize().write_shape;
-  if(nodes[id_inn].op.out_nelem() != product(write_shape)) {
+  auto const& partialize = nodes[id_out].op.get_partialize();
+  auto const& write_shape = partialize.write_shape;
+  auto const& dtype = partialize.dtype;
+  if(nodes[id_inn].op.out_size() != dtype_size(dtype) * product(write_shape))
+  {
     throw std::runtime_error("invalid input size when adding aggregate");
   }
 
@@ -1936,7 +1946,7 @@ void taskgraph_t::add_to_partial_the_full_aggregate(
   touch_t touch {
     .selection = ts,
     .castable = optional<castable_t>(castable),
-    .dtype = nodes[id_inn].op.out_dtype()
+    .dtype = dtype
   };
 
   add_to_partial(id_out, id_inn, touch, consume);
@@ -2261,7 +2271,7 @@ uint64_t taskgraph_t::op_t::out_size() const
   } else if(is_move()) {
     return get_move().size;
   } else if(is_partialize()) {
-    auto p = get_partialize()
+    auto p = get_partialize();
     return product(p.write_shape) * dtype_size(p.dtype);
   } else {
     throw std::runtime_error("should not reach");
@@ -2455,16 +2465,16 @@ void taskgraph_t::print() const {
 
     auto inputs = node.op.inputs();
     std::cout << "inputs: " << vector<int>(inputs.begin(), inputs.end()) << std::endl;
-    std::cout << "tensor nelem: " << node.op.out_nelem() << std::endl;
+    std::cout << "tensor size: " << node.op.out_size() << std::endl;
 
     if(node.op.is_input()) {
-      auto const& [loc, _0, _1] = node.op.get_input();
+      auto const& [loc, _] = node.op.get_input();
       std::cout << "input | loc[" << loc << "]" << std::endl;
     } else if(node.op.is_apply()) {
       auto const& [loc, _, e] = node.op.get_apply();
       std::cout << "apply | loc[" << loc << "] " << e << std::endl;
     } else if(node.op.is_move()) {
-      auto const& [src, dst, _0, _1, _2] = node.op.get_move();
+      auto const& [src, dst, _0, _1] = node.op.get_move();
       std::cout << "move | loc[" << src << "] -> loc[" << dst << "]" << std::endl;
     } else if(node.op.is_partialize()) {
       int loc = node.op.out_loc();
@@ -2507,7 +2517,7 @@ void taskgraph_t::print_graphviz(
 
     // set label and color
     if(op.is_input()) {
-      auto const& [loc, _0, _1] = node.op.get_input();
+      auto const& [loc, _] = node.op.get_input();
       if(loc < colors.size()) {
         color = colors[loc];
       }
@@ -2520,7 +2530,7 @@ void taskgraph_t::print_graphviz(
       label = "apply" + write_with_ss(id) + "@loc["
         + write_with_ss(loc) + "]" + write_with_ss(e);
     } else if(op.is_move()) {
-      auto const& [src, dst, _0, _1, _2] = node.op.get_move();
+      auto const& [src, dst, _0, _1] = node.op.get_move();
       string src_ = write_with_ss(src);
       string dst_ = write_with_ss(dst);
       label = "move" + write_with_ss(id) + "@loc" + src_ + "->" + dst_;

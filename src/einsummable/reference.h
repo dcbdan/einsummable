@@ -12,9 +12,9 @@ map<int, dbuffer_t> reference_compute_graph(
   graph_t const& graph,
   map<int, dbuffer_t> const& inputs);
 
-map<int, dbuffer_t> reference_compute_taskgraph(
+map<int, buffer_t> reference_compute_taskgraph(
   taskgraph_t const& taskgraph,
-  map<int, dbuffer_t> const& inputs);
+  map<int, buffer_t> const& inputs);
 
 void reference_compute_memgraph(
   memgraph_t const& memgraph,
@@ -58,4 +58,22 @@ void fill_buffer_map(
   map<int, dbuffer_t>& items,
   tensor_t<int> keys,
   tensor_t<dbuffer_t> values);
+
+map<int, dbuffer_t> to_typed_buffer_map(
+  map<int, buffer_t> const& bs,
+  map<int, dtype_t> to_dtypes);
+
+map<int, buffer_t> to_untyped_buffer_map(
+  map<int, dbuffer_t> const& dbs);
+
+map<int, dtype_t> typed_task_ids(
+  graph_t const& graph,
+  map<int, tensor_t<int>> const& gid_to_tids);
+
+map<int, dbuffer_t>
+typed_reference_compute_taskgraph_from_graph_info(
+  taskgraph_t const& taskgraph,
+  map<int, dbuffer_t> const& inputs,
+  graph_t const& graph,
+  map<int, tensor_t<int>> const& save_gid_to_tids);
 
