@@ -236,11 +236,13 @@ struct transformer_t {
   attention_t(graph_writer_t& w, 
   std::string name, 
   ModelArgs_t params, 
-  int world_size,
-  tensor_t embedded_token): //size should be [tokensize, dim] 
-    writer(w), params(params){
+  int world_size): 
+  writer(w), params(params){
     n_layers = params.n_layers;
 
+    vector<uint64_t> tok_embed_shape = {params.vocab_size, params.dim};
+    tensor_t tok_embed_weight = writer.input(tok_embed_shape, dtype::f16);
+    
     for (int layer_id = 0; layer_id < n_layers; layer_id ++){
       //loop over input_map and insert into our own map.
       transformer_block_t block = transformer_block_t(writer, layer_id, params, world_size);
@@ -266,6 +268,12 @@ struct transformer_t {
     back to vocab size on c++ side, but we don't have the */
   }
 
+  tensor_t 
+  forward(tensor_t x, //size should be [tokensize, dim] 
+          int start_pos) {
+
+  }
+
   /* Get and return the mapping?*/
   map<int, string> input_map(){
     return input_names;
@@ -274,9 +282,12 @@ struct transformer_t {
 
   graph_writer_t& writer;
   map<int,string> input_names;
+  /*freq_cis_map has key as the tensor id for freqcis, and vector<dim, end> as the value*/
+  map<int, vector<uint64_t>> freq_cis_map; 
   ModelArgs_t params; 
   int vocab_size;
   vector<transformer_block_t> layers;
   RMSNorm_t norm;
   tensor_t output_weight;
+  tensor_t tok_embed_weight;
 };
