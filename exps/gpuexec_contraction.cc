@@ -159,7 +159,7 @@ int main(){
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    execute_contraction(stream,handle,&desc,out,lhs,rhs,(void*)&alpha1);
+    execute_contraction(stream,handle,&desc,out,lhs,rhs,e.inn_dtype(0));
 
     cudaStreamDestroy(stream);
 

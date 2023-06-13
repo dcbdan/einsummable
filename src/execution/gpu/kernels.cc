@@ -279,6 +279,8 @@ void build_contraction(
       typeCompute) );
 }
 
+
+
 void execute_contraction(
   cudaStream_t stream,
   cutensorHandle_t const* handle,
@@ -286,7 +288,7 @@ void execute_contraction(
   void* out,
   void const* lhs,
   void const* rhs,
-  void const* alpha)
+  dtype_t type)
 {
   // Set the algorithm to use
   cutensorContractionFind_t find;
@@ -299,6 +301,29 @@ void execute_contraction(
   size_t worksize = 0;
   void *work = nullptr;
 
+  void* ptr;
+  float16_t alpha1;
+  float alpha2;
+  double alpha3;
+  std::complex<float> alpha4(1.0f, 0.0f);
+
+  if(type == dtype_t::f16){
+    alpha1 = float16_t(1.0f);
+    ptr = static_cast<void*>(&alpha1);
+  }
+  else if(type == dtype_t::f32){
+    alpha2 = 1.0f;
+    ptr = static_cast<void*>(&alpha2);
+  }
+  else if(type == dtype_t::f64){
+    alpha3 = 1.0;
+    ptr = static_cast<void*>(&alpha3);
+  }
+  else if(type == dtype_t::c64){
+    ptr =  static_cast<void*>(&alpha4);
+  }
+
+  void const* alpha = ptr; 
 
   cutensorContractionPlan_t plan;
   handle_cutensor_error(
@@ -376,9 +401,9 @@ build_cutensor_reduction(
     cudaDataType_t typeC = dtype_to_cudatype(type);
     cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
-    typedef float floatTypeCompute;
-    floatTypeCompute alpha = (floatTypeCompute)1.0f;
-    floatTypeCompute beta  = (floatTypeCompute)0.0f;
+    //typedef float floatTypeCompute;
+    //floatTypeCompute alpha = (floatTypeCompute)1.0f;
+    //floatTypeCompute beta  = (floatTypeCompute)0.0f;
 
     cutensorTensorDescriptor_t descA;
     handle_cutensor_error(
@@ -401,6 +426,40 @@ build_cutensor_reduction(
     void *A_d = (void*)inns[0];
     void* C_d = (void*)out;
 
+    void* ptr1;
+    void* ptr2;
+    float16_t alpha1, beta1;
+    float alpha2, beta2;
+    double alpha3, beta3;
+    std::complex<float> alpha4(1.0f, 0.0f);
+    std::complex<float> beta4(0.0f, 0.0f);
+
+    if(type == dtype_t::f16){
+      alpha1 = float16_t(1.0f);
+      ptr1 = static_cast<void*>(&alpha1);
+      beta1 = float16_t(0.0f);
+      ptr2 = static_cast<void*>(&beta1);
+    }
+    else if(type == dtype_t::f32){
+      alpha2 = 1.0f;
+      ptr1 = static_cast<void*>(&alpha2);
+      beta2 = 0.0f;
+      ptr2 = static_cast<void*>(&beta2);
+    }
+    else if(type == dtype_t::f64){
+      alpha3 = 1.0;
+      ptr1 = static_cast<void*>(&alpha3);
+      beta3 = 0.0;
+      ptr2 = static_cast<void*>(&beta3);
+    }
+    else if(type == dtype_t::c64){
+      ptr1 =  static_cast<void*>(&alpha4);
+      ptr2 =  static_cast<void*>(&alpha2);
+    }
+
+    void const* alpha = ptr1; 
+    void const* beta = ptr2; 
+
     uint64_t worksize = 0;
     handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
                  A_d, &descA, modeA.data(),
@@ -419,9 +478,9 @@ build_cutensor_reduction(
     
     cutensorStatus_t err;
      err = cutensorReduction(handle, 
-                (const void*)&alpha, A_d, &descA, modeA.data(),
-                (const void*)&beta,  C_d, &descC, modeC.data(), 
-                                     C_d, &descC, modeC.data(), 
+                alpha, A_d, &descA, modeA.data(),
+                beta,  C_d, &descC, modeC.data(), 
+                C_d, &descC, modeC.data(), 
                 opReduce, typeCompute, work, worksize,stream);
 
   };

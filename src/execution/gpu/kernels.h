@@ -38,7 +38,7 @@ void execute_contraction(
   void* out,
   void const* lhs,
   void const* rhs,
-  void const* alpha);
+  dtype_t type);
 
 cutensor_kernel_t
 build_cutensor_reduction(
