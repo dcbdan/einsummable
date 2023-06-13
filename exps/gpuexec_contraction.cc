@@ -4,6 +4,8 @@
 
 #include "../src/einsummable/reference.h"
 
+#include "../src/einsummable/scalarop.h"
+
 #include <chrono>
 
 #include <unordered_map>
@@ -26,10 +28,22 @@ bool checkArrays3D(float* arr1, float* arr2, int totalSize) {
     return true; // Arrays are the same
 }
 
+bool checkArraysDouble(double* arr1, double* arr2, int totalSize) {
+    for (int i = 0; i < totalSize; ++i) {
+        if (arr1[i] != arr2[i]) {
+                return false; // Arrays are different
+            }
+    }
+    return true; // Arrays are the same
+}
+
 int main(){
     //Initialize Einsummable and other variables for testing build_contraction
-    einsummable_t eins = einsummable_t({96,96,96,64,64,64}, { {0,4,5,2},{1,5,3,4} }, 4, scalarop_t::make_mul(), castable_t::add);
-
+    //einsummable_t eins = einsummable_t({96,96,96,64,64,64}, { {0,4,5,2},{1,5,3,4} }, 4, scalarop_t::make_mul(), castable_t::add);
+    einsummable_t eins = einsummable_t({96,96,96,64,64,64}, { {0,4,5,2},{1,5,3,4} }, 4, scalarop_t::make_mul(dtype_t::f64), castable_t::add);
+    
+    
+    
     cutensorContractionDescriptor_t desc;
 
     cutensorHandle_t* handle;
@@ -89,20 +103,26 @@ int main(){
         elementsC *= e.join_shape[mode];
 
     // f64 -> double
-    typedef float floatTypeA;
-    typedef float floatTypeB;
-    typedef float floatTypeC;
-    typedef float floatTypeCompute;
+    //typedef float floatTypeA;
+    //typedef float floatTypeB;
+    //typedef float floatTypeC;
+    //typedef float floatTypeCompute;
+
+    typedef double floatTypeA;
+    typedef double floatTypeB;
+    typedef double floatTypeC;
+    typedef double floatTypeCompute;
 
     size_t sizeA = sizeof(floatTypeA) * elementsA;
     size_t sizeB = sizeof(floatTypeB) * elementsB;
     size_t sizeC = sizeof(floatTypeC) * elementsC;
 
     // Allocate on device
-    float *lhs, *rhs, *out;
-    cudaMalloc(&lhs, sizeA);
-    cudaMalloc(&rhs, sizeB);
-    cudaMalloc(&out, sizeC);
+    //float *lhs, *rhs, *out;
+    void *lhs, *rhs, *out;
+    cudaMalloc((void**)&lhs, sizeA);
+    cudaMalloc((void**)&rhs, sizeB);
+    cudaMalloc((void**)&out, sizeC);
 
     // Allocate on host
     floatTypeA *A = (floatTypeA*) malloc(sizeof(floatTypeA) * elementsA);
@@ -110,12 +130,19 @@ int main(){
     floatTypeC *C = (floatTypeC*) malloc(sizeof(floatTypeC) * elementsC);
 
     // Initialize data on host
+    //for(int64_t i = 0; i < elementsA; i++)
+    //    A[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+    //for(int64_t i = 0; i < elementsB; i++)
+    //    B[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+    //for(int64_t i = 0; i < elementsC; i++)
+     //   C[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+    
     for(int64_t i = 0; i < elementsA; i++)
-        A[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+        A[i] = (((double) rand())/RAND_MAX - 0.5)*100;
     for(int64_t i = 0; i < elementsB; i++)
-        B[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+        B[i] = (((double) rand())/RAND_MAX - 0.5)*100;
     for(int64_t i = 0; i < elementsC; i++)
-        C[i] = (((float) rand())/RAND_MAX - 0.5)*100;
+        C[i] = (((double) rand())/RAND_MAX - 0.5)*100;
 
     // Copy to device
     cudaMemcpy(out, C, sizeC, cudaMemcpyHostToDevice);
@@ -125,14 +152,14 @@ int main(){
 
 
 
-
+    double alpha1 = 1.0;
 
 
     // Call execute_contraction
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    execute_contraction(stream,handle,&desc,out,lhs,rhs);
+    execute_contraction(stream,handle,&desc,out,lhs,rhs,(void*)&alpha1);
 
     cudaStreamDestroy(stream);
 
@@ -154,10 +181,17 @@ int main(){
 
 
     // CUDA types
-    cudaDataType_t typeA = CUDA_R_32F;
-    cudaDataType_t typeB = CUDA_R_32F;
-    cudaDataType_t typeC = CUDA_R_32F;
-    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+    //cudaDataType_t typeA = CUDA_R_32F;
+    //cudaDataType_t typeB = CUDA_R_32F;
+    //cudaDataType_t typeC = CUDA_R_32F;
+    //cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+
+    cudaDataType_t typeA = CUDA_R_64F;
+    cudaDataType_t typeB = CUDA_R_64F;
+    cudaDataType_t typeC = CUDA_R_64F;
+    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_64F;
+
+    std::cout << typeCompute << std::endl;
 
     floatTypeCompute alpha = (floatTypeCompute)1.0f;
     floatTypeCompute beta  = (floatTypeCompute)1.0f;
@@ -363,18 +397,25 @@ int main(){
 
 
     //Check whether the results are the same
-    float* C_out = (float*)C_d;
+    //float* C_out = (float*)C_d;
+    double* C_out0 = (double*)out;
+    double* C_out = (double*)C_d;
 
     const int totalSize = static_cast<int>(sizeC);
 
-    float* out1 = new float[totalSize]();
-    float* out2 = new float[totalSize]();
+    //float* out1 = new float[totalSize]();
+    //float* out2 = new float[totalSize]();
 
-    cudaMemcpy(out1, out, sizeC,cudaMemcpyDeviceToHost);
+    double* out1 = new double[totalSize]();
+    double* out2 = new double[totalSize]();
+
+    //cudaMemcpy(out1, out, sizeC,cudaMemcpyDeviceToHost);
+    cudaMemcpy(out1, C_out0, sizeC,cudaMemcpyDeviceToHost);
     cudaMemcpy(out2, C_out,sizeC, cudaMemcpyDeviceToHost);
 
 
-    bool areEqual = checkArrays3D(out1, out2, elementsC);
+    //bool areEqual = checkArrays3D(out1, out2, elementsC);
+    bool areEqual = checkArraysDouble(out1, out2, elementsC);
 
     // Whether the results from our kernels and using cutensor directly is the same:
     if (areEqual) {

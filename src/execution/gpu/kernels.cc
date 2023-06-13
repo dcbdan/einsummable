@@ -134,7 +134,7 @@ build_einsummable(einsummable_t const& e_)
 
       return build_cutensor_reduction(
         inn_modes, inn_shape,
-        out_modes, out_shape,e.castable.value());
+        out_modes, out_shape,e.castable.value(),e.inn_dtype(0));
     }
 
     throw std::runtime_error(err_msg);
@@ -152,6 +152,38 @@ build_einsummable(einsummable_t const& e_)
   }
 
   throw std::runtime_error(err_msg);
+}
+
+cudaDataType_t dtype_to_cudatype(dtype_t type){
+  if(type == dtype_t::f16){
+    return CUDA_R_16F;
+  }
+  else if(type == dtype_t::f32){
+    return CUDA_R_32F;
+  }
+  else if(type == dtype_t::f64){
+    return CUDA_R_64F;
+  }
+  else if(type == dtype_t::c64){
+    return CUDA_C_32F;
+  }
+  return CUDA_R_32F;
+}
+
+cutensorComputeType_t dtype_to_computetype(dtype_t type){
+  if(type == dtype_t::f16){
+    return CUTENSOR_COMPUTE_16F;
+  }
+  else if(type == dtype_t::f32){
+    return CUTENSOR_COMPUTE_32F;
+  }
+  else if(type == dtype_t::f64){
+    return CUTENSOR_COMPUTE_64F;
+  }
+  else if(type == dtype_t::c64){
+    return CUTENSOR_COMPUTE_32F;
+  }
+  return CUTENSOR_COMPUTE_32F;
 }
 
 void build_contraction(
@@ -177,10 +209,10 @@ void build_contraction(
   int nmodeC = e.out_rank;
 
   // CUDA types
-  cudaDataType_t typeA = CUDA_R_32F;
-  cudaDataType_t typeB = CUDA_R_32F;
-  cudaDataType_t typeC = CUDA_R_32F;
-  cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+  dtype_t type = e.inn_dtype(0);
+  cudaDataType_t typeTensor = dtype_to_cudatype(type);
+
+  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
   // extent = size of each dimension
   vector<int64_t> extent_A;
@@ -206,7 +238,7 @@ void build_contraction(
       nmodeA,
       extent_A.data(),
       NULL,/*stride*/
-      typeA, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
 
   cutensorTensorDescriptor_t descB;
   handle_cutensor_error(
@@ -216,7 +248,7 @@ void build_contraction(
       nmodeB,
       extent_B.data(),
       NULL,/*stride*/
-      typeB, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
 
   cutensorTensorDescriptor_t descC;
   handle_cutensor_error(
@@ -226,25 +258,12 @@ void build_contraction(
       nmodeC,
       extent_C.data(),
       NULL,/*stride*/
-      typeC, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
 
   // get the memory pointers to the tensors
   uint32_t alignmentRequirementA = 16;
   uint32_t alignmentRequirementB = 16;
   uint32_t alignmentRequirementC = 16;
-
-  for (size_t i = 0; i < modeA.size(); i++) {
-        std::cout << modeA.data()[i] << " ";
-    }
-    std::cout << std::endl;
-    for (size_t i = 0; i < modeB.size(); i++) {
-            std::cout << modeB.data()[i] << " ";
-    }
-    std::cout << std::endl;
-    for (size_t i = 0; i < modeC.size(); i++) {
-            std::cout << modeC.data()[i] << " ";
-    }
-    std::cout << std::endl;
 
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
@@ -264,14 +283,11 @@ void execute_contraction(
   cudaStream_t stream,
   cutensorHandle_t const* handle,
   cutensorContractionDescriptor_t const* desc,
-  float* out,
-  float const* lhs,
-  float const* rhs)
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  void const* alpha)
 {
-  typedef float floatTypeCompute;
-  floatTypeCompute alpha = (floatTypeCompute)1.0f;
-  floatTypeCompute beta  = (floatTypeCompute)1.0f;
-
   // Set the algorithm to use
   cutensorContractionFind_t find;
   handle_cutensor_error(
@@ -295,13 +311,9 @@ void execute_contraction(
 
   cutensorStatus_t err;
 
-  void* A_d = (void*)lhs;
-  void* B_d = (void*)rhs;
-  void* C_d = (void*)out;
-
   handle_cutensor_error(
-    cutensorContraction(handle, &plan, (void*)&alpha, A_d,
-                        B_d, (void*)&beta, C_d, C_d,
+    cutensorContraction(handle, &plan, alpha, lhs,
+                        rhs, alpha, out, out,
                         nullptr, 0, stream) );
 
 }
@@ -310,7 +322,7 @@ cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape,
-  castable_t castable)
+  castable_t castable,dtype_t type)
 {
   std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
   std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
@@ -354,15 +366,15 @@ build_cutensor_reduction(
   size_t sizeA = sizeof(float) * elementsA;
   size_t sizeC = sizeof(float) * elementsC;
 
-  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC](
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC,type](
     cudaStream_t stream,
     cutensorHandle_t const* handle,
     float* out,
     vector<float const*> inns)
   {
-    cudaDataType_t typeA = CUDA_R_32F;
-    cudaDataType_t typeC = CUDA_R_32F;
-    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
+    cudaDataType_t typeA = dtype_to_cudatype(type);
+    cudaDataType_t typeC = dtype_to_cudatype(type);
+    cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
     typedef float floatTypeCompute;
     floatTypeCompute alpha = (floatTypeCompute)1.0f;
@@ -403,8 +415,8 @@ build_cutensor_reduction(
             work = nullptr;
             worksize = 0;
         }
-    } 
-
+    }
+    
     cutensorStatus_t err;
      err = cutensorReduction(handle, 
                 (const void*)&alpha, A_d, &descA, modeA.data(),

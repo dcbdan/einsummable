@@ -3,6 +3,7 @@
 #include "../src/execution/gpu/kernels.h"
 
 #include "../src/einsummable/reference.h"
+#include "../src/einsummable/scalarop.h"
 
 #include <chrono>
 
@@ -71,7 +72,7 @@ int main(){
     for (auto mode : modeA)
         extentA.push_back(extent[mode]);
     
-    auto func = build_cutensor_reduction(modeA,extentA,modeC,extentC,castable);
+    auto func = build_cutensor_reduction(modeA,extentA,modeC,extentC,castable,dtype_t::f32);
 
     printf("Return successfully\n");
 
@@ -249,6 +250,11 @@ int main(){
     } else {
         printf("The arrays are different.\n");
     }
+    for (int i = 0; i < 100; ++i) {
+       std::cout << "The element " << i << " for out 1 " << out1[i] << " for out 2 " << out2[i] << std::endl;
+    }
+
+    return 0;
 
 
 

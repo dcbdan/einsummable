@@ -35,15 +35,16 @@ void execute_contraction(
   cudaStream_t,
   cutensorHandle_t const*,
   cutensorContractionDescriptor_t const*,
-  float* out,
-  float const* lhs,
-  float const* rhs);
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  void const* alpha);
 
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape,
-  castable_t castable);
+  castable_t castable,dtype_t type);
 
 struct cutensor_elementwise_op_t {
   struct arg_t {
