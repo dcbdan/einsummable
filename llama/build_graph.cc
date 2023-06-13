@@ -1,9 +1,12 @@
 #pragma once
-#include "../src/base/setup.h"
 
+#include "../src/base/setup.h"
 #include "../src/einsummable/graph.h"
+#include "../src/einsummable/scalarop.h"
 
 using tensor_t = graph_writer_t::tensor_t;
+
+set_default_dtype(dtype::f16);
 
 // Helpful structure for llama model
 struct ModelArgs_t {
@@ -39,7 +42,7 @@ struct RMSNorm_t {
   float eps = 1e-6)
   : writer(w), eps(eps){
     vector<uint64_t> weights_shape = {dim};
-    weights = writer.input(weights_shape);
+    weights = writer.input(weights_shape, dtype::f16);
     input_names.insert(weights.get_id(), name + "weight");
   }
     
@@ -66,19 +69,19 @@ struct attention_t {
     vector<uint64_t> kqv_initshape = {model_args.dim, n_local_heads, head_dim}; //outshape comes first because F.linear is xA^t, so shape is (out_features, in_features)
     vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
-    wq = writer.input(kqv_initshape);
+    wq = writer.input(kqv_initshape, dtype::f16);
     input_names.insert(wq.get_id(), name + "wq.weight");
     wq = wq.view(kqv_reshape);
 
-    wk = writer.input(kqv_initshape);
+    wk = writer.input(kqv_initshape,  dtype::f16);
     input_names.insert(wk.get_id(), name + "wk.weight");
     wk = wk.view(kqv_reshape);
 
-    wv = writer.input(kqv_initshape);
+    wv = writer.input(kqv_initshape, dtype::f16);
     input_names.insert(wv.get_id(), name + "wv.weight");
     wv = wv.view(kqv_reshape);
     //TODO: not sure about the size of wo.weight. wo starts at dim so n_head*headdim so no need view
-    wo = writer.input(kqv_initshape);
+    wo = writer.input(kqv_initshape, dtype::f16);
     input_names.insert(wo.get_id(), name + "wo.weight");
 
   }
@@ -149,13 +152,13 @@ struct feedforward_t {
     vector<uint64_t> w1w3shape = {hidden_dim, dim};
     vector<uint64_t> w2shape = {dim, hidden_dim};
     //TODO: still have to view? 
-    w1 = writer.input(w1w3shape);
+    w1 = writer.input(w1w3shape, dtype::f16);
     input_names.insert(w1.get_id(), name + "w1.weight");
 
-    w2 = writer.input(w2shape)
+    w2 = writer.input(w2shape, dtype::f16)
     input_names.insert(w2.get_id(), name + "w2.weight");
 
-    w3 = writer.input(w1w3shape)
+    w3 = writer.input(w1w3shape, dtype::f16)
     input_names.insert(w3.get_id(), name + "w3.weight");
   }
 
@@ -254,7 +257,7 @@ struct transformer_t {
     
     //TODO: for the output weight from dim->vocab_size, we also do it in frontend?
     vector<uint64_t> output_shape = {vocab_size, dim};
-    output_weight = writer.input(output_shape);
+    output_weight = writer.input(output_shape, dtype::f16);
     input_names.insert(output_weight.get_id(), "output.weight");
 
     //TODO:freqciqs?
