@@ -4,21 +4,21 @@
 #include "indexer.h"
 
 template <typename T>
-struct tensor_t {
-  tensor_t(){}
+struct vtensor_t {
+  vtensor_t(){}
 
-  tensor_t(
+  vtensor_t(
     vector<int> const& shape):
-      tensor_t(shape, vector<T>(product(shape)))
+      vtensor_t(shape, vector<T>(product(shape)))
   {}
 
-  tensor_t(
+  vtensor_t(
     vector<int> const& shape,
     T const& val):
-      tensor_t(shape, vector<T>(product(shape), val))
+      vtensor_t(shape, vector<T>(product(shape), val))
   {}
 
-  tensor_t(
+  vtensor_t(
     vector<int> const& shape,
     vector<T> const& vec):
       shape(shape), vec(vec)
@@ -32,7 +32,7 @@ struct tensor_t {
     }
   }
 
-  tensor_t(
+  vtensor_t(
     vector<int> const& shape,
     vector<T> && v):
       shape(shape), vec(std::move(v))
@@ -86,7 +86,7 @@ struct tensor_t {
     return shape;
   }
 
-  tensor_t<T> subset(vector<tuple<int,int>> const& region) const {
+  vtensor_t<T> subset(vector<tuple<int,int>> const& region) const {
     if(region.size() != shape.size()) {
       throw std::runtime_error("invalid subset region tenosr");
     }
@@ -110,10 +110,10 @@ struct tensor_t {
       ret.push_back(this->at(index));
     } while(increment_idxs_region(region, index));
 
-    return tensor_t<T>(new_shape, ret);
+    return vtensor_t<T>(new_shape, ret);
   }
 
-  static tensor_t<T> concat(int dim, vector<tensor_t<T>> const& ts) {
+  static vtensor_t<T> concat(int dim, vector<vtensor_t<T>> const& ts) {
     vector<vector<int>> shapes = vector_from_each_member(ts, vector<int>, shape);
 
     vector<int> shape;
@@ -121,7 +121,7 @@ struct tensor_t {
     {
       optional<string> errmsg = check_concat_shapes(dim, shapes);
       if(errmsg) {
-        throw std::runtime_error("tensor_t concat: " + errmsg.value());
+        throw std::runtime_error("vtensor_t concat: " + errmsg.value());
       }
 
       int total = 0;
@@ -134,9 +134,9 @@ struct tensor_t {
       shape[dim] = total;
     }
 
-    tensor_t<T> ret(shape);
+    vtensor_t<T> ret(shape);
     for(int which_inn = 0; which_inn != ts.size(); ++which_inn) {
-      tensor_t<T> const& inn = ts[which_inn];
+      vtensor_t<T> const& inn = ts[which_inn];
       vector<int> inn_index(inn.shape.size(), 0);
 
       int const& offset = offsets[which_inn];
@@ -158,7 +158,7 @@ private:
 };
 
 template <typename T>
-std::ostream& operator<<(std::ostream& out, tensor_t<T> const& tensor)
+std::ostream& operator<<(std::ostream& out, vtensor_t<T> const& tensor)
 {
   auto const& shape = tensor.get_shape();
   if(shape.size() == 0) {

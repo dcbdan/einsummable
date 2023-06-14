@@ -65,7 +65,7 @@ vector<placement_t> load_balanced_placement(
 
     twolayer.assign_partition(gid, part);
 
-    tensor_t<int> locations(part.block_shape(), -1);
+    vtensor_t<int> locations(part.block_shape(), -1);
     pls.emplace_back(part, locations);
   }
 
@@ -84,7 +84,7 @@ vector<placement_t> load_balanced_placement(
     auto const& node = graph.nodes[gid];
 
     auto& pl = pls[gid];
-    tensor_t<int>& locations = pl.locations;
+    vtensor_t<int>& locations = pl.locations;
     vector<int>& locs = locations.get();
 
     auto const& part = parts[gid];
@@ -139,7 +139,7 @@ vector<placement_t> load_balanced_placement(
         // now we have to reach past the permutation
         auto join_shape = part.block_shape();
         vector<int> join_index(join_shape.size(), 0);
-        tensor_t<int> const& inn_locations = pls[id_inn].locations;
+        vtensor_t<int> const& inn_locations = pls[id_inn].locations;
         do {
           vector<int> inn_index = e.get_input_from_join(join_index, 0);
           locations.at(join_index) = inn_locations.at(inn_index);
