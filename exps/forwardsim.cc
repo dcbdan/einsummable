@@ -346,14 +346,14 @@ void main05() {
     id_t rhs = writer.input({nj,nk}, dtype_t::c64);
     id_t out = writer.matmul(lhs, rhs);
 
-    //out = out.to_real();
-    //out = out.to_complex();
-    //out = out.to_real();
+    out = out.to_real();
+    out = out.to_complex();
+    out = out.to_real();
     out = writer.add(out, out);
-    //out = out.to_complex();
-    //out = out.to_real();
-    //out = out.to_complex();
-    //out = writer.add(out, out);
+    out = out.to_complex();
+    out = out.to_real();
+    out = out.to_complex();
+    out = writer.add(out, out);
 
     out.save();
   }
