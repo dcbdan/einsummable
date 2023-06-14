@@ -706,7 +706,7 @@ optional<kernel_t>
 _make_matrix_multiply(
   einsummable_t const& einsummable)
 {
-  if(!e.join.is_mul()) {
+  if(!einsummable.join.is_mul()) {
     return std::nullopt;
   }
   if(einsummable.join_shape.size() != 3 ||

@@ -8,6 +8,9 @@ struct buffer_holder_t {
   buffer_holder_t(uint8_t* data, uint64_t size): size(size), own(false), data(data) {}
   ~buffer_holder_t() { if(own) { delete[] data; } }
 
+  void*       raw()       { return reinterpret_cast<void*>(data); }
+  void const* raw() const { return reinterpret_cast<void*>(data); }
+
   uint64_t size;
   bool own;
   uint8_t* data;
