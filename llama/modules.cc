@@ -35,7 +35,7 @@ map<int, string> rms_norm_t::input_map() const
 #ifdef ASDASDADASSDASDASDASD
 
 attention_t::attention_t(
-  graph_writer_t& w,
+  graph_writer_t* w,
   string name,
   model_args_t args,
   int world_size)
@@ -60,22 +60,22 @@ attention_t::attention_t(
 
   // TODO: put dtype elsewhere?
 
-  wq = writer.input(kqv_initshape, dtype_t::f16);
-  input_names.insert(wq.get_id(), name + "wq.weight");
+  wq = writer->input(kqv_initshape);
+  input_names.insert({wq.get_id(), name + "wq.weight"});
   wq = wq.view(kqv_reshape);
 
-  wk = writer.input(kqv_initshape,  dtype_t::f16);
-  input_names.insert(wk.get_id(), name + "wk.weight");
+  wk = writer->input(kqv_initshape);
+  input_names.insert({wk.get_id(), name + "wk.weight"});
   wk = wk.view(kqv_reshape);
 
-  wv = writer.input(kqv_initshape, dtype_t::f16);
-  input_names.insert(wv.get_id(), name + "wv.weight");
+  wv = writer->input(kqv_initshape);
+  input_names.insert({wv.get_id(), name + "wv.weight"});
   wv = wv.view(kqv_reshape);
 
   //TODO: not sure about the size of wo.weight. wo starts at
   //      dim so n_head*headdim so no need view
-  wo = writer.input(kqv_initshape, dtype_t::f16);
-  input_names.insert(wo.get_id(), name + "wo.weight");
+  wo = writer->input(kqv_initshape);
+  input_names.insert({wo.get_id()+ "wo.weight"});
 }
 
 tensor_t attention_t::forward(
@@ -90,9 +90,9 @@ tensor_t attention_t::forward(
   tensor_t xq = xq.transpose(0,1); //->transpose->x * xq^t
   tensor_t xk = xk.transpose(0,1);
   tensor_t xv = xv.transpose(0,1);
-  xq = writer.matmul(x, xq);
-  xq = writer.matmul(x, xk);
-  xq = writer.matmul(x, xv);
+  xq = writer->matmul(x, xq);
+  xq = writer->matmul(x, xk);
+  xq = writer->matmul(x, xv);
 
   vector<uint64_t> initial_view_shape = {bsz, seqlen, n_local_heads, head_dim};
   xq = xq.view(initial_view_shape);
@@ -100,13 +100,15 @@ tensor_t attention_t::forward(
   xv = xv.view(initial_view_shape);
 }
 
+#endif
+
 feedforward_t::feedforward_t(
-  graph_writer_t& w,
+  graph_writer_t* w,
   string name,
-  vector<uint64_t> dim,
+  uint64_t dim,
   uint64_t hidden_dim,
   uint64_t multiple_of)
-  : writer(w)
+  : writer(w), name(name)
 {
   // silu = ...
 
@@ -120,21 +122,24 @@ feedforward_t::feedforward_t(
   //       unsplit.. how to do?
 
   //TODO: still have to view?
-  w1 = writer.input(w1w3shape, dtype_t::f16);
-  input_names.insert(w1.get_id(), name + "w1.weight");
+  w1 = writer->input(w1w3shape);
+  w2 = writer->input(w2shape);
+  w3 = writer->input(w1w3shape);
+}
 
-  w2 = writer.input(w2shape, dtype_t::f16)
-  input_names.insert(w2.get_id(), name + "w2.weight");
+map<int, string> feedforward_t::input_map() const {
+  map<int, string> input_names;
 
-  w3 = writer.input(w1w3shape, dtype_t::f16)
-  input_names.insert(w3.get_id(), name + "w3.weight");
+  input_names.insert({w1.get_id(), name + "w1.weight"});
+  input_names.insert({w2.get_id(), name + "w2.weight"});
+  input_names.insert({w3.get_id(), name + "w3.weight"});
+
+  return input_names;
 }
 
 tensor_t feedforward_t::forward(tensor_t x) {
   // return self.w2(F.silu(self.w1(x)) * self.w3(x))
 }
-
-#endif
 
 transformer_block_t::transformer_block_t(
   graph_writer_t* w,

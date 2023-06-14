@@ -79,28 +79,6 @@ struct attention_t {
   tensor_t wo;
 };
 
-struct feedforward_t {
-  feedforward_t(
-    graph_writer_t* w,
-    string name, //should pass in "feed_forward."
-    vector<uint64_t> dim,
-    uint64_t hidden_dim,
-    uint64_t multiple_of);
-
-  map<int, string> input_map() const {
-    return input_names;
-  };
-
-  graph_writer_t* writer;
-  map<int, string> input_names;
-
-  tensor_t w1;
-  tensor_t w2;
-  tensor_t w3;
-
-  scalarop_t silu;
-};
-
 #else
 
 struct attention_t {
@@ -115,19 +93,30 @@ struct attention_t {
   }
 };
 
+
 struct feedforward_t {
   feedforward_t() {}
 
   feedforward_t(
     graph_writer_t* w,
     string name, //should pass in "feed_forward."
-    vector<uint64_t> dim,
+    uint64_t dim,
     uint64_t hidden_dim,
-    uint64_t multiple_of) {}
+    uint64_t multiple_of);
 
-  map<int, string> input_map() const {
-    return {};
-  }
+  map<int, string> input_map() const;
+
+  tensor_t forward(tensor_t x);
+
+  graph_writer_t* writer;
+
+  string name;
+
+  tensor_t w1;
+  tensor_t w2;
+  tensor_t w3;
+
+  scalarop_t silu;
 };
 
 struct transformer_block_t {
