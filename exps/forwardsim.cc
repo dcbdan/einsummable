@@ -310,26 +310,52 @@ void main05() {
   //  eqs.insert(inn, out);
   //}
 
+  //graph_writer_t writer;
+  //{
+  //  // just making a graph that does concat
+  //  using id_t = graph_writer_t::tensor_t;
+
+  //  uint64_t bb  = 4000;
+  //  uint64_t da  = 1500;
+  //  uint64_t db  = 1600;
+  //  uint64_t dc  = 1700;
+  //  uint64_t dab = da+db;
+
+  //  id_t x = writer.input({bb, da});
+  //  id_t w_a_b = writer.input({da,db});
+  //  id_t w_ab_c = writer.input({dab, dc});
+
+  //  id_t y = writer.matmul(x, w_a_b);
+  //  x = writer.concat(1, {x, y});
+  //  x = writer.matmul(x, w_ab_c);
+
+  //  x.save();
+  //}
+  //graph_t const& graph = writer.get_graph();
+  //equal_items_t<int> eqs = {};
+
   graph_writer_t writer;
   {
-    // just making a graph that does concat
     using id_t = graph_writer_t::tensor_t;
 
-    uint64_t bb  = 4000;
-    uint64_t da  = 1500;
-    uint64_t db  = 1600;
-    uint64_t dc  = 1700;
-    uint64_t dab = da+db;
+    uint64_t ni = 10000;
+    uint64_t nj = 1200;
+    uint64_t nk = 1400;
 
-    id_t x = writer.input({bb, da});
-    id_t w_a_b = writer.input({da,db});
-    id_t w_ab_c = writer.input({dab, dc});
+    id_t lhs = writer.input({ni,nj}, dtype_t::c64);
+    id_t rhs = writer.input({nj,nk}, dtype_t::c64);
+    id_t out = writer.matmul(lhs, rhs);
 
-    id_t y = writer.matmul(x, w_a_b);
-    x = writer.concat(1, {x, y});
-    x = writer.matmul(x, w_ab_c);
+    //out = out.to_real();
+    //out = out.to_complex();
+    //out = out.to_real();
+    out = writer.add(out, out);
+    //out = out.to_complex();
+    //out = out.to_real();
+    //out = out.to_complex();
+    //out = writer.add(out, out);
 
-    x.save();
+    out.save();
   }
   graph_t const& graph = writer.get_graph();
   equal_items_t<int> eqs = {};

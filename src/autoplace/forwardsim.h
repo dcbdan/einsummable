@@ -281,7 +281,7 @@ struct forward_state_t {
 
   struct join_t {
     optional<einsummable_t> einsummable;
-    vector<rid_t> deps;
+    set<rid_t> deps;
     set<int> outs; // get all refinement bids that depend on this join
   };
 

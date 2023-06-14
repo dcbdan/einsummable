@@ -841,7 +841,7 @@ void forward_state_t::setup_joins(int graph_id) {
           do {
             int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
             rid_t dep_rid { inn, inn_refi_bid };
-            join_info.deps.push_back(dep_rid);
+            join_info.deps.insert(dep_rid);
           } while(increment_idxs_region(inn_region, inn_index));
         }
       }
@@ -894,7 +894,7 @@ void forward_state_t::setup_joins(int graph_id) {
         do {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
           rid_t dep_rid { inn, inn_refi_bid };
-          join_info.deps.push_back(dep_rid);
+          join_info.deps.insert(dep_rid);
         } while(increment_idxs_region(inn_region, inn_index));
       }
     }
