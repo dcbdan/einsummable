@@ -784,7 +784,7 @@ graph_writer_t::tensor_t::tensor_t(
   vector<uint64_t> const& _shape,
   vector<uint64_t> const& _full_shape,
   int _id,
-  graph_writer_t& _self)
+  graph_writer_t* _self)
     : shape(_shape), full_shape(_full_shape),
       id(_id), self(_self)
 {
@@ -862,40 +862,28 @@ void graph_writer_t::tensor_t::save() {
   physically_permute();
 
   {
-    auto& op = self.graph.nodes[id].op;
+    auto& op = self->graph.nodes[id].op;
     if(op.is_formation()) {
       op.get_formation().is_save = true;
       return;
     }
   }
 
-  id = self.graph.insert_formation(id, true);
+  id = self->graph.insert_formation(id, true);
 }
 
 dtype_t graph_writer_t::tensor_t::get_dtype() const {
-  return self.graph.out_dtype(id);
+  return self->graph.out_dtype(id);
 }
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::to_complex() const {
-  return self.to_complex(*this);
+  return self->to_complex(*this);
 }
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::to_real() const {
-  return self.to_real(*this);
-}
-
-graph_writer_t::tensor_t&
-graph_writer_t::tensor_t::operator=(
-  graph_writer_t::tensor_t const& other)
-{
-  shape = other.shape;
-  full_shape = other.full_shape;
-  modes = other.modes;
-  id = other.id;
-
-  return *this;
+  return self->to_real(*this);
 }
 
 void graph_writer_t::tensor_t::physically_permute() {
@@ -925,7 +913,7 @@ void graph_writer_t::tensor_t::physically_permute() {
   }
 
   dtype_t dtype = get_dtype();
-  id = self._insert_elementwise(
+  id = self->_insert_elementwise(
     str,
     scalarop_t::make_identity(dtype),
     id);
@@ -982,7 +970,7 @@ graph_writer_t::input(
   dtype_t dtype)
 {
   int id = graph.insert_input(shape, dtype);
-  return tensor_t(shape, shape, id, *this);
+  return tensor_t(shape, shape, id, this);
 }
 
 vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_full_shape() const
@@ -1062,7 +1050,7 @@ graph_writer_t::contraction(
     info.get_out_shape(),
     info.get_out_full_shape(),
     id,
-    *this);
+    this);
 }
 
 graph_writer_t::tensor_t
@@ -1093,7 +1081,7 @@ graph_writer_t::reduction(
     info.get_out_shape(),
     info.get_out_full_shape(),
     id,
-    *this);
+    this);
 }
 
 graph_writer_t::tensor_t
@@ -1140,7 +1128,7 @@ graph_writer_t::ew(
     info.get_out_shape(),
     info.get_out_full_shape(),
     id,
-    *this);
+    this);
 }
 
 graph_writer_t::tensor_t
@@ -1194,7 +1182,7 @@ graph_writer_t::concat(
     shape,
     full_shape,
     id,
-    *this);
+    this);
 }
 
 graph_writer_t::tensor_t

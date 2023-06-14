@@ -307,6 +307,7 @@ graph_constructor_t straight_matrix_multiplication(
 //   but efficiency should not be the concern here.
 struct graph_writer_t {
   struct tensor_t {
+    tensor_t(): self(nullptr) {}
     tensor_t transpose(int i, int j) const;
     tensor_t view(vector<uint64_t> shape) const;
     vector<uint64_t> const& get_shape() const { return shape; }
@@ -317,7 +318,6 @@ struct graph_writer_t {
     tensor_t to_complex() const;
     tensor_t to_real() const;
 
-    tensor_t& operator=(tensor_t const&);
   private:
     friend class graph_writer_t;
 
@@ -325,7 +325,7 @@ struct graph_writer_t {
       vector<uint64_t> const& shape,
       vector<uint64_t> const& full_shape,
       int id,
-      graph_writer_t& self);
+      graph_writer_t* self);
 
     vector<uint64_t> shape;
 
@@ -334,7 +334,7 @@ struct graph_writer_t {
 
     int id;
 
-    graph_writer_t& self;
+    graph_writer_t* self;
 
   private:
     // after this, the modes are 0,1,...,full_shape.size()-1

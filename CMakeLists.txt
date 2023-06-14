@@ -51,6 +51,10 @@ add_base_application("allocator_test"  "exps" "allocator_test")
 add_base_application("gwriter"         "exps" "gwriter")
 add_base_application("deepff"          "exps" "deepff")
 
+file(GLOB LL_FILES ${PROJECT_SOURCE_DIR}/llama/*.cc)
+add_executable(llama_main ${LL_FILES})
+target_link_libraries(llama_main einsummable proto ${Protobuf_LIBRARIES})
+
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
 

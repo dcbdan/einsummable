@@ -6,36 +6,38 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
-// TODO: put this in a main
-set_default_dtype(dtype::f16);
-
 // Helpful structure for llama model
 struct model_args_t {
   static model_args_t make_default();
 
-  int dim;
+  uint64_t dim;
   int n_layers;
-  int n_head;
-  int vocab_size;
-  int multiple_of;
-  float norms_eps;
-  int max_batch_size;
-  int max_seq_len;
+  uint64_t n_heads;
+  uint64_t multiple_of;
+  double norm_eps;
+  uint64_t max_batch_size;
+  uint64_t max_seq_len;
 };
 
 struct rms_norm_t {
+  rms_norm_t() {}
+
   rms_norm_t(
-    graph_writer_t& w,
+    graph_writer_t* w,
     string name, //should be "ffn_norm." or "attention_norm"
-    int dim,
+    uint64_t dim,
     float eps = 1e-6);
 
-  map<int, string> input_names;
-  graph_writer_t& writer;
+  map<int, string> input_map() const;
+
+  graph_writer_t* writer;
   float eps;
 
+  string name;
   tensor_t weight;
 };
+
+#ifdef ASDASDADASSDASDASDASD
 
 struct attention_t {
   attention_t(
@@ -125,30 +127,42 @@ struct transformer_block_t {
   map<int, string> input_names;
 };
 
+#else
+
+struct transformer_block_t {
+  transformer_block_t(
+    graph_writer_t* w,
+    int layer_id,
+    model_args_t args,
+    int world_size) {}
+
+  map<int, string> input_map() const { return {}; }
+};
+
 struct transformer_t {
   transformer_t(
-    graph_writer_t& w,
+    graph_writer_t* w,
     std::string name,
     model_args_t params,
+    uint64_t vocab_size,
     int world_size);
 
   tensor_t forward(
     tensor_t x, //size should be [tokensize, dim]
     int start_pos);
 
-  /* Get and return the mapping?*/
-  map<int, string> input_map(){
-    return input_names;
-  };
+  map<int, string> input_map() const;
 
-  graph_writer_t& writer;
-  map<int,string> input_names;
-  /*freq_cis_map has key as the tensor id for freqcis, and vector<dim, end> as the value*/
-  map<int, vector<uint64_t>> freq_cis_map;
+  graph_writer_t* writer;
   model_args_t params;
   int vocab_size;
+
+  tensor_t freq_cis;
+  vector<uint64_t> freq_cis_shape;
+
   vector<transformer_block_t> layers;
   rms_norm_t norm;
   tensor_t output_weight;
-  tensor_t tok_embed_weight;
 };
+
+#endif
