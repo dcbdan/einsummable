@@ -85,7 +85,7 @@ struct multiple_placement_t {
     concat_t const& concat,
     int which_input);
 
-  partition_t const partition;
+  partition_t partition;
   tensor_t<set<int>> const locations;
 };
 
@@ -243,7 +243,7 @@ void double_last_dim_inplace(multiple_tensor_t&    p);
 
 #define _DOUBLE_LAST_DIM_(type) \
 type double_last_dim(type const& p) { \
-  auto ret = p; \
+  type ret = p; \
   double_last_dim_inplace(ret); \
   return ret; \
 }
@@ -258,8 +258,8 @@ void halve_last_dim_inplace(multiple_tensor_t&    p);
 
 #define _HALVE_LAST_DIM_(type) \
 type halve_last_dim(type const& p) { \
-  auto ret = p; \
-  double_last_dim_inplace(ret); \
+  type ret = p; \
+  halve_last_dim_inplace(ret); \
   return ret; \
 }
 
@@ -1338,13 +1338,13 @@ void double_last_dim_inplace(partition_t& p) {
   partdim = partdim_t::from_sizes(vector_double(partdim.sizes()));
 }
 void double_last_dim_inplace(placement_t& p) {
-  double_last_dim(p.partition);
+  double_last_dim_inplace(p.partition);
 }
 void double_last_dim_inplace(multiple_placement_t& p) {
-  double_last_dim(p.partition);
+  double_last_dim_inplace(p.partition);
 }
 void double_last_dim_inplace(multiple_tensor_t& p) {
-  double_last_dim(p.partition);
+  double_last_dim_inplace(p.partition);
 }
 
 void halve_last_dim_inplace(partition_t& p) {
@@ -1352,13 +1352,13 @@ void halve_last_dim_inplace(partition_t& p) {
   partdim = partdim_t::from_sizes(vector_halve(partdim.sizes()));
 }
 void halve_last_dim_inplace(placement_t& p) {
-  halve_last_dim(p.partition);
+  halve_last_dim_inplace(p.partition);
 }
 void halve_last_dim_inplace(multiple_placement_t& p) {
-  halve_last_dim(p.partition);
+  halve_last_dim_inplace(p.partition);
 }
 void halve_last_dim_inplace(multiple_tensor_t& p) {
-  halve_last_dim(p.partition);
+  halve_last_dim_inplace(p.partition);
 }
 
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)

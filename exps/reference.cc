@@ -243,7 +243,7 @@ void test_make_taskgraph(
       auto const& t   = t_vec[i];
       auto const& u   = vec[i];
       if(!is_close(t, u)) {
-        std::cout << tid << std::endl << t << std::endl << u << std::endl;
+        //std::cout << tid << std::endl << t << std::endl << u << std::endl;
         throw std::runtime_error("make_taskgraph_test fail");
       }
     }
@@ -742,18 +742,23 @@ void main12() {
 void test_random_concat(
   int dim,
   vector<uint64_t> shape_template,
-  int n_inn)
+  int n_inn,
+  optional<dtype_t> maybe_dtype = std::nullopt)
 {
   dtype_t dtype;
-  int dd = runif(4);
-  if(dd == 0) {
-    dtype = dtype_t::f16;
-  } else if(dd == 1) {
-    dtype = dtype_t::f32;
-  } else if(dd == 2) {
-    dtype = dtype_t::f64;
-  } else if(dd == 3) {
-    dtype = dtype_t::c64;
+  if(maybe_dtype) {
+    dtype = maybe_dtype.value();
+  } else {
+    int dd = runif(4);
+    if(dd == 0) {
+      dtype = dtype_t::f16;
+    } else if(dd == 1) {
+      dtype = dtype_t::f32;
+    } else if(dd == 2) {
+      dtype = dtype_t::f64;
+    } else if(dd == 3) {
+      dtype = dtype_t::c64;
+    }
   }
 
   shape_template[dim] = 1;
@@ -909,7 +914,7 @@ void test_random_goofy_ff() {
 
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  main10();
+  //main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
@@ -920,7 +925,7 @@ int main(int argc, char** argv) {
   //}
 
   //main13();
-  //main14();
+  main14();
 
   //set_seed(0);
   //test_random_concat(0, {20,19,18}, 3);
