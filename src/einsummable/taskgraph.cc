@@ -809,9 +809,18 @@ taskgraph_make_state_t::communicate(int join_gid, tensor_t<int> join_result)
       //
       // This is fine beacuse
       //   a + b = (a.real + b.real) + (a.imag + b.imag)*i
+
+      placement_t join_placement = placements[join_gid];
+
+      // modify the last output partition dimension to be doubled
+      int out_rank = node.op.out_shape().size();
+      int last_dim = out_rank - 1;
+      auto& last_partdim = join_placement.partition.partdims[last_dim];
+      last_partdim = partdim_t::from_sizes(vector_double(last_partdim.sizes()));
+
       multiple_tensor_t ret = construct_refinement_tensor(
         complex_to_real(dtype),
-        double_last_dim(placements[join_gid]),
+        join_placement,
         join_result,
         usage_placement,
         maybe_castable);
