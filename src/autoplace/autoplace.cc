@@ -242,8 +242,8 @@ placement_t mcmc_t::make_finer(placement_t const& pl) {
   new_partdims[d] = partdim_t::split_each(new_partdims[d], 2);
   partition_t new_partition(new_partdims);
 
-  tensor_t<int> const& locs = pl.locations;
-  tensor_t<int> new_locs(new_partition.block_shape());
+  vtensor_t<int> const& locs = pl.locations;
+  vtensor_t<int> new_locs(new_partition.block_shape());
   vector<int> index(blk_shape.size(), 0);
   do {
     int const& loc = locs.at(index);
@@ -284,11 +284,11 @@ placement_t mcmc_t::make_coarser(placement_t const& pl) {
   partition_t new_partition(new_partdims);
 
   auto new_blk_shape = new_partition.block_shape();
-  tensor_t<int> new_locs(new_blk_shape);
+  vtensor_t<int> new_locs(new_blk_shape);
 
   vector<int> index(new_blk_shape.size(), 0);
 
-  tensor_t<int> const& locs = pl.locations;
+  vtensor_t<int> const& locs = pl.locations;
   do {
     vector<int> old_index = index;
 

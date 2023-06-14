@@ -297,14 +297,14 @@ void reference_compute_memgraph(
   }
 }
 
-tensor_t<dbuffer_t> partition_buffer(
+vtensor_t<dbuffer_t> partition_buffer(
   partition_t const& partition,
   dbuffer_t const& inn)
 {
   vector<int> block_shape = partition.block_shape();
   vector<uint64_t> inn_shape = partition.total_shape();
 
-  tensor_t<dbuffer_t> ret(block_shape);
+  vtensor_t<dbuffer_t> ret(block_shape);
 
   vector<int> block_index(block_shape.size(), 0);
 
@@ -330,7 +330,7 @@ tensor_t<dbuffer_t> partition_buffer(
 
 dbuffer_t unpartition_buffer(
   partition_t const& partition,
-  tensor_t<dbuffer_t> const& inn)
+  vtensor_t<dbuffer_t> const& inn)
 {
   dtype_t dtype;
   {
@@ -615,9 +615,9 @@ void reference_touch(
   }
 }
 
-tensor_t<dbuffer_t> get_partitioned_buffer(
+vtensor_t<dbuffer_t> get_partitioned_buffer(
   map<int, dbuffer_t> items,
-  tensor_t<int> whiches)
+  vtensor_t<int> whiches)
 {
   vector<dbuffer_t> vec;
   vec.reserve(product(whiches.get_shape()));
@@ -625,12 +625,12 @@ tensor_t<dbuffer_t> get_partitioned_buffer(
     vec.push_back(items.at(which));
   }
 
-  return tensor_t<dbuffer_t>(whiches.get_shape(), vec);
+  return vtensor_t<dbuffer_t>(whiches.get_shape(), vec);
 }
 
 map<int, dbuffer_t> init_buffer_map(
-  tensor_t<int> keys,
-  tensor_t<dbuffer_t> values)
+  vtensor_t<int> keys,
+  vtensor_t<dbuffer_t> values)
 {
   map<int, dbuffer_t> ret;
   fill_buffer_map(ret, keys, values);
@@ -639,8 +639,8 @@ map<int, dbuffer_t> init_buffer_map(
 
 void fill_buffer_map(
   map<int, dbuffer_t>& items,
-  tensor_t<int> keys,
-  tensor_t<dbuffer_t> values)
+  vtensor_t<int> keys,
+  vtensor_t<dbuffer_t> values)
 {
   if(!vector_equal(keys.get_shape(), values.get_shape())) {
     throw std::runtime_error("invalid fill_buffer_map");
@@ -678,7 +678,7 @@ map<int, buffer_t> to_untyped_buffer_map(
 
 map<int, dtype_t> typed_task_ids(
   graph_t const& graph,
-  map<int, tensor_t<int>> const& gid_to_tids)
+  map<int, vtensor_t<int>> const& gid_to_tids)
 {
   map<int, dtype_t> ret;
   for(auto const& [gid, tids]: gid_to_tids) {
@@ -695,7 +695,7 @@ typed_reference_compute_taskgraph_from_graph_info(
   taskgraph_t const& taskgraph,
   map<int, dbuffer_t> const& inputs,
   graph_t const& graph,
-  map<int, tensor_t<int>> const& save_gid_to_tids)
+  map<int, vtensor_t<int>> const& save_gid_to_tids)
 {
   auto untyped_ret = reference_compute_taskgraph(
     taskgraph,

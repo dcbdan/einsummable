@@ -67,7 +67,7 @@ int main02() {
   dbuffer_t tensor = make_dbuffer(dtype, 4*4);
   tensor.iota(0);
 
-  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+  vtensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
   for(auto const& buffer: ptensor.get()) {
     std::cout << buffer << std::endl;
   }
@@ -85,7 +85,7 @@ int main03() {
   dbuffer_t tensor = make_dbuffer(dtype, 3*4*5);
   tensor.iota(99);
 
-  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+  vtensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
 
   dbuffer_t tensor_again = unpartition_buffer(partition, ptensor);
 
@@ -134,9 +134,9 @@ void reblock_test(
 
   //taskgraph.print();
 
-  tensor_t<dbuffer_t> inn_pbuffer = partition_buffer(
+  vtensor_t<dbuffer_t> inn_pbuffer = partition_buffer(
     placement_start.partition, inn_buffer);
-  tensor_t<dbuffer_t> out_pbuffer = partition_buffer(
+  vtensor_t<dbuffer_t> out_pbuffer = partition_buffer(
     placement_finish.partition, out_buffer);
 
   std::cout << "inn_pbuffer " << inn_pbuffer << std::endl;
@@ -149,7 +149,7 @@ void reblock_test(
   auto t_out_map = typed_reference_compute_taskgraph_from_graph_info(
     taskgraph, t_input_map, graph.graph, output_gid_to_tids);
 
-  tensor_t<dbuffer_t> t_out_pbuffer = get_partitioned_buffer(
+  vtensor_t<dbuffer_t> t_out_pbuffer = get_partitioned_buffer(
     t_out_map,
     output_gid_to_tids[gid_out]);
   dbuffer_t t_out_buffer = unpartition_buffer(placement_finish.partition, t_out_pbuffer);
@@ -166,11 +166,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 5) }),
-      tensor_t<int>({5}, {0,0,0,0,0})
+      vtensor_t<int>({5}, {0,0,0,0,0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 3) }),
-      tensor_t<int>({3}, {0,0,0})
+      vtensor_t<int>({3}, {0,0,0})
     );
 
     reblock_test(dtype_t::c64, placement_start, placement_finish);
@@ -179,11 +179,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 1) }),
-      tensor_t<int>({1}, {0})
+      vtensor_t<int>({1}, {0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 2) }),
-      tensor_t<int>({2}, {0,0})
+      vtensor_t<int>({2}, {0,0})
     );
 
     reblock_test(dtype_t::f16, placement_start, placement_finish);
@@ -192,11 +192,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 2) }),
-      tensor_t<int>({2}, {0,0})
+      vtensor_t<int>({2}, {0,0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 1) }),
-      tensor_t<int>({1}, {0})
+      vtensor_t<int>({1}, {0})
     );
 
     reblock_test(dtype_t::f32, placement_start, placement_finish);
@@ -209,8 +209,8 @@ void test_make_taskgraph(
   map<int, dbuffer_t> full_inns)
 {
   tuple<
-    map<int, tensor_t<int> >,
-    map<int, tensor_t<int> >,
+    map<int, vtensor_t<int> >,
+    map<int, vtensor_t<int> >,
     taskgraph_t>
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
@@ -225,7 +225,7 @@ void test_make_taskgraph(
 
   map<int, dbuffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
-    tensor_t<dbuffer_t> pbuffer = partition_buffer(
+    vtensor_t<dbuffer_t> pbuffer = partition_buffer(
       placements.at(gid).partition,
       full_buffer);
     fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
@@ -238,9 +238,9 @@ void test_make_taskgraph(
       taskgraph, task_inns, graph, out_to_blocks);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
-    tensor_t<dbuffer_t> t_part_buffer =
+    vtensor_t<dbuffer_t> t_part_buffer =
       get_partitioned_buffer(task_outs, out_to_blocks.at(gid));
-    tensor_t<dbuffer_t> part_buffer =
+    vtensor_t<dbuffer_t> part_buffer =
       partition_buffer(placements.at(gid).partition, full_buffer_via_graph);
 
     auto const& tids  = out_to_blocks.at(gid).get();
@@ -282,8 +282,8 @@ void test_make_memgraph_without_evict(
   //}
 
   tuple<
-    map<int, tensor_t<int> >,
-    map<int, tensor_t<int> >,
+    map<int, vtensor_t<int> >,
+    map<int, vtensor_t<int> >,
     taskgraph_t>
     _info0 = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
@@ -318,7 +318,7 @@ void test_make_memgraph_without_evict(
   {
     map<int, dbuffer_t> task_inns;
     for(auto [gid, full_buffer]: full_inns) {
-      tensor_t<dbuffer_t> pbuffer = partition_buffer(
+      vtensor_t<dbuffer_t> pbuffer = partition_buffer(
         placements.at(gid).partition,
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
@@ -349,7 +349,7 @@ void test_make_memgraph_without_evict(
   reference_compute_memgraph(memgraph, loc_buffers);
 
   for(auto const& [gid, full_buffer]: full_outs) {
-    tensor_t<dbuffer_t> part_buffer =
+    vtensor_t<dbuffer_t> part_buffer =
       partition_buffer(placements.at(gid).partition, full_buffer);
 
     auto const& tids = out_to_blocks.at(gid).get();

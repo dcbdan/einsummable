@@ -1,16 +1,16 @@
 #pragma once
 #include "setup.h"
 
-#include "tensor.h"
+#include "vtensor.h"
 #include "partition.h"
 
 struct placement_t {
-  placement_t(partition_t const& p, tensor_t<int> const& locs):
+  placement_t(partition_t const& p, vtensor_t<int> const& locs):
     partition(p), locations(locs)
   {}
 
   placement_t(partition_t const& p):
-    placement_t(p, tensor_t<int>(p.block_shape()))
+    placement_t(p, vtensor_t<int>(p.block_shape()))
   {}
 
   static placement_t join_to_out(placement_t const& p_join, int out_rank);
@@ -54,7 +54,7 @@ struct placement_t {
   }
 
   partition_t partition;
-  tensor_t<int> locations;
+  vtensor_t<int> locations;
 };
 
 

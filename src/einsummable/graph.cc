@@ -638,7 +638,7 @@ three_dimensional_matrix_multiplication(
     } else {
       throw std::runtime_error("should not reach");
     }
-    tensor_t<int> locs(shape);
+    vtensor_t<int> locs(shape);
 
     int i;
     int j;
@@ -691,7 +691,7 @@ three_dimensional_matrix_multiplication(
       partdim_t::repeat(pj, dj)
     });
 
-    tensor_t<int> locs({pi,pk,pj});
+    vtensor_t<int> locs({pi,pk,pj});
 
     for(int i = 0; i != pi; ++i) {
     for(int j = 0; j != pj; ++j) {
