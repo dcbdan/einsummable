@@ -37,9 +37,9 @@ struct rms_norm_t {
   tensor_t weight;
 };
 
-#ifdef ASDASDADASSDASDASDASD
-
 struct attention_t {
+  attention_t() {}
+
   attention_t(
     graph_writer_t* w,
     string name, //should be "attention."
@@ -62,13 +62,12 @@ struct attention_t {
     optional<tensor_t> mask);
 
   /* Get and return the mapping?*/
-  map<int, string> input_map(){
-    return input_names;
-  };
+  map<int, string> input_map() const;
 
-  map<int, string> input_names;
   graph_writer_t* writer;
   model_args_t model_args;
+  string name;
+
   int n_local_heads;
   int head_dim;
 
@@ -78,21 +77,6 @@ struct attention_t {
   tensor_t wv;
   tensor_t wo;
 };
-
-#else
-
-struct attention_t {
-  attention_t() {}
-  attention_t(
-    graph_writer_t* w,
-    string name, //should be "attention."
-    model_args_t args,
-    int world_size) {}
-  map<int, string> input_map() const {
-    return {};
-  }
-};
-
 
 struct feedforward_t {
   feedforward_t() {}
@@ -147,7 +131,6 @@ struct transformer_block_t {
 
   rms_norm_t attention_norm;
   rms_norm_t ffn_norm;
-
 };
 
 struct transformer_t {
@@ -176,4 +159,3 @@ struct transformer_t {
   tensor_t output_weight;
 };
 
-#endif

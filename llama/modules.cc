@@ -32,50 +32,57 @@ map<int, string> rms_norm_t::input_map() const
   return ret;
 }
 
-#ifdef ASDASDADASSDASDASDASD
-
 attention_t::attention_t(
   graph_writer_t* w,
   string name,
   model_args_t args,
   int world_size)
-  : writer(w), model_args(args)
+  : writer(w), model_args(args), name(name)
 {
-  if(args.n_head % world_size != 0) {
+  // TODO: change on argdiv
+  if(args.n_heads % world_size != 0) {
     throw std::runtime_error("args.n_head % worlside != 0");
   }
   if(args.dim % args.n_heads != 0) {
     throw std::runtime_error("args.dim % args.n_head != 0");
   }
 
-  n_local_heads = args.n_head / world_size;
+  n_local_heads = args.n_heads / world_size;
   head_dim = args.dim / args.n_heads;
 
   //input tensors
 
   //  outshape comes first because F.linear is xA^t,
   //  so shape is (out_features, in_features)
-  vector<uint64_t> kqv_initshape = {model_args.dim, n_local_heads, head_dim};
+  vector<uint64_t> kqv_initshape = {
+    model_args.dim, uint64_t(n_local_heads), uint64_t(head_dim)};
   vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
   // TODO: put dtype elsewhere?
 
   wq = writer->input(kqv_initshape);
-  input_names.insert({wq.get_id(), name + "wq.weight"});
   wq = wq.view(kqv_reshape);
 
   wk = writer->input(kqv_initshape);
-  input_names.insert({wk.get_id(), name + "wk.weight"});
   wk = wk.view(kqv_reshape);
 
   wv = writer->input(kqv_initshape);
-  input_names.insert({wv.get_id(), name + "wv.weight"});
   wv = wv.view(kqv_reshape);
 
   //TODO: not sure about the size of wo.weight. wo starts at
   //      dim so n_head*headdim so no need view
   wo = writer->input(kqv_initshape);
-  input_names.insert({wo.get_id()+ "wo.weight"});
+}
+
+map<int, string> attention_t::input_map() const {
+  map<int, string> input_names;
+
+  input_names.insert({wq.get_id(), name + "wq.weight"});
+  input_names.insert({wk.get_id(), name + "wk.weight"});
+  input_names.insert({wv.get_id(), name + "wv.weight"});
+  input_names.insert({wo.get_id(), name + "wo.weight"});
+
+  return input_names;
 }
 
 tensor_t attention_t::forward(
@@ -94,13 +101,13 @@ tensor_t attention_t::forward(
   xq = writer->matmul(x, xk);
   xq = writer->matmul(x, xv);
 
-  vector<uint64_t> initial_view_shape = {bsz, seqlen, n_local_heads, head_dim};
+  vector<uint64_t> initial_view_shape = {
+    bsz, seqlen, uint64_t(n_local_heads), uint64_t(head_dim)};
+
   xq = xq.view(initial_view_shape);
   xk = xk.view(initial_view_shape);
   xv = xv.view(initial_view_shape);
 }
-
-#endif
 
 feedforward_t::feedforward_t(
   graph_writer_t* w,
