@@ -585,7 +585,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
   auto const& node = taskgraph.nodes[id];
 
-  vector<int> used_task_tensors;
+  set<int> used_task_tensors;
   set<int> deps;
   optional<op_t> op;
 
@@ -606,7 +606,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
       deps.insert(task_to_mem(task_inn));
 
-      used_task_tensors.push_back(task_inn);
+      used_task_tensors.insert(task_inn);
     }
 
     uint64_t out_offset = get_output_alloc_if_necc(id, deps);
@@ -630,7 +630,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
     deps.insert(task_to_mem(task_inn));
 
-    used_task_tensors.push_back(task_inn);
+    used_task_tensors.insert(task_inn);
 
     uint64_t offset_src = current_tensors.at(task_inn);
     uint64_t offset_dst = get_output_alloc_if_necc(id, deps);
@@ -648,7 +648,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
     deps.insert(task_to_mem(task_inn));
 
-    used_task_tensors.push_back(task_inn);
+    used_task_tensors.insert(task_inn);
 
     mem_t inn_mem {
       .offset = current_tensors.at(task_inn),
@@ -762,7 +762,7 @@ void memgraph_make_state_t::try_to_delete(int task_id)
   rem -= 1;
   if(rem == 0) {
     if(donated.count(task_id) > 0) {
-      // can't be delted since this guy was donated to where it was used
+      // can't be deleted since this guy was donated to where it was used
       donated.erase(task_id);
       return;
     }

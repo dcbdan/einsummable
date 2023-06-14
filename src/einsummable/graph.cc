@@ -136,9 +136,13 @@ int graph_t::insert_einsummable(
   }
 
   auto expected_inn_shapes = e.inn_shapes();
+  auto expected_inn_dtypes = e.inn_dtypes();
   for(int i = 0; i != inns.size(); ++i) {
     if(!vector_equal(expected_inn_shapes[i], out_shape(inns[i]))) {
       throw std::runtime_error("shapes do not match: insert einsummable");
+    }
+    if(expected_inn_dtypes[i] != out_dtype(inns[i])) {
+      throw std::runtime_error("dtype error in graph insert einsumable");
     }
   }
 
@@ -501,7 +505,7 @@ void graph_t::print() const {
   for(int id = 0; id != nodes.size(); ++id) {
     auto const& node = nodes[id];
 
-    std::cout << "node id]: " << id
+    std::cout << "node id: " << id
       << " with out shape " << node.op.out_shape()
       << " | " << node.op.out_dtype() << std::endl;
     std::cout << "inputs: " << node.inns << std::endl;
@@ -920,9 +924,10 @@ void graph_writer_t::tensor_t::physically_permute() {
     str = inn + "->" + out;
   }
 
+  dtype_t dtype = get_dtype();
   id = self._insert_elementwise(
     str,
-    scalarop_t::make_identity(),
+    scalarop_t::make_identity(dtype),
     id);
   modes = no_permute_modes;
 }
@@ -1287,6 +1292,8 @@ graph_writer_t::tensor_t
 graph_writer_t::softmax(
   graph_writer_t::tensor_t const& inn)
 {
+  dtype_t dtype = inn.get_dtype();
+
   int n = inn.shape.size() - 1;
 
   string h(n, ' ');
@@ -1306,13 +1313,13 @@ graph_writer_t::softmax(
   // x = x + c
   x = ew(
     ewbstr,
-    scalarop_t::make_add(),
+    scalarop_t::make_add(dtype),
     x, c);
 
   // ex = exp(x)
   tensor_t ex = ew(
     ewustr,
-    scalarop_t::make_exp(),
+    scalarop_t::make_exp(dtype),
     x);
 
   tensor_t sum_ex = reduction(
@@ -1322,7 +1329,7 @@ graph_writer_t::softmax(
 
   return ew(
     ewbstr,
-    scalarop_t::make_div(),
+    scalarop_t::make_div(dtype),
     ex, sum_ex);
 }
 
@@ -1335,25 +1342,38 @@ graph_writer_t::add(
     throw std::runtime_error("graph writer add : invalid shapes");
   }
 
+  dtype_t dtype = lhs.get_dtype();
+  if(dtype != rhs.get_dtype()) {
+    throw std::runtime_error("cannot add with different dtypes");
+  }
+
   string x(lhs.shape.size(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
   return ew(
     x + "," + x + "->" + x,
-    scalarop_t::make_add(),
+    scalarop_t::make_add(dtype),
     lhs, rhs);
 }
 
 graph_writer_t::tensor_t
 graph_writer_t::scale(
-  float val,
+  string val,
+  graph_writer_t::tensor_t const& inn)
+{
+  dtype_t dtype = inn.get_dtype();
+  return scale(scalar_t(dtype, val), inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::scale(
+  scalar_t val,
   graph_writer_t::tensor_t const& inn)
 {
   string x(inn.shape.size(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
-  // TODO: will need to deal with dtypes
-  return ew(x + "->" + x, scalarop_t::make_scale(scalar_t(val)), inn);
+  return ew(x + "->" + x, scalarop_t::make_scale(val), inn);
 }
 
 int graph_writer_t::_insert_elementwise(

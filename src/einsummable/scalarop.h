@@ -17,10 +17,14 @@ bool dtype_is_complex(dtype_t);
 
 struct scalar_t {
   scalar_t();
+
+  scalar_t(dtype_t, string const&);
+
   explicit scalar_t(float16_t);
   explicit scalar_t(float);
   explicit scalar_t(double);
   explicit scalar_t(std::complex<float>);
+
   scalar_t(scalar_t const&);
 
   float16_t          & f16();

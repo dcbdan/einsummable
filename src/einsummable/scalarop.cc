@@ -70,6 +70,23 @@ scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
 
+scalar_t::scalar_t(dtype_t d, string const& s)
+  : dtype(d)
+{
+  if(dtype == dtype_t::c64) {
+    // not allowing this only because it's unclear what s would have to contain
+    throw std::runtime_error("cannot create scalar_t from a complex string");
+  } else if(dtype == dtype_t::f16) {
+    f16() = parse_with_ss<float16_t>(s);
+  } else if(dtype == dtype_t::f32) {
+    f32() = parse_with_ss<float>(s);
+  } else if(dtype == dtype_t::f64) {
+    f64() = parse_with_ss<double>(s);
+  } else {
+    throw std::runtime_error("should not reach scalar");
+  }
+}
+
 scalar_t::scalar_t(float16_t v)
   : dtype(dtype_t::f16)
 {

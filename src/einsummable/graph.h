@@ -411,7 +411,10 @@ struct graph_writer_t {
 
   // straight elementwise scale
   tensor_t scale(
-    float val,
+    string val,
+    tensor_t const& inn);
+  tensor_t scale(
+    scalar_t val,
     tensor_t const& inn);
 
   // supports ij,jk->ik and

@@ -1,6 +1,9 @@
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/memgraph.h"
 
+// for single_loc_placements
+#include "../src/autoplace/autoplace.h"
+
 #include <fstream>
 
 struct random_placement_t {
@@ -211,6 +214,12 @@ void test_make_taskgraph(
     taskgraph_t>
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
+
+  {
+    std::cout << "Printing to tg.gv" << std::endl;
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+  }
 
   //taskgraph.print();
 
@@ -913,6 +922,92 @@ void test_random_goofy_ff() {
   test_make_taskgraph(g, pls, inns);
 }
 
+void test_with_complex_matmul() {
+  graph_writer_t writer;
+  using id_t = graph_writer_t::tensor_t;
+
+  uint64_t ni = 10;
+  uint64_t nj = 12;
+  uint64_t nk = 14;
+
+  id_t lhs = writer.input({ni,nj}, dtype_t::c64);
+  id_t rhs = writer.input({nj,nk}, dtype_t::c64);
+  id_t out = writer.matmul(lhs, rhs);
+
+  vector<int> sames;
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = writer.add(out, out);
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = writer.add(out, out);
+  sames.push_back(out.get_id());
+
+  out.save();
+
+  map<int,dbuffer_t> inns;
+  for(id_t id: vector<id_t>{lhs, rhs}) {
+    int gid = id.get_id();
+    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()));
+    buffer.random();
+    inns.insert({gid, buffer});
+  }
+
+  graph_t const& graph = writer.get_graph();
+
+  //{
+  //  vector<placement_t> placements = single_loc_placements(graph);
+  //  test_make_taskgraph(graph, placements, inns);
+
+  //  placements = vector<placement_t>();
+  //  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //    auto const& node = graph.nodes[gid];
+  //    auto shape = node.op.shape();
+  //    vector<partdim_t> partdims;
+  //    for(auto sz: shape) {
+  //      partdims.push_back(partdim_t::split(sz, 2));
+  //    }
+  //    placements.emplace_back(partition_t(partdims));
+  //  }
+
+  //  test_make_taskgraph(graph, placements, inns);
+  //}
+
+  {
+    int nloc = 3;
+    random_placement_t random_placement { {1, 4}, nloc };
+    graph_t const& g = graph;
+    vector<placement_t> pls;
+    for(int gid = 0; gid != g.nodes.size(); ++gid) {
+      pls.push_back(random_placement(g.nodes[gid].op.shape()));
+    }
+
+    // This was used to verify that to_complex and to_real get
+    // correctly compiled out
+    //
+    //for(auto const& id: sames) {
+    //  if(dtype_is_real(graph.nodes[id].op.out_dtype())) {
+    //    pls[id] = double_last_dim(pls[sames[0]]);
+    //  } else {
+    //    pls[id] = pls[sames[0]];
+    //  }
+    //}
+
+    test_make_taskgraph(g, pls, inns);
+    test_make_memgraph_without_evict(graph, pls, inns);
+  }
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
   //main10();
@@ -937,11 +1032,17 @@ int main(int argc, char** argv) {
   //  test_random_goofy_ff();
   //}
 
-  set_seed(0);
-  test_random_goofy_ff();
+  //set_seed(0);
+  //test_random_goofy_ff();
 
   //main02();
   //main03();
   //main04();
   //main05();
+
+  for(int i = 0; i != 100; ++i) {
+    DOUT(i);
+    set_seed(i);
+    test_with_complex_matmul();
+  }
 }

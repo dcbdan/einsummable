@@ -67,20 +67,8 @@ void dbuffer_t::iota(int start) {
 void dbuffer_t::random(string b, string e) {
   if(dtype == dtype_t::c64) {
     view_c64_as_f32().random(b,e);
-  } else if(dtype == dtype_t::f16) {
-    random(
-      scalar_t(parse_with_ss<float16_t>(b)),
-      scalar_t(parse_with_ss<float16_t>(e)));
-  } else if(dtype == dtype_t::f32) {
-    random(
-      scalar_t(parse_with_ss<float>(b)),
-      scalar_t(parse_with_ss<float>(e)));
-  } else if(dtype == dtype_t::f64) {
-    random(
-      scalar_t(parse_with_ss<double>(b)),
-      scalar_t(parse_with_ss<double>(e)));
   } else {
-    throw std::runtime_error("should not reach");
+    random(scalar_t(dtype, b), scalar_t(dtype, e));
   }
 }
 
