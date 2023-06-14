@@ -7,6 +7,8 @@
 
 #include <mkl.h> // for mkl_set_num_threads
 
+#include <fstream>
+
 using std::thread;
 using std::queue;
 
@@ -147,8 +149,8 @@ struct cpu_exec_state_t {
   void run(int n_apply, int n_touch, int n_send, int n_recv);
 
   // the threads
-  void apply_runner(int runner_id);
-  void touch_runner(int runner_id);
+  void apply_runner(int runner_id, string& msg);
+  void touch_runner(int runner_id, string& msg);
   void send_runner(int runner_id);
   void recv_runner(int runner_id);
 
@@ -215,6 +217,13 @@ void execute(
   mpi_t& mpi,
   map<int, dbuffer_t>& tensors)
 {
+  if(mpi.this_rank == 0) {
+    string filename = "taskgraph";
+    std::ofstream out(filename);
+    out << taskgraph.to_wire();
+    std::cout << "Wrote taskgraph to file as \"" << filename << "\"" << std::endl;
+  }
+
   cpu_exec_state_t state(mpi, taskgraph, tensors, settings.num_apply_kernel_threads);
 
   state.run(
@@ -232,11 +241,20 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 {
   vector<thread> runners;
   runners.reserve(n_apply + n_touch + n_send + n_recv);
+
+  vector<string> time_msgs(n_apply + n_touch, "");
   for(int i = 0; i != n_apply; ++i) {
-    runners.emplace_back([this, i](){ return this->apply_runner(i); });
+    string& time_msg = time_msgs[i];
+    runners.emplace_back([this, &time_msg, i](){
+      return this->apply_runner(i, time_msg);
+    });
   }
+
   for(int i = 0; i != n_touch; ++i) {
-    runners.emplace_back([this, i](){ return this->touch_runner(i); });
+    string& time_msg = time_msgs[n_apply + i];
+    runners.emplace_back([this, &time_msg, i](){
+      return this->touch_runner(i, time_msg);
+    });
   }
   for(int i = 0; i != n_send; ++i) {
     runners.emplace_back([this, i](){ return this->send_runner(i); });
@@ -247,6 +265,23 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 
   for(auto& t: runners) {
     t.join();
+  }
+
+  string full_time_msg = "";
+  for(auto const& s: time_msgs) {
+    full_time_msg += s;
+  }
+
+  if(mpi.this_rank == 0) {
+    for(int i = 1; i != mpi.world_size; ++i) {
+      full_time_msg += mpi.recv_str(i);
+    }
+    string filename = "time_msg";
+    std::ofstream out(filename);
+    out << full_time_msg;
+    std::cout << "Wrote to \"" << filename << "\"" << std::endl;
+  } else {
+    mpi.send_str(full_time_msg, 0);
   }
 }
 
@@ -369,7 +404,7 @@ void cpu_exec_state_t::verify_kernels() {
   }
 }
 
-void cpu_exec_state_t::apply_runner(int runner_id)
+void cpu_exec_state_t::apply_runner(int runner_id, string& time_msg)
 {
   int which;
   while(true)
@@ -421,7 +456,15 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         raw_inputs.push_back(buffer.ptr());
       }
 
+      auto time_start = clock_now().time_since_epoch().count();
       kernel(out_buffer.ptr(), raw_inputs);
+      auto time_finish = clock_now().time_since_epoch().count();
+      time_msg +=
+        write_with_ss(mpi.this_rank) + "," +
+        write_with_ss(which) + "," +
+        "a" + write_with_ss(runner_id) + "," +
+        write_with_ss(time_start) + "," +
+        write_with_ss(time_finish) + "\n";
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -434,7 +477,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
   }
 }
 
-void cpu_exec_state_t::touch_runner(int runner_id)
+void cpu_exec_state_t::touch_runner(int runner_id, string& time_msg)
 {
   using touch_info_t = touches_progress_t::touch_info_t;
   touch_info_t which;
@@ -468,7 +511,15 @@ void cpu_exec_state_t::touch_runner(int runner_id)
       dbuffer_t& out_buffer = _ps[0];
       dbuffer_t& inn_buffer = _is[0];
 
+      auto time_start = clock_now().time_since_epoch().count();
       kernel(out_buffer.ptr(), inn_buffer.ptr());
+      auto time_finish = clock_now().time_since_epoch().count();
+      time_msg +=
+        write_with_ss(mpi.this_rank) + "," +
+        write_with_ss(unit_id) + "|" + write_with_ss(partialize_id) + "," +
+        "t" + write_with_ss(runner_id) + "," +
+        write_with_ss(time_start) + "," +
+        write_with_ss(time_finish) + "\n";
     }
 
     this->completed_touch(inn_tensor, unit_id);
