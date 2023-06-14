@@ -1753,10 +1753,11 @@ int taskgraph_t::insert_consumed_aggregate(
   }
 
   uint64_t sz = get_size_at(inns[0]);
-  if(sz % dtype_size(dtype) != 0) {
-    throw std::runtime_error("non integer number of elements");
+  uint64_t _dtype_sz = dtype_size(dtype);
+  if(sz % _dtype_sz != 0) {
+    throw std::runtime_error("incorrect size!");
   }
-  sz /= dtype_size(dtype);
+  uint64_t nelem = sz / _dtype_sz;
 
   vector<input_op_t> inputs;
   inputs.reserve(inns.size());
@@ -1767,20 +1768,20 @@ int taskgraph_t::insert_consumed_aggregate(
     inputs.push_back(input_op_t {
       .id = inn,
       .consumable = true,
-      .region = { inn_regiondim_t { .dim = sz, .offset = 0 } }
+      .region = { inn_regiondim_t { .dim = nelem, .offset = 0 } }
     });
   }
 
   auto unit = partial_unit_t {
     .castable = castable,
-    .out_region = { out_regiondim_t { .offset = 0, .size = sz } },
+    .out_region = { out_regiondim_t { .offset = 0, .size = nelem } },
     .inputs = inputs
   };
 
   return insert(partialize_t {
       .loc = loc,
       .dtype = dtype,
-      .write_shape = {sz},
+      .write_shape = { nelem },
       .units = {unit}
     },
     is_save);
