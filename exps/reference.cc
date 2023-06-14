@@ -224,7 +224,6 @@ void test_make_taskgraph(
 
   map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
 
-
   map<int, dbuffer_t> task_outs =
     typed_reference_compute_taskgraph_from_graph_info(
       taskgraph, task_inns, graph, out_to_blocks);
@@ -805,7 +804,7 @@ void main13() {
 
   using id_t = graph_writer_t::tensor_t;
 
-  dtype_t dtype = dtype_t::f32;
+  dtype_t dtype = dtype_t::f64;
 
   id_t a = w.input({4,3}, dtype);
   id_t b = w.input({4,5}, dtype);
@@ -925,7 +924,7 @@ int main(int argc, char** argv) {
   //}
 
   //main13();
-  main14();
+  //main14();
 
   //set_seed(0);
   //test_random_concat(0, {20,19,18}, 3);
@@ -936,8 +935,8 @@ int main(int argc, char** argv) {
   //  test_random_goofy_ff();
   //}
 
-  //set_seed(1);
-  //test_random_goofy_ff();
+  set_seed(1);
+  test_random_goofy_ff();
 
   //main02();
   //main03();

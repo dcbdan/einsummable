@@ -1038,7 +1038,13 @@ graph_writer_t::contraction(
 
   auto const& info = maybe_info.value();
 
-  einsummable_t e = info.build_einsummable(scalarop_t::make_mul(), castable_t::add);
+  if(lhs.get_dtype() != rhs.get_dtype()) {
+    throw std::runtime_error("must contraction with same input dtypes");
+  }
+
+  einsummable_t e = info.build_einsummable(
+    scalarop_t::make_mul(lhs.get_dtype()),
+    castable_t::add);
 
   if(!e.is_contraction()) {
     throw std::runtime_error("build einsummable is not a contraction");
@@ -1067,7 +1073,9 @@ graph_writer_t::reduction(
 
   auto const& info = maybe_info.value();
 
-  einsummable_t e = info.build_einsummable(scalarop_t::make_mul(), castable_t::add);
+  einsummable_t e = info.build_einsummable(
+    scalarop_t::make_identity(inn.get_dtype()),
+    castable_t::add);
 
   if(!e.has_aggregation()) {
     throw std::runtime_error("build einsummable is not a reduction");

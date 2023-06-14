@@ -325,7 +325,11 @@ node_t node_t::make_constant(scalar_t value) {
 
 scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
   if(op.is_hole()) {
-    scalar_t const& ret = inputs[op.get_which_input()];
+    int which = op.get_which_input();
+    if(which < 0 || which >= inputs.size()) {
+      throw std::runtime_error("scalar node_t eval does not have the input");
+    }
+    scalar_t const& ret = inputs[which];
     if(ret.dtype != op.get_hole().dtype) {
       throw std::runtime_error("invalid dtype in inputs");
     }

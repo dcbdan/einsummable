@@ -16,6 +16,10 @@ einsummable_t::einsummable_t(
     throw std::invalid_argument("Must have castable when aggregating.");
   }
 
+  if(join.num_inputs() != inns.size()) {
+    throw std::runtime_error("einsummable inns size not same as scalarop join");
+  }
+
   // Consider batched matrix multiply into
   // the same output:
   //   bij,bjk->ik

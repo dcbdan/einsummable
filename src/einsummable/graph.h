@@ -196,7 +196,7 @@ private:
 
 // graph_constructor_t is for building a graph
 // object with associated placements.
-// graph_writer_t is for building a graph object
+// graph_writer is for building a graph object
 // but returning a virtual tensor object
 
 struct graph_constructor_t {
