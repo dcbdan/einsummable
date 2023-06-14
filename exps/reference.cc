@@ -870,7 +870,7 @@ void test_random_goofy_ff() {
   uint64_t d0 = 4;
   uint64_t d1 = 5;
   uint64_t d2 = 6;
-  uint64_t d3 = 7;
+  uint64_t d3 = 8;
 
   uint64_t d01 = d0*d1;
   uint64_t d12 = d1*d2;
@@ -896,6 +896,8 @@ void test_random_goofy_ff() {
   id_t z = writer.matmul(y, w1.transpose(0,1)); // bsz,d3,d3
   y = writer.concat(2, {y, z}); // bsz,d3,d33
   y = writer.reduction("bxy->bx", castable_t::add, y); // bsz,d1
+  y = y.to_complex();
+  y = y.to_real();
 
   y.save();
 
@@ -935,7 +937,7 @@ int main(int argc, char** argv) {
   //  test_random_goofy_ff();
   //}
 
-  set_seed(1);
+  set_seed(0);
   test_random_goofy_ff();
 
   //main02();

@@ -746,7 +746,14 @@ taskgraph_make_state_t::form_relation(int gid)
   }
   if(node.op.is_complexer()) {
     int inn_gid = node.inns[0];
-    return form_from_refinement(inn_gid, placements.at(gid));
+    auto const& complexer = node.op.get_complexer();
+    if(complexer.is_to_real()) {
+      // complex -> real
+      return form_from_refinement(inn_gid, placements.at(gid), false);
+    } else {
+      // real -> complex
+      return form_from_refinement(inn_gid, double_last_dim(placements.at(gid)));
+    }
   }
   if(node.op.is_concat()) {
     return form_concat(gid);

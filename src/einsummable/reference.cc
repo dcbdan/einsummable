@@ -34,6 +34,23 @@ map<int, dbuffer_t> reference_compute_graph(
       _assert_correct_dtype("formation", expected_dtype, t);
       _assert_correct_size("formation", expected_size, t);
       tensors[id] = t;
+    } else if(node.op.is_complexer()) {
+      auto const& t = tensors[node.inns[0]];
+      auto const& c = node.op.get_complexer();
+      if(c.is_to_real()) {
+        if(t.dtype == dtype_t::c64) {
+          tensors[id] = dbuffer_t(dtype_t::f32, t.data);
+        } else {
+          throw std::runtime_error("complexer fail: to real");
+        }
+      } else {
+        if(t.dtype == dtype_t::f32) {
+          tensors[id] = dbuffer_t(dtype_t::c64, t.data);
+
+        } else {
+          throw std::runtime_error("complexer fail: to complex");
+        }
+      }
     } else if(node.op.is_input()) {
       auto const& t = inputs.at(id);
       auto const& ii = node.op.get_input();
