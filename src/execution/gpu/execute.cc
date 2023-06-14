@@ -59,11 +59,14 @@ void init_value(float* ptr, int count, float value) {
 
 // update memgraph node when it is finished; modify the dependency counter of the node
 // return a vector of ready nodes if there are any
-vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &memgraph, int node_idx, std::map<int, int> &num_nodes_remaining) {
+vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &memgraph, 
+    int node_idx, std::map<int, int> &num_nodes_remaining, std::vector<int> &group_id_executing, 
+    std::map<int, std::queue<int>> &groupID_to_nodeIDX) {
     // TODO: hard coded index 0 since we only have 1 device
     num_nodes_remaining[0] -= 1;
     vector<int> ready_nodes;
-    for (auto out: memgraph.nodes[node_idx].outs){
+    auto node = memgraph.nodes[node_idx];
+    for (auto out: node.outs){
         dependency_count[out] -= 1;
         // print the node that got decremented
         // printf("Node %d has dependencies decreased\n", out);
@@ -71,10 +74,23 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
             ready_nodes.push_back(out);
         }
     }
+    // if this node is a touch, we find if there are any other nodes in the same group that are waiting for this touch to finish
+    if (node.op.is_touch()){
+        auto group_id = node.op.get_apply().group;
+        // remove the group id from the executing list since we are done
+        group_id_executing.erase(std::remove(group_id_executing.begin(), group_id_executing.end(),
+                group_id), group_id_executing.end());
+        // find if there are any other nodes in the same group that are waiting for this touch to finish
+        if(groupID_to_nodeIDX[group_id].size() != 0){
+            std::cout << "Adding touch node to ready nodes" << std::endl;
+            // get one of them and add it to the ready nodes
+            auto touch_node_idx = groupID_to_nodeIDX[group_id].front();
+            groupID_to_nodeIDX[group_id].pop();
+            ready_nodes.push_back(touch_node_idx);
+        }
+    }
     // print a update message
-    printf("Node %d finished execution\n", node_idx);
-    // print the number of nodes remaining
-    // printf("Number of nodes remaining: %d\n", num_nodes_remaining[0]);
+    // printf("Node %d finished execution\n", node_idx);
     return ready_nodes;
 }
 
@@ -137,6 +153,9 @@ struct callback_data_t {
   std::queue<int>* pending_queue;
   int node_idx;
   std::map<int, int>* num_nodes_remaining;
+  std::vector<int>* group_id_executing;
+  std::map<int, std::queue<int>>* groupID_to_nodeIDX;
+
 
   void operator()() {
     std::mutex& m = *m_ptr;
@@ -144,7 +163,8 @@ struct callback_data_t {
     {
       std::unique_lock lk(m);
       // update the queue since this node is finished
-      auto new_nodes = node_update(*dependency_count, *memgraph, node_idx, *num_nodes_remaining);
+      auto new_nodes = node_update(*dependency_count, *memgraph, node_idx, 
+      *num_nodes_remaining, *group_id_executing, *groupID_to_nodeIDX);
       add_to_queue(*pending_queue, new_nodes);      
     }
     cv.notify_all();
@@ -204,7 +224,8 @@ void gpu_execute_state_t::run() {
             if (node.op.is_input() || node.op.is_del() || node.op.is_partialize()) {
                 std::unique_lock lk(m);
                 // do nothing but update the memgraph execution since that node is finished
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
+                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining, 
+                    group_id_executing, groupID_to_nodeIDX);
                 add_to_queue(pending_queue, new_nodes);
                 lk.unlock();
             }
@@ -212,13 +233,23 @@ void gpu_execute_state_t::run() {
                 // create a cuda stream since for apply we need to execute that on a cuda stream always
                 // TODO: may need to keep a pool of streams
                 cudaStream_t stream = cuda_create_stream();
-
+                // get the memory offsets
                 auto memory_vector = node.op.get_apply().mems;
-
                 if (node.op.is_touch()) {
+                    std::cout << "Got a touch node" << std::endl;
                     // CASE: TOUCH
                     auto touch_kernel = build_touch(node.op.get_touch());
-                    touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
+                    auto group_id = node.op.get_apply().group;
+                    // if we have found this group id in the list, we can't execute until the previous one is done
+                    if (std::find(group_id_executing.begin(), group_id_executing.end(), group_id) != group_id_executing.end() ){
+                        std::cout << "Found a touch node with group id " << group_id << " that is already executing." << std::endl;
+                        // add this node to the map 
+                        groupID_to_nodeIDX[group_id].push(node_idx);
+                    }
+                    else{
+                        // else we are free to run this
+                        touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
+                    }
                 }
                 else {
                     auto my_einsummable = node.op.get_einsummable();
@@ -248,6 +279,7 @@ void gpu_execute_state_t::run() {
                             get_input_mem_ptrs(memory_vector, memory_base_ptr));
                     }
                 }
+
                 // after execution, we attach the stream with a callback function
                 // get all the metadata needed for the callback
                 callback_data_t* data = new callback_data_t;
@@ -258,7 +290,8 @@ void gpu_execute_state_t::run() {
                 data->memgraph = &memgraph;
                 data->pending_queue = &pending_queue;
                 data->num_nodes_remaining = &num_nodes_remaining;
-
+                data->group_id_executing = &group_id_executing;
+                
                 // add the callback
                 cudaStreamAddCallback(
                     stream,
@@ -276,11 +309,6 @@ void gpu_execute_state_t::run() {
                 // print a message saying that the operation is not supported and this operation's type
                 std::cout << "Error: Operation not supported: Type is among the following - move, evict, load" << std::endl;
                 exit(1);
-                // also updating just to check the loop
-                std::unique_lock lk(m);
-                auto new_nodes = node_update(dependency_count, memgraph, node_idx, num_nodes_remaining);
-                add_to_queue(pending_queue, new_nodes);
-                lk.unlock();
             }
         }
         

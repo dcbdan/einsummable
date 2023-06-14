@@ -64,9 +64,12 @@ struct gpu_execute_state_t
     // for now there's only one device, so we only need one entry
     std::map<int, int> num_nodes_remaining;
 
+    // keep track of the group id of the touches that are executing
+    // if we have a new touch and its group id is in the list, we need to wait for the previous touch to finish
+    // TODO: this might not be the most efficient way since we are always acccessing/removing by value  
     std::vector<int> group_id_executing;
-
-    std::map<int, std::vector<int>> groupID_to_nodeIDX;
+    // keep a map from group id to the a queue of nodes waiting for the previous touch with the same id to finish
+    std::map<int, std::queue<int>> groupID_to_nodeIDX;
 
     cutensorHandle_t* handle;
 
