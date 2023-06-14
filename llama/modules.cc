@@ -1,5 +1,8 @@
 #include "modules.h"
 
+// TODO: wherever division occurs, make sure no modulo;
+//       add a helper method to throw runtime error
+
 model_args_t model_args_t::make_default() {
   return model_args_t {
     .dim             = 512,
@@ -131,8 +134,10 @@ tensor_t feedforward_t::forward(tensor_t x) {
   // return self.w2(F.silu(self.w1(x)) * self.w3(x))
 }
 
+#endif
+
 transformer_block_t::transformer_block_t(
-  graph_writer_t& w,
+  graph_writer_t* w,
   int layer_id,
   model_args_t args,
   int world_size)
@@ -140,34 +145,41 @@ transformer_block_t::transformer_block_t(
 {
   n_heads = args.n_heads;
   dim = args.dim;
-  head_dim = args.dim / args.n_head;
+  head_dim = args.dim / args.n_heads;
+
+  attention = attention_t(writer, "attention.", args, world_size);
+  feed_forward = feedforward_t();
+  // TODO
+  //  writer, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
+
+  attention_norm = rms_norm_t(writer, "attention_norm.", args.dim, args.norm_eps);
+  ffn_norm = rms_norm_t(writer, "ffn_norm.", args.dim, args.norm_eps);
+}
+
+map<int, string> transformer_block_t::input_map() const {
   //TODO: loop the input_names mappping and insert to our
   //      own map for both att and ffn
-  attention = attention_t(w, "attention.", args, world_size);
-  feed_forward = feedforward_t(
-    w, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
+
+  map<int, string> input_names;
 
   //Attention_t names mapping
   map<int, string> att_inner_names = attention.input_map();
-  for (auto x = att_inner_names.begin(); x != att_inner_names.end(); ++x) {
-    int tensor_id = x->first;
-    std::string name = x->second;
-    input_names.insert(
+  for(auto const& [tensor_id, name]: attention.input_map()) {
+    input_names.insert({
       tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name;)
-  }
-  //feed_forward names mapping
-  map<int, string> ff_inner_names = feed_forward.input_map();
-  for (auto x = ff_inner_names.begin(); x != ff_inner_names.end(); ++x) {
-    int tensor_id = x->first;
-    std::string name = x->second;
-    input_names.insert(
-      tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name;)
+      "layers." + std::to_string(layer_id) + "." + name
+    });
   }
 
-  attention_norm = rms_norm_t(writer, "attention_norm.", args.dim, args.norms_eps);
-  ffn_norm = rms_norm_t(writer, "ffn_norm.", args.dim, args.norms_eps);
+  //feed_forward names mapping
+  for(auto const& [tensor_id, name]: feed_forward.input_map()) {
+    input_names.insert({
+      tensor_id,
+      "layers." + std::to_string(layer_id) + "." + name
+    });
+  }
+
+  // TODO: attention_norm and ffn_norm mappings
 }
 
 int transformer_block_t::forward(
@@ -178,8 +190,6 @@ int transformer_block_t::forward(
 {
   // TODO
 }
-
-#endif
 
 transformer_t::transformer_t(
   graph_writer_t* w,

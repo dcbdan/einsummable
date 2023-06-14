@@ -41,7 +41,7 @@ struct rms_norm_t {
 
 struct attention_t {
   attention_t(
-    graph_writer_t& w,
+    graph_writer_t* w,
     string name, //should be "attention."
     model_args_t args,
     int world_size);
@@ -67,7 +67,7 @@ struct attention_t {
   };
 
   map<int, string> input_names;
-  graph_writer_t& writer;
+  graph_writer_t* writer;
   model_args_t model_args;
   int n_local_heads;
   int head_dim;
@@ -81,17 +81,17 @@ struct attention_t {
 
 struct feedforward_t {
   feedforward_t(
-    graph_writer_t& w,
+    graph_writer_t* w,
     string name, //should pass in "feed_forward."
     vector<uint64_t> dim,
     uint64_t hidden_dim,
     uint64_t multiple_of);
 
-  map<int, string> input_map(){
+  map<int, string> input_map() const {
     return input_names;
   };
 
-  graph_writer_t& writer;
+  graph_writer_t* writer;
   map<int, string> input_names;
 
   tensor_t w1;
@@ -101,42 +101,64 @@ struct feedforward_t {
   scalarop_t silu;
 };
 
-struct transformer_block_t {
-  transformer_block_t(
-    graph_writer_t& w,
-    int layer_id,
+#else
+
+struct attention_t {
+  attention_t() {}
+  attention_t(
+    graph_writer_t* w,
+    string name, //should be "attention."
     model_args_t args,
-    int world_size);
-
-  int forward(tensor_t x, uint64_t start_pos, tensor_t freqs_cis, tensor_t mask);
-
-  map<int, string> input_map(){
-    return input_names;
-  };
-
-  int n_heads;
-  int dim;
-  int head_dim;
-  attention_t attention;
-  feedforward_t feed_forward;
-  int layer_id;
-  rms_norm_t attention_norm;
-  rms_norm_t ffn_norm;
-
-  graph_writer_t& writer;
-  map<int, string> input_names;
+    int world_size) {}
+  map<int, string> input_map() const {
+    return {};
+  }
 };
 
-#else
+struct feedforward_t {
+  feedforward_t() {}
+
+  feedforward_t(
+    graph_writer_t* w,
+    string name, //should pass in "feed_forward."
+    vector<uint64_t> dim,
+    uint64_t hidden_dim,
+    uint64_t multiple_of) {}
+
+  map<int, string> input_map() const {
+    return {};
+  }
+};
 
 struct transformer_block_t {
   transformer_block_t(
     graph_writer_t* w,
     int layer_id,
     model_args_t args,
-    int world_size) {}
+    int world_size);
 
-  map<int, string> input_map() const { return {}; }
+  int forward(
+    tensor_t x,
+    uint64_t start_pos,
+    tensor_t freqs_cis,
+    tensor_t mask);
+
+  map<int, string> input_map() const;
+
+  graph_writer_t* writer;
+
+  attention_t attention;
+  feedforward_t feed_forward;
+
+  int n_heads;
+  int dim;
+  int head_dim;
+
+  int layer_id;
+
+  rms_norm_t attention_norm;
+  rms_norm_t ffn_norm;
+
 };
 
 struct transformer_t {
