@@ -318,6 +318,11 @@ struct graph_writer_t {
     tensor_t to_complex() const;
     tensor_t to_real() const;
 
+    tensor_t to_dtype(dtype_t) const;
+    tensor_t to_f16() const;
+    tensor_t to_f32() const;
+    tensor_t to_f64() const;
+
   private:
     friend class graph_writer_t;
 
@@ -401,6 +406,11 @@ struct graph_writer_t {
 
   tensor_t to_real(tensor_t const& inn);
   tensor_t to_complex(tensor_t const& inn);
+
+  tensor_t to_dtype(dtype_t dtype, tensor_t const& inn);
+  tensor_t to_f16(tensor_t const& inn);
+  tensor_t to_f32(tensor_t const& inn);
+  tensor_t to_f64(tensor_t const& inn);
 
   // helper ops that dispatch to the core ops
 

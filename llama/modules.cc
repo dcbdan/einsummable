@@ -3,6 +3,18 @@
 // TODO: wherever division occurs, make sure no modulo;
 //       add a helper method to throw runtime error
 
+uint64_t uint_div(uint64_t top, uint64_t bot, string err_msg)
+{
+  if(top % bot != 0) {
+    err_msg = "uint_div: has remainder. " + err_msg;
+    throw std::runtime_error(err_msg);
+  } else {
+    return top / bot;
+  }
+}
+
+
+
 model_args_t model_args_t::make_default() {
   return model_args_t {
     .dim             = 512,
@@ -18,11 +30,14 @@ model_args_t model_args_t::make_default() {
 rms_norm_t::rms_norm_t(
   graph_writer_t* w,
   string name,
-  uint64_t dim,
+  full_dim_t dim,
   float eps)
     : writer(w), eps(eps), name(name)
 {
-  weight = writer->input({dim}, dtype_t::f16); // TODO: dtype as an arg?
+  weight = writer->input(
+    dim.dim_parts,
+    dtype_t::f32);
+  weight = weight.view({ dim.dim() });
 }
 
 map<int, string> rms_norm_t::input_map() const
@@ -30,6 +45,65 @@ map<int, string> rms_norm_t::input_map() const
   map<int, string> ret;
   ret.insert({weight.get_id(), name + "weight"});
   return ret;
+}
+
+tensor_t rms_norm_t::norm(tensor_t x) {
+  if(x.get_dtype() != dtype_t::f32) {
+    throw std::runtime_error("invalid dtype in rms norm :: norm");
+  }
+
+  int out_rank = x.get_shape().size();
+  if(out_rank <= 1) {
+    throw std::runtime_error("rms_norm: not a big enough output rank");
+  }
+
+  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype_t::f32);
+  scalarop_t square       = scalarop_t::make_square(dtype_t::f32);
+  scalarop_t mul          = scalarop_t::make_mul(dtype_t::f32);
+  scalarop_t add_eps      = scalarop_t::make_increment(scalar_t(eps));
+
+  string ijk(out_rank, ' ');
+  std::iota(ijk.begin(), ijk.end(), 'a');
+
+  string ij(out_rank-1, ' ');
+  std::iota(ij.begin(), ij.end(), 'a');
+
+  string ijk_to_ijk    = ijk + "->" + ijk;
+  string ijk_to_ij     = ijk + "->" + ij;
+  string ij_ij_to_ij   = ij + "," + ij + "->" + ij;
+  string ijk_ij_to_ijk = ijk + "," + ij + "->" + ijk;
+
+  // z = x * np.power(np.mean(np.square(x), axis=-1, keepdims=True) + eps, -0.5);
+
+  // y = np.mean(np.square(x), axis=-1) + eps
+  tensor_t y;
+  y = writer->ew(ijk_to_ijk, square,                x);
+  y = writer->reduction(ijk_to_ij, castable_t::add, y);
+  y = writer->ew(ij_ij_to_ij, add_eps,              y);
+  y = writer->ew(ij_ij_to_ij, inverse_sqrt,         y);
+
+  // x * y
+  return writer->ew(ijk_ij_to_ijk, mul, x, y);
+}
+
+tensor_t rms_norm_t::forward(tensor_t x) {
+  dtype_t dtype = weight.get_dtype();
+  if(dtype != x.get_dtype()) {
+    throw std::runtime_error("invalid input dtype rms norm t");
+  }
+  // TODO: implement to_dtype
+  tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+
+  int out_rank = x.get_shape().size();
+
+  string ijk(out_rank, ' ');
+  std::iota(ijk.begin(), ijk.end(), 'a');
+  string k(1, char('a' + 9));
+  string str = ijk + "," + k + "->" + ijk;
+
+  scalarop_t mul = scalarop_t::make_mul(dtype);
+
+  return writer->ew(str, mul, output, weight);
 }
 
 attention_t::attention_t(
@@ -164,8 +238,9 @@ transformer_block_t::transformer_block_t(
   // TODO
   //  writer, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
 
-  attention_norm = rms_norm_t(writer, "attention_norm.", args.dim, args.norm_eps);
-  ffn_norm = rms_norm_t(writer, "ffn_norm.", args.dim, args.norm_eps);
+  // TODO
+  //attention_norm = rms_norm_t(writer, "attention_norm.", args.dim, args.norm_eps);
+  //ffn_norm = rms_norm_t(writer, "ffn_norm.", args.dim, args.norm_eps);
 }
 
 map<int, string> transformer_block_t::input_map() const {
@@ -231,7 +306,8 @@ transformer_t::transformer_t(
       writer, layer_id, params, world_size);
   }
 
-  norm = rms_norm_t(writer, "norm.weight", params.dim, params.norm_eps);
+  // TODO
+  //norm = rms_norm_t(writer, "norm.weight", params.dim, params.norm_eps);
 
   vector<uint64_t> output_shape = {vocab_size, params.dim};
   output_weight = writer->input(output_shape);

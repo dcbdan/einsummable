@@ -886,6 +886,26 @@ graph_writer_t::tensor_t::to_real() const {
   return self->to_real(*this);
 }
 
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_dtype(dtype_t d) const {
+  return self->to_dtype(d, *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_f16() const {
+  return self->to_f16(*this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_f32() const {
+  return self->to_f32(*this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::to_f64() const {
+  return self->to_f64(*this);
+}
+
 void graph_writer_t::tensor_t::physically_permute() {
   vector<int> no_permute_modes(modes.size());
   std::iota(
@@ -1203,6 +1223,40 @@ graph_writer_t::to_complex(
     throw std::runtime_error("must have real to convert to complex");
   }
   return insert_complexer(inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::to_dtype(dtype_t dtype, tensor_t const& inn) {
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error(
+      "cannot call dtype with c64; maybe call to_real instead");
+  }
+
+  dtype_t inn_dtype = inn.get_dtype();
+
+  if(dtype == inn_dtype) {
+    return inn;
+  }
+
+  scalarop_t f = scalarop_t::make_convert_dtype(inn_dtype, dtype);
+
+  int rank = inn.get_shape().size();
+  string is(rank, ' ');
+  std::iota(is.begin(), is.end(), 'a');
+
+  return ew(is + "->" + is, f, inn);
+}
+
+graph_writer_t::tensor_t graph_writer_t::to_f16(tensor_t const& inn) {
+  return to_dtype(dtype_t::f16, inn);
+}
+
+graph_writer_t::tensor_t graph_writer_t::to_f32(tensor_t const& inn) {
+  return to_dtype(dtype_t::f32, inn);
+}
+
+graph_writer_t::tensor_t graph_writer_t::to_f64(tensor_t const& inn) {
+  return to_dtype(dtype_t::f64, inn);
 }
 
 graph_writer_t::tensor_t

@@ -6,6 +6,18 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
+uint64_t uint_div(uint64_t top, uint64_t bot, string err_msg = "");
+
+struct full_dim_t {
+  vector<uint64_t> dim_parts;
+
+  uint64_t dim() const { return product(dim_parts); }
+};
+
+struct full_shape_t {
+  vector<full_dim_t> shape;
+};
+
 // Helpful structure for llama model
 struct model_args_t {
   static model_args_t make_default();
@@ -25,10 +37,14 @@ struct rms_norm_t {
   rms_norm_t(
     graph_writer_t* w,
     string name, //should be "ffn_norm." or "attention_norm"
-    uint64_t dim,
-    float eps = 1e-6);
+    full_dim_t dim,
+    float eps);
 
   map<int, string> input_map() const;
+
+  tensor_t norm(tensor_t x);
+
+  tensor_t forward(tensor_t x);
 
   graph_writer_t* writer;
   float eps;

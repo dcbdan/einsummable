@@ -281,11 +281,17 @@ struct scalarop_t {
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
+  static scalarop_t make_inverse_sqrt(dtype_t d = default_dtype());
+
+  static scalarop_t make_square(dtype_t d = default_dtype());
+
   static scalarop_t make_relu(dtype_t d = default_dtype());
 
   static scalarop_t make_relu_deriv(dtype_t d = default_dtype());
 
   static scalarop_t make_from_castable(castable_t castable, dtype_t d = default_dtype());
+
+  static scalarop_t make_convert_dtype(dtype_t src, dtype_t dst);
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
