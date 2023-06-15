@@ -7,9 +7,9 @@
 struct concat_t {
   concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
 
-  int const dim;
+  int dim;
   dtype_t dtype;
-  vector<vector<uint64_t>> const inn_shapes;
+  vector<vector<uint64_t>> inn_shapes;
 
   int num_inns() const { return inn_shapes.size(); }
 
@@ -36,6 +36,10 @@ struct graph_t {
   int insert_formation(
     int inn,
     bool is_save = true);
+
+  int insert_to_complex(int inn);
+
+  int insert_to_real(int inn);
 
   int insert_concat(
     int dim,
@@ -98,15 +102,37 @@ public:
     bool is_save; // if this is false, it is a temporary
   };
 
+  // An op for converting complex <-> float
+  // The idea is that the last dimension is either
+  // double (complex -> float) or halved (float -> complex)
+  struct complexer_t {
+    dtype_t dtype;
+    vector<uint64_t> shape;
+    // these are the out shape and out dtypes which is the join shape
+    // (The join shape == the shape for annotated partitions)
+
+    dtype_t inn_dtype() const;
+    vector<uint64_t> inn_shape() const;
+
+    bool is_to_real()   const { return dtype_is_real(dtype); }
+    bool is_to_complex() const { return dtype_is_complex(dtype); }
+  };
+  // This has to be an op because a (5,3) partition of reals
+  // can't be converted into complexes without a change of partition.
+  // That is, (4,4) real parts can be viewed as (2,2) complex parts
+  // for free.
+
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, formation_t, concat_t, einsummable_t>;
+    using _op_t = std::variant<
+      input_t, formation_t, complexer_t, concat_t, einsummable_t>;
 
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t       x): op_t(_op_t(x)) {}
     op_t(formation_t   x): op_t(_op_t(x)) {}
+    op_t(complexer_t   x): op_t(_op_t(x)) {}
     op_t(concat_t      x): op_t(_op_t(x)) {}
     op_t(einsummable_t x): op_t(_op_t(x)) {}
 
@@ -124,6 +150,7 @@ public:
 
     bool is_input()       const { return std::holds_alternative<input_t>(op);     }
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
+    bool is_complexer()   const { return std::holds_alternative<complexer_t>(op); }
     bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
@@ -136,6 +163,7 @@ public:
     input_t       const& get_input()     const { return std::get<input_t>(op);     }
     formation_t   const& get_formation() const { return std::get<formation_t>(op); }
     formation_t        & get_formation()       { return std::get<formation_t>(op); }
+    complexer_t   const& get_complexer() const { return std::get<complexer_t>(op); }
     concat_t      const& get_concat()    const { return std::get<concat_t>(op);    }
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
@@ -168,7 +196,7 @@ private:
 
 // graph_constructor_t is for building a graph
 // object with associated placements.
-// graph_writer_t is for building a graph object
+// graph_writer is for building a graph object
 // but returning a virtual tensor object
 
 struct graph_constructor_t {
@@ -205,6 +233,24 @@ struct graph_constructor_t {
   int insert_formation(
     int inn,
     bool is_save = true);
+
+  int insert_to_complex(
+    placement_t placement,
+    int inn);
+  int insert_to_complex(
+    partition_t partition,
+    int inn);
+  int insert_to_complex(
+    int inn);
+
+  int insert_to_real(
+    placement_t placement,
+    int inn);
+  int insert_to_real(
+    partition_t partition,
+    int inn);
+  int insert_to_real(
+    int inn);
 
   int insert_concat(
     placement_t placement,
@@ -267,6 +313,9 @@ struct graph_writer_t {
     void save();
     int get_id() const { return id; }
     dtype_t get_dtype() const;
+
+    tensor_t to_complex() const;
+    tensor_t to_real() const;
 
     tensor_t& operator=(tensor_t const&);
   private:
@@ -350,6 +399,9 @@ struct graph_writer_t {
     int dim,
     vector<tensor_t> const& inns);
 
+  tensor_t to_real(tensor_t const& inn);
+  tensor_t to_complex(tensor_t const& inn);
+
   // helper ops that dispatch to the core ops
 
   // add two tensors with the same shape
@@ -359,7 +411,10 @@ struct graph_writer_t {
 
   // straight elementwise scale
   tensor_t scale(
-    float val,
+    string val,
+    tensor_t const& inn);
+  tensor_t scale(
+    scalar_t val,
     tensor_t const& inn);
 
   // supports ij,jk->ik and
@@ -383,4 +438,6 @@ private:
 
   optional<to_einsummable_info_t>
   make_einsummable_info(string str, vector<tensor_t> const& inns);
+
+  tensor_t insert_complexer(tensor_t inn);
 };

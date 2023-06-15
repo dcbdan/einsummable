@@ -706,6 +706,9 @@ optional<kernel_t>
 _make_matrix_multiply(
   einsummable_t const& einsummable)
 {
+  if(!einsummable.join.is_mul()) {
+    return std::nullopt;
+  }
   if(einsummable.join_shape.size() != 3 ||
      einsummable.out_rank          != 2)
   {
@@ -763,6 +766,9 @@ optional<kernel_t>
 _make_batch_matrix_multiply(
   einsummable_t const& e)
 {
+  if(!e.join.is_mul()) {
+    return std::nullopt;
+  }
   if(e.join_shape.size() != 4 || e.inns.size() != 2) {
     return std::nullopt;
   }

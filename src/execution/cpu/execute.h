@@ -36,5 +36,5 @@ void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
   mpi_t& mpi,
-  map<int, dbuffer_t>& tensors);
+  map<int, buffer_t>& tensors);
 

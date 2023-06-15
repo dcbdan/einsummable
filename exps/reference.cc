@@ -1,6 +1,9 @@
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/memgraph.h"
 
+// for single_loc_placements
+#include "../src/autoplace/autoplace.h"
+
 #include <fstream>
 
 struct random_placement_t {
@@ -64,7 +67,7 @@ int main02() {
   dbuffer_t tensor = make_dbuffer(dtype, 4*4);
   tensor.iota(0);
 
-  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+  vtensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
   for(auto const& buffer: ptensor.get()) {
     std::cout << buffer << std::endl;
   }
@@ -82,7 +85,7 @@ int main03() {
   dbuffer_t tensor = make_dbuffer(dtype, 3*4*5);
   tensor.iota(99);
 
-  tensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
+  vtensor_t<dbuffer_t> ptensor = partition_buffer(partition, tensor);
 
   dbuffer_t tensor_again = unpartition_buffer(partition, ptensor);
 
@@ -131,9 +134,9 @@ void reblock_test(
 
   //taskgraph.print();
 
-  tensor_t<dbuffer_t> inn_pbuffer = partition_buffer(
+  vtensor_t<dbuffer_t> inn_pbuffer = partition_buffer(
     placement_start.partition, inn_buffer);
-  tensor_t<dbuffer_t> out_pbuffer = partition_buffer(
+  vtensor_t<dbuffer_t> out_pbuffer = partition_buffer(
     placement_finish.partition, out_buffer);
 
   std::cout << "inn_pbuffer " << inn_pbuffer << std::endl;
@@ -143,9 +146,10 @@ void reblock_test(
     input_gid_to_tids.at(gid_inn),
     inn_pbuffer);
 
-  auto t_out_map = reference_compute_taskgraph(taskgraph, t_input_map);
+  auto t_out_map = typed_reference_compute_taskgraph_from_graph_info(
+    taskgraph, t_input_map, graph.graph, output_gid_to_tids);
 
-  tensor_t<dbuffer_t> t_out_pbuffer = get_partitioned_buffer(
+  vtensor_t<dbuffer_t> t_out_pbuffer = get_partitioned_buffer(
     t_out_map,
     output_gid_to_tids[gid_out]);
   dbuffer_t t_out_buffer = unpartition_buffer(placement_finish.partition, t_out_pbuffer);
@@ -162,11 +166,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 5) }),
-      tensor_t<int>({5}, {0,0,0,0,0})
+      vtensor_t<int>({5}, {0,0,0,0,0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 3) }),
-      tensor_t<int>({3}, {0,0,0})
+      vtensor_t<int>({3}, {0,0,0})
     );
 
     reblock_test(dtype_t::c64, placement_start, placement_finish);
@@ -175,11 +179,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 1) }),
-      tensor_t<int>({1}, {0})
+      vtensor_t<int>({1}, {0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 2) }),
-      tensor_t<int>({2}, {0,0})
+      vtensor_t<int>({2}, {0,0})
     );
 
     reblock_test(dtype_t::f16, placement_start, placement_finish);
@@ -188,11 +192,11 @@ void main05() {
   {
     placement_t placement_start(
       partition_t({ partdim_t::split(20, 2) }),
-      tensor_t<int>({2}, {0,0})
+      vtensor_t<int>({2}, {0,0})
     );
     placement_t placement_finish(
       partition_t({ partdim_t::split(20, 1) }),
-      tensor_t<int>({1}, {0})
+      vtensor_t<int>({1}, {0})
     );
 
     reblock_test(dtype_t::f32, placement_start, placement_finish);
@@ -205,29 +209,38 @@ void test_make_taskgraph(
   map<int, dbuffer_t> full_inns)
 {
   tuple<
-    map<int, tensor_t<int> >,
-    map<int, tensor_t<int> >,
+    map<int, vtensor_t<int> >,
+    map<int, vtensor_t<int> >,
     taskgraph_t>
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
+
+  {
+    std::cout << "Printing to tg.gv" << std::endl;
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+  }
 
   //taskgraph.print();
 
   map<int, dbuffer_t> task_inns;
   for(auto [gid, full_buffer]: full_inns) {
-    tensor_t<dbuffer_t> pbuffer = partition_buffer(
+    vtensor_t<dbuffer_t> pbuffer = partition_buffer(
       placements.at(gid).partition,
       full_buffer);
     fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
   }
 
   map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
-  map<int, dbuffer_t> task_outs = reference_compute_taskgraph(taskgraph, task_inns);
+
+  map<int, dbuffer_t> task_outs =
+    typed_reference_compute_taskgraph_from_graph_info(
+      taskgraph, task_inns, graph, out_to_blocks);
 
   for(auto const& [gid, full_buffer_via_graph]: full_outs) {
-    tensor_t<dbuffer_t> t_part_buffer =
+    vtensor_t<dbuffer_t> t_part_buffer =
       get_partitioned_buffer(task_outs, out_to_blocks.at(gid));
-    tensor_t<dbuffer_t> part_buffer =
+    vtensor_t<dbuffer_t> part_buffer =
       partition_buffer(placements.at(gid).partition, full_buffer_via_graph);
 
     auto const& tids  = out_to_blocks.at(gid).get();
@@ -238,7 +251,7 @@ void test_make_taskgraph(
       auto const& t   = t_vec[i];
       auto const& u   = vec[i];
       if(!is_close(t, u)) {
-        std::cout << tid << std::endl << t << std::endl << u << std::endl;
+        //std::cout << tid << std::endl << t << std::endl << u << std::endl;
         throw std::runtime_error("make_taskgraph_test fail");
       }
     }
@@ -269,8 +282,8 @@ void test_make_memgraph_without_evict(
   //}
 
   tuple<
-    map<int, tensor_t<int> >,
-    map<int, tensor_t<int> >,
+    map<int, vtensor_t<int> >,
+    map<int, vtensor_t<int> >,
     taskgraph_t>
     _info0 = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
@@ -305,7 +318,7 @@ void test_make_memgraph_without_evict(
   {
     map<int, dbuffer_t> task_inns;
     for(auto [gid, full_buffer]: full_inns) {
-      tensor_t<dbuffer_t> pbuffer = partition_buffer(
+      vtensor_t<dbuffer_t> pbuffer = partition_buffer(
         placements.at(gid).partition,
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
@@ -336,7 +349,7 @@ void test_make_memgraph_without_evict(
   reference_compute_memgraph(memgraph, loc_buffers);
 
   for(auto const& [gid, full_buffer]: full_outs) {
-    tensor_t<dbuffer_t> part_buffer =
+    vtensor_t<dbuffer_t> part_buffer =
       partition_buffer(placements.at(gid).partition, full_buffer);
 
     auto const& tids = out_to_blocks.at(gid).get();
@@ -737,18 +750,23 @@ void main12() {
 void test_random_concat(
   int dim,
   vector<uint64_t> shape_template,
-  int n_inn)
+  int n_inn,
+  optional<dtype_t> maybe_dtype = std::nullopt)
 {
   dtype_t dtype;
-  int dd = runif(4);
-  if(dd == 0) {
-    dtype = dtype_t::f16;
-  } else if(dd == 1) {
-    dtype = dtype_t::f32;
-  } else if(dd == 2) {
-    dtype = dtype_t::f64;
-  } else if(dd == 3) {
-    dtype = dtype_t::c64;
+  if(maybe_dtype) {
+    dtype = maybe_dtype.value();
+  } else {
+    int dd = runif(4);
+    if(dd == 0) {
+      dtype = dtype_t::f16;
+    } else if(dd == 1) {
+      dtype = dtype_t::f32;
+    } else if(dd == 2) {
+      dtype = dtype_t::f64;
+    } else if(dd == 3) {
+      dtype = dtype_t::c64;
+    }
   }
 
   shape_template[dim] = 1;
@@ -795,7 +813,7 @@ void main13() {
 
   using id_t = graph_writer_t::tensor_t;
 
-  dtype_t dtype = dtype_t::f32;
+  dtype_t dtype = dtype_t::f64;
 
   id_t a = w.input({4,3}, dtype);
   id_t b = w.input({4,5}, dtype);
@@ -861,7 +879,7 @@ void test_random_goofy_ff() {
   uint64_t d0 = 4;
   uint64_t d1 = 5;
   uint64_t d2 = 6;
-  uint64_t d3 = 7;
+  uint64_t d3 = 8;
 
   uint64_t d01 = d0*d1;
   uint64_t d12 = d1*d2;
@@ -887,6 +905,8 @@ void test_random_goofy_ff() {
   id_t z = writer.matmul(y, w1.transpose(0,1)); // bsz,d3,d3
   y = writer.concat(2, {y, z}); // bsz,d3,d33
   y = writer.reduction("bxy->bx", castable_t::add, y); // bsz,d1
+  y = y.to_complex();
+  y = y.to_real();
 
   y.save();
 
@@ -902,9 +922,95 @@ void test_random_goofy_ff() {
   test_make_taskgraph(g, pls, inns);
 }
 
+void test_with_complex_matmul() {
+  graph_writer_t writer;
+  using id_t = graph_writer_t::tensor_t;
+
+  uint64_t ni = 10;
+  uint64_t nj = 12;
+  uint64_t nk = 14;
+
+  id_t lhs = writer.input({ni,nj}, dtype_t::c64);
+  id_t rhs = writer.input({nj,nk}, dtype_t::c64);
+  id_t out = writer.matmul(lhs, rhs);
+
+  vector<int> sames;
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = writer.add(out, out);
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = out.to_real();
+  sames.push_back(out.get_id());
+  out = out.to_complex();
+  sames.push_back(out.get_id());
+  out = writer.add(out, out);
+  sames.push_back(out.get_id());
+
+  out.save();
+
+  map<int,dbuffer_t> inns;
+  for(id_t id: vector<id_t>{lhs, rhs}) {
+    int gid = id.get_id();
+    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()));
+    buffer.random();
+    inns.insert({gid, buffer});
+  }
+
+  graph_t const& graph = writer.get_graph();
+
+  //{
+  //  vector<placement_t> placements = single_loc_placements(graph);
+  //  test_make_taskgraph(graph, placements, inns);
+
+  //  placements = vector<placement_t>();
+  //  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //    auto const& node = graph.nodes[gid];
+  //    auto shape = node.op.shape();
+  //    vector<partdim_t> partdims;
+  //    for(auto sz: shape) {
+  //      partdims.push_back(partdim_t::split(sz, 2));
+  //    }
+  //    placements.emplace_back(partition_t(partdims));
+  //  }
+
+  //  test_make_taskgraph(graph, placements, inns);
+  //}
+
+  {
+    int nloc = 3;
+    random_placement_t random_placement { {1, 4}, nloc };
+    graph_t const& g = graph;
+    vector<placement_t> pls;
+    for(int gid = 0; gid != g.nodes.size(); ++gid) {
+      pls.push_back(random_placement(g.nodes[gid].op.shape()));
+    }
+
+    // This was used to verify that to_complex and to_real get
+    // correctly compiled out
+    //
+    //for(auto const& id: sames) {
+    //  if(dtype_is_real(graph.nodes[id].op.out_dtype())) {
+    //    pls[id] = double_last_dim(pls[sames[0]]);
+    //  } else {
+    //    pls[id] = pls[sames[0]];
+    //  }
+    //}
+
+    test_make_taskgraph(g, pls, inns);
+    test_make_memgraph_without_evict(graph, pls, inns);
+  }
+}
+
 int main(int argc, char** argv) {
   //main09(argc, argv);
-  main10();
+  //main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
@@ -926,11 +1032,17 @@ int main(int argc, char** argv) {
   //  test_random_goofy_ff();
   //}
 
-  //set_seed(1);
+  //set_seed(0);
   //test_random_goofy_ff();
 
   //main02();
   //main03();
   //main04();
   //main05();
+
+  for(int i = 0; i != 100; ++i) {
+    DOUT(i);
+    set_seed(i);
+    test_with_complex_matmul();
+  }
 }

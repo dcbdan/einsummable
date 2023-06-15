@@ -130,6 +130,9 @@ build_einsummable(einsummable_t const& e_)
       vector<int> out_modes(e.out_rank);
       std::iota(out_modes.begin(), out_modes.end(), 0);
 
+      // TODO: this is incorrect: also need to check that the join op
+      //       is the identity!
+
       auto out_shape = e.out_shape();
 
       return build_cutensor_reduction(
