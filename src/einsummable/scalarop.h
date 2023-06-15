@@ -291,6 +291,8 @@ struct scalarop_t {
 
   static scalarop_t make_relu(dtype_t d = default_dtype());
 
+  static scalarop_t make_silu(dtype_t d = default_dtype());
+
   static scalarop_t make_relu_deriv(dtype_t d = default_dtype());
 
   static scalarop_t make_from_castable(castable_t castable, dtype_t d = default_dtype());

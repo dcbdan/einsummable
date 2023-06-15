@@ -206,26 +206,20 @@ tensor_t attention_t::forward(
 feedforward_t::feedforward_t(
   graph_writer_t* w,
   string name,
-  uint64_t dim,
-  uint64_t hidden_dim,
-  uint64_t multiple_of)
+  full_dim_t dim,
+  uint64_t hidden_dim)
   : writer(w), name(name)
 {
-  // silu = ...
+  full_shape_t to_hidden {
+    .shape_parts = { full_dim_t::singleton(hidden_dim), dim }
+  };
+  full_shape_t to_dim {
+    .shape_parts = { dim, full_dim_t::singleton(hidden_dim) }
+  };
 
-  hidden_dim = 2 * hidden_dim / 3;
-  hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) / multiple_of);
-
-  vector<uint64_t> w1w3shape = {hidden_dim, dim};
-  vector<uint64_t> w2shape = {dim, hidden_dim};
-
-  // TODO: feedforward weights have to be split up, then viewed
-  //       unsplit.. how to do?
-
-  //TODO: still have to view?
-  w1 = writer->input(w1w3shape);
-  w2 = writer->input(w2shape);
-  w3 = writer->input(w1w3shape);
+  w1 = writer->input(to_hidden.full_shape()).view(to_hidden.shape());
+  w2 = writer->input(to_dim.full_shape()   ).view(to_dim.shape()   );
+  w3 = writer->input(to_hidden.full_shape()).view(to_hidden.shape());
 }
 
 map<int, string> feedforward_t::input_map() const {
@@ -239,7 +233,24 @@ map<int, string> feedforward_t::input_map() const {
 }
 
 tensor_t feedforward_t::forward(tensor_t x) {
+  tensor_t w1t = w1.transpose(0,1);
+  tensor_t w2t = w2.transpose(0,1);
+  tensor_t w3t = w3.transpose(0,1);
+
+  scalarop_t silu = scalarop_t::make_silu(x.get_dtype());
+
   // return self.w2(F.silu(self.w1(x)) * self.w3(x))
+  //                ------------------   ----------
+  //                a                    b
+  //                -------------------------------
+  //                 c
+
+  tensor_t a = writer->ew(silu, writer->matmul(x, w1t));
+  tensor_t b = writer->matmul(x, w3t) ;
+
+  tensor_t c = writer->mul(a, b);
+
+  return writer->matmul(c, w2t);
 }
 
 transformer_block_t::transformer_block_t(
@@ -248,11 +259,13 @@ transformer_block_t::transformer_block_t(
   model_args_t args)
   : writer(w), layer_id(layer_id), args(args)
 {
-  attention = attention_t(writer, "attention.", args),
+  attention = attention_t(writer, "attention.", args);
 
-  feedforward = feedforward_t(); // TODO
-  // TODO
-  //  writer, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);
+  uint64_t hidden_dim = 4 * args.dim;
+  hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
+  hidden_dim =
+    args.multiple_of * ( (hidden_dim + args.multiple_of - 1) / args.multiple_of );
+  feedforward = feedforward_t(writer, "feed_forward.", args.full_dim(), hidden_dim);
 
   attention_norm   = rms_norm_t(writer, "attention_norm.", args.full_dim(), args.norm_eps);
   feedforward_norm = rms_norm_t(writer, "ffn_norm.",       args.full_dim(), args.norm_eps);

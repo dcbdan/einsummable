@@ -417,8 +417,15 @@ struct graph_writer_t {
 
   // helper ops that dispatch to the core ops
 
-  // add two tensors with the same shape
+  // add and mul two tensors with the same shape
   tensor_t add(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+  tensor_t mul(
+    tensor_t const& lhs,
+    tensor_t const& rhs);
+  tensor_t straight_bew(
+    scalarop_t op,
     tensor_t const& lhs,
     tensor_t const& rhs);
 

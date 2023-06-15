@@ -12,10 +12,23 @@ struct full_dim_t {
   vector<uint64_t> dim_parts;
 
   uint64_t dim() const { return product(dim_parts); }
+
+  static full_dim_t singleton(uint64_t d) {
+    return full_dim_t { .dim_parts = { d } };
+  }
 };
 
 struct full_shape_t {
-  vector<full_dim_t> shape;
+  vector<full_dim_t> shape_parts;
+
+  vector<uint64_t> full_shape() {
+    return vector_flatten(
+      vector_from_each_member(shape_parts, vector<uint64_t>, dim_parts)
+    );
+  }
+  vector<uint64_t> shape() {
+    return vector_from_each_method(shape_parts, uint64_t, dim);
+  }
 };
 
 // Helpful structure for llama model
@@ -110,9 +123,8 @@ struct feedforward_t {
   feedforward_t(
     graph_writer_t* w,
     string name, //should pass in "feed_forward."
-    uint64_t dim,
-    uint64_t hidden_dim,
-    uint64_t multiple_of);
+    full_dim_t dim,
+    uint64_t hidden_dim);
 
   map<int, string> input_map() const;
 
@@ -125,8 +137,6 @@ struct feedforward_t {
   tensor_t w1;
   tensor_t w2;
   tensor_t w3;
-
-  scalarop_t silu;
 };
 
 struct transformer_block_t {

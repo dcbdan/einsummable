@@ -1395,6 +1395,29 @@ graph_writer_t::add(
   graph_writer_t::tensor_t const& lhs,
   graph_writer_t::tensor_t const& rhs)
 {
+  return straight_bew(
+    scalarop_t::make_add(lhs.get_dtype()),
+    lhs,
+    rhs);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::mul(
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
+  return straight_bew(
+    scalarop_t::make_mul(lhs.get_dtype()),
+    lhs,
+    rhs);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::straight_bew(
+  scalarop_t op,
+  graph_writer_t::tensor_t const& lhs,
+  graph_writer_t::tensor_t const& rhs)
+{
   if(lhs.shape != rhs.shape) {
     throw std::runtime_error("graph writer add : invalid shapes");
   }
@@ -1409,7 +1432,7 @@ graph_writer_t::add(
 
   return ew(
     x + "," + x + "->" + x,
-    scalarop_t::make_add(dtype),
+    op,
     lhs, rhs);
 }
 

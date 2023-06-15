@@ -6,7 +6,7 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
-void rms_norm_test() {
+void test_rms_norm() {
   dtype_t dtype = dtype_t::f16;
   set_default_dtype(dtype);
 
@@ -216,8 +216,86 @@ void test_rotary_embedding() {
   }
 }
 
+void test_ff() {
+  string w1_str =
+  "[[ 0.0199,  1.0192, -0.3516,  0.5422,  0.3592],"
+  " [ 0.3241,  0.2817, -0.6044, -0.1984,  0.4958],"
+  " [-0.4349,  0.2221,  0.1012, -0.2053, -0.0433],"
+  " [ 0.8096,  0.3327, -0.1348, -0.0926,  0.8427],"
+  " [ 0.6504, -0.0648,  0.9351, -0.3052, -0.4023],"
+  " [ 0.2623, -0.1240,  0.2221, -0.2995, -0.2558]]";
+  string w2_str =
+  " [[ 0.7779,  0.8390,  0.3712, -0.0308, -0.4586, -0.1796],"
+  "  [-0.3015,  0.5475,  0.0810, -0.7946, -0.0390,  0.2882],"
+  "  [-0.4517, -0.5486,  0.6819, -0.0215,  0.5628,  0.8171],"
+  "  [ 0.3962, -0.0222,  0.4035, -0.5755, -0.3978,  0.2763],"
+  "  [-0.2128, -1.1187,  0.0275,  0.5822,  0.2103, -0.0682]]";
+  string w3_str =
+  " [[-1.2983, -0.6325,  0.0527, -0.2543, -0.2145],"
+  "  [-1.2947, -0.3191,  0.4928,  0.4344,  0.0975],"
+  "  [-0.3214,  0.3689, -0.3226,  0.1691,  0.2586],"
+  "  [-0.5336, -0.1728, -0.0969, -0.1857,  0.4786],"
+  "  [ 0.2574,  0.0682,  0.5974,  0.5393, -0.3378],"
+  "  [ 0.1259, -0.0882, -0.0069,  0.4481, -0.3393]]";
+  string x_str =
+  "[[[0.8646, 0.0727, 0.1194, 0.3303, 0.1831], "
+  "  [0.0827, 0.9898, 0.1074, 0.3576, 0.6346], "
+  "  [0.6890, 0.5772, 0.4051, 0.2458, 0.5058], "
+  "  [0.3608, 0.3060, 0.6976, 0.1480, 0.8217]],"
+  " [[0.6197, 0.9016, 0.3980, 0.9648, 0.2971], "
+  "  [0.2139, 0.3908, 0.8350, 0.8998, 0.1789], "
+  "  [0.2042, 0.4409, 0.7889, 0.8857, 0.6012], "
+  "  [0.7110, 0.1075, 0.8852, 0.7250, 0.7447]]]";
+  string y_str =
+  "[[[-0.3197,  0.2050,  0.2770,  0.0347,  0.0657], "
+  "  [-0.8554,  0.2990,  0.5315, -0.4040,  0.2788], "
+  "  [-0.7574,  0.3438,  0.4959, -0.2003,  0.2001], "
+  "  [-0.2331,  0.0331,  0.1670, -0.1520,  0.0993]],"
+  " [[-1.5784,  0.8233,  0.9322, -0.6242,  0.2730], "
+  "  [-0.4669,  0.0813,  0.3672, -0.2431,  0.1922], "
+  "  [-0.5078,  0.1742,  0.3255, -0.2471,  0.1495], "
+  "  [-0.4784,  0.2611,  0.4380, -0.1997,  0.0522]]]";
+
+  dtype_t dtype = dtype_t::f32;
+
+  auto [buffer_w1, shape_w1] = read_array(dtype, w1_str);
+  auto [buffer_w2, shape_w2] = read_array(dtype, w2_str);
+  auto [buffer_w3, shape_w3] = read_array(dtype, w3_str);
+
+  auto [buffer_x, shape_x] = read_array(dtype, x_str);
+  auto [buffer_y, shape_y] = read_array(dtype, y_str);
+
+  graph_writer_t writer;
+  tensor_t x = writer.input(shape_x, dtype);
+
+  uint64_t dim = shape_x.back();
+  uint64_t hidden = shape_w1[0];
+
+  feedforward_t ff(
+    &writer,
+    "name",
+    full_dim_t::singleton(dim),
+    hidden);
+  tensor_t y = ff.forward(x);
+  y.save();
+
+  map<int, dbuffer_t> inputs {
+    { x.get_id(), buffer_x },
+    { ff.w1.get_id(), buffer_w1 },
+    { ff.w2.get_id(), buffer_w2 },
+    { ff.w3.get_id(), buffer_w3 }
+  };
+
+  auto saves = reference_compute_graph(writer.get_graph(), inputs);
+  dbuffer_t _buffer_y = saves.at(y.get_id());
+
+  if(!is_close(buffer_y, _buffer_y, 0.01)) {
+    throw std::runtime_error("NOT CLOSE");
+  }
+}
+
 int main() {
-  test_rotary_embedding();
+  test_ff();
 
 //  set_default_dtype(dtype_t::f16);
 //

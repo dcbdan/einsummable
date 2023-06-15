@@ -1363,6 +1363,27 @@ scalarop_t scalarop_t::make_relu(dtype_t dtype) {
   return parse_with_ss<scalarop_t>(ite);
 }
 
+scalarop_t scalarop_t::make_silu(dtype_t dtype) {
+  string one          = write_with_ss(make_constant(scalar_t::one(dtype)));
+  string negative_one = write_with_ss(make_constant(scalar_t::negative_one(dtype)));
+
+  // x
+  string x = op_t::h_str(0, dtype);
+
+  // -1*x
+  string ret = "*["+negative_one+","+x+"]";
+  // exp(-1*x)
+  ret = "exp["+ret+"]";
+  // exp(-1*x) + 1
+  ret = "+["+ret+","+one+"]";
+  // 1 / (exp(-1*x) + 1)
+  ret = "power{-1.0}["+ret+"]";
+  // x * (1 / (exp(-1*x) + 1))
+  ret = "*["+x+","+ret+"]";
+
+  return parse_with_ss<scalarop_t>(ret);
+}
+
 scalarop_t scalarop_t::make_relu_deriv(dtype_t dtype) {
   return make_relu(dtype).derivative(0);
 }
