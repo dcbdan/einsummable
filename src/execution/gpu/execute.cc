@@ -4,6 +4,7 @@
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <iostream>
+#include <queue>
 #include <sys/types.h>
 #include <thread>
 #include <vector>
@@ -52,15 +53,20 @@ void init_value(float* ptr, int count, float value) {
 }
 
 // increment the pointer by the byte offset
-// NO LONGER NEEDED SINCE EVERYTHING IS IN FLOATS, but it's a good reference
+// ONLY USE IF THE UNIT OF OFFSET IS BYTE
+float* offset_increment(float* ptr, int offset) {
+  return (float*)((char*)ptr + offset);
+}
+
+// USE THIS IF THE UNIT OF OFFSET IS FLOAT
 // float* offset_increment(float* ptr, int offset) {
-//   return (float*)((char*)ptr + offset);
+//     return ptr + offset;
 // }
 
 // update memgraph node when it is finished; modify the dependency counter of the node
 // return a vector of ready nodes if there are any
 vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &memgraph, 
-    int node_idx, std::map<int, int> &num_nodes_remaining, std::vector<int> &group_id_executing, 
+    int node_idx, std::map<int, int> &num_nodes_remaining, std::set<int> &group_id_executing, 
     std::map<int, std::queue<int>> &groupID_to_nodeIDX) {
     // TODO: hard coded index 0 since we only have 1 device
     num_nodes_remaining[0] -= 1;
@@ -78,8 +84,8 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
     if (node.op.is_touch()){
         auto group_id = node.op.get_apply().group;
         // remove the group id from the executing list since we are done
-        group_id_executing.erase(std::remove(group_id_executing.begin(), group_id_executing.end(),
-                group_id), group_id_executing.end());
+        std::cout << "Removing group id from executing list" << std::endl;
+        group_id_executing.erase(group_id);
         // find if there are any other nodes in the same group that are waiting for this touch to finish
         if(groupID_to_nodeIDX[group_id].size() != 0){
             std::cout << "Adding touch node to ready nodes" << std::endl;
@@ -90,7 +96,7 @@ vector<int> node_update(std::map<int, int> &dependency_count, const memgraph_t &
         }
     }
     // print a update message
-    // printf("Node %d finished execution\n", node_idx);
+    printf("Node %d finished execution\n", node_idx);
     return ready_nodes;
 }
 
@@ -138,7 +144,7 @@ float* gpu_allocate_memory(size_t size) {
 std::vector<float const*> get_input_mem_ptrs(std::vector<mem_t> mem, float *memory_base_ptr) {
   std::vector<float const*> ret;
     for (int i = 1; i < mem.size(); i++) {
-        ret.push_back(memory_base_ptr + mem[i].offset);
+        ret.push_back(offset_increment(memory_base_ptr, mem[i].offset));
     }
   return ret;
 }
@@ -153,7 +159,7 @@ struct callback_data_t {
   std::queue<int>* pending_queue;
   int node_idx;
   std::map<int, int>* num_nodes_remaining;
-  std::vector<int>* group_id_executing;
+  std::set<int>* group_id_executing;
   std::map<int, std::queue<int>>* groupID_to_nodeIDX;
 
 
@@ -194,13 +200,13 @@ void gpu_execute_state_t::run() {
                 exit(1);
             }
             else{
-                int num_elements = 100;
-                std::cout << "Input 1: ";
-                printFloatGPU(memory_base_ptr, num_elements);
-                std::cout << "Input 2: ";
-                printFloatGPU(memory_base_ptr + 100, num_elements);
-                std::cout << "Output: ";
-                printFloatGPU(memory_base_ptr + 200, num_elements);
+                // int num_elements = 100;
+                // std::cout << "Input 1: ";
+                // printFloatGPU(memory_base_ptr, num_elements);
+                // std::cout << "Input 2: ";
+                // printFloatGPU(memory_base_ptr + 100, num_elements);
+                // std::cout << "Output: ";
+                // printFloatGPU(memory_base_ptr + 200, num_elements);
                 std::cout << "All nodes finished execution." << std::endl;
                 exit(0);
             }
@@ -241,14 +247,15 @@ void gpu_execute_state_t::run() {
                     auto touch_kernel = build_touch(node.op.get_touch());
                     auto group_id = node.op.get_apply().group;
                     // if we have found this group id in the list, we can't execute until the previous one is done
-                    if (std::find(group_id_executing.begin(), group_id_executing.end(), group_id) != group_id_executing.end() ){
+                    if (group_id_executing.count(group_id) != 0){
                         std::cout << "Found a touch node with group id " << group_id << " that is already executing." << std::endl;
                         // add this node to the map 
                         groupID_to_nodeIDX[group_id].push(node_idx);
                     }
                     else{
                         // else we are free to run this
-                        touch_kernel(stream, memory_base_ptr + memory_vector[0].offset, memory_base_ptr + memory_vector[1].offset);
+                        touch_kernel(stream, offset_increment(memory_base_ptr, memory_vector[0].offset), 
+                        offset_increment(memory_base_ptr, memory_vector[1].offset));
                     }
                 }
                 else {
@@ -256,6 +263,7 @@ void gpu_execute_state_t::run() {
                     if (my_einsummable.is_contraction()){
                         // CASE: CONTRACTION
                         // merge the adjacent dims
+                        std::cout << "Got a contraction node" << std::endl;
                         einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
                         // print an error if we didn't find my_einsum_merged in the map
                         auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
@@ -263,19 +271,16 @@ void gpu_execute_state_t::run() {
                             std::cout << "Error: contraction descriptor found in the map, Node idx: "<< node_idx << std::endl;
                         }
                         auto contraction_descriptor = einsum_iter->second;
-                        // print offsets
-                        printFloatGPU(memory_base_ptr, 100);
-                        printFloatGPU(memory_base_ptr + 100, 100);
-                        std::cout << "Offsets: " << memory_vector[0].offset << ", " << memory_vector[1].offset << ", " << memory_vector[2].offset << std::endl;
                         execute_contraction(stream, handle, &contraction_descriptor, 
-                            memory_base_ptr + memory_vector[0].offset,
-                            memory_base_ptr + memory_vector[1].offset, 
-                            memory_base_ptr + memory_vector[2].offset);
+                            offset_increment(memory_base_ptr, memory_vector[0].offset),
+                            offset_increment(memory_base_ptr, memory_vector[1].offset), 
+                            offset_increment(memory_base_ptr, memory_vector[2].offset));
                     }
                     else {
                         // CASE: OTHER EINSUMMABLE
+                        std::cout << "Got a other einsummable node" << std::endl;
                         auto cutensor_kernel = build_einsummable(my_einsummable);
-                        cutensor_kernel(stream, handle, memory_base_ptr + memory_vector[0].offset, 
+                        cutensor_kernel(stream, handle, offset_increment(memory_base_ptr, memory_vector[0].offset), 
                             get_input_mem_ptrs(memory_vector, memory_base_ptr));
                     }
                 }
@@ -291,6 +296,7 @@ void gpu_execute_state_t::run() {
                 data->pending_queue = &pending_queue;
                 data->num_nodes_remaining = &num_nodes_remaining;
                 data->group_id_executing = &group_id_executing;
+                data->groupID_to_nodeIDX = &groupID_to_nodeIDX;
                 
                 // add the callback
                 cudaStreamAddCallback(

@@ -15,6 +15,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
+#include <set>
 
 using memgraph_t = memgraph_t;
 
@@ -66,8 +67,7 @@ struct gpu_execute_state_t
 
     // keep track of the group id of the touches that are executing
     // if we have a new touch and its group id is in the list, we need to wait for the previous touch to finish
-    // TODO: this might not be the most efficient way since we are always acccessing/removing by value  
-    std::vector<int> group_id_executing;
+    std::set<int> group_id_executing;
     // keep a map from group id to the a queue of nodes waiting for the previous touch with the same id to finish
     std::map<int, std::queue<int>> groupID_to_nodeIDX;
 
