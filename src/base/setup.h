@@ -317,7 +317,7 @@ bool vector_has(vector<T> const& xs, T const& value)
 template <typename T1, typename T2>
 vector<tuple<T1, T2>> vector_zip(
   vector<T1> const& lhs,
-  vector<T1> const& rhs)
+  vector<T2> const& rhs)
 {
   if(lhs.size() != rhs.size()) {
     throw std::runtime_error("vector_zip expects inputs to be the same size");

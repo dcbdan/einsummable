@@ -323,6 +323,11 @@ struct graph_writer_t {
     tensor_t to_f32() const;
     tensor_t to_f64() const;
 
+    // TODO: implement subset
+    tensor_t subset(
+      vector<tuple<uint64_t, uint64_t>> const& hrect,
+      set<int> squeeze_out = set<int>{}) const;
+
   private:
     friend class graph_writer_t;
 

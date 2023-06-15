@@ -1,4 +1,5 @@
 #include "graph.h"
+#include "../base/hrect.h"
 
 concat_t::concat_t(int d, dtype_t dt, vector<vector<uint64_t>> const& ss):
   dim(d), dtype(dt), inn_shapes(ss)
@@ -904,6 +905,34 @@ graph_writer_t::tensor_t::to_f32() const {
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::to_f64() const {
   return self->to_f64(*this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::subset(
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  set<int> squeeze_out) const
+{
+  if(shape != full_shape) {
+    throw std::runtime_error("not implmented");
+    // TODO: reason through how graph writer reaches through
+    //       subsets
+    // TODO: tensor_t::subset should call writer_t::subset;
+    //                        so move this there
+  }
+  auto shape = hrect_shape(hrect);
+  for(auto const& remove: squeeze_out) {
+    if(shape[remove] != 1) {
+      throw std::runtime_error("cannot squeeze out mode if size > 1");
+    }
+  }
+  vector<uint64_t> new_shape;
+  for(int i = 0; i != shape.size(); ++i) {
+    if(squeeze_out.count(i) == 0) {
+      new_shape.push_back(shape[i]);
+    }
+  }
+  DOUT("Warning: subset is not implemented");
+  return self->input(new_shape, get_dtype());
 }
 
 void graph_writer_t::tensor_t::physically_permute() {

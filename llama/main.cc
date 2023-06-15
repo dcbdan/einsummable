@@ -295,15 +295,31 @@ void test_ff() {
 }
 
 int main() {
-  test_ff();
+  set_default_dtype(dtype_t::f16);
 
-//  set_default_dtype(dtype_t::f16);
-//
-//  auto model_args = model_args_t::make_default();
-//
-//  graph_writer_t writer;
-//
-//  auto model = transformer_t(writer, "name", model_args, 1);
+  auto args = model_args_t::make_default();
+
+  // TODO: set vocab_size
+  args.vocab_size = 123;
+
+  graph_writer_t writer;
+
+  auto model = transformer_t(&writer, "name", args);
+
+  uint64_t bsz = 3;
+  uint64_t seq_len = 17;
+
+  full_shape_t shape {
+    .shape_parts = {
+      full_dim_t::singleton(bsz),
+      full_dim_t::singleton(seq_len),
+      args.full_dim()
+    }
+  };
+
+  tensor_t x = writer.input(shape.full_shape()).view(shape.shape());
+
+  tensor_t y = model.forward(x);
 }
 
 

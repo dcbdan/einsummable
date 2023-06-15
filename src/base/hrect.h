@@ -36,3 +36,6 @@ interval_intersect(
   tuple<uint64_t, uint64_t> const& lhs,
   tuple<uint64_t, uint64_t> const& rhs);
 
+vector<tuple<uint64_t, uint64_t>>
+hrect_full_hrect_from_shape(vector<uint64_t> const& xs);
+
