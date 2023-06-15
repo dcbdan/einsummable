@@ -1106,6 +1106,21 @@ graph_writer_t::reduction(
 
 graph_writer_t::tensor_t
 graph_writer_t::ew(
+  scalarop_t op,
+  graph_writer_t::tensor_t const& inn)
+{
+  int out_rank = inn.get_shape().size();
+
+  string ijk(out_rank, ' ');
+  std::iota(ijk.begin(), ijk.end(), 'a');
+
+  string str = ijk + "->" + ijk;
+
+  return ew(str, op, vector<tensor_t>{inn});
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::ew(
   string str,
   scalarop_t op,
   graph_writer_t::tensor_t const& inn)

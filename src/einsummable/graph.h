@@ -386,6 +386,9 @@ struct graph_writer_t {
     castable_t castable,
     tensor_t const& inn);
 
+  tensor_t ew(
+    scalarop_t op,
+    tensor_t const& inn);
   tensor_t ew( // ew = elementwise
     string str,
     scalarop_t op,

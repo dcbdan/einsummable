@@ -37,6 +37,11 @@ struct model_args_t {
   uint64_t head_dim() const {
     return uint64_div(dim, n_heads, "head_dim");
   }
+  full_dim_t full_dim() const {
+    return full_dim_t {
+      .dim_parts = { n_local_heads(), head_dim() }
+    };
+  }
 };
 
 struct rms_norm_t {
@@ -128,10 +133,9 @@ struct transformer_block_t {
   transformer_block_t(
     graph_writer_t* w,
     int layer_id,
-    model_args_t args,
-    int world_size);
+    model_args_t args);
 
-  int forward(
+  tensor_t forward(
     tensor_t x,
     uint64_t start_pos,
     tensor_t freqs_cis,
@@ -140,9 +144,7 @@ struct transformer_block_t {
   map<int, string> input_map() const;
 
   graph_writer_t* writer;
-
-  attention_t attention;
-  feedforward_t feed_forward;
+  model_args_t args;
 
   int n_heads;
   int dim;
@@ -150,8 +152,10 @@ struct transformer_block_t {
 
   int layer_id;
 
+  attention_t attention;
+  feedforward_t feedforward;
   rms_norm_t attention_norm;
-  rms_norm_t ffn_norm;
+  rms_norm_t feedforward_norm;
 };
 
 struct transformer_t {
