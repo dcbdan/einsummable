@@ -24,7 +24,7 @@ struct read_np_array_t {
 
     if(ss.eof()) {
       _peek = eof;
-    } else if(std::isdigit(c)) {
+    } else if(std::isdigit(c) || c == '-') {
       ss >> v;
       reals.push_back(v);
       _peek = real;

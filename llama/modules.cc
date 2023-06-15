@@ -3,10 +3,10 @@
 // TODO: wherever division occurs, make sure no modulo;
 //       add a helper method to throw runtime error
 
-uint64_t uint_div(uint64_t top, uint64_t bot, string err_msg)
+uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {
-    err_msg = "uint_div: has remainder. " + err_msg;
+    err_msg = "uint64_div: has remainder. " + err_msg;
     throw std::runtime_error(err_msg);
   } else {
     return top / bot;
@@ -21,9 +21,10 @@ model_args_t model_args_t::make_default() {
     .n_layers        = 8,
     .n_heads         = 8,
     .multiple_of     = 256,
-    .norm_eps       = 1e-5,
+    .norm_eps        = 1e-5,
     .max_batch_size  = 32,
-    .max_seq_len     = 2048
+    .max_seq_len     = 2048,
+    .world_size      = 1
   };
 }
 
@@ -115,30 +116,18 @@ tensor_t rms_norm_t::forward(tensor_t x) {
 attention_t::attention_t(
   graph_writer_t* w,
   string name,
-  model_args_t args,
-  int world_size)
-  : writer(w), model_args(args), name(name)
+  model_args_t args)
+  : writer(w), model_args(args), name(name),
+    n_local_heads(args.n_local_heads()),
+    head_dim(args.head_dim())
 {
-  // TODO: change on argdiv
-  if(args.n_heads % world_size != 0) {
-    throw std::runtime_error("args.n_head % worlside != 0");
-  }
-  if(args.dim % args.n_heads != 0) {
-    throw std::runtime_error("args.dim % args.n_head != 0");
-  }
-
-  n_local_heads = args.n_heads / world_size;
-  head_dim = args.dim / args.n_heads;
-
   //input tensors
 
   //  outshape comes first because F.linear is xA^t,
   //  so shape is (out_features, in_features)
-  vector<uint64_t> kqv_initshape = {
-    model_args.dim, uint64_t(n_local_heads), uint64_t(head_dim)};
-  vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
-  // TODO: put dtype elsewhere?
+  vector<uint64_t> kqv_initshape = { n_local_heads, head_dim, n_local_heads, head_dim };
+  vector<uint64_t> kqv_reshape = {model_args.dim, model_args.dim};
 
   wq = writer->input(kqv_initshape);
   wq = wq.view(kqv_reshape);
@@ -149,9 +138,31 @@ attention_t::attention_t(
   wv = writer->input(kqv_initshape);
   wv = wv.view(kqv_reshape);
 
-  //TODO: not sure about the size of wo.weight. wo starts at
-  //      dim so n_head*headdim so no need view
   wo = writer->input(kqv_initshape);
+  wo.view(kqv_reshape);
+}
+
+tensor_t attention_t::apply_rotary_embedding(
+  tensor_t x, tensor_t freqs_cis)
+{
+  return _apply_rotary_embedding(*writer, x, freqs_cis);
+}
+
+tensor_t attention_t::_apply_rotary_embedding(
+  graph_writer_t& writer, tensor_t x, tensor_t freqs_cis)
+{
+  if(x.get_dtype() != dtype_t::f32) {
+    throw std::runtime_error("rot emb needs f32 x");
+  }
+  if(freqs_cis.get_dtype() != dtype_t::c64) {
+    throw std::runtime_error("rot emb needs c64 freqs_cis");
+  }
+  x = x.to_complex();
+  x = writer.ew(
+    "abcd,bd->abcd",
+    scalarop_t::make_mul(dtype_t::c64),
+    x, freqs_cis);
+  return x.to_real();
 }
 
 map<int, string> attention_t::input_map() const {
@@ -174,19 +185,26 @@ tensor_t attention_t::forward(
   vector<uint64_t> input_shape = x.get_shape();
   uint64_t bsz = input_shape[0];
   uint64_t seqlen = input_shape[1];
-  tensor_t xq = xq.transpose(0,1); //->transpose->x * xq^t
-  tensor_t xk = xk.transpose(0,1);
-  tensor_t xv = xv.transpose(0,1);
-  xq = writer->matmul(x, xq);
-  xq = writer->matmul(x, xk);
-  xq = writer->matmul(x, xv);
 
-  vector<uint64_t> initial_view_shape = {
-    bsz, seqlen, uint64_t(n_local_heads), uint64_t(head_dim)};
+  if(input_shape.size() != 3 || input_shape[2] != model_args.dim) {
+    throw std::runtime_error("invalid shape x to attention forward");
+  }
 
-  xq = xq.view(initial_view_shape);
-  xk = xk.view(initial_view_shape);
-  xv = xv.view(initial_view_shape);
+  tensor_t xq = writer->matmul(x, wq.transpose(0,1));
+  tensor_t xk = writer->matmul(x, wk.transpose(0,1));
+  tensor_t xv = writer->matmul(x, wv.transpose(0,1));
+
+  vector<uint64_t> full_xshape = {
+    bsz, seqlen, n_local_heads, head_dim
+  };
+
+  xq = xq.view(full_xshape);
+  xk = xk.view(full_xshape);
+  xv = xv.view(full_xshape);
+
+  // TODO: apply rotary embedding to xq,xk
+
+  // TODO: concat something cache
 }
 
 feedforward_t::feedforward_t(
@@ -239,7 +257,7 @@ transformer_block_t::transformer_block_t(
   dim = args.dim;
   head_dim = args.dim / args.n_heads;
 
-  attention = attention_t(writer, "attention.", args, world_size);
+  attention = attention_t(writer, "attention.", args);
   feed_forward = feedforward_t();
   // TODO
   //  writer, "feed_forward.", args.dim, 4*args.dim, args.multiple_of);

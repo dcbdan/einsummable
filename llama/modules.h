@@ -6,7 +6,7 @@
 
 using tensor_t = graph_writer_t::tensor_t;
 
-uint64_t uint_div(uint64_t top, uint64_t bot, string err_msg = "");
+uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
 struct full_dim_t {
   vector<uint64_t> dim_parts;
@@ -29,6 +29,14 @@ struct model_args_t {
   double norm_eps;
   uint64_t max_batch_size;
   uint64_t max_seq_len;
+  int world_size;
+
+  uint64_t n_local_heads() const {
+    return uint64_div(n_heads, world_size, "n_local_heads");
+  }
+  uint64_t head_dim() const {
+    return uint64_div(dim, n_heads, "head_dim");
+  }
 };
 
 struct rms_norm_t {
@@ -54,41 +62,37 @@ struct rms_norm_t {
   tensor_t weight;
 };
 
+tensor_t apply_rotary_embedding(
+  graph_writer_t& writer, tensor_t x, tensor_t freqs_cis);
+
 struct attention_t {
   attention_t() {}
 
   attention_t(
     graph_writer_t* w,
     string name, //should be "attention."
-    model_args_t args,
-    int world_size);
+    model_args_t args);
 
-  /**
-   * @brief Forward function of the attention block
-   *
-   * @param x the input to attention block
-   * @param start_pos
-   * @param freqs_cis
-   * @param mask
-   * @return tensor_t
-   */
+  tensor_t apply_rotary_embedding(tensor_t x, tensor_t freqs_cis);
+
+  static tensor_t _apply_rotary_embedding(
+    graph_writer_t& writer, tensor_t x, tensor_t freqs_cis);
+
   tensor_t forward(
     tensor_t x,
     int start_pos,
     tensor_t freqs_cis,
     optional<tensor_t> mask);
 
-  /* Get and return the mapping?*/
   map<int, string> input_map() const;
 
   graph_writer_t* writer;
   model_args_t model_args;
   string name;
 
-  int n_local_heads;
-  int head_dim;
+  uint64_t n_local_heads;
+  uint64_t head_dim;
 
-  /*Weights tensors*/
   tensor_t wq;
   tensor_t wk;
   tensor_t wv;
