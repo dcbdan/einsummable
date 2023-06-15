@@ -252,6 +252,10 @@ struct scalarop_t {
 
   static scalarop_t make_identity(dtype_t d = default_dtype());
 
+  static scalarop_t make_arg(int arg, dtype_t d = default_dtype());
+
+  static scalarop_t make_constant(scalar_t val);
+
   // x0 + x1
   static scalarop_t make_add(dtype_t d = default_dtype());
 

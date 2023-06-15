@@ -38,7 +38,8 @@ struct rms_norm_t {
     graph_writer_t* w,
     string name, //should be "ffn_norm." or "attention_norm"
     full_dim_t dim,
-    float eps);
+    float eps,
+    dtype_t dtype = default_dtype());
 
   map<int, string> input_map() const;
 
@@ -48,8 +49,8 @@ struct rms_norm_t {
 
   graph_writer_t* writer;
   float eps;
-
   string name;
+  dtype_t dtype;
   tensor_t weight;
 };
 

@@ -289,7 +289,7 @@ int op_t::num_inputs() const {
   if(is_constant() || is_hole()) {
     return 0;
   }
-  if(is_power() || is_exp()) {
+  if(is_power() || is_exp() || is_convert()) {
     return 1;
   }
   if(is_add() || is_mul()) {
@@ -1272,8 +1272,16 @@ scalarop_t scalarop_t::from_string(string const& str) {
 }
 
 scalarop_t scalarop_t::make_identity(dtype_t dtype) {
-  string h0 = op_t::h_str(0, dtype);
-  return parse_with_ss<scalarop_t>(h0);
+  return make_arg(0, dtype);
+}
+
+scalarop_t scalarop_t::make_arg(int arg, dtype_t dtype) {
+  string h = op_t::h_str(arg, dtype);
+  return parse_with_ss<scalarop_t>(h);
+}
+
+scalarop_t scalarop_t::make_constant(scalar_t val) {
+  return parse_with_ss<scalarop_t>("constant{"+write_with_ss(val)+"}");
 }
 
 // x0 + x1

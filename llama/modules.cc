@@ -31,12 +31,11 @@ rms_norm_t::rms_norm_t(
   graph_writer_t* w,
   string name,
   full_dim_t dim,
-  float eps)
-    : writer(w), eps(eps), name(name)
+  float eps,
+  dtype_t dtype)
+    : writer(w), eps(eps), name(name), dtype(dtype)
 {
-  weight = writer->input(
-    dim.dim_parts,
-    dtype_t::f32);
+  weight = writer->input(dim.dim_parts, dtype);
   weight = weight.view({ dim.dim() });
 }
 
@@ -52,7 +51,8 @@ tensor_t rms_norm_t::norm(tensor_t x) {
     throw std::runtime_error("invalid dtype in rms norm :: norm");
   }
 
-  int out_rank = x.get_shape().size();
+  auto x_shape = x.get_shape();
+  int out_rank = x_shape.size();
   if(out_rank <= 1) {
     throw std::runtime_error("rms_norm: not a big enough output rank");
   }
@@ -60,7 +60,15 @@ tensor_t rms_norm_t::norm(tensor_t x) {
   scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype_t::f32);
   scalarop_t square       = scalarop_t::make_square(dtype_t::f32);
   scalarop_t mul          = scalarop_t::make_mul(dtype_t::f32);
-  scalarop_t add_eps      = scalarop_t::make_increment(scalar_t(eps));
+
+  scalar_t _e(eps);
+  scalar_t _a(1/float(1.0*x_shape.back()));
+  scalarop_t scale_then_add_eps = scalarop_t::combine(
+    scalarop_t::make_add(dtype_t::f32),
+    {
+      scalarop_t::make_scale(_a),
+      scalarop_t::make_constant(_e)
+    });
 
   string ijk(out_rank, ' ');
   std::iota(ijk.begin(), ijk.end(), 'a');
@@ -70,8 +78,8 @@ tensor_t rms_norm_t::norm(tensor_t x) {
 
   string ijk_to_ijk    = ijk + "->" + ijk;
   string ijk_to_ij     = ijk + "->" + ij;
-  string ij_ij_to_ij   = ij + "," + ij + "->" + ij;
-  string ijk_ij_to_ijk = ijk + "," + ij + "->" + ijk;
+  string ij_to_ij      = ij  + "->" + ij;
+  string ijk_ij_to_ijk = ijk + ","  + ij + "->" + ijk;
 
   // z = x * np.power(np.mean(np.square(x), axis=-1, keepdims=True) + eps, -0.5);
 
@@ -79,26 +87,24 @@ tensor_t rms_norm_t::norm(tensor_t x) {
   tensor_t y;
   y = writer->ew(ijk_to_ijk, square,                x);
   y = writer->reduction(ijk_to_ij, castable_t::add, y);
-  y = writer->ew(ij_ij_to_ij, add_eps,              y);
-  y = writer->ew(ij_ij_to_ij, inverse_sqrt,         y);
+  y = writer->ew(ij_to_ij, scale_then_add_eps,      y);
+  y = writer->ew(ij_to_ij, inverse_sqrt,            y);
 
   // x * y
   return writer->ew(ijk_ij_to_ijk, mul, x, y);
 }
 
 tensor_t rms_norm_t::forward(tensor_t x) {
-  dtype_t dtype = weight.get_dtype();
   if(dtype != x.get_dtype()) {
-    throw std::runtime_error("invalid input dtype rms norm t");
+    throw std::runtime_error("invalid input dtype rms norm t forward");
   }
-  // TODO: implement to_dtype
   tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
 
   int out_rank = x.get_shape().size();
 
   string ijk(out_rank, ' ');
   std::iota(ijk.begin(), ijk.end(), 'a');
-  string k(1, char('a' + 9));
+  string k(1, char('a' + (out_rank-1)));
   string str = ijk + "," + k + "->" + ijk;
 
   scalarop_t mul = scalarop_t::make_mul(dtype);
