@@ -79,19 +79,19 @@ void ff(
   taskgraph.nodes[x].is_save = true;
   taskgraph.nodes[y].is_save = true;
 
-  map<int, dbuffer_t> buffers;
+  map<int, buffer_t> buffers;
 
   // Set x
   {
     dbuffer_t buffer_x = make_dbuffer(dtype, dn*dp);
     buffer_x.random("-0.05", "0.05");
-    buffers.insert({x, buffer_x});
+    buffers.insert({x, buffer_x.data});
   }
   // Set y
   {
     dbuffer_t buffer_y = make_dbuffer(dtype, dn*dd);
     buffer_y.random("-0.05", "0.05");
-    buffers.insert({y, buffer_y});
+    buffers.insert({y, buffer_y.data});
   }
 
   // Set init weights
@@ -102,15 +102,15 @@ void ff(
 
     dbuffer_t buffer_w = make_dbuffer(dtype, w_sz);
     buffer_w.random("-0.05", "0.05");
-    buffers.insert({w, buffer_w});
+    buffers.insert({w, buffer_w.data});
   }
 
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
     execute(taskgraph, settings, mpi, buffers);
 
-    if(i % 75 == 0) {
-      scalar_t loss = buffers.at(sqdiff).sum();
+    if(i % 10 == 0) {
+      scalar_t loss = dbuffer_t(dtype, buffers.at(sqdiff)).sum();
       std::cout << "loss: " << loss.str() << std::endl;
     }
 

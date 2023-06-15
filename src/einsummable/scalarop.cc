@@ -38,9 +38,54 @@ uint64_t dtype_size(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+bool dtype_is_real(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return true;
+    case dtype_t::f32:
+      return true;
+    case dtype_t::f64:
+      return true;
+    case dtype_t::c64:
+      return false;
+  }
+  throw std::runtime_error("should not reach");
+}
+
+bool dtype_is_complex(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return false;
+    case dtype_t::f32:
+      return false;
+    case dtype_t::f64:
+      return false;
+    case dtype_t::c64:
+      return true;
+  }
+  throw std::runtime_error("should not reach");
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
+
+scalar_t::scalar_t(dtype_t d, string const& s)
+  : dtype(d)
+{
+  if(dtype == dtype_t::c64) {
+    // not allowing this only because it's unclear what s would have to contain
+    throw std::runtime_error("cannot create scalar_t from a complex string");
+  } else if(dtype == dtype_t::f16) {
+    f16() = parse_with_ss<float16_t>(s);
+  } else if(dtype == dtype_t::f32) {
+    f32() = parse_with_ss<float>(s);
+  } else if(dtype == dtype_t::f64) {
+    f64() = parse_with_ss<double>(s);
+  } else {
+    throw std::runtime_error("should not reach scalar");
+  }
+}
 
 scalar_t::scalar_t(float16_t v)
   : dtype(dtype_t::f16)
@@ -297,7 +342,11 @@ node_t node_t::make_constant(scalar_t value) {
 
 scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
   if(op.is_hole()) {
-    scalar_t const& ret = inputs[op.get_which_input()];
+    int which = op.get_which_input();
+    if(which < 0 || which >= inputs.size()) {
+      throw std::runtime_error("scalar node_t eval does not have the input");
+    }
+    scalar_t const& ret = inputs[which];
     if(ret.dtype != op.get_hole().dtype) {
       throw std::runtime_error("invalid dtype in inputs");
     }

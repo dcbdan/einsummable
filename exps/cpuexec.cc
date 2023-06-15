@@ -186,6 +186,9 @@ int main(int argc, char** argv)
 
   taskgraph_t taskgraph;
 
+  // Assumption: all input tensors have the default dtype
+  dtype_t dtype = default_dtype();
+
   if(mpi.this_rank == 0) {
     uint64_t giga = 1e9;
 
@@ -218,14 +221,14 @@ int main(int argc, char** argv)
     taskgraph = taskgraph_t::from_wire(taskgraph_str);
   }
 
-  map<int, dbuffer_t> tensors;
+  map<int, buffer_t> tensors;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
-      auto const& [rank, dtype, nelem] = node.op.get_input();
+      auto const& [rank, size] = node.op.get_input();
       if(mpi.this_rank == rank) {
-        dbuffer_t buffer = make_dbuffer(dtype, nelem);
-        buffer.random("-0.0003", "0.003");
+        buffer_t buffer = make_buffer(size);
+        dbuffer_t(dtype, buffer).random("-0.0003", "0.003");
         tensors.insert({id, buffer});
       }
     }

@@ -70,12 +70,12 @@ void main05() {
   x = x.transpose(1,2);
   x = x.transpose(2,3);
 
-  tensor_t z = writer.scale(88.0, x);
+  tensor_t z = writer.scale("88.0", x);
   z.save();
 
   tensor_t y = writer.add(x,x);
 
-  y = writer.scale(9.9, y);
+  y = writer.scale("9.9", y);
   y.save();
 
   writer.get_graph().print();
@@ -92,12 +92,12 @@ void main06() {
   x = x.transpose(1,2);
   x = x.transpose(2,3);
 
-  tensor_t z = writer.scale(88.0, x);
+  tensor_t z = writer.scale("88.0", x);
   z.save();
 
   tensor_t y = writer.add(x,x);
 
-  y = writer.scale(9.9, y);
+  y = writer.scale("9.9", y);
   y.save();
 
   writer.get_graph().print();
@@ -166,7 +166,8 @@ void main08_attention() {
   values = values.transpose(1, 2);
 
   tensor_t scores = writer.matmul(xq, keys.transpose(2, 3));
-  scores = writer.scale(1 / std::sqrt(1.0*head_dim), scores);
+  string _scale_val = write_with_ss(double(1 / std::sqrt(1.0*head_dim)));
+  scores = writer.scale(_scale_val, scores);
   // scores: bsz, n heads, seqlen, start pos + seqlen
 
   tensor_t mask = writer.input({bsz, n_heads, seqlen, start_pos + seqlen});

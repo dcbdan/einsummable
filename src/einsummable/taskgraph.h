@@ -36,8 +36,8 @@ struct regiondim_t {
 struct taskgraph_t {
   static
   tuple<
-    map<int, tensor_t<int> >, // for each input, the taskgraph ids of the blocks
-    map<int, tensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
+    map<int, vtensor_t<int> >, // for each input, the taskgraph ids of the blocks
+    map<int, vtensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph, vector<placement_t> const& placements);
   // TODO: The conversion between tensors is a bit tricky.
@@ -70,6 +70,7 @@ struct taskgraph_t {
 
   int insert_consumed_aggregate(
     int loc,
+    dtype_t dtype,
     castable_t castable,
     vector<int> inns,
     bool is_save = false);
@@ -78,6 +79,7 @@ struct taskgraph_t {
     int loc,
     vector<regiondim_t> selection,
     int inn,
+    dtype_t dtype,
     bool is_save = false);
 
   int new_partial(
@@ -100,7 +102,6 @@ struct taskgraph_t {
   // }}}
 
   uint64_t get_size_at(int id) const;
-  uint64_t get_nelem_at(int id) const;
 
   // find all partial inputs that can be consumed and
   // consume them
@@ -127,17 +128,18 @@ struct taskgraph_t {
 
   int num_locs() const;
 
-  uint64_t total_elems_moved() const;
+  uint64_t total_bytes_moved() const;
   uint64_t total_flops() const;
 
   string to_wire() const;
   static taskgraph_t from_wire(string const& str);
 
+  uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
+
 private:
   struct input_t {
     int loc;
-    dtype_t dtype;
-    uint64_t nelem;
+    uint64_t size;
   };
   struct apply_t {
     int loc;
@@ -148,8 +150,7 @@ private:
     int src;
     int dst;
     int inn;
-    dtype_t dtype;
-    uint64_t nelem;
+    uint64_t size;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -274,11 +275,7 @@ public:
 
     int out_loc() const;
 
-    dtype_t out_dtype() const;
-
     uint64_t out_size() const;
-
-    uint64_t out_nelem() const;
 
     set<int> inputs() const;
 
@@ -348,6 +345,18 @@ partition_t concat_get_input_partition(
 placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat);
+
+partition_t double_last_dim(partition_t const& p);
+placement_t double_last_dim(placement_t const& p);
+
+void double_last_dim_inplace(partition_t& p);
+void double_last_dim_inplace(placement_t& p);
+
+partition_t halve_last_dim(partition_t const& p);
+placement_t halve_last_dim(placement_t const& p);
+
+void halve_last_dim_inplace(partition_t& p);
+void halve_last_dim_inplace(placement_t& p);
 
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,

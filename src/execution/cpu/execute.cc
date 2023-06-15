@@ -136,7 +136,7 @@ struct cpu_exec_state_t {
   cpu_exec_state_t(
     mpi_t& mpi,
     taskgraph_t const& taskgraph,
-    map<int, dbuffer_t>& tensors,
+    map<int, buffer_t>& tensors,
     int num_apply_kernel_threads);
 
   // make sure all kernels are available; print out a helpful
@@ -174,15 +174,15 @@ struct cpu_exec_state_t {
 
   // grab tensors (and allocate if necc) under mutex
   tuple<
-    vector<dbuffer_t>,
-    vector<dbuffer_t> >
+    vector<buffer_t>,
+    vector<buffer_t> >
   get_buffers(
-    vector<tuple<dtype_t, uint64_t, int>> const& which_allocate,
+    vector<tuple<uint64_t, int>> const& which_allocate,
     vector<int> const& which_get);
 
   mpi_t& mpi;
   taskgraph_t const& taskgraph;
-  map<int, dbuffer_t>& tensors;
+  map<int, buffer_t>& tensors;
   int const num_apply_kernel_threads;
 
   // The total number of commands left to execute
@@ -213,7 +213,7 @@ void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
   mpi_t& mpi,
-  map<int, dbuffer_t>& tensors)
+  map<int, buffer_t>& tensors)
 {
   cpu_exec_state_t state(mpi, taskgraph, tensors, settings.num_apply_kernel_threads);
 
@@ -253,7 +253,7 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 cpu_exec_state_t::cpu_exec_state_t(
   mpi_t& mpi,
   taskgraph_t const& tg,
-  map<int, dbuffer_t>& ts,
+  map<int, buffer_t>& ts,
   int n_ts)
   : mpi(mpi),
     taskgraph(tg),
@@ -281,7 +281,7 @@ cpu_exec_state_t::cpu_exec_state_t(
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
-      auto const& [src,dst,inn,dtype,nelem] = node.op.get_move();
+      auto const& [src,dst,inn,_] = node.op.get_move();
 
       if(src == dst) {
         throw std::runtime_error("Moves to self are not allowed");
@@ -397,13 +397,13 @@ void cpu_exec_state_t::apply_runner(int runner_id)
 
       auto [_1, inputs] = get_buffers({}, inns);
 
-      dbuffer_t out_buffer;
+      buffer_t out_buffer;
 
       // Can we donate one of the input buffers to
       // this computation?
       for(int i = 0; i != inns.size(); ++i) {
         int const& inn = inns[i];
-        dbuffer_t& input = inputs[i];
+        buffer_t& input = inputs[i];
         if(applys_progress.is_donatable.count(inn)) {
           out_buffer = input;
           break;
@@ -411,17 +411,17 @@ void cpu_exec_state_t::apply_runner(int runner_id)
       }
 
       // If not, allocate.
-      if(!(out_buffer.data)) {
-        out_buffer = make_dbuffer(node.op.out_dtype(), node.op.out_nelem());
+      if(!out_buffer) {
+        out_buffer = make_buffer(node.op.out_size());
       }
 
       vector<void const*> raw_inputs;
       raw_inputs.reserve(inputs.size());
       for(auto const& buffer: inputs) {
-        raw_inputs.push_back(buffer.ptr());
+        raw_inputs.push_back(buffer->data);
       }
 
-      kernel(out_buffer.ptr(), raw_inputs);
+      kernel(out_buffer->data, raw_inputs);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -459,16 +459,15 @@ void cpu_exec_state_t::touch_runner(int runner_id)
     {
       auto kernel = build_touch(touch);
       int partialize_id = touches_progress.units[unit_id].partialize_id;
-      uint64_t partialize_nelem = product(
-        vector_from_each_member(touch.selection, uint64_t, d_out));
+      uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
       auto [_ps, _is] = get_buffers(
-        { {touch.dtype, partialize_nelem, partialize_id} },
+        { {partialize_size, partialize_id} },
         { inn_tensor });
 
-      dbuffer_t& out_buffer = _ps[0];
-      dbuffer_t& inn_buffer = _is[0];
+      buffer_t& out_buffer = _ps[0];
+      buffer_t& inn_buffer = _is[0];
 
-      kernel(out_buffer.ptr(), inn_buffer.ptr());
+      kernel(out_buffer->data, inn_buffer->data);
     }
 
     this->completed_touch(inn_tensor, unit_id);
@@ -496,14 +495,14 @@ void cpu_exec_state_t::send_runner(int runner_id)
     }
 
     auto const& node = taskgraph.nodes[send_id];
-    auto const& [_0, dst, inn_id, _1, _2] = node.op.get_move();
+    auto const& [_0, dst, inn_id, _1] = node.op.get_move();
 
     mpi.send_int(send_id, dst, mpi.max_tag);
 
     auto [_, read_buffers] = get_buffers({}, {inn_id});
     auto& buffer = read_buffers[0];
 
-    mpi.send(buffer.data, dst, send_id);
+    mpi.send(buffer, dst, send_id);
 
     completed_send(send_id);
   }
@@ -528,12 +527,12 @@ void cpu_exec_state_t::recv_runner(int runner_id)
     int recv_id = mpi.recv_int_from_anywhere(mpi.max_tag);
 
     auto const& node = taskgraph.nodes[recv_id];
-    auto const& [src, _0, _1, dtype, recv_nelem] = node.op.get_move();
+    auto const& [src, _0, _1, size] = node.op.get_move();
 
-    auto [should_be_new_buffers, _] = get_buffers({ {dtype, recv_nelem, recv_id} }, {});
+    auto [should_be_new_buffers, _] = get_buffers({ {size, recv_id} }, {});
     auto& recv_buffer = should_be_new_buffers[0];
 
-    mpi.recv(recv_buffer.data, src, recv_id);
+    mpi.recv(recv_buffer, src, recv_id);
 
     completed_recv(recv_id);
   }
@@ -667,27 +666,27 @@ bool cpu_exec_state_t::check_complete() const {
 }
 
 tuple<
-  vector<dbuffer_t>,
-  vector<dbuffer_t> >
+  vector<buffer_t>,
+  vector<buffer_t> >
 cpu_exec_state_t::get_buffers(
-  vector<tuple<dtype_t, uint64_t, int>> const& which_writes,
-  vector<int>                           const& which_reads)
+  vector<tuple<uint64_t, int>> const& which_writes,
+  vector<int>                  const& which_reads)
 {
   std::unique_lock lk(m_tensors);
 
-  vector<dbuffer_t> writes;
+  vector<buffer_t> writes;
   writes.reserve(which_writes.size());
-  for(auto const& [dtype, nelem, id]: which_writes) {
+  for(auto const& [size, id]: which_writes) {
     if(tensors.count(id) == 0) {
       tensors.insert_or_assign(
         id,
-        make_dbuffer(dtype, nelem)
+        make_buffer(size)
       );
     }
     writes.push_back(tensors.at(id));
   }
 
-  vector<dbuffer_t> reads;
+  vector<buffer_t> reads;
   reads.reserve(which_reads.size());
   for(auto const& id: which_reads) {
     reads.push_back(tensors.at(id));

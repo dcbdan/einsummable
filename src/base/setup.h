@@ -164,6 +164,21 @@ template <typename T>
 }
 
 template <typename T>
+vector<T> vector_double(vector<T> const& inn) {
+  return vector_add(inn, inn);
+}
+
+template <typename T>
+vector<T> vector_halve(vector<T> const& inn) {
+  vector<T> ret;
+  ret.reserve(inn.size());
+  for(int i = 0; i != inn.size(); ++i) {
+    ret.push_back(inn[i] / 2);
+  }
+  return ret;
+}
+
+template <typename T>
 void vector_add_into(vector<T>& out, vector<T> const& inn) {
   for(int i = 0; i != out.size(); ++i) {
     out[i] += inn[i];

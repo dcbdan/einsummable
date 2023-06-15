@@ -43,11 +43,11 @@ void random_walk_through(
   cluster_t cluster,
   bool random_loc)
 {
-  uint64_t correct_total_elems;
+  uint64_t correct_total_bytes;
   uint64_t correct_total_flops;
   {
     auto [_0, _1, taskgraph] = taskgraph_t::make(graph, placements);
-    correct_total_elems = taskgraph.total_elems_moved();
+    correct_total_bytes = taskgraph.total_bytes_moved();
     correct_total_flops = taskgraph.total_flops();
   }
 
@@ -81,7 +81,7 @@ void random_walk_through(
   DOUT("-----------------------------------------");
   vector<timeplot_ns::box_t> boxes;
   double makespan;
-  uint64_t total_elems = 0;
+  uint64_t total_bytes = 0;
   uint64_t total_flops = 0;
   while(!state.all_done()) {
     auto maybe_completed = state.random_step(settings);
@@ -106,7 +106,7 @@ void random_walk_through(
         .text = write_with_ss(jid_t { gid, bid })
       });
     } else {
-      total_elems += completed.get_move_info().size;
+      total_bytes += completed.get_move_info().size;
     }
   }
 
@@ -123,15 +123,15 @@ void random_walk_through(
   }
 
   if(!random_loc) {
-    if(total_elems != correct_total_elems) {
-      throw std::runtime_error("incorrect number of total_elems");
+    if(total_bytes != correct_total_bytes) {
+      throw std::runtime_error("incorrect number of total_bytes moved");
     }
   }
   if(total_flops != correct_total_flops) {
     throw std::runtime_error("incorrect number of flops");
   }
-  //std::cout << "Total elems:         " << total_elems << std::endl;
-  //std::cout << "Correct total elems: " << correct_total_elems << std::endl;
+  //std::cout << "Total bytes:         " << total_bytes << std::endl;
+  //std::cout << "Correct total bytes: " << correct_total_bytes << std::endl;
   //std::cout << std::endl;
   //std::cout << "Total flops:         " << total_flops << std::endl;
   //std::cout << "Correct total flops: " << correct_total_flops << std::endl;
@@ -154,13 +154,13 @@ void main01() {
   auto const& graph = g.graph;
   auto placements = g.get_placements();
 
-  uint64_t correct_total_elems;
+  uint64_t correct_total_bytes;
   uint64_t correct_total_flops;
   {
     auto [_0, _1, taskgraph] = taskgraph_t::make(
       graph,
       placements);
-    correct_total_elems = taskgraph.total_elems_moved();
+    correct_total_bytes = taskgraph.total_bytes_moved();
     correct_total_flops = taskgraph.total_flops();
   }
 
@@ -187,7 +187,7 @@ void main01() {
   DOUT("-----------------------------------------");
   vector<timeplot_ns::box_t> boxes;
   double makespan;
-  uint64_t total_elems = 0;
+  uint64_t total_bytes = 0;
   uint64_t total_flops = 0;
   while(!state.all_done()) {
     state.enqueue_all();
@@ -204,7 +204,7 @@ void main01() {
         .text = write_with_ss(jid_t { gid, bid })
       });
     } else {
-      total_elems += completed.get_move_info().size;
+      total_bytes += completed.get_move_info().size;
     }
   }
   DOUT("Finished in " << makespan);
@@ -214,8 +214,8 @@ void main01() {
     DOUT("Printed to tp.svg");
   }
 
-  std::cout << "Total elems:         " << total_elems << std::endl;
-  std::cout << "Correct total elems: " << correct_total_elems << std::endl;
+  std::cout << "Total bytes:         " << total_bytes << std::endl;
+  std::cout << "Correct total bytes: " << correct_total_bytes << std::endl;
   std::cout << std::endl;
   std::cout << "Total flops:         " << total_flops << std::endl;
   std::cout << "Correct total flops: " << correct_total_flops << std::endl;
@@ -310,26 +310,52 @@ void main05() {
   //  eqs.insert(inn, out);
   //}
 
+  //graph_writer_t writer;
+  //{
+  //  // just making a graph that does concat
+  //  using id_t = graph_writer_t::tensor_t;
+
+  //  uint64_t bb  = 4000;
+  //  uint64_t da  = 1500;
+  //  uint64_t db  = 1600;
+  //  uint64_t dc  = 1700;
+  //  uint64_t dab = da+db;
+
+  //  id_t x = writer.input({bb, da});
+  //  id_t w_a_b = writer.input({da,db});
+  //  id_t w_ab_c = writer.input({dab, dc});
+
+  //  id_t y = writer.matmul(x, w_a_b);
+  //  x = writer.concat(1, {x, y});
+  //  x = writer.matmul(x, w_ab_c);
+
+  //  x.save();
+  //}
+  //graph_t const& graph = writer.get_graph();
+  //equal_items_t<int> eqs = {};
+
   graph_writer_t writer;
   {
-    // just making a graph that does concat
     using id_t = graph_writer_t::tensor_t;
 
-    uint64_t bb  = 4000;
-    uint64_t da  = 1500;
-    uint64_t db  = 1600;
-    uint64_t dc  = 1700;
-    uint64_t dab = da+db;
+    uint64_t ni = 10000;
+    uint64_t nj = 1200;
+    uint64_t nk = 1400;
 
-    id_t x = writer.input({bb, da});
-    id_t w_a_b = writer.input({da,db});
-    id_t w_ab_c = writer.input({dab, dc});
+    id_t lhs = writer.input({ni,nj}, dtype_t::c64);
+    id_t rhs = writer.input({nj,nk}, dtype_t::c64);
+    id_t out = writer.matmul(lhs, rhs);
 
-    id_t y = writer.matmul(x, w_a_b);
-    x = writer.concat(1, {x, y});
-    x = writer.matmul(x, w_ab_c);
+    out = out.to_real();
+    out = out.to_complex();
+    out = out.to_real();
+    out = writer.add(out, out);
+    out = out.to_complex();
+    out = out.to_real();
+    out = out.to_complex();
+    out = writer.add(out, out);
 
-    x.save();
+    out.save();
   }
   graph_t const& graph = writer.get_graph();
   equal_items_t<int> eqs = {};

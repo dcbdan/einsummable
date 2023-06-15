@@ -20,7 +20,7 @@ placement_t placement_t::join_to_out(placement_t const& p_join, int out_rank)
   vector<int> join_shape = p_join.block_shape();
   vector<int> join_idxs(join_shape.size(), 0);
 
-  tensor_t<map<int, int>> counts(ret.block_shape());
+  vtensor_t<map<int, int>> counts(ret.block_shape());
   do {
     vector<int> idxs(join_idxs.begin(), join_idxs.begin() + out_rank);
     counts.at(idxs)[p_join.at(join_idxs)]++;
@@ -68,7 +68,7 @@ placement_t placement_t::refine(partition_t const& refined_partition) const {
 
   auto refi_block_shape = refined_partition.block_shape();
 
-  tensor_t<int> ret(refi_block_shape, -1);
+  vtensor_t<int> ret(refi_block_shape, -1);
 
   vector<int> refi_index(refi_block_shape.size(), 0);
   do {

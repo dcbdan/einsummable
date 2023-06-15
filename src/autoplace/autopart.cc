@@ -1,4 +1,5 @@
 #include "autopart.h"
+#include "../einsummable/taskgraph.h"
 
 partition_t _make_finer(partition_t const& p) {
   auto const& pds = p.partdims;
@@ -274,6 +275,7 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
       out_partdims[concat.dim] = partdim_t::singleton(shape[concat.dim]);
       update_with(out_partdims);
     } else {
+      // for complexer and formation
       update_with(out_part.partdims);
     }
   }
@@ -386,8 +388,26 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       choice
     );
     set_partition(id, new_partition);
-  } else if(node.op.is_formation()) {
+  } else if(node.op.is_formation() || node.op.is_complexer()) {
     // This is a formation node.
+
+    auto try_to_halve = [](partition_t& new_part) {
+      bool can_halve = true;
+      auto sizes = new_part.partdims.back().sizes();
+      for(auto const& sz: sizes) {
+        if(sz % 2 != 0) {
+          can_halve = false;
+        }
+      }
+
+      if(can_halve) {
+        halve_last_dim_inplace(new_part);
+      } else {
+        // oh well
+        partdim_t& partdim = new_part.partdims.back();
+        partdim = partdim_t::singleton(partdim.total());
+      }
+    };
 
     auto const& inn_part     = inn_parts[0];
     auto const& inn_partdims = inn_part.partdims;
@@ -433,13 +453,35 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
       // but none of them are split and that is fine.
 
       partition_t new_part = partition_t(partdims);
+
+      if(node.op.is_complexer()) {
+        if(dtype_is_real(node.op.out_dtype())) {
+          // complex -> real
+          double_last_dim_inplace(new_part);
+        } else {
+          // real -> complex
+          try_to_halve(new_part);
+        }
+      }
+
       if(new_part.total_shape() != node.op.shape()) {
         throw std::runtime_error("new part is incorrect");
       }
 
       set_partition(id, new_part);
     } else {
-      set_partition(id, inn_parts[0]);
+      // TODO for complexer
+      if(node.op.is_complexer()) {
+        partition_t new_part = inn_parts[0];
+        if(dtype_is_real(node.op.out_dtype())) {
+          double_last_dim_inplace(new_part);
+        } else {
+          try_to_halve(new_part);
+        }
+        set_partition(id, new_part);
+      } else {
+        set_partition(id, inn_parts[0]);
+      }
     }
   } else if(node.op.is_concat()) {
     auto const& concat = node.op.get_concat();

@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
 
   graph_constructor_t g;
+  dtype_t dtype = default_dtype();
 
   int lhs = g.insert_input(partition_t({
     partdim_t::split(ni, li),
@@ -102,14 +103,14 @@ int main(int argc, char** argv) {
     .num_apply_kernel_threads = 1
   };
 
-  map<int, dbuffer_t> tensors;
+  map<int, buffer_t> tensors;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
-      auto const& [rank, dtype, nelem] = node.op.get_input();
+      auto const& [rank, size] = node.op.get_input();
       if(mpi.this_rank == rank) {
-        dbuffer_t buffer = make_dbuffer(dtype, nelem);
-        buffer.random("-0.0003", "0.003");
+        buffer_t buffer = make_buffer(size);
+        dbuffer_t(dtype, buffer).random("-0.0003", "0.003");
         tensors.insert({id, buffer});
       }
     }
