@@ -532,6 +532,36 @@ void graph_t::print() const {
   }
 }
 
+void graph_t::print_graphviz(std::ostream& out) const {
+  using std::endl;
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  for(int id = 0; id != nodes.size(); ++id) {
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
+
+    string label;
+    if(op.is_input()) {
+      label = "input" + write_with_ss(id);
+    } else if(op.is_formation()) {
+      label = "form" + write_with_ss(id);
+    } else if(op.is_complexer()) {
+      label = "complexer" + write_with_ss(id);
+    } else if(op.is_einsummable()) {
+      label = "einsummable" + write_with_ss(id);
+    }
+    out << tab
+      << "n" << id
+      << " [style=filled,label=\"" << label << "\"]" << endl;
+
+    for(auto const& inn: node.get_inns_set()) {
+      out << tab << "n" << inn << " -> " << "n" << id << endl;
+    }
+  }
+  out << "}" << endl;
+}
+
 vector<int> graph_t::get_inputs() const {
   vector<int> ret;
   for(int id = 0; id != nodes.size(); ++id) {
@@ -989,9 +1019,13 @@ graph_writer_t::tensor_t::get_breaks_(
     auto& [_, b] = ret.back();
 
     int sz = shape[d];
-    while(sz != 1) {
-      sz /= full_shape[f];
-      ++f;
+    if(sz == 1) {
+      ++f; // This is a hack!
+    } else {
+      while(sz != 1) {
+        sz /= full_shape[f];
+        ++f;
+      }
     }
     b = f;
   }
@@ -1284,11 +1318,7 @@ graph_writer_t::to_dtype(dtype_t dtype, tensor_t const& inn) {
 
   scalarop_t f = scalarop_t::make_convert_dtype(inn_dtype, dtype);
 
-  int rank = inn.get_shape().size();
-  string is(rank, ' ');
-  std::iota(is.begin(), is.end(), 'a');
-
-  return ew(is + "->" + is, f, inn);
+  return ew(f, inn);
 }
 
 graph_writer_t::tensor_t graph_writer_t::to_f16(tensor_t const& inn) {

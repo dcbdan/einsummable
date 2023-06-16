@@ -2575,10 +2575,10 @@ void taskgraph_t::print_graphviz(
       }
     } else if(op.is_move()) {
       int const& inn_id = op.get_move().inn;
-      out << tab << "n" << inn_id << " -> " << "n" << id;
+      out << tab << "n" << inn_id << " -> " << "n" << id << endl;
     } else if(op.is_partialize()) {
       for(auto const& inn_id: op.inputs()) {
-        out << tab << "n" << inn_id << " -> " << "n" << id;
+        out << tab << "n" << inn_id << " -> " << "n" << id << endl;
       }
     }
   }

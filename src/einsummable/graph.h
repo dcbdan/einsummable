@@ -87,6 +87,8 @@ struct graph_t {
 
   void print() const;
 
+  void print_graphviz(std::ostream& out) const;
+
   vector<int> get_inputs() const;
 
 public:
@@ -311,6 +313,7 @@ struct graph_writer_t {
     tensor_t transpose(int i, int j) const;
     tensor_t view(vector<uint64_t> shape) const;
     vector<uint64_t> const& get_shape() const { return shape; }
+    vector<uint64_t> const& _get_full_shape() const { return full_shape; }
     void save();
     int get_id() const { return id; }
     dtype_t get_dtype() const;
@@ -351,6 +354,10 @@ struct graph_writer_t {
     void physically_permute();
     vector<tuple<int,int>> get_breaks() const;
     vector<vector<uint64_t>> _full_shape() const;
+
+    // TODO: shape and full_shape is not sufficient to tell
+    //       which modes are grouped together.. Consider
+    //       ((1,1),(1,1)) vs ((1), (1,1,1))
 
     static vector<tuple<int,int>> get_breaks_(
       vector<uint64_t> const& shape,

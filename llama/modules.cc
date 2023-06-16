@@ -400,6 +400,12 @@ tensor_t transformer_t::forward(tensor_t x)
 
   optional<tensor_t> mask;
   if(seqlen > 1) {
+    if(start_pos() != 0) {
+      throw std::runtime_error(
+        "Masks are only supported on the first iteration");
+      // TODO: how do masks work and should they be supported
+      //       whenever seqlen > 1?
+    }
     mask = next_mask(seqlen);
   }
 

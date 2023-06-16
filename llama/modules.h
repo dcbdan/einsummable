@@ -42,8 +42,10 @@ struct model_args_t {
   double norm_eps;
   uint64_t max_batch_size;
   uint64_t max_seq_len;
+  uint64_t vocab_size;
   int world_size;
 
+  // TODO: remove local and world distinction
   uint64_t n_local_heads() const {
     return uint64_div(n_heads, world_size, "n_local_heads");
   }
@@ -98,14 +100,20 @@ struct attention_t {
 
   tensor_t forward(
     tensor_t x,
-    int start_pos,
     tensor_t freqs_cis,
     optional<tensor_t> mask);
+
+  tuple<tensor_t, tensor_t>
+  get_keys_and_values(tensor_t k, tensor_t v);
+
+  uint64_t start_pos() const {
+    return prev_k ? prev_k.value().get_shape()[1] : 0;
+  }
 
   map<int, string> input_map() const;
 
   graph_writer_t* writer;
-  model_args_t model_args;
+  model_args_t args;
   string name;
 
   uint64_t n_local_heads;
@@ -115,6 +123,9 @@ struct attention_t {
   tensor_t wk;
   tensor_t wv;
   tensor_t wo;
+
+  optional<tensor_t> prev_k;
+  optional<tensor_t> prev_v;
 };
 
 struct feedforward_t {
@@ -147,19 +158,17 @@ struct transformer_block_t {
 
   tensor_t forward(
     tensor_t x,
-    uint64_t start_pos,
     tensor_t freqs_cis,
-    tensor_t mask);
+    optional<tensor_t> mask);
 
   map<int, string> input_map() const;
 
+  uint64_t start_pos() const {
+    return attention.start_pos();
+  }
+
   graph_writer_t* writer;
   model_args_t args;
-
-  int n_heads;
-  int dim;
-  int head_dim;
-
   int layer_id;
 
   attention_t attention;
@@ -172,25 +181,37 @@ struct transformer_t {
   transformer_t(
     graph_writer_t* w,
     std::string name,
-    model_args_t params,
-    uint64_t vocab_size,
-    int world_size);
+    model_args_t args);
 
-  tensor_t forward(
-    tensor_t x, //size should be [tokensize, dim]
-    int start_pos);
+  tensor_t forward(tensor_t x);
 
   map<int, string> input_map() const;
 
-  graph_writer_t* writer;
-  model_args_t params;
-  int vocab_size;
+  uint64_t start_pos() const {
+    return layers[0].start_pos();
+  }
 
-  tensor_t freq_cis;
-  vector<uint64_t> freq_cis_shape;
+  // grab full_freqs_cis from [:, start_pos(): start_pos()+n]
+  tensor_t next_freqs_cis(uint64_t n);
+  tensor_t next_mask(uint64_t seqlen);
+
+  graph_writer_t* writer;
+  model_args_t args;
+
+  // TODO: list freq_cis info
+  // TODO: list mask info
+
+  tensor_t full_freqs_cis;
 
   vector<transformer_block_t> layers;
   rms_norm_t norm;
-  tensor_t output_weight;
+  tensor_t w_vocab;
+
+  struct mask_info_t {
+    tensor_t mask;
+    uint64_t start_pos;
+    uint64_t seqlen;
+  };
+  vector<mask_info_t> mask_infos;
 };
 

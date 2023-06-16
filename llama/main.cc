@@ -4,6 +4,8 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
 
+#include <fstream>
+
 using tensor_t = graph_writer_t::tensor_t;
 
 void test_rms_norm() {
@@ -301,6 +303,7 @@ int main() {
 
   // TODO: set vocab_size
   args.vocab_size = 123;
+  args.n_layers = 3;
 
   graph_writer_t writer;
 
@@ -309,17 +312,35 @@ int main() {
   uint64_t bsz = 3;
   uint64_t seq_len = 17;
 
-  full_shape_t shape {
-    .shape_parts = {
-      full_dim_t::singleton(bsz),
-      full_dim_t::singleton(seq_len),
-      args.full_dim()
-    }
+  // read bsz and seq_len and input input tensor
+  auto input_input = [&]() {
+    full_shape_t shape {
+      .shape_parts = {
+        full_dim_t::singleton(bsz),
+        full_dim_t::singleton(seq_len),
+        args.full_dim()
+      }
+    };
+
+    return writer.input(shape.full_shape()).view(shape.shape());
   };
 
-  tensor_t x = writer.input(shape.full_shape()).view(shape.shape());
-
+  tensor_t x = input_input();
   tensor_t y = model.forward(x);
+
+  seq_len = 1;
+
+  //x = input_input();
+  //y = model.forward(x);
+
+  //x = input_input();
+  //y = model.forward(x);
+
+  graph_t const& graph = writer.get_graph();
+
+  std::ofstream f("g.gv");
+  graph.print_graphviz(f);
+  DOUT("wroter to g.gv");
 }
 
 
