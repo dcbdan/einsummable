@@ -29,6 +29,20 @@ model_args_t model_args_t::make_default() {
   };
 }
 
+model_args_t model_args_t::llama_7B() {
+  return model_args_t {
+    .dim             = 4096,
+    .n_layers        = 32,
+    .n_heads         = 32,
+    .multiple_of     = 256,
+    .norm_eps        = 1e-6,
+    .max_batch_size  = 32,
+    .max_seq_len     = 256,  
+    .vocab_size      = 32000, //TODO: change according to the actual tokenizer size
+    .world_size      = 1
+  };
+}
+
 rms_norm_t::rms_norm_t(
   graph_writer_t* w,
   string name,

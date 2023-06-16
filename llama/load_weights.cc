@@ -50,7 +50,7 @@ int main() {
 
 
   set_default_dtype(dtype_t::f16);
-  model_args_t model_args = model_args_t::make_default();
+  model_args_t llama7B = model_args_t::llama_7B();
   graph_writer_t writer;
   std::string transformer_name= "name";
   transformer_t model = transformer_t(&writer, transformer_name, model_args);
@@ -59,13 +59,13 @@ int main() {
     std::cout << name << std::endl;
   }
   map<int, dbuffer_t> weight_to_buffer;
-  // for (auto const& [weight_id, name]: weight_to_name) {
-  //   std::cout << name << std::endl;
-  //   dbuffer_t buffer = make_dbuffer(dtype_t::f16, std::get<0>(extracted_data.at(name)));
-  //   weight_to_buffer.insert({weight_id, buffer});
-  //   vector<float16_t> halfs = std::get<1>(extracted_data.at(name));
-  //   std::copy(halfs.begin(), halfs.end(), buffer.f16());
-  // }
+  for (auto const& [weight_id, name]: weight_to_name) {
+    std::cout << name << std::endl;
+    dbuffer_t buffer = make_dbuffer(dtype_t::f16, std::get<0>(extracted_data.at(name)));
+    weight_to_buffer.insert({weight_id, buffer});
+    vector<float16_t> halfs = std::get<1>(extracted_data.at(name));
+    std::copy(halfs.begin(), halfs.end(), buffer.f16());
+  }
 
   return(0);
 
