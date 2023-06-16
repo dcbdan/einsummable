@@ -651,6 +651,30 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
   return {};
 }
 
+cutensor_elementwise_op_t::arg_t convert_arg(cutensor_scalarop_t::arg_t arg, vector<int> modes){
+  float scale = arg.scale.f32();
+  cutensorOperator_t op;
+  if(arg.op==cutensor_scalarop_t::cop_t::exp){
+    op = CUTENSOR_OP_EXP;
+  }else if(arg.op==cutensor_scalarop_t::cop_t::identity){
+    op = CUTENSOR_OP_IDENTITY;
+  }
+  cutensor_elementwise_op_t::arg_t new_arg {scale,op,modes};
+  return new_arg;
+}
+
+cutensorOperator_t convert_op(cutensor_scalarop_t::cop_t op){
+  cutensorOperator_t new_op;
+  if(op==cutensor_scalarop_t::cop_t::add){
+    new_op = CUTENSOR_OP_ADD;
+  }else if(op==cutensor_scalarop_t::cop_t::mul){
+    new_op = CUTENSOR_OP_MUL;
+  }
+
+
+  return new_op;
+}
+
 optional<cutensor_elementwise_op_t>
 make_cutensor_elementwise_op(
   einsummable_t const& e)
@@ -660,10 +684,63 @@ make_cutensor_elementwise_op(
   op.join_shape = e.join_shape;
 
   if(e.inns.size()==1){
+    scalarop_t join = e.join;
+
+    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+
+    auto unary = std::get<cutensor_scalarop_t::unary_t>(cutensor_scalarop.op);
+
+    cutensor_elementwise_op_t::unary_t unary_op {convert_arg(unary.arg,e.inns[0])};
+
+    op.op = unary_op;
+
+    return op;
 
   }else if(e.inns.size()==2){
+    scalarop_t join = e.join;
+
+    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+
+    auto binary = std::get<cutensor_scalarop_t::binary_t>(cutensor_scalarop.op);
+
+    cutensor_scalarop_t::arg_t a0 = convert_arg(binary.a0, e.inns[0]);
+    cutensor_scalarop_t::arg_t a1 = convert_arg(binary.a1, e.inns[1]);
+    cutensorOperator_t op_0_1 = convert_op(binary.op_0_1);
+
+    cutensor_elementwise_op_t::ternary_t bi_op{
+      op_0_1,
+      a0,
+      a1
+    };
+
+    op.op = bi_op;
+
+    return op;
 
   }else if(e.inns.size()==3){
+    scalarop_t join = e.join;
+
+    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+    auto ternary = std::get<cutensor_scalarop_t::ternary_t>(cutensor_scalarop.op);
+
+    cutensor_scalarop_t::arg_t a0 = convert_arg(ternary.a0, e.inns[0]);
+    cutensor_scalarop_t::arg_t a1 = convert_arg(ternary.a1, e.inns[1]);
+    cutensor_scalarop_t::arg_t a2 = convert_arg(ternary.a2, e.inns[2]);
+    cutensorOperator_t op_01_2 = convert_op(ternary.op_01_2);
+    cutensorOperator_t op_0_1 = convert_op(ternary.op_0_1);
+
+    cutensor_elementwise_op_t::ternary_t ter_op{
+      op_01_2,
+      op_0_1,
+      a0,
+      a1,
+      a2
+    };
+
+    op.op = ter_op;
+
+    return op;
+    
     //op.op = cutensor_elementwise_op_t::ternary_t{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}};
 
     //cutensor_elementwise_op_t op = {e.joinshape,{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}}}

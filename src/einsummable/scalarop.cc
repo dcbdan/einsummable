@@ -1183,6 +1183,152 @@ bool scalarop_t::is_max() const {
   return *this == make_max(node.dtype);
 }
 
+
+
+cutensor_scalarop_t::arg_t setUpArg(node_t node){
+  if(node.op.is_hole()){
+    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.dtype),cutensor_scalarop_t::cop_t::identity};
+    return arg;
+  }else if(node.op.num_inputs==1){ //so unary op
+    cutensor_scalarop_t::cop_t op;
+    if(node.op.is_exp()){
+      op = cutensor_scalarop_t::cop_t::exp;
+    }else if(node.op.is_mul{}){
+      op = cutensor_scalarop_t::cop_t::pow;
+    }
+    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.children[0].dtype),op};
+    return arg;
+  }else if(node.op.num_inputs==2){ //so binary op
+    node_t ordered_node = node.normalize_order();
+
+    vector<node_t> children = ordered_node.children;
+    node_t& lhs = children[0];
+    node_t& rhs = children[1];
+
+    scalar_t value = lhs.op.get_constant();
+
+    if(rhs.op.is_hole()){
+      cutensor_scalarop_t::arg_t arg {value,cutensor_scalarop_t::cop_t::identity};
+      return arg;
+    }else if(rhs.op.num_inputs==1){ //so unary op
+      cutensor_scalarop_t::cop_t op;
+      if(rhs.op.is_exp()){
+        op = cutensor_scalarop_t::cop_t::exp;
+      }else if(rhs.op.is_mul{}){
+        op = cutensor_scalarop_t::cop_t::pow;
+      }
+      cutensor_scalarop_t::arg_t arg {value,op};
+      return arg;
+    }
+  }
+  return std::nullopt;
+}
+
+
+
+optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop(){
+  if(scalarop.num_inputs()==1){
+    cutensor_scalarop_t::arg_t arg = setUpArg(node);
+
+    cutensor_scalarop_t::binary_t unary_op{arg};
+
+    cutensor_scalarop_t unary_scalarop;
+    unary_scalarop.op = unary_op;
+    return unary_scalarop;
+
+  }else if(scalarop.num_inputs()==2){
+    if(node.op.num_inputs()!=2){
+      throw std::runtime_error("parent node need to be binary op");
+    }
+
+    cutensor_scalarop_t::cop_t op_0_1;
+
+    if(node.op.is_add()){
+      op_0_1 = cutensor_scalarop_t::cop_t::add;
+    }else if(node.op.is_mul()){
+      op_0_1 = cutensor_scalarop_t::cop_t::mul;
+    }
+
+    node_t ordered_node = node.normalize_order();
+
+    vector<node_t> node_children = ordered_node.children;
+    node_t& h0 = node_children[0];
+    node_t& h1 = node_children[1];
+
+    cutensor_scalarop_t::arg_t a0 = setUpArg(h0);
+    cutensor_scalarop_t::arg_t a1 = setUpArg(h1);
+
+    cutensor_scalarop_t::binary_t bi_op{
+      op_0_1,
+      a0,
+      a1
+    };
+
+    cutensor_scalarop_t binary_scalarop;
+    binary_scalarop.op = bi_op;
+    return binary_scalarop;
+
+  }else if(scalarop.num_inputs()==3){
+    if(node.op.num_inputs()!=2){
+      throw std::runtime_error("parent node need to be binary op");
+    }
+
+    cutensor_scalarop_t::cop_t op_01_2;
+
+    if(node.op.is_add()){
+      op_01_2 = cutensor_scalarop_t::cop_t::add;
+    }else if(node.op.is_mul()){
+      op_01_2 = cutensor_scalarop_t::cop_t::mul;
+    }
+
+    node_t ordered_node = node.normalize_order();
+
+    vector<node_t> children = ordered_node.children;
+    node_t& lhs = children[0];
+    node_t& rhs = children[1];
+
+    cutensor_scalarop_t::arg_t a2 = setUpArg(rhs);
+
+    if(lhs.op.num_inputs()!=2){
+      throw std::runtime_error("parent node need to be binary op");
+    }
+
+    cutensor_scalarop_t::cop_t op_0_1;
+
+    if(lhs.op.is_add()){
+      op_0_1 = cutensor_scalarop_t::cop_t::add;
+    }else if(lhs.op.is_mul()){
+      op_0_1 = cutensor_scalarop_t::cop_t::mul;
+    }
+
+    node_t ordered_lhs = lhs.normalize_order();
+
+    vector<node_t> lhs_children = ordered_lhs.children;
+    node_t& h0 = lhs_children[0];
+    node_t& h1 = lhs_children[1];
+
+    cutensor_scalarop_t::arg_t a0 = setUpArg(h0);
+    cutensor_scalarop_t::arg_t a1 = setUpArg(h1);
+
+    cutensor_scalarop_t::ternary_t ter_op{
+      op_01_2,
+      op_0_1,
+      a0,
+      a1,
+      a2
+    };
+
+    cutensor_scalarop_t ternary_scalarop;
+    ternary_scalarop.op = ter_op;
+    return ternary_scalarop;
+  }
+  
+  return std::nullopt;
+}
+
+
+
+
 bool scalarop_t::is_constant_of(scalar_t val) const {
   return node.op.is_constant() && node.op.get_constant() == val;
 }
