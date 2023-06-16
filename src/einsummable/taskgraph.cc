@@ -34,6 +34,35 @@ touch_t touch_t::simplify() const {
   };
 }
 
+vector<touchdim_t> make_touch_selection_from_full_small(
+  vector<tuple<uint64_t, uint64_t>> const& full,
+  vector<tuple<uint64_t, uint64_t>> const& small)
+{
+  if(full.size() != small.size()) {
+    throw std::runtime_error("mtsffs: incorrect sizes");
+  }
+
+  vector<touchdim_t> ret;
+  ret.reserve(full.size());
+  for(int i = 0; i != full.size(); ++i) {
+    auto const& [fb,fe] = full[i];
+    auto const& [sb,se] = small[i];
+    if(fb <= sb && sb < se && se <= fe) {
+      ret.push_back(touchdim_t {
+        .d_inn = se-sb,
+        .d_out = fe-fb,
+        .offset_inn = 0,
+        .offset_out = sb-fb,
+        .size = se-sb
+      });
+    } else {
+      throw std::runtime_error("mtsffs: invalid");
+    }
+  }
+
+  return ret;
+}
+
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.
@@ -120,6 +149,24 @@ vector<tuple<int,int>> get_concat_input_region(
 
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
+struct tg_region_t {
+  vector<tuple<int,int>> region;
+
+  std::size_t hash() const;
+
+  vector<int> shape() const;
+};
+
+template <> struct std::hash<tg_region_t> {
+  inline std::size_t operator()(tg_region_t const& t) const
+  {
+    return t.hash();
+  }
+};
+
+bool operator==(tg_region_t const& lhs, tg_region_t const& rhs);
+bool operator!=(tg_region_t const& lhs, tg_region_t const& rhs);
+
 // Note that to_complex and to_real graph_t operations should
 // become no ops at the taskgraph level when the partitions
 // line up.
@@ -179,6 +226,22 @@ struct taskgraph_make_state_t {
   map<int, multiple_tensor_t> refined_tensors;
   // ^ wrt real
 
+  // (tg_region_t is just vector<tuple<int,int>> with a hash
+  //  for unordered_map)
+  // gid -> region -> list of (loc, tid) pairs
+  vector< // TODO: initialize to graph length
+    std::unordered_map<
+      tg_region_t,
+      vector<multiple_tensor_t::locid_t>
+    >
+  > access_cache;
+
+  int access(
+    int gid,
+    vector<tuple<uint64_t, uint64_t>> const& hrect,
+    int loc);
+  // ^ wrt real
+
   // Partialize the data into the partial ids at outs.
   void relational_touch(
     dtype_t dtype,
@@ -210,6 +273,8 @@ struct taskgraph_make_state_t {
     bool wrt_graph = true);
 
   vtensor_t<int> form_concat(int gid);
+
+  vtensor_t<int> form_subset(int gid);
 
   // this will form the inputs as required
   vtensor_t<int> compute_einsummable(int gid);
@@ -309,6 +374,65 @@ taskgraph_t::make(
   }
 
   return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
+}
+
+int taskgraph_make_state_t::access(
+  int gid,
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  int loc)
+{
+  auto const& refined_tensor = refined_tensors.at(gid);
+  auto const& refined_part = refined_tensor.partition;
+
+  tg_region_t key = {
+    refined_part.get_exact_region(hrect)
+  };
+  auto const& region = key.region;
+
+  if(product(key.shape()) == 1) {
+    // This is just a tid in refined_tensor
+    return refined_tensor.at(vector_mapfst(region), loc);
+  }
+
+  // See if the cache already has this (gid, key, loc) pair
+  auto& locids = access_cache[gid][key];
+
+  for(auto const& [a_loc,a_id]: locids) {
+    if(a_loc == loc) {
+      return a_id;
+    }
+  }
+
+  // Otherwise, create it from refined_tensor and insert into the cache
+
+  dtype_t dtype = graph.out_dtype(gid);
+  if(dtype_is_complex(dtype)) {
+    dtype = this->complex_to_real(dtype);
+  }
+
+  int builder_id = taskgraph.new_partial(loc, dtype, hrect_shape(hrect));
+
+  auto inn_idx = vector_mapfst(region);
+  do {
+    int const& inn_id = refined_tensor.at(inn_idx, loc);
+    auto inn_hrect = refined_part.get_hrect(inn_idx);
+
+    // form the touch
+    touch_t touch {
+      .selection = make_touch_selection_from_full_small(hrect, inn_hrect),
+      .castable = std::nullopt,
+      .dtype = dtype
+    };
+
+    taskgraph.add_to_partial(builder_id, inn_id, touch);
+  } while(increment_idxs_region(region, inn_idx));
+
+  locids.push_back(multiple_tensor_t::locid_t {
+    .loc = loc,
+    .id = builder_id
+  });
+
+  return builder_id;
 }
 
 void taskgraph_make_state_t::relational_touch(
@@ -662,6 +786,13 @@ taskgraph_make_state_t::form_concat(int gid) {
 }
 
 vtensor_t<int>
+taskgraph_make_state_t::form_subset(int gid) {
+  graph_t::node_t const& node = graph.nodes.at(gid);
+  placement_t const& pl = placements.at(gid);
+  // TODO
+}
+
+vtensor_t<int>
 taskgraph_make_state_t::compute_input(int gid) {
   graph_t::node_t const& node = graph.nodes[gid];
   placement_t const& pl = placements[gid];
@@ -755,6 +886,10 @@ taskgraph_make_state_t::form_relation(int gid)
       return form_from_refinement(inn_gid, double_last_dim(placements.at(gid)));
     }
   }
+  // TODO
+  //if(node.op.is_subset()) {
+  //  return form_subset(gid);
+  //}
   if(node.op.is_concat()) {
     return form_concat(gid);
   }
@@ -907,6 +1042,8 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid) const
               which_input));
         }
       }
+    //} else if(out_node.op.is_subset()) {
+    //  // TODO
     } else {
       throw std::runtime_error(
           "taskgraph state construct refinement placement: "
@@ -1690,6 +1827,41 @@ std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
   auto const& [loc,id] = x;
   out << "loc" << loc << "id" << id;
   return out;
+}
+
+inline std::size_t tg_region_t::hash() const {
+  auto const& xys = region;
+
+  if(xys.size() == 0) {
+    return 0;
+  }
+
+  std::hash<int> h;
+  auto const& [x0,y0] = xys[0];
+  auto ret = h(x0);
+  hash_combine_impl(ret, h(y0));
+  for(int i = 1; i != xys.size(); ++i) {
+    auto const& [x,y] = xys[i];
+    hash_combine_impl(ret, h(x));
+    hash_combine_impl(ret, h(y));
+  }
+  return ret;
+}
+
+inline vector<int> tg_region_t::shape() const {
+  vector<int> ret;
+  ret.reserve(region.size());
+  for(auto const& [x,y]: region) {
+    ret.push_back(y-x);
+  }
+  return ret;
+}
+
+bool operator==(tg_region_t const& lhs, tg_region_t const& rhs) {
+  return vector_equal(lhs.region, rhs.region);
+}
+bool operator!=(tg_region_t const& lhs, tg_region_t const& rhs) {
+  return !(lhs == rhs);
 }
 
 int taskgraph_t::insert_input(

@@ -12,6 +12,12 @@ struct touchdim_t {
   uint64_t size;
 };
 
+// Note: this is basically hrect_center but it
+//       returns a touchdim_t
+vector<touchdim_t> make_touch_selection_from_full_small(
+  vector<tuple<uint64_t, uint64_t>> const& full,
+  vector<tuple<uint64_t, uint64_t>> const& small);
+
 struct touch_t {
   vector<touchdim_t> selection;
   optional<castable_t> castable;
