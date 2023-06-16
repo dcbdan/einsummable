@@ -212,7 +212,7 @@ tensor_t attention_t::forward(
 
   scalarop_t scale = scalarop_t::make_scale(
     scalar_t(dtype, write_with_ss(
-      1.0 / (std::sqrt(1.0d * args.head_dim()))
+      1.0 / (std::sqrt(double(1.0) * args.head_dim()))
     ))
   );
 
@@ -348,7 +348,7 @@ map<int, string> transformer_block_t::input_map() const {
   }
 
   // TODO: attention_norm and ffn_norm mappings
-  return {};
+  return input_names;
 }
 
 tensor_t transformer_block_t::forward(
