@@ -480,7 +480,7 @@ taskgraph_t::make(
     throw std::runtime_error("In taskgraph_t::make: non-saved outputs");
   }
 
-  auto maybe_simplified =
+  optional<tuple<map<int,int>, taskgraph_t>> maybe_simplified =
     state.taskgraph.remove_passthrough_partials();
 
   if(maybe_simplified) {
@@ -497,6 +497,11 @@ taskgraph_t::make(
     }
     for(auto& [_, tids]: saves) {
       correct(tids);
+      for(auto const& tid: tids.get()) {
+        if(!new_tg.nodes[tid].is_save) {
+          throw std::runtime_error("unsaved node should be saved");
+        }
+      }
     }
 
     return {std::move(inns), std::move(saves), std::move(new_tg)};
@@ -2236,6 +2241,46 @@ set<int> taskgraph_t::collect_passthrough_partials() const
   return ret;
 }
 
+struct _reach_past_t {
+  taskgraph_t const& taskgraph;
+  set<int> const& pts;
+
+  void operator()(int id) {
+    recurse(id);
+  }
+
+  vector<int> recurse(int id) {
+    auto const& p = taskgraph.nodes[id].op.get_partialize();
+    vector<int> ret;
+    for(auto const& [inn_id, touch]: p.as_touches_from_flat()) {
+      if(pts.count(inn_id) == 0) {
+        values.emplace_back(inn_id, touch);
+        ret.push_back(values.size()-1);
+      } else {
+        vector<int> whiches = recurse(inn_id);
+        for(int which: whiches) {
+          auto& [_, t] = values[which];
+          t = touch_compose(t, touch);
+        }
+        vector_concatenate_into(ret, whiches);
+      }
+    }
+    return ret;
+  }
+
+  vector<tuple<int, touch_t>> values;
+};
+
+vector<tuple<int, touch_t>> _reach_past(
+  taskgraph_t const& taskgraph,
+  set<int> const& pts,
+  int root_id)
+{
+  _reach_past_t reacher { taskgraph, pts };
+  reacher(root_id);
+  return reacher.values;
+}
+
 optional<
   tuple<
     map<int, int>,
@@ -2254,6 +2299,9 @@ taskgraph_t::remove_passthrough_partials() const
     return remap.at(id);
   };
 
+  using partialize_t = taskgraph_t::partialize_t;
+  using op_t = taskgraph_t::op_t;
+
   for(int id: get_order()) {
     // skip all the pass through partializes;
     // they will be reached pass
@@ -2262,8 +2310,22 @@ taskgraph_t::remove_passthrough_partials() const
     }
     auto const& node = nodes[id];
     if(node.op.is_partialize()) {
-      // TODO reach pass the passthrough partializes
-      // TODO: make sure in touch_compose dtypes are well (complex vs real?)
+      // TODO: need to do what with dtypes?
+      auto const& partialize = node.op.get_partialize();
+      auto const& loc = partialize.loc;
+
+      // Find every touch path (example: ->here , pt->pt->pt->here, pt->here)
+      // and compose the touches. Use the
+      //   1. find every touch path through pass through partials to here
+      //   2. compose all those paths
+      //   3. create a new partialize that, if necc, makes smaller units
+      vector<tuple<int, touch_t>> all_ts = _reach_past(*this, pts, id);
+      for(auto& [inn_id, touch]: all_ts) {
+        inn_id = f_remap(inn_id);
+      }
+      partialize_t new_partialize = partialize_t::make_from_touches(loc, all_ts);
+      int new_id = new_tg.insert(new_partialize, node.is_save);
+      remap.insert({id, new_id});
     } else {
       // In this case, just remap the op
       int new_id = new_tg.insert(node.op.remap(f_remap), node.is_save);
@@ -2681,6 +2743,145 @@ taskgraph_t::partialize_t::as_touches_from() const {
     }
   }
   return rets;
+}
+
+taskgraph_t::partialize_t
+taskgraph_t::partialize_t::make_from_touches(
+  int loc,
+  vector<tuple<int, touch_t>> const& inn_touches)
+{
+  if(inn_touches.size() == 0) {
+    throw std::runtime_error("make_from_touches empty input");
+  }
+
+  vector<uint64_t> write_shape = vector_from_each_member(
+    std::get<1>(inn_touches[0]).selection, uint64_t, d_out);
+
+  // make sure all the touches have the same write shape
+  for(int i = 1; i != inn_touches.size(); ++i) {
+    vector<uint64_t> write_shape_ = vector_from_each_member(
+      std::get<1>(inn_touches[i]).selection, uint64_t, d_out);
+    if(!vector_equal(write_shape, write_shape_)) {
+      throw std::runtime_error("these touches should all have the same shape");
+    }
+  }
+
+  dtype_t dtype = std::get<1>(inn_touches[0]).dtype;
+  for(int i = 1; i != inn_touches.size(); ++i) {
+    if(dtype != std::get<1>(inn_touches[i]).dtype) {
+      throw std::runtime_error("these touches should have the same dtype");
+    }
+  }
+
+  int rank = write_shape.size();
+  partition_t refinement = [&]{
+    vector<vector<partdim_t>> pds;
+    pds.resize(rank);
+
+    for(auto const& [_, touch]: inn_touches) {
+      for(int i = 0; i != rank; ++i) {
+        auto const& td = touch.selection[i];
+        if(td.offset_out == 0) {
+          if(td.size == td.d_out) {
+            pds[i].push_back(partdim_t::from_spans({td.d_out}));
+          } else {
+            pds[i].push_back(partdim_t::from_spans({td.size, td.d_out}));
+          }
+        } else {
+          if(td.offset_out + td.size == td.d_out) {
+            pds[i].push_back(partdim_t::from_spans({
+              td.offset_out,
+              td.d_out}));
+          } else {
+            pds[i].push_back(partdim_t::from_spans({
+              td.offset_out,
+              td.offset_out + td.size,
+              td.d_out}));
+          }
+        }
+      }
+    }
+
+    vector<partdim_t> partdims;
+    partdims.reserve(rank);
+    for(auto const& pd: pds) {
+      partdims.push_back(partdim_t::unions(pd));
+    }
+    return partition_t(partdims);
+  }();
+
+  auto block_shape = refinement.block_shape();
+
+  vtensor_t<partial_unit_t> units(block_shape);
+
+  // fill out each unit's out_region
+  vector<int> idx(rank, 0);
+  do {
+    auto hrect = refinement.get_hrect(idx);
+    auto& unit = units.at(idx);
+    unit.out_region.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      auto [b,e] = hrect[i];
+      unit.out_region.push_back(out_regiondim_t {
+        .offset = b,
+        .size = e-b
+      });
+    }
+  } while(increment_idxs(block_shape, idx));
+
+  // for each touch, add itself to the partial_unit
+  for(auto const& [inn_id, touch]: inn_touches) {
+    vector<tuple<uint64_t, uint64_t>> base_hrect;
+    base_hrect.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      auto const& td = touch.selection[i];
+      base_hrect.emplace_back(td.offset_out, td.offset_out + td.size);
+    }
+    // it could be the case that this touch spans multiple blocks
+    auto region = refinement.get_exact_region(base_hrect);
+    vector<int> idx = vector_mapfst(region);
+    do {
+      auto hrect = refinement.get_hrect(idx);
+      auto& unit = units.at(idx);
+
+      if(unit.inputs.size() == 0) {
+        unit.castable = touch.castable;
+      } else {
+        if(unit.castable != touch.castable) {
+          throw std::runtime_error("must have same castable across a unit");
+        }
+      }
+
+      unit.inputs.push_back(input_op_t {
+        .id = inn_id,
+        .consumable = false,
+        .region = {}
+      });
+      auto& inn_rds = unit.inputs.back().region;
+      for(int i = 0; i != rank; ++i) {
+        auto const& td = touch.selection[i];
+        auto const& [fb,_0] = base_hrect[i];
+        auto const& [hb,_1] = hrect[i];
+        inn_rds.push_back(inn_regiondim_t {
+          .dim = td.d_inn,
+          .offset = td.offset_inn + (hb-fb)
+        });
+      }
+    } while(increment_idxs_region(region, idx));
+  }
+
+  partialize_t ret{
+    .loc = loc,
+    .dtype = dtype,
+    .write_shape = write_shape,
+    .units = std::move(units.get())
+  };
+
+  if(!ret.valid()) {
+    throw std::runtime_error("invalid return from make_from_touches");
+  }
+
+  return ret;
 }
 
 tuple<int, touch_t>

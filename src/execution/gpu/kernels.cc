@@ -270,7 +270,7 @@ void execute_contraction(
 {
   typedef float floatTypeCompute;
   floatTypeCompute alpha = (floatTypeCompute)1.0f;
-  floatTypeCompute beta  = (floatTypeCompute)1.0f;
+  floatTypeCompute beta  = (floatTypeCompute)0.0f;
 
   // Set the algorithm to use
   cutensorContractionFind_t find;

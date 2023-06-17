@@ -263,6 +263,13 @@ private:
     vector<vector<tuple<int, touch_t> > > as_touches_from() const;
     tuple<int, touch_t> get_touch(int which_unit, int which_touch_in_unit) const;
 
+    vector<tuple<int, touch_t>> as_touches_from_flat() const {
+      return vector_flatten(as_touches_from());
+    }
+
+    static partialize_t make_from_touches(
+      int loc, vector<tuple<int, touch_t>> const&);
+
     // determine if the entire write shape has been touched
     // by exactly one unit
     bool valid() const;
@@ -352,7 +359,7 @@ public:
   };
 
   struct node_t {
-    node_t(op_t op, bool is_save): op(op), is_save(false) {}
+    node_t(op_t op, bool is_save): op(op), is_save(is_save) {}
 
     op_t op;
     set<int> outs;
@@ -400,3 +407,4 @@ bool operator!=(
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
+

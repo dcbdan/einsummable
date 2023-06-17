@@ -203,7 +203,7 @@ void main05() {
   }
 }
 
-void test_make_taskgraph(
+taskgraph_t test_make_taskgraph(
   graph_t const& graph,
   vector<placement_t> const& placements,
   map<int, dbuffer_t> full_inns)
@@ -262,9 +262,10 @@ void test_make_taskgraph(
     //     throw std::runtime_error("make_taskgraph_test fail");
     //   }
   }
+  return taskgraph;
 }
 
-void test_make_taskgraph(
+taskgraph_t test_make_taskgraph(
   graph_constructor_t const& graph,
   map<int, dbuffer_t> full_inns)
 {
@@ -749,7 +750,7 @@ void main12() {
   run(1, {2,1,2});
 }
 
-void test_random_concat(
+taskgraph_t test_random_concat(
   int dim,
   vector<uint64_t> shape_template,
   int n_inn,
@@ -809,7 +810,7 @@ void test_random_concat(
     DOUT(pls.back().partition);
   }
 
-  test_make_taskgraph(g, pls, inn_tensors);
+  return test_make_taskgraph(g, pls, inn_tensors);
 }
 
 void main13() {
@@ -1024,7 +1025,7 @@ void test_with_complex_matmul() {
   }
 }
 
-int main_pass_through_partials_stuff() {
+void main_pass_through_partials_stuff() {
   {
     taskgraph_t tg;
     dtype_t dtype = default_dtype();
@@ -1084,7 +1085,7 @@ int main_pass_through_partials_stuff() {
   }
 }
 
-int main() {
+void main_touch_compose() {
   auto make_1d_touch = [](vector<uint64_t> v) {
     return touch_t {
       .selection = { touchdim_t {
@@ -1146,17 +1147,17 @@ int main() {
 //  //}
 //}
 
-//int main() {
-//  // Here are some concat ops inserting too many partializes;
-//  // see if a simplified can be made
-//
-//  // Example 1 (example1.gv)
-//  //set_seed(0);
-//  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
-//
-//  // Example 2 (example2.gv)
-//  //set_seed(0);
-//  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
-//}
+int main() {
+  // Here are some concat ops inserting too many partializes;
+  // see if a simplified can be made
+
+  // Example 1 (example1.gv)
+  set_seed(0);
+  taskgraph_t tg = test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+
+  // Example 2 (example2.gv)
+  //set_seed(0);
+  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
+}
 
 
