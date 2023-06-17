@@ -8,17 +8,20 @@
 #include <fstream>
 #include <memory>
 
-void check_correctness(memgraph_t memgraph, int num_elems){
+void check_correctness(memgraph_t memgraph){
     // print a message
     std::cout << "Checking correctness" << std::endl;
-  // create a buffer
+    // create a buffer
+    auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
     dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-    d.random("-1.0", "1.0");
+    // d.random("-1.0", "1.0");
+    d.fill(scalar_t(float(2.0)));
     buffer_t b = d.data;
     auto cpu_ptr = b->data;
     auto size = b->size;
+    printFloatCPU(reinterpret_cast<const float*>(cpu_ptr), num_elems);
     // allocate a buffer on GPU
-    auto gpu_ptr = gpu_allocate_memory(num_elems * sizeof(float));
+    auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0]);
     // copy data from CPU to GPU
     if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) != cudaSuccess) {
         throw std::runtime_error("cudaMemcpy");

@@ -201,13 +201,13 @@ void gpu_execute_state_t::run() {
                     ("Error: All nodes finished execution but there are still nodes in the queue.");
             }
             else{
-                // int num_elements = 100;
+                int num_elements = 100;
                 // std::cout << "Input 1: ";
-                // printFloatGPU(memory_base_ptr, num_elements);
+                printFloatGPU(memory_base_ptr, num_elements);
                 // std::cout << "Input 2: ";
-                // printFloatGPU(memory_base_ptr + 100, num_elements);
-                // std::cout << "Output: ";
-                // printFloatGPU(memory_base_ptr + 200, num_elements);
+                printFloatGPU(memory_base_ptr + 100, num_elements);
+                std::cout << "Output: ";
+                printFloatGPU(memory_base_ptr + 200, num_elements);
                 std::cout << "All nodes finished execution." << std::endl;
                 break;
             }
@@ -271,8 +271,18 @@ void gpu_execute_state_t::run() {
                         auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
                         if (einsum_iter == einsum_to_contraction.end()) {
                             throw std::runtime_error
-                                ("Error: contraction descriptor not found in the map.");
+                                ("Error: contraction descriptor not found in the map of contraction plans.");
                         }
+                        // // print offsets
+                        // std::cout << "Offset 1: " << memory_vector[1].offset << std::endl;
+                        // std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
+                        // // print inputs
+                        // std::cout << "Input 1: ";
+                        // printFloatGPU(offset_increment(memory_base_ptr , memory_vector[1].offset), 100);
+                        // std::cout << "Input 2: ";
+                        // printFloatGPU(offset_increment(memory_base_ptr , memory_vector[2].offset), 100);
+                        // std::cout << "Output: ";
+                        // printFloatGPU(offset_increment(memory_base_ptr , memory_vector[0].offset), 100);
                         auto contraction_descriptor = einsum_iter->second;
                         execute_contraction(stream, handle,& contraction_descriptor, 
                             offset_increment(memory_base_ptr, memory_vector[0].offset),
