@@ -3,6 +3,7 @@
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/scalarop.h"
 #include "../src/execution/gpu/execute.h"
+#include "GPU_correctness.cc"
 
 #include <cstdio>
 #include <fstream>
@@ -31,6 +32,7 @@ void mem_check(memgraph_t const& m){
     }
   }
 }
+
 
 struct random_placement_t {
   placement_t operator()(vector<uint64_t> const& total_shape) {
@@ -127,6 +129,5 @@ int main() {
     mem_check(memgraph);
     
     uint64_t buffer_size = 0;
-    execute(memgraph);
     
 }

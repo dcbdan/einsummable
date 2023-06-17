@@ -3,9 +3,12 @@
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/scalarop.h"
 #include "../src/execution/gpu/execute.h"
+#include "../src/einsummable/reference.h"
+#include "GPU_correctness.cc"
 
 #include <fstream>
 #include <memory>
+
 
 void main01() {
 std::cout << "trying to test new allocator_t" << std::endl;
@@ -103,7 +106,6 @@ int main(int argc, char** argv) {
     std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
     std::ofstream f("mm3d_mem_lowest_dep.gv");
     memgraph.print_graphviz(f);
-    uint64_t buffer_size = 0;
-    execute(memgraph);
+    check_correctness(memgraph, pi * pk * di * dk);
   }
 }

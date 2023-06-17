@@ -30,13 +30,14 @@ using memgraph_t = memgraph_t;
 void test();
 
 
-// given a memgraph, traverse the graph and get all the dependencies of a node represented by node.inns()
+// given a memgraph, traverse the graph and get all 
+// the dependencies of a node represented by node.inns()
 // return a map from the node to the number of its dependencies
-std::map<int, int> get_dependencies(const memgraph_t &memgraph);
+std::map<int, int> get_dependencies(memgraph_t const& memgraph);
 
 // check if the memgraph traversal is complete
 // (are the dependency count of all nodes going to 0?)
-bool is_complete(std::map<int, int> &dependency_count);
+bool is_complete(std::map<int, int>& dependency_count);
 
 // return a memory pointer that is allocated on the gpu
 // uses cudaMalloc
@@ -45,16 +46,17 @@ float* gpu_allocate_memory(size_t size);
 // debugging; set all the values in the memory to a specific value
 void init_value(float* ptr, int count, float value);
 
-void printFloatCPU(const float* ptr, int count);
+void printFloatCPU(float const* ptr, int count);
 
 struct gpu_execute_state_t 
 {
-    const memgraph_t &memgraph;
+    memgraph_t const& memgraph;
     // buffer_t gpu_memory;
     // maintain a queue of tasks that are pending to be executed
     std::queue<int> pending_queue;
 
-    // if we are not modifying the original memgraph, we can use a map to store the dependency count of each node
+    // if we are not modifying the original memgraph, we can use a map 
+    // to store the dependency count of each node
     // key: node index, value: dependency count of that node
     // whenever a node finishes execution, we decrement the dependency count of all its output
     // if the dependency count of a node reaches 0, we add it to the pending_queue
@@ -66,9 +68,11 @@ struct gpu_execute_state_t
     std::map<int, int> num_nodes_remaining;
 
     // keep track of the group id of the touches that are executing
-    // if we have a new touch and its group id is in the list, we need to wait for the previous touch to finish
+    // if we have a new touch and its group id is in the list, 
+    // we need to wait for the previous touch to finish
     std::set<int> group_id_executing;
-    // keep a map from group id to the a queue of nodes waiting for the previous touch with the same id to finish
+    // keep a map from group id to the a queue of nodes waiting 
+    // for the previous touch with the same id to finish
     std::map<int, std::queue<int>> groupID_to_nodeIDX;
 
     cutensorHandle_t* handle;
@@ -86,7 +90,8 @@ struct gpu_execute_state_t
     // remember to throw an error if the node is not a contraction but trying to access the map
     // map<int, cutensorContractionPlan_t> cutensor_plans;
 
-    gpu_execute_state_t(const memgraph_t &input_memgraph): memgraph(input_memgraph) {
+    gpu_execute_state_t(memgraph_t const& input_memgraph, float* mem_ptr): 
+        memgraph(input_memgraph), memory_base_ptr(mem_ptr) {
 
         // create a cutensor handle
         HANDLE_ERROR( cutensorCreate(&handle) );
@@ -121,7 +126,8 @@ struct gpu_execute_state_t
                     {
                         // create a cutensor descriptor
                         cutensorContractionDescriptor_t desc;
-                        // when building the contraction we already merge the adjacent dims so we don't need to do it here
+                        // when building the contraction we already merge
+                        // the adjacent dims so we don't need to do it here
                         build_contraction(&desc, handle, my_einsum_merged);
                         // add the contraction to the map
                         einsum_to_contraction[my_einsum_merged] = desc;
@@ -131,7 +137,7 @@ struct gpu_execute_state_t
         }
         std::cout << "mem_size: " << mem_size << std::endl;
         // allocate memory for the gpu
-        memory_base_ptr = gpu_allocate_memory(mem_size * sizeof(float));
+        memory_base_ptr = mem_ptr;
         std::cout << "Initializing all values of the inputs to 1" << std::endl;
         init_value(memory_base_ptr, 200, 1);
         std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
@@ -141,4 +147,4 @@ struct gpu_execute_state_t
 };
 
 
-void execute(const memgraph_t &memgraph);
+void execute(memgraph_t const& memgraph, float* memory_base_ptr);
