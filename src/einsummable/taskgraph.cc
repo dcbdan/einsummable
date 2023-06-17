@@ -2061,6 +2061,46 @@ uint64_t taskgraph_t::get_size_at(int id) const
   return nodes[id].op.out_size();
 }
 
+bool taskgraph_t::is_passthrough_partial(int id) const {
+  auto const& node = nodes[id];
+  if(node.is_save || !node.op.is_partialize()) {
+    return false;
+  }
+  auto const& p = node.op.get_partialize();
+  if(p.does_agg()) {
+    return false;
+  }
+  for(auto const& out: node.outs) {
+    if(!nodes[out].op.is_partialize()) {
+      return false;
+    }
+  }
+
+  // Now make sure that each partialize uses this node with
+  // it's write shape
+  for(auto const& out: node.outs) {
+    auto const& p_out = nodes[out].op.get_partialize();
+    for(auto const& used_shape: p_out.inn_shapes_of(id)) {
+      if(!vector_equal(p.write_shape, used_shape)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+set<int> taskgraph_t::collect_passthrough_partials() const
+{
+  set<int> ret;
+  for(int id = 0; id != nodes.size(); ++id) {
+    if(is_passthrough_partial(id)) {
+      ret.insert(id);
+    }
+  }
+  return ret;
+}
+
 vector<int> taskgraph_t::get_order() const {
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
@@ -2554,6 +2594,31 @@ bool taskgraph_t::partialize_t::is_straight_copy() const {
   return false;
 }
 
+bool taskgraph_t::partialize_t::does_agg() const {
+  for(auto const& unit: units) {
+    if(unit.inputs.size() == 0) {
+      throw std::runtime_error("should never happen: unit inputs size 0");
+    }
+    if(unit.inputs.size() > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+vector<vector<uint64_t>>
+taskgraph_t::partialize_t::inn_shapes_of(int inn_id) const {
+  vector<vector<uint64_t>> ret;
+  for(auto const& unit: units) {
+    for(auto const& input: unit.inputs) {
+      if(input.id == inn_id) {
+        ret.push_back(vector_from_each_member(input.region, uint64_t, dim));
+      }
+    }
+  }
+  return ret;
+}
+
 void taskgraph_t::print() const {
   std::cout << "taskgraph[num nodes = " << nodes.size() << "]" << std::endl;
   std::cout << std::endl;
@@ -2585,7 +2650,7 @@ void taskgraph_t::print() const {
       std::cout << "partialize | loc[" << loc << "]" << std::endl;
       for(auto const& ts: node.op.get_partialize().as_touches_from()) {
         for(auto const& [inn,touch]: ts) {
-          DOUT(inn << " " << touch);
+          std::cout << inn << " " << touch << std::endl;
         }
       }
     }

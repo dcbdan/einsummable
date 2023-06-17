@@ -109,9 +109,23 @@ struct taskgraph_t {
 
   uint64_t get_size_at(int id) const;
 
-  // find all partial inputs that can be consumed and
-  // consume them
-  void insert_possible_consumables() { /* TODO */ }
+  // a passthrough partial is a partialize node that
+  // (1) is not a save
+  // (2) does no aggregation and
+  // (3) is only used by other partializes (with the same shape)
+  bool is_passthrough_partial(int id) const;
+
+  set<int> collect_passthrough_partials() const;
+
+  optional<
+    tuple<
+      vtensor_t<int>,
+      vtensor_t<int>,
+      taskgraph_t > >
+  remove_passthrough_partials(
+    vtensor_t<int> const& inns,
+    vtensor_t<int> const& saves) const;
+  // TODO
 
   // for debugging
   void print() const;
@@ -225,6 +239,8 @@ private:
       vector<inn_regiondim_t> region;
     };
     // TODO: Where does consumable get used? How to use it?
+    //       We should be able to determine if it is a consumable without
+    //       this flag so it should be removed, maybe
 
     struct partial_unit_t {
       // Each partial unit can have a different castable.
@@ -250,6 +266,12 @@ private:
     // determine if this op is a direct copy from one
     // buffer to another of the same size
     bool is_straight_copy() const;
+
+    bool does_agg() const;
+
+    // collect all the shapes that id is used as an input
+    // (this should usally be of length 1, but you never know)
+    vector<vector<uint64_t>> inn_shapes_of(int id) const;
 
     int loc;
     dtype_t dtype;
