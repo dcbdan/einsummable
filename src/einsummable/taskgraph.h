@@ -33,6 +33,11 @@ struct touch_t {
   touch_t simplify() const;
 };
 
+// a = x -> y
+// b = y -> z
+// return (x -> z)
+touch_t touch_compose(touch_t const& a, touch_t const& b);
+
 struct regiondim_t {
   uint64_t dim;
   uint64_t offset;
@@ -119,13 +124,12 @@ struct taskgraph_t {
 
   optional<
     tuple<
-      vtensor_t<int>,
-      vtensor_t<int>,
+      map<int, int>,
       taskgraph_t > >
-  remove_passthrough_partials(
-    vtensor_t<int> const& inns,
-    vtensor_t<int> const& saves) const;
-  // TODO
+  remove_passthrough_partials() const;
+  // This simplification maintains that all inn nodes are still there and all
+  // save nodes are still there, but everything inbetween may be different.
+  // A map which is guaranteed to have all source save and inn tids is returned
 
   // for debugging
   void print() const;
@@ -323,24 +327,24 @@ public:
     bool is_valid_if_partialize() const {
       return !is_partialize() || get_partialize().valid();
     }
-    // TODO: figure out where check these don't occur
+    // TODO: check in taskgraph make that these don't occur
     bool is_no_op_partialize() const {
       return is_partialize() && get_partialize().is_straight_copy();
     }
 
-    input_t const& get_input() const {
-      return std::get<input_t>(op);
-    }
-    apply_t const& get_apply() const {
-      return std::get<apply_t>(op);
-    }
-    move_t const& get_move() const {
-      return std::get<move_t>(op);
-    }
+    input_t const& get_input() const { return std::get<input_t>(op); }
+    input_t&       get_input()       { return std::get<input_t>(op); }
+
+    apply_t const& get_apply() const { return std::get<apply_t>(op); }
+    apply_t&       get_apply()       { return std::get<apply_t>(op); }
+
+    move_t const& get_move() const { return std::get<move_t>(op); }
+    move_t&       get_move()       { return std::get<move_t>(op); }
 
     partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
-
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+
+    op_t remap(std::function<int(int)> to_new_tid) const;
 
     vector<vector<tuple<int, touch_t>>> get_touches() const {
       return get_partialize().as_touches_from();

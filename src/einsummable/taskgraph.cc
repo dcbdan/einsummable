@@ -63,6 +63,119 @@ vector<touchdim_t> make_touch_selection_from_full_small(
   return ret;
 }
 
+touch_t touch_compose(touch_t const& a, touch_t const& b) {
+  if(a.dtype != b.dtype) {
+    throw std::runtime_error("cannot touch compose with diff dtypes");
+  }
+  if(a.castable) {
+    throw std::runtime_error("cannot compose if f in f(g(x)) has castable");
+  }
+
+  {
+    vector<uint64_t> a_out_shape = vector_from_each_member(
+      a.selection, uint64_t, d_out);
+    vector<uint64_t> b_inn_shape = vector_from_each_member(
+      b.selection, uint64_t, d_inn);
+    if(!vector_equal(a_out_shape, b_inn_shape)) {
+      throw std::runtime_error(
+        "touch compose x -f> y -g> z: f out g inn shape mismatch");
+    }
+  }
+  int rank = a.selection.size();
+
+  vector<touchdim_t> ss;
+  ss.reserve(rank);
+  for(int i = 0; i != rank; ++i) {
+    auto const& td_xy = a.selection[i];
+    auto const& td_yz = b.selection[i];
+
+    uint64_t const& ox    = td_xy.offset_inn;
+    uint64_t const& oy_xy = td_xy.offset_out;
+    uint64_t const& sx    = td_xy.size;
+
+    uint64_t const& oy_yz = td_yz.offset_inn;
+    uint64_t const& oz    = td_yz.offset_out;
+    uint64_t const& sz    = td_yz.size;
+
+    uint64_t gx, gy, gz;
+
+    // Example:
+    //
+    //        |
+    //  |.    |.
+    //  |.    |.    |.    <- the dots are being touched
+    //  |     |     |
+    //  |     |     |
+    //        |     |
+    //
+    //  x     y     z
+    //
+    //  gx = 1
+    //  gy = 0
+    //  gz = 2  <- these are at the top of each vector
+    //
+    //  bxz = 2 <- these are with respect to all starts shifted
+    //  exz = 3    to the same spot
+    //
+    //  ox    = 0 <- these are the offsets for the two
+    //  oy_xy = 1    transformations (xy) and (yz)
+    //  oy_yz = 2
+    //  oz    = 0
+    //
+    // gx + ox    = gy + oy_xy
+    // gy + oy_yz = gz + oz
+    //
+    // Solve this set of equations such
+    // that gx == 0 || gy == 0 || gz == 0
+    // and gx >= 0, gy >= 0 and gz >= 0
+
+    bool gy_le_gx = ox <= oy_xy;
+    bool gy_le_gz = oz <= oy_yz;
+
+    if(gy_le_gx && gy_le_gz) {
+      gy = 0;
+      gx = oy_xy - ox;
+      gz = oy_yz - oz;
+    } else {
+      if(ox >= oy_xy && oy_yz >= oz) {
+        gx = 0;
+        gy = ox - oy_xy;
+        gz = gy + (oy_yz - oz);
+      } else {
+        gz = 0;
+        if(oz < oy_yz || oy_xy < ox) {
+          throw std::runtime_error("touch compose: is the algebra correct?");
+        }
+        gy = oz - oy_yz;
+        gx = gy + (oy_xy - ox);
+      }
+    }
+
+    uint64_t bx = gx + ox;
+    uint64_t bz = gz + oz;
+
+    uint64_t ex = bx + sx;
+    uint64_t ez = bz + sz;
+
+    uint64_t b_xz = std::max(bx, bz);
+    uint64_t e_xz = std::min(ex, ez);
+
+    ss.push_back(touchdim_t {
+      .d_inn      = td_xy.d_inn,
+      .d_out      = td_yz.d_out,
+      .offset_inn = b_xz - gx,
+      .offset_out = b_xz - gz,
+      .size       = e_xz - b_xz
+    });
+  }
+
+  return touch_t {
+    .selection = ss,
+    .castable = b.castable,
+    .dtype = b.dtype
+  };
+}
+
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.
@@ -367,7 +480,29 @@ taskgraph_t::make(
     throw std::runtime_error("In taskgraph_t::make: non-saved outputs");
   }
 
-  return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
+  auto maybe_simplified =
+    state.taskgraph.remove_passthrough_partials();
+
+  if(maybe_simplified) {
+    auto const& [to_new_tg, new_tg] = maybe_simplified.value();
+
+    auto correct = [&](vtensor_t<int>& tids) {
+      for(auto& tid: tids.get()) {
+        tid = to_new_tg.at(tid);
+      }
+    };
+
+    for(auto& [_, tids]: inns) {
+      correct(tids);
+    }
+    for(auto& [_, tids]: saves) {
+      correct(tids);
+    }
+
+    return {std::move(inns), std::move(saves), std::move(new_tg)};
+  } else {
+    return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
+  }
 }
 
 int taskgraph_make_state_t::access(
@@ -2101,6 +2236,45 @@ set<int> taskgraph_t::collect_passthrough_partials() const
   return ret;
 }
 
+optional<
+  tuple<
+    map<int, int>,
+    taskgraph_t > >
+taskgraph_t::remove_passthrough_partials() const
+{
+  set<int> pts = collect_passthrough_partials();
+  if(pts.size() == 0) {
+    return std::nullopt;
+  }
+
+  map<int, int> remap;
+  taskgraph_t new_tg;
+
+  auto f_remap = [&remap](int id) {
+    return remap.at(id);
+  };
+
+  for(int id: get_order()) {
+    // skip all the pass through partializes;
+    // they will be reached pass
+    if(pts.count(id) > 0) {
+      continue;
+    }
+    auto const& node = nodes[id];
+    if(node.op.is_partialize()) {
+      // TODO reach pass the passthrough partializes
+      // TODO: make sure in touch_compose dtypes are well (complex vs real?)
+    } else {
+      // In this case, just remap the op
+      int new_id = new_tg.insert(node.op.remap(f_remap), node.is_save);
+      remap.insert({id, new_id});
+    }
+  }
+
+  using ret_t = tuple<map<int,int>, taskgraph_t>;
+  return optional<ret_t>(ret_t{remap, new_tg});
+}
+
 vector<int> taskgraph_t::get_order() const {
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
@@ -2445,6 +2619,38 @@ set<int> taskgraph_t::op_t::inputs() const
   }
 }
 
+taskgraph_t::op_t
+taskgraph_t::op_t::remap(std::function<int(int)> to_new_tid) const
+{
+  if(is_input()) {
+    return *this;
+  }
+  if(is_apply()) {
+    op_t ret = *this;
+    auto& inns = ret.get_apply().inns;
+    for(int& inn: inns) {
+      inn = to_new_tid(inn);
+    }
+    return ret;
+  }
+  if(is_move()) {
+    op_t ret = *this;
+    int& inn = ret.get_move().inn;
+    inn = to_new_tid(inn);
+    return ret;
+  }
+  if(is_partialize()) {
+    op_t ret = *this;
+    for(auto& unit: ret.get_partialize().units) {
+      for(auto& input: unit.inputs) {
+        input.id = to_new_tid(input.id);
+      }
+    }
+    return ret;
+  }
+  throw std::runtime_error("should not happen");
+}
+
 int taskgraph_t::op_t::out_loc() const {
   if(is_input()) {
     return get_input().loc;
@@ -2679,6 +2885,8 @@ void taskgraph_t::print_graphviz(
 {
   using std::endl;
 
+  auto pts = collect_passthrough_partials();
+
   string tab = "  ";
   out << "digraph {" << endl;
 
@@ -2714,6 +2922,10 @@ void taskgraph_t::print_graphviz(
         color = colors[loc];
       }
       label = "partialize" + write_with_ss(id) + "@loc" + write_with_ss(loc);
+    }
+
+    if(pts.count(id) > 0) {
+      color = "pink";
     }
 
     out << tab

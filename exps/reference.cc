@@ -215,11 +215,11 @@ void test_make_taskgraph(
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
-  //{
-  //  std::cout << "Printing to tg.gv" << std::endl;
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //}
+  {
+    std::cout << "Printing to tg.gv" << std::endl;
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+  }
 
   //taskgraph.print();
 
@@ -806,6 +806,7 @@ void test_random_concat(
   vector<placement_t> pls;
   for(int gid = 0; gid != g.nodes.size(); ++gid) {
     pls.push_back(random_placement(g.nodes[gid].op.shape()));
+    DOUT(pls.back().partition);
   }
 
   test_make_taskgraph(g, pls, inn_tensors);
@@ -1023,43 +1024,139 @@ void test_with_complex_matmul() {
   }
 }
 
-int main(int argc, char** argv) {
-  //test_random_matmul();
+int main_pass_through_partials_stuff() {
+  {
+    taskgraph_t tg;
+    dtype_t dtype = default_dtype();
 
-  //main09(argc, argv);
-  //main10();
-  //main11(argc, argv);
-  //set_seed(0);
-  //test_obvious_random_loc_matmul(5,5,5,5);
+    int a = tg.insert_input(0, dtype, {100});
+    int b = tg.insert_input(0, dtype, {100});
 
-  //for(int i = 0; i != 10; ++i) {
-  //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
-  //  DOUT(i+1);
-  //}
+    int x = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial_the_full_aggregate(x, a, castable_t::add, false);
 
-  //main13();
-  main14();
+    int y = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial_the_full_aggregate(y, x, castable_t::add, false);
+    tg.add_to_partial_the_full_aggregate(y, b, castable_t::add, false);
+    tg.nodes[y].is_save = true;
 
-  //set_seed(0);
-  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+    DOUT("Printing the passthrough partials: ");
+    DOUT("  (x id is " << x << ")");
+    for(auto const& id: tg.collect_passthrough_partials()) {
+      DOUT("  id " << id);
+    }
+  }
 
-  //for(int i = 0; i != 1000; ++i) {
-  //  DOUT(i);
-  //  set_seed(i);
-  //  test_random_goofy_ff();
-  //}
+  {
+    taskgraph_t tg;
+    dtype_t dtype = default_dtype();
 
-  //set_seed(0);
-  //test_random_goofy_ff();
+    int a1 = tg.insert_input(0, dtype, {50});
+    int a2 = tg.insert_input(0, dtype, {50});
+    int b  = tg.insert_input(0, dtype, {100});
 
-  //main02();
-  //main03();
-  //main04();
-  //main05();
+    int x = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial(x, a1,
+      touch_t {
+        .selection = { { 50, 100, 0, 0, 50 } },
+        .castable = std::nullopt,
+        .dtype = dtype
+      },
+      false);
+    tg.add_to_partial(x, a2,
+      touch_t {
+        .selection = { { 50, 100, 0, 50, 50 } },
+        .castable = std::nullopt,
+        .dtype = dtype
+      },
+      false);
 
-  //for(int i = 0; i != 100; ++i) {
-  //  DOUT(i);
-  //  set_seed(i);
-  //  test_with_complex_matmul();
-  //}
+    int y = tg.new_partial(0, dtype, {100});
+    tg.nodes[y].is_save = true;
+    tg.add_to_partial_the_full_aggregate(y, x, castable_t::add, false);
+    tg.add_to_partial_the_full_aggregate(y, b, castable_t::add, false);
+
+    DOUT("Printing the passthrough partials: ");
+    DOUT("  (x id is " << x << ")");
+    for(auto const& id: tg.collect_passthrough_partials()) {
+      DOUT("  id " << id);
+    }
+  }
 }
+
+int main() {
+  auto make_1d_touch = [](vector<uint64_t> v) {
+    return touch_t {
+      .selection = { touchdim_t {
+        v[0], v[1], v[2], v[3], v[4]
+      }},
+      .castable = std::nullopt,
+      .dtype = default_dtype()
+    };
+  };
+
+  touch_t a = make_1d_touch({4,6,0,1,2});
+  touch_t b = make_1d_touch({6,4,2,0,1});
+  DOUT(touch_compose(a,b));
+}
+
+//int main(int argc, char** argv) {
+//  //test_random_matmul();
+//
+//  //main09(argc, argv);
+//  //main10();
+//  //main11(argc, argv);
+//  //set_seed(0);
+//  //test_obvious_random_loc_matmul(5,5,5,5);
+//
+//  //for(int i = 0; i != 10; ++i) {
+//  //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
+//  //  DOUT(i+1);
+//  //}
+//
+//  //main13();
+//  //main14();
+//
+//  // Example 1
+//  set_seed(0);
+//  test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+//
+//  // Example 2
+//  //set_seed(0);
+//  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
+//
+//  //for(int i = 0; i != 1000; ++i) {
+//  //  DOUT(i);
+//  //  set_seed(i);
+//  //  test_random_goofy_ff();
+//  //}
+//
+//  //set_seed(0);
+//  //test_random_goofy_ff();
+//
+//  //main02();
+//  //main03();
+//  //main04();
+//  //main05();
+//
+//  //for(int i = 0; i != 100; ++i) {
+//  //  DOUT(i);
+//  //  set_seed(i);
+//  //  test_with_complex_matmul();
+//  //}
+//}
+
+//int main() {
+//  // Here are some concat ops inserting too many partializes;
+//  // see if a simplified can be made
+//
+//  // Example 1 (example1.gv)
+//  //set_seed(0);
+//  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+//
+//  // Example 2 (example2.gv)
+//  //set_seed(0);
+//  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
+//}
+
+
