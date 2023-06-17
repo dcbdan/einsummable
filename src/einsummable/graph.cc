@@ -67,6 +67,39 @@ vector<uint64_t> concat_t::get_offsets() const {
   return ret;
 }
 
+tuple<int, int> concat_t::get_inn_region(uint64_t beg, uint64_t end) const {
+  auto offsets = get_offsets();
+  uint64_t dim_nelem = offsets.back() + inn_shapes.back()[dim];
+  if(beg >= end || end > dim_nelem) {
+    throw std::runtime_error("concat_t::get_inns invalid inputs");
+  }
+  offsets.push_back(dim_nelem);
+
+  int b = -1;
+  int e = -1;
+  for(int i = 0; i != offsets.size()-1; ++i) {
+    auto const& inn_b = offsets[i  ];
+    auto const& inn_e = offsets[i+1];
+    if(beg >= inn_b && beg < inn_e) {
+      b = i;
+    }
+    if(end > inn_b && end <= inn_e) {
+      e = i;
+    }
+  }
+  if(b == -1 || e == -1) {
+    throw std::runtime_error("concat_t::get_inn_region");
+  }
+  return {b,e+1};
+}
+
+tuple<int, int> concat_t::get_inn_region(
+  tuple<uint64_t,uint64_t> const& be) const
+{
+  auto const& [b,e] = be;
+  return get_inn_region(b,e);
+}
+
 int graph_constructor_t::insert_input(
   placement_t placement, dtype_t dtype)
 {

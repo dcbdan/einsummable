@@ -215,11 +215,11 @@ void test_make_taskgraph(
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
-  {
-    std::cout << "Printing to tg.gv" << std::endl;
-    std::ofstream f("tg.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to tg.gv" << std::endl;
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   //taskgraph.print();
 
@@ -642,7 +642,7 @@ void main09(int argc, char** argv) {
 }
 
 void main10() {
-  for(int seed = 0; seed != 1000; ++seed) {
+  for(int seed = 0; seed != 100; ++seed) {
     std::cout << "seed: " << seed << std::endl;
     set_seed(seed);
     test_random_matmul();
@@ -662,10 +662,12 @@ void test_3d_matmul(int pi, int pj, int pk, int nloc)
   graph_constructor_t graph = three_dimensional_matrix_multiplication(pi,pj,pk,di,dj,dk,nloc);
 
   dbuffer_t buffer0 = make_dbuffer(default_dtype(), ni*nj);
-  buffer0.iota(-10);
+  buffer0.random("-0.001", "0.001");
+  //buffer0.iota(-10);
 
   dbuffer_t buffer1 = make_dbuffer(default_dtype(), nj*nk);
-  buffer1.iota(-20);
+  buffer1.random("-0.001", "0.001");
+  //buffer1.iota(-20);
 
   vector<int> inputs = graph.graph.get_inputs();
   map<int, dbuffer_t> inns{ {inputs[0], buffer0}, {inputs[1], buffer1} };
@@ -751,7 +753,8 @@ void test_random_concat(
   int dim,
   vector<uint64_t> shape_template,
   int n_inn,
-  optional<dtype_t> maybe_dtype = std::nullopt)
+  optional<dtype_t> maybe_dtype = std::nullopt,
+  int maxpart = 10)
 {
   dtype_t dtype;
   if(maybe_dtype) {
@@ -797,7 +800,7 @@ void test_random_concat(
   x.save();
 
   int nloc = 3;
-  random_placement_t random_placement { {1, 10}, nloc };
+  random_placement_t random_placement { {1, maxpart}, nloc };
 
   graph_t g = w.get_graph();
   vector<placement_t> pls;
@@ -853,6 +856,18 @@ void main13() {
       auto const& node = g.nodes[id];
       if(node.op.is_concat()) {
         pls[id] = concat_split_placement(pls[id], node.op.get_concat());
+      }
+    }
+    // Now make sure the output formation nodes have the same placement
+    for(int id = 0; id != g.nodes.size(); ++id) {
+      auto const& node = g.nodes[id];
+      if(node.op.is_formation()) {
+        int inn_id = node.inns[0];
+        int inn_rank = pls[inn_id].partition.block_shape().size();
+        int rank = pls[id].partition.block_shape().size();
+        if(inn_rank == rank) {
+          pls[id] = pls[inn_id];
+        }
       }
     }
 
@@ -1009,6 +1024,8 @@ void test_with_complex_matmul() {
 }
 
 int main(int argc, char** argv) {
+  //test_random_matmul();
+
   //main09(argc, argv);
   //main10();
   //main11(argc, argv);
@@ -1021,10 +1038,10 @@ int main(int argc, char** argv) {
   //}
 
   //main13();
-  //main14();
+  main14();
 
   //set_seed(0);
-  //test_random_concat(0, {20,19,18}, 3);
+  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
 
   //for(int i = 0; i != 1000; ++i) {
   //  DOUT(i);
@@ -1040,9 +1057,9 @@ int main(int argc, char** argv) {
   //main04();
   //main05();
 
-  for(int i = 0; i != 100; ++i) {
-    DOUT(i);
-    set_seed(i);
-    test_with_complex_matmul();
-  }
+  //for(int i = 0; i != 100; ++i) {
+  //  DOUT(i);
+  //  set_seed(i);
+  //  test_with_complex_matmul();
+  //}
 }

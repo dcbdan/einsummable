@@ -20,6 +20,10 @@ struct concat_t {
   vector<tuple<uint64_t, uint64_t>> get_hrect(int which_inn) const;
 
   vector<uint64_t> get_offsets() const;
+
+  // return [b,e) for the idxs that [beg,end) reaches
+  tuple<int, int> get_inn_region(uint64_t beg, uint64_t end) const;
+  tuple<int, int> get_inn_region(tuple<uint64_t,uint64_t> const&) const;
 };
 
 struct graph_t {

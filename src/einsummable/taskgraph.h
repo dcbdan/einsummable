@@ -141,6 +141,7 @@ struct taskgraph_t {
   static taskgraph_t from_wire(string const& str);
 
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
+  int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
 private:
   struct input_t {
