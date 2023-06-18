@@ -476,6 +476,63 @@ int graph_t::insert_concat(
   return this->insert(concat_t(dim, dtype, shapes), inns);
 }
 
+int graph_constructor_t::insert_subset(
+  placement_t placement,
+  vector<tuple<uint64_t, uint64_t>> hrect,
+  int inn,
+  set<int> squeeze)
+{
+  int ret = graph.insert_subset(hrect, inn, squeeze);
+
+  if(placement.total_shape() != graph.out_shape(ret)) {
+    throw std::runtime_error("graph constructor: invalid concat");
+  }
+
+  placements.insert({ret, placement});
+  return ret;
+}
+
+int graph_constructor_t::insert_subset(
+  partition_t partition,
+  vector<tuple<uint64_t, uint64_t>> hrect,
+  int inn,
+  set<int> squeeze)
+{
+  int ret = graph.insert_subset(hrect, inn, squeeze);
+
+  if(partition.total_shape() != graph.out_shape(ret)) {
+    throw std::runtime_error("graph constructor: invalid concat");
+  }
+
+  placements.insert({ret, placement_t(partition)});
+  return ret;
+}
+
+int graph_constructor_t::insert_subset(
+  vector<tuple<uint64_t, uint64_t>> hrect,
+  int inn,
+  set<int> squeeze)
+{
+  int ret = graph.insert_subset(hrect, inn, squeeze);
+
+  partition_t partition = partition_t::singleton(graph.out_shape(ret));
+
+  placements.insert({ret, placement_t(partition)});
+  return ret;
+}
+
+int graph_t::insert_subset(
+  vector<tuple<uint64_t, uint64_t>> hrect,
+  int inn,
+  set<int> squeeze)
+{
+  dtype_t dtype = out_dtype(inn);
+  vector<uint64_t> inn_shape = out_shape(inn);
+  subset_t subset(hrect, inn_shape, squeeze, dtype);
+
+  return this->insert(subset_t(hrect, inn_shape, squeeze, dtype), {inn});
+}
+
 dtype_t graph_t::complexer_t::inn_dtype() const {
   if(dtype == dtype_t::f32) {
     return dtype_t::c64;
@@ -516,6 +573,9 @@ dtype_t graph_t::op_t::out_dtype() const {
   if(is_concat()) {
     return get_concat().dtype;
   }
+  if(is_subset()) {
+    return get_subset().dtype;
+  }
   if(is_einsummable()) {
     return get_einsummable().out_dtype();
   }
@@ -536,6 +596,9 @@ graph_t::op_t::out_shape() const {
   if(is_concat()) {
     return get_concat().shape();
   }
+  if(is_subset()) {
+    return get_subset().out_shape();
+  }
   if(is_einsummable()) {
     return get_einsummable().out_shape();
   }
@@ -555,6 +618,9 @@ graph_t::op_t::shape() const {
   }
   if(is_concat()) {
     return get_concat().shape();
+  }
+  if(is_subset()) {
+    return get_subset().out_shape();
   }
   if(is_einsummable()) {
     return get_einsummable().join_shape;
@@ -649,6 +715,8 @@ void graph_t::print() const {
       }
     } else if(node.op.is_concat()) {
       std::cout << "concat[dim=" << node.op.get_concat().dim << "]" << std::endl;
+    } else if(node.op.is_subset()) {
+      std::cout << "subset" << std::endl;
     } else {
       throw std::runtime_error("graph_t print should not reach");
     }

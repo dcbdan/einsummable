@@ -82,6 +82,11 @@ struct graph_t {
     int dim,
     vector<int> inns);
 
+  int insert_subset(
+    vector<tuple<uint64_t, uint64_t>> hrect,
+    int inn,
+    set<int> squeeze = {});
+
   // For each non-save node, make sure it gets marked as save if it isn't used
   // elsewhere.
   // For non-formation nodes, if the node is not used elsewhere, insert an outgoing
@@ -164,7 +169,8 @@ public:
   struct op_t {
   private:
     using _op_t = std::variant<
-      input_t, formation_t, complexer_t, concat_t, einsummable_t>;
+      input_t, formation_t, complexer_t,
+      concat_t, subset_t, einsummable_t>;
 
   public:
     op_t(_op_t op): op(op) {}
@@ -173,6 +179,7 @@ public:
     op_t(formation_t   x): op_t(_op_t(x)) {}
     op_t(complexer_t   x): op_t(_op_t(x)) {}
     op_t(concat_t      x): op_t(_op_t(x)) {}
+    op_t(subset_t      x): op_t(_op_t(x)) {}
     op_t(einsummable_t x): op_t(_op_t(x)) {}
 
     vector<uint64_t> out_shape() const;
@@ -191,6 +198,7 @@ public:
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
     bool is_complexer()   const { return std::holds_alternative<complexer_t>(op); }
     bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
+    bool is_subset()      const { return std::holds_alternative<subset_t>(op);    }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
     }
@@ -204,6 +212,7 @@ public:
     formation_t        & get_formation()       { return std::get<formation_t>(op); }
     complexer_t   const& get_complexer() const { return std::get<complexer_t>(op); }
     concat_t      const& get_concat()    const { return std::get<concat_t>(op);    }
+    subset_t      const& get_subset()    const { return std::get<subset_t>(op);    }
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
     }
@@ -302,6 +311,21 @@ struct graph_constructor_t {
   int insert_concat(
     int dim,
     vector<int> inns);
+
+  int insert_subset(
+    placement_t placement,
+    vector<tuple<uint64_t, uint64_t>> hrect,
+    int inn,
+    set<int> squeeze = {});
+  int insert_subset(
+    partition_t partition,
+    vector<tuple<uint64_t, uint64_t>> hrect,
+    int inn,
+    set<int> squeeze = {});
+  int insert_subset(
+    vector<tuple<uint64_t, uint64_t>> hrect,
+    int inn,
+    set<int> squeeze = {});
 
   vector<placement_t> get_placements() const;
 
