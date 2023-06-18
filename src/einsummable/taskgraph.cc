@@ -129,25 +129,41 @@ touch_t touch_compose(touch_t const& a, touch_t const& b) {
     // that gx == 0 || gy == 0 || gz == 0
     // and gx >= 0, gy >= 0 and gz >= 0
 
-    bool gy_le_gx = ox <= oy_xy;
-    bool gy_le_gz = oz <= oy_yz;
-
-    if(gy_le_gx && gy_le_gz) {
-      gy = 0;
-      gx = oy_xy - ox;
-      gz = oy_yz - oz;
+    if(ox <= oy_xy) {
+      if(oz <= oy_yz) {
+        // oy_xy - ox
+        // oy_yz - oz
+        gy = 0;
+        gx = oy_xy - ox;
+        gz = oy_yz - oz;
+      } else {
+        // oy_xy - ox
+        // oz - oy_yz
+        gz = 0;
+        gy = oz - oy_yz;
+        gx = gy + (oy_xy - ox);
+      }
     } else {
-      if(ox >= oy_xy && oy_yz >= oz) {
+      if(oz <= oy_yz) {
+        // ox - oy_xy
+        // oy_yz - oz
         gx = 0;
         gy = ox - oy_xy;
         gz = gy + (oy_yz - oz);
       } else {
-        gz = 0;
-        if(oz < oy_yz || oy_xy < ox) {
-          throw std::runtime_error("touch compose: is the algebra correct?");
+        // ox - oy_xy
+        // oz - oy_yz
+        uint64_t xx = ox - oy_xy;
+        uint64_t zz = oz - oy_yz;
+        if(xx <= zz) {
+          gz = 0;
+          gy = zz;
+          gx = zz - xx;
+        } else {
+          gx = 0;
+          gy = xx;
+          gz = xx - zz;
         }
-        gy = oz - oy_yz;
-        gx = gy + (oy_xy - ox);
       }
     }
 
@@ -2245,10 +2261,6 @@ struct _reach_past_t {
   taskgraph_t const& taskgraph;
   set<int> const& pts;
 
-  void operator()(int id) {
-    recurse(id);
-  }
-
   vector<int> recurse(int id) {
     auto const& p = taskgraph.nodes[id].op.get_partialize();
     vector<int> ret;
@@ -2258,11 +2270,15 @@ struct _reach_past_t {
         ret.push_back(values.size()-1);
       } else {
         vector<int> whiches = recurse(inn_id);
+        ret.reserve(ret.size() + whiches.size());
         for(int which: whiches) {
           auto& [_, t] = values[which];
           t = touch_compose(t, touch);
+          auto write_shape = vector_from_each_member(t.selection, uint64_t, size);
+          if(product(write_shape) != 0) {
+            ret.push_back(which);
+          }
         }
-        vector_concatenate_into(ret, whiches);
       }
     }
     return ret;
@@ -2277,8 +2293,15 @@ vector<tuple<int, touch_t>> _reach_past(
   int root_id)
 {
   _reach_past_t reacher { taskgraph, pts };
-  reacher(root_id);
-  return reacher.values;
+  vector<int> whiches = reacher.recurse(root_id);
+
+  vector<tuple<int, touch_t>> ret;
+  ret.reserve(whiches.size());
+  for(int const& which: whiches) {
+    ret.push_back(reacher.values[which]);
+  }
+
+  return ret;
 }
 
 optional<

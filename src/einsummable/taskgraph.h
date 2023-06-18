@@ -36,6 +36,9 @@ struct touch_t {
 // a = x -> y
 // b = y -> z
 // return (x -> z)
+//
+// Note: It may be the case that the acual write region has
+//       size zero!
 touch_t touch_compose(touch_t const& a, touch_t const& b);
 
 struct regiondim_t {
