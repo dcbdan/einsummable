@@ -26,6 +26,39 @@ struct concat_t {
   tuple<int, int> get_inn_region(tuple<uint64_t,uint64_t> const&) const;
 };
 
+struct subset_t {
+  struct subsetdim_t {
+    uint64_t d_inn;
+    uint64_t d_out;
+    uint64_t offset;
+  };
+
+  subset_t(
+    vector<tuple<uint64_t, uint64_t>> const& hrect,
+    vector<uint64_t> inn_shape,
+    set<int> squeeze = {},
+    dtype_t dtype = default_dtype());
+
+  subset_t(
+    vector<subsetdim_t> selection,
+    set<int> squeeze = {},
+    dtype_t dtype = default_dtype());
+
+  dtype_t dtype;
+  vector<subsetdim_t> selection;
+  set<int> squeeze;
+
+  vector<uint64_t> inn_shape() const;
+  vector<uint64_t> out_shape() const;
+
+  vector<tuple<uint64_t, uint64_t>> get_hrect() const;
+
+private:
+  static vector<subsetdim_t> make_selection(
+    vector<tuple<uint64_t, uint64_t>> const& hrect,
+    vector<uint64_t> inn_shape);
+};
+
 struct graph_t {
   // Methods to construct a graph object
   // {{{

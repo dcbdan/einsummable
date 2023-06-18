@@ -100,6 +100,98 @@ tuple<int, int> concat_t::get_inn_region(
   return get_inn_region(b,e);
 }
 
+vector<subset_t::subsetdim_t>
+subset_t::make_selection(
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  vector<uint64_t> inn_shape)
+{
+  int rank = hrect.size();
+  if(inn_shape.size() != rank) {
+    throw std::runtime_error("subset_t::make_selection");
+  }
+
+  vector<subsetdim_t> ret;
+  ret.reserve(rank);
+  for(int i = 0; i != rank; ++i) {
+    auto const& d_inn = inn_shape[i];
+    auto const& [b,e] = hrect[i];
+    if(e <= b) {
+      throw std::runtime_error("must have positive hrect");
+    }
+    uint64_t d_out = e-b;
+    if(d_inn < d_out) {
+      throw std::runtime_error("can't subset to bigger");
+    }
+
+    ret.push_back(subsetdim_t {
+      .d_inn = d_inn,
+      .d_out = d_out,
+      .offset = b
+    });
+  }
+
+  return ret;
+}
+
+subset_t::subset_t(
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  vector<uint64_t> inn_shape,
+  set<int> squeeze,
+  dtype_t dtype)
+  : subset_t(make_selection(hrect, inn_shape), squeeze, dtype)
+{}
+
+subset_t::subset_t(
+  vector<subsetdim_t> se,
+  set<int> sq,
+  dtype_t dt)
+  : dtype(dt), selection(se), squeeze(sq)
+{
+  for(auto const& [d_inn,d_out,offset]: selection) {
+    if(d_out + offset > d_inn) {
+      throw std::runtime_error("subset construction: invalid selection");
+    }
+  }
+  int rank = selection.size();
+  for(auto const& s: squeeze) {
+    if(s < 0 || s >= rank) {
+      throw std::runtime_error("can only sqeeze modes in [0,rank)");
+    }
+    if(selection[s].d_out != 1) {
+      throw std::runtime_error("can only squeeze modes with size 1");
+    }
+  }
+}
+
+vector<uint64_t> subset_t::inn_shape() const {
+  return vector_from_each_member(selection, uint64_t, d_inn);
+}
+
+vector<uint64_t> subset_t::out_shape() const {
+  int rank = selection.size();
+  vector<uint64_t> shape;
+  shape.reserve(rank - squeeze.size());
+  for(int i = 0; i != rank; ++i) {
+    if(squeeze.count(i) > 0) {
+      // don't add this rank
+    } else {
+      shape.push_back(selection[i].d_out);
+    }
+  }
+  return shape;
+}
+
+vector<tuple<uint64_t, uint64_t>>
+subset_t::get_hrect() const {
+  vector<tuple<uint64_t, uint64_t>> ret;
+  int rank = selection.size();
+  ret.reserve(rank);
+  for(auto const& [d_inn, d_out, offset]: selection) {
+    ret.emplace_back(offset, offset+d_out);
+  }
+  return ret;
+}
+
 int graph_constructor_t::insert_input(
   placement_t placement, dtype_t dtype)
 {
