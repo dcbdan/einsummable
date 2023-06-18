@@ -63,7 +63,9 @@ vector<touchdim_t> make_touch_selection_from_full_small(
   return ret;
 }
 
-touch_t touch_compose(touch_t const& a, touch_t const& b) {
+optional<touch_t>
+touch_compose(touch_t const& a, touch_t const& b)
+{
   if(a.dtype != b.dtype) {
     throw std::runtime_error("cannot touch compose with diff dtypes");
   }
@@ -176,6 +178,11 @@ touch_t touch_compose(touch_t const& a, touch_t const& b) {
     uint64_t b_xz = std::max(bx, bz);
     uint64_t e_xz = std::min(ex, ez);
 
+    if(e_xz <= b_xz) {
+      // the areas do not have an overlap
+      return std::nullopt;
+    }
+
     ss.push_back(touchdim_t {
       .d_inn      = td_xy.d_inn,
       .d_out      = td_yz.d_out,
@@ -185,11 +192,11 @@ touch_t touch_compose(touch_t const& a, touch_t const& b) {
     });
   }
 
-  return touch_t {
+  return optional<touch_t>(touch_t {
     .selection = ss,
     .castable = b.castable,
     .dtype = b.dtype
-  };
+  });
 }
 
 // The compilation from graph to taskgraph is designed to
@@ -496,6 +503,14 @@ taskgraph_t::make(
     throw std::runtime_error("In taskgraph_t::make: non-saved outputs");
   }
 
+  // Note: Passthrough partials could serve a purpose. To go from columns to
+  //       rows partitioning, it may be better to go columns -> singleton -> rows.
+  //       If the partials are removed, it will go column part -> row part, which
+  //       means there will be more inputs in each non-pass through partial.
+  //
+  //       In any case, this optimization can be turned off easily enough. I
+  //       predict it's better to have than to not. The only time dummy
+  //       passthrough partials are really formed is from concat ops (I think).
   optional<tuple<map<int,int>, taskgraph_t>> maybe_simplified =
     state.taskgraph.remove_passthrough_partials();
 
@@ -2273,9 +2288,9 @@ struct _reach_past_t {
         ret.reserve(ret.size() + whiches.size());
         for(int which: whiches) {
           auto& [_, t] = values[which];
-          t = touch_compose(t, touch);
-          auto write_shape = vector_from_each_member(t.selection, uint64_t, size);
-          if(product(write_shape) != 0) {
+          auto maybe_tt = touch_compose(t, touch);
+          if(maybe_tt) {
+            t = maybe_tt.value();
             ret.push_back(which);
           }
         }

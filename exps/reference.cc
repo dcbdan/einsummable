@@ -215,11 +215,11 @@ taskgraph_t test_make_taskgraph(
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
-  {
-    std::cout << "Printing to tg.gv" << std::endl;
-    std::ofstream f("tg.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to tg.gv" << std::endl;
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   //taskgraph.print();
 
@@ -807,7 +807,6 @@ taskgraph_t test_random_concat(
   vector<placement_t> pls;
   for(int gid = 0; gid != g.nodes.size(); ++gid) {
     pls.push_back(random_placement(g.nodes[gid].op.shape()));
-    DOUT(pls.back().partition);
   }
 
   return test_make_taskgraph(g, pls, inn_tensors);
@@ -1098,66 +1097,53 @@ void main_touch_compose() {
 
   touch_t a = make_1d_touch({4,6,0,1,2});
   touch_t b = make_1d_touch({6,4,2,0,1});
-  DOUT(touch_compose(a,b));
+  DOUT(touch_compose(a,b).value());
 }
 
-//int main(int argc, char** argv) {
-//  //test_random_matmul();
-//
-//  //main09(argc, argv);
-//  //main10();
-//  //main11(argc, argv);
-//  //set_seed(0);
-//  //test_obvious_random_loc_matmul(5,5,5,5);
-//
-//  //for(int i = 0; i != 10; ++i) {
-//  //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
-//  //  DOUT(i+1);
-//  //}
-//
-//  //main13();
-//  //main14();
-//
-//  // Example 1
-//  set_seed(0);
-//  test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
-//
-//  // Example 2
-//  //set_seed(0);
-//  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
-//
-//  //for(int i = 0; i != 1000; ++i) {
-//  //  DOUT(i);
-//  //  set_seed(i);
-//  //  test_random_goofy_ff();
-//  //}
-//
-//  //set_seed(0);
-//  //test_random_goofy_ff();
-//
-//  //main02();
-//  //main03();
-//  //main04();
-//  //main05();
-//
-//  //for(int i = 0; i != 100; ++i) {
-//  //  DOUT(i);
-//  //  set_seed(i);
-//  //  test_with_complex_matmul();
-//  //}
-//}
+int main(int argc, char** argv) {
+  //test_random_matmul();
 
-int main() {
-  // Here are some concat ops inserting too many partializes;
-  // see if a simplified can be made
+  //main09(argc, argv);
+  //main10();
+  //main11(argc, argv);
+  //set_seed(0);
+  //test_obvious_random_loc_matmul(5,5,5,5);
 
-  // Example 1 (example1.gv)
-  set_seed(0);
-  taskgraph_t tg = test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+  //for(int i = 0; i != 10; ++i) {
+  //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
+  //  DOUT(i+1);
+  //}
 
-  // Example 2 (example2.gv)
+  //main13();
+  //main14();
+
+  // Example 1
+  //set_seed(0);
+  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+
+  // Example 2
   //set_seed(0);
   //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
+
+  for(int i = 0; i != 1000; ++i) {
+    DOUT(i);
+    set_seed(i);
+    test_random_goofy_ff();
+  }
+
+  //set_seed(0);
+  //test_random_goofy_ff();
+
+  //main02();
+  //main03();
+  //main04();
+  //main05();
+
+  //for(int i = 0; i != 100; ++i) {
+  //  DOUT(i);
+  //  set_seed(i);
+  //  test_with_complex_matmul();
+  //}
 }
 
 
