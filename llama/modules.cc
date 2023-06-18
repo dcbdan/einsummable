@@ -29,6 +29,20 @@ model_args_t model_args_t::make_default() {
   };
 }
 
+model_args_t model_args_t::llama_7B() {
+  return model_args_t {
+    .dim             = 4096,
+    .n_layers        = 32,
+    .n_heads         = 32,
+    .multiple_of     = 256,
+    .norm_eps        = 1e-6,
+    .max_batch_size  = 32,
+    .max_seq_len     = 256,  
+    .vocab_size      = 32000, //TODO: change according to the actual tokenizer size
+    .world_size      = 1
+  };
+}
+
 rms_norm_t::rms_norm_t(
   graph_writer_t* w,
   string name,
@@ -212,7 +226,7 @@ tensor_t attention_t::forward(
 
   scalarop_t scale = scalarop_t::make_scale(
     scalar_t(dtype, write_with_ss(
-      1.0 / (std::sqrt(1.0d * args.head_dim()))
+      1.0 / (std::sqrt(double(1.0) * args.head_dim()))
     ))
   );
 
@@ -348,7 +362,7 @@ map<int, string> transformer_block_t::input_map() const {
   }
 
   // TODO: attention_norm and ffn_norm mappings
-  return {};
+  return input_names;
 }
 
 tensor_t transformer_block_t::forward(
