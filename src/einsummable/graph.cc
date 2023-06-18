@@ -1004,6 +1004,37 @@ void rotate_sections(
   }
 }
 
+tuple<uint64_t, uint64_t>
+graph_writer_t::idx_t::get(uint64_t d) const {
+  if(std::holds_alternative<rng>(op)) {
+    auto const& [beg,end] = std::get<rng>(op);
+    return {to_index(d, beg), to_index(d, end)};
+  } else if(std::holds_alternative<idx>(op)) {
+    int64_t const& i = std::get<idx>(op).v;
+    auto b = to_index(d, i);
+    return {b, b+1};
+  } else if(std::holds_alternative<all>(op)) {
+    return {0, d};
+  } else {
+    throw std::runtime_error("should not happen: idx_t get in graph writer");
+  }
+}
+
+uint64_t graph_writer_t::idx_t::to_index(uint64_t total, int64_t held) {
+  if(held < 0) {
+    held = std::abs(held);
+    if(total < held) {
+      throw std::runtime_error("too large negative value in to index");
+    }
+    return total - held;
+  } else {
+    if(held > total) {
+      throw std::runtime_error("too large value in index");
+    }
+    return held;
+  }
+}
+
 graph_writer_t::tensor_t::tensor_t(
   vector<uint64_t> const& _shape,
   vector<uint64_t> const& _full_shape,
@@ -1132,30 +1163,22 @@ graph_writer_t::tensor_t::to_f64() const {
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::subset(
-  vector<tuple<uint64_t, uint64_t>> const& hrect,
-  set<int> squeeze_out) const
+  vector<graph_writer_t::idx_t> const& idxs)
 {
-  if(shape != full_shape) {
-    throw std::runtime_error("not implmented");
-    // TODO: reason through how graph writer reaches through
-    //       subsets
-    // TODO: tensor_t::subset should call writer_t::subset;
-    //                        so move this there
+  if(idxs.size() != shape.size()) {
+    throw std::runtime_error("tensor subset: invalid rank idxs");
   }
-  auto shape = hrect_shape(hrect);
-  for(auto const& remove: squeeze_out) {
-    if(shape[remove] != 1) {
-      throw std::runtime_error("cannot squeeze out mode if size > 1");
-    }
-  }
-  vector<uint64_t> new_shape;
+  vector<tuple<uint64_t, uint64_t>> hrect;
+  hrect.reserve(shape.size());
+  set<int> squeeze;
   for(int i = 0; i != shape.size(); ++i) {
-    if(squeeze_out.count(i) == 0) {
-      new_shape.push_back(shape[i]);
+    auto const& idx = idxs[i];
+    hrect.push_back(idx.get(shape[i]));
+    if(idx.is_squeeze()) {
+      squeeze.insert(i);
     }
   }
-  DOUT("Warning: subset is not implemented");
-  return self->input(new_shape, get_dtype());
+  return self->subset(hrect, squeeze, *this);
 }
 
 void graph_writer_t::tensor_t::physically_permute() {
@@ -1474,6 +1497,15 @@ graph_writer_t::concat(
     full_shape,
     id,
     this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::subset(
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  set<int> squeeze,
+  tensor_t const& inn)
+{
+  // TODO
 }
 
 graph_writer_t::tensor_t

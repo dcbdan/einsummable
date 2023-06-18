@@ -369,6 +369,27 @@ graph_constructor_t straight_matrix_multiplication(
 //   graph_writer_t. This would not be efficient for lots of encounters,
 //   but efficiency should not be the concern here.
 struct graph_writer_t {
+  struct idx_t {
+    struct rng {
+      int64_t beg;
+      int64_t end;
+    };
+    struct idx {
+      int64_t v;
+    };
+    struct all {};
+
+    idx_t(rng x): op(x) {};
+    idx_t(idx x): op(x) {};
+    idx_t(all x): op(x) {};
+
+    std::variant<rng, idx, all> op;
+
+    tuple<uint64_t, uint64_t> get(uint64_t d) const;
+    bool is_squeeze() const { return std::holds_alternative<idx>(op); }
+  private:
+    static uint64_t to_index(uint64_t total, int64_t held);
+  };
   struct tensor_t {
     tensor_t(): self(nullptr) {}
     tensor_t transpose(int i, int j) const;
@@ -387,10 +408,7 @@ struct graph_writer_t {
     tensor_t to_f32() const;
     tensor_t to_f64() const;
 
-    // TODO: implement subset
-    tensor_t subset(
-      vector<tuple<uint64_t, uint64_t>> const& hrect,
-      set<int> squeeze_out = set<int>{}) const;
+    tensor_t subset(vector<idx_t> const& idxs);
 
   private:
     friend class graph_writer_t;
@@ -479,6 +497,11 @@ struct graph_writer_t {
   tensor_t concat(
     int dim,
     vector<tensor_t> const& inns);
+
+  tensor_t subset(
+    vector<tuple<uint64_t, uint64_t>> const& hrect,
+    set<int> squeeze,
+    tensor_t const& inn);
 
   tensor_t to_real(tensor_t const& inn);
   tensor_t to_complex(tensor_t const& inn);
