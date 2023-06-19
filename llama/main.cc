@@ -314,15 +314,13 @@ int main() {
 
   // read bsz and seq_len and input input tensor
   auto input_input = [&]() {
-    full_shape_t shape {
-      .shape_parts = {
-        full_dim_t::singleton(bsz),
-        full_dim_t::singleton(seq_len),
-        args.full_dim()
-      }
-    };
+    full_shape_t shape({
+      full_dim_t::singleton(bsz),
+      full_dim_t::singleton(seq_len),
+      args.full_dim()
+    });
 
-    return writer.input(shape.full_shape()).view(shape.shape());
+    return writer.input(shape);
   };
 
   tensor_t x = input_input();

@@ -1525,6 +1525,7 @@ graph_writer_t::subset(
   tensor_t const& inn)
 {
   // TODO
+  // TODO: if everything is being selected, return inn
 }
 
 graph_writer_t::tensor_t

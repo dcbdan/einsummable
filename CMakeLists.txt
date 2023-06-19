@@ -57,7 +57,7 @@ target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
 #add_llama_application("load_weights" "load_weights")
-#add_llama_application("llama_main" "main")
+add_llama_application("llama_main" "main")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)

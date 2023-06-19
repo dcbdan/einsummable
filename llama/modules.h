@@ -14,6 +14,7 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 // Helpful structure for llama model
 struct model_args_t {
   static model_args_t make_default();
+  static model_args_t llama_7B();
 
   uint64_t dim;
   int n_layers;
@@ -33,9 +34,7 @@ struct model_args_t {
     return uint64_div(dim, n_heads, "head_dim");
   }
   full_dim_t full_dim() const {
-    return full_dim_t {
-      .dim_parts = { n_local_heads(), head_dim() }
-    };
+    return full_dim_t({ n_local_heads(), head_dim() });
   }
 };
 
@@ -87,7 +86,7 @@ struct attention_t {
   get_keys_and_values(tensor_t k, tensor_t v);
 
   uint64_t start_pos() const {
-    return prev_k ? prev_k.value().get_shape()[1] : 0;
+    return prev_k ? prev_k.value().get_shape()()[1] : 0;
   }
 
   map<int, string> input_map() const;

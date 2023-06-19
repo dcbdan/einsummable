@@ -37,7 +37,7 @@ model_args_t model_args_t::llama_7B() {
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .max_batch_size  = 32,
-    .max_seq_len     = 256,  
+    .max_seq_len     = 256,
     .vocab_size      = 32000, //TODO: change according to the actual tokenizer size
     .world_size      = 1
   };
@@ -51,8 +51,7 @@ rms_norm_t::rms_norm_t(
   dtype_t dtype)
     : writer(w), eps(eps), name(name), dtype(dtype)
 {
-  weight = writer->input(dim.dim_parts, dtype);
-  weight = weight.view({ dim.dim() });
+  weight = writer->input(full_shape_t({ dim }), dtype);
 }
 
 map<int, string> rms_norm_t::input_map() const
@@ -67,7 +66,7 @@ tensor_t rms_norm_t::norm(tensor_t x) {
     throw std::runtime_error("invalid dtype in rms norm :: norm");
   }
 
-  auto x_shape = x.get_shape();
+  auto x_shape = x.get_shape()();
   int out_rank = x_shape.size();
   if(out_rank <= 1) {
     throw std::runtime_error("rms_norm: not a big enough output rank");
@@ -114,7 +113,7 @@ tensor_t rms_norm_t::forward(tensor_t x) {
   }
   tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
 
-  int out_rank = x.get_shape().size();
+  int out_rank = x.rank();
 
   string ijk(out_rank, ' ');
   std::iota(ijk.begin(), ijk.end(), 'a');
@@ -139,20 +138,12 @@ attention_t::attention_t(
   //  outshape comes first because F.linear is xA^t,
   //  so shape is (out_features, in_features)
 
-  vector<uint64_t> kqv_initshape = { n_local_heads, head_dim, n_local_heads, head_dim };
-  vector<uint64_t> kqv_reshape = {args.dim, args.dim};
+  full_shape_t kqv_shape({ args.full_dim(), args.full_dim() });
 
-  wq = writer->input(kqv_initshape);
-  wq = wq.view(kqv_reshape);
-
-  wk = writer->input(kqv_initshape);
-  wk = wk.view(kqv_reshape);
-
-  wv = writer->input(kqv_initshape);
-  wv = wv.view(kqv_reshape);
-
-  wo = writer->input(kqv_initshape);
-  wo = wo.view(kqv_reshape);
+  wq = writer->input(kqv_shape);
+  wk = writer->input(kqv_shape);
+  wv = writer->input(kqv_shape);
+  wo = writer->input(kqv_shape);
 }
 
 tensor_t attention_t::apply_rotary_embedding(
@@ -195,7 +186,7 @@ tensor_t attention_t::forward(
   optional<tensor_t> mask)
 {
   dtype_t dtype = x.get_dtype();
-  vector<uint64_t> input_shape = x.get_shape();
+  vector<uint64_t> input_shape = x.get_shape()();
   uint64_t bsz = input_shape[0];
   uint64_t seqlen = input_shape[1];
 
@@ -211,9 +202,9 @@ tensor_t attention_t::forward(
     bsz, seqlen, n_local_heads, head_dim
   };
 
-  xq = xq.view(full_xshape);
-  xk = xk.view(full_xshape);
-  xv = xv.view(full_xshape);
+  xq = xq.view_full(full_xshape);
+  xk = xk.view_full(full_xshape);
+  xv = xv.view_full(full_xshape);
 
   xq = apply_rotary_embedding(xq.to_f32(), freqs_cis).to_dtype(dtype);
   xk = apply_rotary_embedding(xk.to_f32(), freqs_cis).to_dtype(dtype);
@@ -247,7 +238,13 @@ tensor_t attention_t::forward(
   tensor_t output;
   output = writer->matmul(scores, values);
   output = output.transpose(1, 2);
-  output = output.view({bsz, seqlen, n_local_heads * head_dim});
+
+  full_shape_t output_shape({
+    full_dim_t::singleton(bsz),
+    full_dim_t::singleton(seqlen),
+    full_dim_t({n_local_heads, head_dim})
+  });
+  output = output.view(output_shape);
 
   return writer->matmul(output, wo.transpose(0,1));
 }
@@ -255,7 +252,7 @@ tensor_t attention_t::forward(
 tuple<tensor_t, tensor_t>
 attention_t::get_keys_and_values(tensor_t k, tensor_t v)
 {
-  if(!vector_equal(k.get_shape(), v.get_shape())) {
+  if(k.get_shape() != v.get_shape()) {
     throw std::runtime_error("k and v must have the same shape");
   }
 
@@ -277,16 +274,16 @@ feedforward_t::feedforward_t(
   uint64_t hidden_dim)
   : writer(w), name(name)
 {
-  full_shape_t to_hidden {
-    .shape_parts = { full_dim_t::singleton(hidden_dim), dim }
-  };
-  full_shape_t to_dim {
-    .shape_parts = { dim, full_dim_t::singleton(hidden_dim) }
-  };
+  full_shape_t to_hidden(
+    { full_dim_t::singleton(hidden_dim), dim }
+  );
+  full_shape_t to_dim(
+    { dim, full_dim_t::singleton(hidden_dim) }
+  );
 
-  w1 = writer->input(to_hidden.full_shape()).view(to_hidden.shape());
-  w2 = writer->input(to_dim.full_shape()   ).view(to_dim.shape()   );
-  w3 = writer->input(to_hidden.full_shape()).view(to_hidden.shape());
+  w1 = writer->input(to_hidden);
+  w2 = writer->input(to_dim);
+  w3 = writer->input(to_hidden);
 }
 
 map<int, string> feedforward_t::input_map() const {
@@ -397,18 +394,16 @@ transformer_t::transformer_t(
 
   norm = rms_norm_t(writer, "norm.weight", args.full_dim(), args.norm_eps);
 
-  full_shape_t to_vocab {
-    .shape_parts = {
-      full_dim_t::singleton(args.vocab_size),
-      args.full_dim()
-    }
-  };
-  w_vocab = writer->input(to_vocab.full_shape()).view(to_vocab.shape());
+  full_shape_t to_vocab({
+    full_dim_t::singleton(args.vocab_size),
+    args.full_dim()
+  });
+  w_vocab = writer->input(to_vocab);
 }
 
 tensor_t transformer_t::forward(tensor_t x)
 {
-  auto x_shape = x.get_shape();
+  auto x_shape = x.get_shape()();
   uint64_t const& bsz    = x_shape[0];
   uint64_t const& seqlen = x_shape[1];
 
@@ -431,14 +426,9 @@ tensor_t transformer_t::forward(tensor_t x)
   x = norm.forward(x);
   // x: bsz, seqlen, dim
 
-  // TODO: only unviewing since writer subset is not implemented
-  x = x.view({ bsz, seqlen, args.n_local_heads(), args.head_dim() });
-  auto hrect = hrect_full_hrect_from_shape(x.get_shape());
-  auto& [b1,e1] = hrect[1];
-  b1 = e1-1;
-
-  x = x.subset(hrect, {1});
-  x = x.view({ bsz, args.dim });
+  using _all = graph_writer_t::idx_t::all;
+  using _idx = graph_writer_t::idx_t::idx;
+  x = x.subset({ _all{}, _idx{-1}, _all{} });
   // x: bsz, dim
 
   return writer->matmul(x, w_vocab.transpose(0,1));
@@ -458,12 +448,19 @@ map<int, string> transformer_t::input_map() const {
 }
 
 tensor_t transformer_t::next_freqs_cis(uint64_t n) {
-  auto hrect = hrect_full_hrect_from_shape(full_freqs_cis.get_shape());
-  auto& [b0,e0] = hrect[0];
-  b0 = start_pos();
-  e0 = start_pos() + n;
+  using _all = graph_writer_t::idx_t::all;
+  using _rng = graph_writer_t::idx_t::rng;
+  using idx_t = graph_writer_t::idx_t;
 
-  return full_freqs_cis.subset(hrect);
+  vector<uint64_t> shape = full_freqs_cis.get_shape()();
+
+  vector<idx_t> subset(shape.size(), _all{});
+
+  int64_t b0 = int64_t(start_pos());
+  int64_t e0 = int64_t(start_pos() + n);
+  subset[0] = _rng{ b0, e0 };
+
+  return full_freqs_cis.subset(subset);
 }
 
 tensor_t transformer_t::next_mask(uint64_t seqlen) {
