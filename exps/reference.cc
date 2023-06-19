@@ -897,27 +897,27 @@ void test_random_goofy_ff() {
   uint64_t d2 = 6;
   uint64_t d3 = 8;
 
-  uint64_t d01 = d0*d1;
-  uint64_t d12 = d1*d2;
-  uint64_t d22 = d2*d2;
-  uint64_t d32 = d3*d2;
-  uint64_t d33 = d3*d3;
+  vector<uint64_t> d01 = {d0, d1};
+  vector<uint64_t> d12 = {d1, d2};
+  vector<uint64_t> d22 = {d2, d2};
+  vector<uint64_t> d32 = {d3, d2};
+  vector<uint64_t> d33 = {d3, d3};
 
   dtype_t dtype = dtype_t::f32;
 
-  id_t x = writer.input({bsz,d0,d1}, dtype).view({bsz,d01});
+  id_t x = writer.input({bsz,d0,d1}, dtype).view({ {bsz}, d01 });
   id_t w0 = writer.input({d0,d1,d3,d2}, dtype).view({d01,d32});
   id_t w1 = writer.input({d3,d2}, dtype);
 
   map<int,dbuffer_t> inns;
   for(id_t id: vector<id_t>{x,w0,w1}) {
     int gid = id.get_id();
-    dbuffer_t buffer = make_dbuffer(dtype, product(id.get_shape()));
+    dbuffer_t buffer = make_dbuffer(dtype, product(id.get_shape()()));
     buffer.random();
     inns.insert({gid, buffer});
   }
 
-  id_t y = writer.matmul(x, w0).view({bsz, d3, d2});
+  id_t y = writer.matmul(x, w0).view_full({bsz, d3, d2});
   id_t z = writer.matmul(y, w1.transpose(0,1)); // bsz,d3,d3
   y = writer.concat(2, {y, z}); // bsz,d3,d33
   y = writer.reduction("bxy->bx", castable_t::add, y); // bsz,d1
@@ -974,7 +974,7 @@ void test_with_complex_matmul() {
   map<int,dbuffer_t> inns;
   for(id_t id: vector<id_t>{lhs, rhs}) {
     int gid = id.get_id();
-    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()));
+    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()()));
     buffer.random();
     inns.insert({gid, buffer});
   }

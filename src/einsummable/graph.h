@@ -348,26 +348,6 @@ graph_constructor_t straight_matrix_multiplication(
   int pi, int pj, int pk,
   uint64_t di, uint64_t dj, uint64_t dk);
 
-// TODO:
-//   This is not valid but should be:
-//     graph_writer_t w;
-//     auto t = w.input({100,100});
-//     t = t.view({10,10,10,10});
-//   The reason it is not valid is because all inputs must
-//   currently be declared with the finest used dimension sizes.
-//
-//   What should happen instead is at t.view(...), it is determined
-//   which dimensions need to be set finer and that should be
-//   somehow propagated up the graph.
-//   An implementation that does this might not be desirable as it
-//   would be error prone: graph_t does checks when constructing
-//   the graph and offers no facilities to do such modifications.
-//
-//   Perhaps the preferable implementation would be upon encountering
-//   a dimension that needs to be made finer, to detect all the usages
-//   of the dimension and create an entirely new graph within the
-//   graph_writer_t. This would not be efficient for lots of encounters,
-//   but efficiency should not be the concern here.
 struct graph_writer_t {
   struct idx_t {
     struct rng {
@@ -390,14 +370,97 @@ struct graph_writer_t {
   private:
     static uint64_t to_index(uint64_t total, int64_t held);
   };
+
+  // A full_shape_t is basically just a vector<vector<uint64_t>>.
+  // It is used to store how tensor_t's are shaped. That is,
+  // a tensor_t has a full_shape, which is the flattened
+  // vector-of-vectors, which is how the tensor
+  // appears to graph_t, and the shape, which is a vector
+  // of the product of each inner-vector.
+  //
+  // Example:
+  //   full_shape = { {50}, {10,5} }
+  //   To the graph, this is always shape {50, 10, 5}. However,
+  //   the tensor_t can be viewed as {50,10,5}, {50*10, 5}, {50, 10*5},
+  //   {50*10*5}.
+  //
+  // Views in this way are a convenience to construct higher-order einsummables
+  // and are not particularly flexible.
+  //
+  // The full_dim_t must lineup when doing einsummables.
+  //
+  // Example:
+  //   To do ij,jk->ik with { {50}, {10,5} } left input,
+  //   then the second input must have as a first full_dim_t {10,5}.
+  //   If k = {30},   then to the graph, this amounts to iab,abk ->ik.
+  //   If k = {15,2}, then                               iab,abcd->icd
+  //
+  //   ij,jk->ik would fail for
+  //     { {50}, {10,5} } * { {5,10}, {30} } or
+  //     { {50}, {10,5} } * { {50},   {30} }
+  //   .. The full dims must line up.
+
+  // TODO: Can views be post-processed in?
+  // It would be nice if this was valid:
+  //   graph_writer_t w;
+  //   auto t = w.input({100,100});
+  //   t = t.view({10,10,10,10});
+  // The reason it is not valid is because all inputs must
+  // currently be declared with the finest used dimension sizes.
+  // If instead at t.view(...), it is determined
+  // which dimensions need to be set finer and that should be
+  // somehow propagated accross the graph.
+  //
+  // It could still be the case that something like {4,3} and {3,4} full_dims
+  // line up, which would have to error out or a proper graph_t reshape would have
+  // to be implemented...
+
+  struct full_dim_t {
+    full_dim_t(){}
+    full_dim_t(vector<uint64_t> const& ps): parts(ps) {}
+
+    vector<uint64_t> parts;
+    uint64_t operator()() const { return product(parts); }
+    static full_dim_t singleton(uint64_t d);
+  };
+
+  struct full_shape_t {
+    full_shape_t(){}
+    full_shape_t(vector<full_dim_t> const& ps): parts(ps) {}
+
+    vector<full_dim_t> parts;
+
+    vector<uint64_t> full() const;
+    vector<uint64_t> operator()() const;
+
+    int full_rank() const { return full().size(); }
+    int rank() const { return operator()().size(); }
+
+    vector<tuple<int,int>> get_breaks() const;
+    vector<vector<uint64_t>> as_vecvec() const;
+
+    static full_shape_t from_full(vector<uint64_t> const& ss);
+    static full_shape_t from_vecvec(vector<vector<uint64_t>> const& ss);
+  };
+
   struct tensor_t {
     tensor_t(): self(nullptr) {}
+
     tensor_t transpose(int i, int j) const;
-    tensor_t view(vector<uint64_t> shape) const;
-    vector<uint64_t> const& get_shape() const { return shape; }
-    vector<uint64_t> const& _get_full_shape() const { return full_shape; }
-    void save();
+
+    tensor_t view(full_shape_t const&) const;
+    tensor_t view(vector<vector<uint64_t>> const&) const;
+
+    tensor_t view_full() const;
+    tensor_t view_full(vector<uint64_t> const&) const;
+
+    full_shape_t const& get_shape() const { return shape; }
+    int rank() const { return shape.rank(); }
+
+    tensor_t save() const;
+
     int get_id() const { return id; }
+
     dtype_t get_dtype() const;
 
     tensor_t to_complex() const;
@@ -408,51 +471,38 @@ struct graph_writer_t {
     tensor_t to_f32() const;
     tensor_t to_f64() const;
 
-    tensor_t subset(vector<idx_t> const& idxs);
+    tensor_t subset(vector<idx_t> const& idxs) const;
+
+    // after this, the modes are 0,1,...,shape.full_rank()-1
+    tensor_t physically_permute() const;
 
   private:
     friend class graph_writer_t;
 
     tensor_t(
-      vector<uint64_t> const& shape,
-      vector<uint64_t> const& full_shape,
+      full_shape_t const& shape,
       int id,
       graph_writer_t* self);
 
-    vector<uint64_t> shape;
+    full_shape_t shape;
 
-    vector<uint64_t> full_shape;
     vector<int> modes;
+    // ^ modes.size() == shape.full_rank()
 
     int id;
 
     graph_writer_t* self;
-
-  private:
-    // after this, the modes are 0,1,...,full_shape.size()-1
-    void physically_permute();
-    vector<tuple<int,int>> get_breaks() const;
-    vector<vector<uint64_t>> _full_shape() const;
-
-    // TODO: shape and full_shape is not sufficient to tell
-    //       which modes are grouped together.. Consider
-    //       ((1,1),(1,1)) vs ((1), (1,1,1))
-
-    static vector<tuple<int,int>> get_breaks_(
-      vector<uint64_t> const& shape,
-      vector<uint64_t> const& full_shape);
   };
 
   struct to_einsummable_info_t {
-    vector<uint64_t> full_join_shape;
-    vector<uint64_t> join_shape;
+    full_shape_t join_shape;
+
     vector<vector<int>> full_inns;
+
     int full_out_rank;
     int out_rank;
 
-    vector<uint64_t> get_out_full_shape() const;
-
-    vector<uint64_t> get_out_shape() const;
+    full_shape_t get_out_shape() const;
 
     einsummable_t build_einsummable(
       scalarop_t scalarop,
@@ -465,6 +515,9 @@ struct graph_writer_t {
 
   tensor_t input(
     vector<uint64_t> shape,
+    dtype_t dtype = default_dtype());
+  tensor_t input(
+    full_shape_t shape,
     dtype_t dtype = default_dtype());
 
   tensor_t contraction(
@@ -552,8 +605,27 @@ private:
     scalarop_t op,
     int id);
 
+  // TODO
   optional<to_einsummable_info_t>
   make_einsummable_info(string str, vector<tensor_t> const& inns);
 
   tensor_t insert_complexer(tensor_t inn);
 };
+
+bool operator==(
+  graph_writer_t::full_dim_t const& lhs,
+  graph_writer_t::full_dim_t const& rhs);
+bool operator!=(
+  graph_writer_t::full_dim_t const& lhs,
+  graph_writer_t::full_dim_t const& rhs);
+
+bool operator==(
+  graph_writer_t::full_shape_t const& lhs,
+  graph_writer_t::full_shape_t const& rhs);
+bool operator!=(
+  graph_writer_t::full_shape_t const& lhs,
+  graph_writer_t::full_shape_t const& rhs);
+
+std::ostream& operator<<(
+  std::ostream&,
+  graph_writer_t::full_shape_t const&);

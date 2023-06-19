@@ -654,6 +654,25 @@ void graph_t::set_saves() {
   }
 }
 
+vector<partition_t> graph_t::make_singleton_partition() const {
+  vector<partition_t> ps;
+  ps.reserve(nodes.size());
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    ps.push_back(partition_t::singleton(node.op.shape()));
+  }
+  return ps;
+}
+
+vector<placement_t> graph_t::make_singleton_placement() const {
+  vector<placement_t> pls;
+  pls.reserve(nodes.size());
+  for(auto const& part: make_singleton_partition()) {
+    pls.emplace_back(part);
+  }
+  return pls;
+}
+
 vector<uint64_t> graph_t::out_shape(int id) const {
   return nodes[id].op.out_shape();
 }
@@ -1035,76 +1054,103 @@ uint64_t graph_writer_t::idx_t::to_index(uint64_t total, int64_t held) {
   }
 }
 
+graph_writer_t::full_dim_t
+graph_writer_t::full_dim_t::singleton(uint64_t d) {
+  return full_dim_t({d});
+}
+
+vector<uint64_t>
+graph_writer_t::full_shape_t::full() const {
+  return vector_flatten(
+    vector_from_each_member(parts, vector<uint64_t>, parts)
+  );
+}
+
+vector<uint64_t>
+graph_writer_t::full_shape_t::operator()() const {
+  return vector_from_each_method(parts, uint64_t, operator());
+}
+
+vector<tuple<int,int>>
+graph_writer_t::full_shape_t::get_breaks() const
+{
+  int b = 0;
+  vector<tuple<int,int>> ret;
+  for(auto const& p: parts) {
+    int d = p.parts.size();
+    ret.emplace_back(b, b + d);
+    b = b + d;
+  }
+  return ret;
+}
+
+vector<vector<uint64_t>>
+graph_writer_t::full_shape_t::as_vecvec() const
+{
+  vector<vector<uint64_t>> ret;
+  ret.reserve(parts.size());
+  for(auto const& p: parts) {
+    ret.push_back(p.parts);
+  }
+  return ret;
+}
+
+graph_writer_t::full_shape_t
+graph_writer_t::full_shape_t::from_full(
+  vector<uint64_t> const& ss)
+{
+  vector<full_dim_t> parts;
+  parts.reserve(ss.size());
+  for(auto const& d: ss) {
+    parts.push_back(full_dim_t::singleton(d));
+  }
+  return full_shape_t(parts);
+}
+
+graph_writer_t::full_shape_t
+graph_writer_t::full_shape_t::from_vecvec(
+  vector<vector<uint64_t>> const& ss)
+{
+  vector<full_dim_t> parts;
+  parts.reserve(ss.size());
+
+  for(auto const& s: ss) {
+    parts.push_back(full_dim_t { s });
+  }
+
+  return full_shape_t(parts);
+}
+
 graph_writer_t::tensor_t::tensor_t(
-  vector<uint64_t> const& _shape,
-  vector<uint64_t> const& _full_shape,
+  full_shape_t const& _shape,
   int _id,
   graph_writer_t* _self)
-    : shape(_shape), full_shape(_full_shape),
-      id(_id), self(_self)
+    : shape(_shape), id(_id), self(_self)
 {
-  modes.resize(full_shape.size());
+  modes.resize(shape.full_rank());
   std::iota(modes.begin(), modes.end(), 0);
 }
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::transpose(int i, int j) const
 {
-  auto breaks = get_breaks();
+  auto breaks = shape.get_breaks();
 
   tensor_t ret = *this;
 
-  std::swap(ret.shape.at(i), ret.shape.at(j));
+  std::swap(ret.shape.parts.at(i), ret.shape.parts.at(j));
 
-  rotate_sections(ret.modes,      breaks[i], breaks[j]);
-  rotate_sections(ret.full_shape, breaks[i], breaks[j]);
+  rotate_sections(ret.modes, breaks[i], breaks[j]);
 
   return ret;
 }
 
-bool _check_new_shape(
-  vector<uint64_t> const& full_shape,
-  vector<uint64_t> const& new_shape)
-{
-  if(new_shape.size() > full_shape.size()) {
-    return false;
-  }
-
-  vector<uint64_t> full(full_shape.size());
-  vector<uint64_t> news(new_shape.size());
-
-  std::inclusive_scan(
-    full_shape.begin(), full_shape.end(),
-    full.begin(),
-    std::multiplies<>{});
-  std::inclusive_scan(
-    new_shape.begin(),  new_shape.end(),
-    news.begin(),
-    std::multiplies<>{});
-
-  auto n = news.begin();
-  auto f = full.begin();
-  for(; n != news.end(); ++n) {
-    for(; f != full.end(); ++f) {
-      if(*n == *f) {
-        break;
-      }
-    }
-    if(f == full.end()) {
-      return false;
-    }
-    ++f;
-  }
-  return true;
-}
-
 graph_writer_t::tensor_t
-graph_writer_t::tensor_t::view(vector<uint64_t> new_shape) const
+graph_writer_t::tensor_t::view(
+  graph_writer_t::full_shape_t const& new_shape) const
 {
-  if(!_check_new_shape(full_shape, new_shape)) {
-    throw std::runtime_error(
-      "could not create view from " + write_with_ss(new_shape) + " to " +
-      write_with_ss(full_shape));
+  if(!vector_equal(shape.full(), new_shape.full())) {
+    throw std::runtime_error("incorrect tensor_t view argument");
   }
 
   tensor_t ret = *this;
@@ -1112,19 +1158,46 @@ graph_writer_t::tensor_t::view(vector<uint64_t> new_shape) const
   return ret;
 }
 
-void graph_writer_t::tensor_t::save() {
-  // permute this node if necc
-  physically_permute();
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::view(
+  vector<vector<uint64_t>> const& new_shape) const
+{
+  return view(full_shape_t::from_vecvec(new_shape));
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::view_full() const
+{
+  return view(full_shape_t::from_full(shape.full()));
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::view_full(
+  vector<uint64_t> const& full_shape) const
+{
+  if(!vector_equal(full_shape, shape.full())) {
+    throw std::runtime_error("in view full: incorrect full shape passed in");
+  }
+  return view(full_shape_t::from_full(full_shape));
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::save() const
+{
+  // this will permute if necc
+  tensor_t ret = physically_permute();
 
   {
-    auto& op = self->graph.nodes[id].op;
+    auto& op = self->graph.nodes[ret.id].op;
     if(op.is_formation()) {
       op.get_formation().is_save = true;
-      return;
+      return ret;
     }
   }
 
-  id = self->graph.insert_formation(id, true);
+  ret.id = self->graph.insert_formation(ret.id, true);
+
+  return ret;
 }
 
 dtype_t graph_writer_t::tensor_t::get_dtype() const {
@@ -1163,17 +1236,19 @@ graph_writer_t::tensor_t::to_f64() const {
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::subset(
-  vector<graph_writer_t::idx_t> const& idxs)
+  vector<graph_writer_t::idx_t> const& idxs) const
 {
-  if(idxs.size() != shape.size()) {
+  auto _shape = shape();
+  int rank = _shape.size();
+  if(idxs.size() != rank) {
     throw std::runtime_error("tensor subset: invalid rank idxs");
   }
   vector<tuple<uint64_t, uint64_t>> hrect;
-  hrect.reserve(shape.size());
+  hrect.reserve(rank);
   set<int> squeeze;
-  for(int i = 0; i != shape.size(); ++i) {
+  for(int i = 0; i != rank; ++i) {
     auto const& idx = idxs[i];
-    hrect.push_back(idx.get(shape[i]));
+    hrect.push_back(idx.get(_shape[i]));
     if(idx.is_squeeze()) {
       squeeze.insert(i);
     }
@@ -1181,85 +1256,42 @@ graph_writer_t::tensor_t::subset(
   return self->subset(hrect, squeeze, *this);
 }
 
-void graph_writer_t::tensor_t::physically_permute() {
-  vector<int> no_permute_modes(modes.size());
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::physically_permute() const {
+  tensor_t ret = *this;
+
+  vector<int> no_permute_modes(ret.modes.size());
   std::iota(
     no_permute_modes.begin(),
     no_permute_modes.end(),
     0);
 
-  if(modes == no_permute_modes) {
-    return;
+  if(ret.modes == no_permute_modes) {
+    return ret;
   }
 
   string str;
   {
-    vector<char> letters(modes.size());
+    vector<char> letters(ret.modes.size());
     std::iota(letters.begin(), letters.end(), 'a');
 
     string inn(letters.begin(), letters.end());
 
     string out;
-    for(auto const& m: modes) {
+    for(auto const& m: ret.modes) {
       out.push_back(letters[m]);
     }
 
     str = inn + "->" + out;
   }
 
-  dtype_t dtype = get_dtype();
-  id = self->_insert_elementwise(
+  dtype_t dtype = ret.get_dtype();
+  ret.id = self->_insert_elementwise(
     str,
     scalarop_t::make_identity(dtype),
-    id);
-  modes = no_permute_modes;
-}
+    ret.id);
+  ret.modes = no_permute_modes;
 
-vector<tuple<int,int>>
-graph_writer_t::tensor_t::get_breaks() const
-{
-  return get_breaks_(shape, full_shape);
-}
-
-vector<tuple<int,int>>
-graph_writer_t::tensor_t::get_breaks_(
-  vector<uint64_t> const& shape,
-  vector<uint64_t> const& full_shape)
-{
-  vector<tuple<int,int>> ret;
-
-  int f = 0;
-  for(int d = 0; d != shape.size(); ++d) {
-    ret.emplace_back(f,0);
-
-    auto& [_, b] = ret.back();
-
-    int sz = shape[d];
-    if(sz == 1) {
-      ++f; // This is a hack!
-    } else {
-      while(sz != 1) {
-        sz /= full_shape[f];
-        ++f;
-      }
-    }
-    b = f;
-  }
-
-  return ret;
-}
-
-vector<vector<uint64_t>>
-graph_writer_t::tensor_t::_full_shape() const
-{
-  auto breaks = get_breaks();
-  vector<vector<uint64_t>> ret;
-  for(auto const& [b,e]: breaks) {
-    ret.push_back({});
-    for(int i = b; i != e; ++i) {
-      ret.back().push_back(full_shape[i]);
-    }
-  }
   return ret;
 }
 
@@ -1268,49 +1300,33 @@ graph_writer_t::input(
   vector<uint64_t> shape,
   dtype_t dtype)
 {
-  int id = graph.insert_input(shape, dtype);
-  return tensor_t(shape, shape, id, this);
+  return this->input(full_shape_t::from_full(shape), dtype);
 }
 
-vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_full_shape() const
+graph_writer_t::tensor_t
+graph_writer_t::input(
+  full_shape_t shape,
+  dtype_t dtype)
 {
-  return vector<uint64_t>(
-    full_join_shape.begin(),
-    full_join_shape.begin() + full_out_rank);
+  int id = graph.insert_input(shape.full(), dtype);
+  return tensor_t(shape, id, this);
 }
 
-vector<partition_t> graph_t::make_singleton_partition() const {
-  vector<partition_t> ps;
-  ps.reserve(nodes.size());
-  for(int gid = 0; gid != nodes.size(); ++gid) {
-    auto const& node = nodes[gid];
-    ps.push_back(partition_t::singleton(node.op.shape()));
-  }
-  return ps;
-}
-
-vector<placement_t> graph_t::make_singleton_placement() const {
-  vector<placement_t> pls;
-  pls.reserve(nodes.size());
-  for(auto const& part: make_singleton_partition()) {
-    pls.emplace_back(part);
-  }
-  return pls;
-}
-
-vector<uint64_t> graph_writer_t::to_einsummable_info_t::get_out_shape() const
+graph_writer_t::full_shape_t
+graph_writer_t::to_einsummable_info_t::get_out_shape() const
 {
-  return vector<uint64_t>(
-    join_shape.begin(),
-    join_shape.begin() + out_rank);
+  return full_shape_t(vector<full_dim_t>(
+      join_shape.parts.begin(),
+      join_shape.parts.begin() + out_rank));
 }
 
-einsummable_t graph_writer_t::to_einsummable_info_t::build_einsummable(
+einsummable_t
+graph_writer_t::to_einsummable_info_t::build_einsummable(
   scalarop_t join,
   optional<castable_t> castable) const
 {
   return einsummable_t(
-    full_join_shape,
+    join_shape.full(),
     full_inns,
     full_out_rank,
     join,
@@ -1347,7 +1363,6 @@ graph_writer_t::contraction(
 
   return tensor_t(
     info.get_out_shape(),
-    info.get_out_full_shape(),
     id,
     this);
 }
@@ -1378,7 +1393,6 @@ graph_writer_t::reduction(
 
   return tensor_t(
     info.get_out_shape(),
-    info.get_out_full_shape(),
     id,
     this);
 }
@@ -1388,7 +1402,7 @@ graph_writer_t::ew(
   scalarop_t op,
   graph_writer_t::tensor_t const& inn)
 {
-  int out_rank = inn.get_shape().size();
+  int out_rank = inn.rank();
 
   string ijk(out_rank, ' ');
   std::iota(ijk.begin(), ijk.end(), 'a');
@@ -1440,7 +1454,6 @@ graph_writer_t::ew(
 
   return tensor_t(
     info.get_out_shape(),
-    info.get_out_full_shape(),
     id,
     this);
 }
@@ -1450,16 +1463,20 @@ graph_writer_t::concat(
   int dim,
   vector<graph_writer_t::tensor_t> const& inns_)
 {
+  if(inns_.size() == 0) {
+    throw std::runtime_error("graph writer concat empty input");
+  }
+
   vector<tensor_t> inns = inns_;
 
   // make sure all the inputs have no hidden permutation
   for(tensor_t& inn: inns) {
-    inn.physically_permute();
+    inn = inn.physically_permute();
   }
 
   // only the full dimensions can be concatenated
   for(tensor_t const& inn: inns) {
-    auto [i,j] = inn.get_breaks()[dim];
+    auto [i,j] = inn.get_shape().get_breaks()[dim];
     if(j-i != 1) {
       throw std::runtime_error(
         "graph writer concat: only full dims can be concated");
@@ -1467,23 +1484,23 @@ graph_writer_t::concat(
   }
 
   // check the shapes (but not full shapes) are correct
-  vector<uint64_t> shape;
+  full_shape_t shape = inns[0].shape;
   {
-    vector<vector<uint64_t>> shapes = vector_from_each_member(
-      inns, vector<uint64_t>, shape);
+    vector<vector<uint64_t>> shapes = vector_from_each_method(
+      inns, vector<uint64_t>, get_shape().operator());
     optional<string> err_msg = check_concat_shapes(dim, shapes);
     if(err_msg) {
       throw std::runtime_error("graph writer insert concat: " + err_msg.value());
     }
 
-    shape = shapes[0];
-    shape[dim] = 0;
-    for(int i = 0; i != inns.size(); ++i) {
-      shape[dim] += shapes[i][dim];
+    uint64_t d_after_concat = 0;
+    for(auto const& shape: shapes) {
+      d_after_concat += shape[dim];
     }
+    shape.parts[dim] = full_dim_t::singleton(d_after_concat);
   }
 
-  auto breaks = inns[0].get_breaks();
+  auto breaks = shape.get_breaks();
   int full_dim = std::get<0>(breaks[dim]);
 
   // now graph concat will check the full shapes
@@ -1491,10 +1508,12 @@ graph_writer_t::concat(
   int id = graph.insert_concat(full_dim, inn_ids);
 
   auto full_shape = graph.out_shape(id);
+  if(!vector_equal(full_shape, shape.full())) {
+    throw std::runtime_error("graph writer concat implementation error");
+  }
 
   return tensor_t(
     shape,
-    full_shape,
     id,
     this);
 }
@@ -1567,17 +1586,20 @@ graph_writer_t::insert_complexer(
   // Only do a permutation if the actual last dimension
   // is not at the end
   if(tensor.modes.back() != tensor.modes.size() - 1) {
-    tensor.physically_permute();
+    tensor = tensor.physically_permute();
   }
+
+  // get a reference to the last dim part
+  auto& full_shape_parts = tensor.shape.parts;
+  auto& last_full_dim = full_shape_parts.back();
+  auto& last_dim_part = last_full_dim.parts.back();
 
   if(to_real) {
     tensor.id = graph.insert_to_real(tensor.id);
-    tensor.full_shape.back() *= 2;
-    tensor.shape.back() *= 2;
+    last_dim_part *= 2;
   } else {
     tensor.id = graph.insert_to_complex(tensor.id);
-    tensor.full_shape.back() /= 2;
-    tensor.shape.back() /= 2;
+    last_dim_part /= 2;
   }
 
   return tensor;
@@ -1588,8 +1610,8 @@ graph_writer_t::matmul(
   graph_writer_t::tensor_t const& lhs,
   graph_writer_t::tensor_t const& rhs)
 {
-  int nl = lhs.shape.size();
-  int nr = rhs.shape.size();
+  int nl = lhs.rank();
+  int nr = rhs.rank();
   if(nl < 2 || nr < 2) {
     throw std::runtime_error("graph writer matmul: must have atleast rank 2");
   }
@@ -1635,7 +1657,7 @@ graph_writer_t::softmax(
 {
   dtype_t dtype = inn.get_dtype();
 
-  int n = inn.shape.size() - 1;
+  int n = inn.rank() - 1;
 
   string h(n, ' ');
   std::iota(h.begin(), h.end(), 'b');
@@ -1711,7 +1733,7 @@ graph_writer_t::straight_bew(
     throw std::runtime_error("cannot add with different dtypes");
   }
 
-  string x(lhs.shape.size(), ' ');
+  string x(lhs.rank(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
   return ew(
@@ -1734,7 +1756,7 @@ graph_writer_t::scale(
   scalar_t val,
   graph_writer_t::tensor_t const& inn)
 {
-  string x(inn.shape.size(), ' ');
+  string x(inn.rank(), ' ');
   std::iota(x.begin(), x.end(), 'a');
 
   return ew(x + "->" + x, scalarop_t::make_scale(val), inn);
@@ -1786,7 +1808,7 @@ graph_writer_t::make_einsummable_info(
   {
     vector<vector<uint64_t>> inn_shapes;
     for(auto const& inn_tensor: tensors) {
-      inn_shapes.push_back(inn_tensor.shape);
+      inn_shapes.push_back(inn_tensor.shape());
     }
     auto maybe = einsummable_t::construct_join_shape(inns, inn_shapes);
     if(!maybe) {
@@ -1795,12 +1817,12 @@ graph_writer_t::make_einsummable_info(
     join_shape = maybe.value();
   }
 
-  vector<uint64_t> full_join_shape;
+  full_shape_t full_join_shape;
   int full_out_rank;
   {
     vector<vector<vector<uint64_t>>> fs;
     for(auto const& inn_tensor: tensors) {
-      fs.push_back(inn_tensor._full_shape());
+      fs.push_back(inn_tensor.shape.as_vecvec());
     }
     auto maybe = einsummable_t::construct_join_shape_(
       inns, fs, vector<uint64_t>{}, vector_equal<uint64_t>);
@@ -1815,12 +1837,17 @@ graph_writer_t::make_einsummable_info(
       full_out_rank += v[i].size();
     }
 
-    full_join_shape = vector_flatten(v);
+    vector<full_dim_t> ds;
+    ds.reserve(v.size());
+    for(auto const& dim_parts: v) {
+      ds.emplace_back(dim_parts);
+    }
+    full_join_shape = full_shape_t(ds);
   }
 
   vector<vector<int>> full_inns_before_perm;
   {
-    auto breaks = tensor_t::get_breaks_(join_shape, full_join_shape);
+    auto breaks = full_join_shape.get_breaks();
     for(vector<int> const& is: inns) {
       full_inns_before_perm.push_back({});
       auto& full_is = full_inns_before_perm.back();
@@ -1856,11 +1883,43 @@ graph_writer_t::make_einsummable_info(
   }
 
   return to_einsummable_info_t {
-    .full_join_shape = full_join_shape,
-    .join_shape = join_shape,
+    .join_shape = full_join_shape,
     .full_inns = full_inns,
     .full_out_rank = full_out_rank,
     .out_rank = out_rank
   };
 }
 
+bool operator==(
+  graph_writer_t::full_dim_t const& lhs,
+  graph_writer_t::full_dim_t const& rhs)
+{
+  return vector_equal(lhs.parts, rhs.parts);
+}
+bool operator!=(
+  graph_writer_t::full_dim_t const& lhs,
+  graph_writer_t::full_dim_t const& rhs)
+{
+  return !(lhs == rhs);
+}
+
+bool operator==(
+  graph_writer_t::full_shape_t const& lhs,
+  graph_writer_t::full_shape_t const& rhs)
+{
+  return vector_equal(lhs.parts, rhs.parts);
+}
+bool operator!=(
+  graph_writer_t::full_shape_t const& lhs,
+  graph_writer_t::full_shape_t const& rhs)
+{
+  return !(lhs == rhs);
+}
+
+std::ostream& operator<<(
+  std::ostream& out,
+  graph_writer_t::full_shape_t const& shape)
+{
+  out << shape();
+  return out;
+}

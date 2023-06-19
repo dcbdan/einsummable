@@ -3,17 +3,18 @@
 
 void main01() {
   using tensor_t = graph_writer_t::tensor_t;
+  using fs_t = graph_writer_t::full_shape_t;
 
   graph_writer_t writer;
 
-  tensor_t x = writer.input({100,10,200,10});
-  x = x.view({1000,2000});
+  tensor_t x = writer.input(
+    fs_t::from_vecvec({{100,10},{200,10}}));
 
   tensor_t y = writer.input({200,10,300,10});
-  y = y.view({2000,3000});
+  y = y.view({{200,10},{300,10}});
 
   tensor_t z = writer.matmul(x, y);
-  z = z.view({1000,3000});
+  z = z.view_full();
 
   writer.get_graph().print();
 }
@@ -21,16 +22,22 @@ void main01() {
 void main02() {
   using tensor_t = graph_writer_t::tensor_t;
 
+  using fd_t = graph_writer_t::full_dim_t;
+  using fs_t = graph_writer_t::full_shape_t;
+
+  fd_t di({100,10});
+  fd_t dj({200,20});
+
   graph_writer_t writer;
 
   tensor_t x = writer.input({100,10,200,20});
-  x = x.view({1000,4000});
+  x = x.view(fs_t({di,dj}));
   x = x.transpose(0, 1);
   DOUT(x.get_shape());
-  x = x.view({200,20,100,10});
+  x = x.view_full({200,20,100,10});
   DOUT(x.get_shape());
 
-  x.save();
+  x = x.save();
   writer.get_graph().print();
 }
 
@@ -70,13 +77,11 @@ void main05() {
   x = x.transpose(1,2);
   x = x.transpose(2,3);
 
-  tensor_t z = writer.scale("88.0", x);
-  z.save();
+  tensor_t z = writer.scale("88.0", x).save();
 
   tensor_t y = writer.add(x,x);
 
-  y = writer.scale("9.9", y);
-  y.save();
+  y = writer.scale("9.9", y).save();
 
   writer.get_graph().print();
 }
@@ -93,12 +98,11 @@ void main06() {
   x = x.transpose(2,3);
 
   tensor_t z = writer.scale("88.0", x);
-  z.save();
+  z = z.save();
 
   tensor_t y = writer.add(x,x);
 
-  y = writer.scale("9.9", y);
-  y.save();
+  y = writer.scale("9.9", y).save();
 
   writer.get_graph().print();
 }
@@ -106,38 +110,47 @@ void main06() {
 void main07() {
   using tensor_t = graph_writer_t::tensor_t;
 
+  using fd_t = graph_writer_t::full_dim_t;
+  using fs_t = graph_writer_t::full_shape_t;
+
   graph_writer_t writer;
 
   tensor_t x = writer.input({2,3,4,5});
 
   tensor_t y = writer.reduction("ijkl->ik", castable_t::add, x);
 
-  x = x.view({6,20});
+  fd_t di({2,3});
+  fd_t dj({4,5});
+  x = x.view(fs_t({di,dj}));
+
   tensor_t z = writer.reduction("ij->i", castable_t::min, x);
 
-  y.save();
-  z.save();
+  y = y.save();
+  z = z.save();
 
   writer.get_graph().print();
 }
 
 void main08_attention() {
   using tensor_t = graph_writer_t::tensor_t;
+
+  using fd_t = graph_writer_t::full_dim_t;
+  using fs_t = graph_writer_t::full_shape_t;
+
   graph_writer_t writer;
 
-  uint64_t start_pos   = 7;
-  uint64_t n_heads     = 8;
-  uint64_t head_dim    = 10;
-  uint64_t dim         = n_heads * head_dim;
-  uint64_t bsz         = 11;
-  uint64_t seqlen      = 12;
+  fd_t start_pos({ 7 });
+  fd_t n_heads  ({ 8 });
+  fd_t head_dim ({ 10 });
+  fd_t dim      ({ n_heads(), head_dim() });
+  fd_t bsz      ({ 11 });
+  fd_t seqlen   ({ 12 });
 
-  vector<uint64_t> full_x = {bsz, seqlen, n_heads, head_dim};
-  tensor_t x = writer.input(full_x).view(
-    {bsz, seqlen, dim});
+  fs_t full_x({bsz, seqlen, n_heads, head_dim});
+  tensor_t x = writer.input(full_x).view(fs_t({bsz, seqlen, dim}));
 
-  vector<uint64_t> full_dd = {n_heads, head_dim, n_heads, head_dim};
-  vector<uint64_t> dd      = {dim, dim};
+  fs_t full_dd({n_heads, head_dim, n_heads, head_dim});
+  fs_t dd({dim, dim});
 
   tensor_t wq = writer.input(full_dd).view(dd);
   tensor_t wk = writer.input(full_dd).view(dd);
@@ -156,8 +169,8 @@ void main08_attention() {
 
   // TODO: rotary embed xq, xk
 
-  tensor_t prev_keys   = writer.input({bsz, start_pos, n_heads, head_dim});
-  tensor_t prev_values = writer.input({bsz, start_pos, n_heads, head_dim});
+  tensor_t prev_keys   = writer.input(fs_t({bsz, start_pos, n_heads, head_dim}));
+  tensor_t prev_values = writer.input(fs_t({bsz, start_pos, n_heads, head_dim}));
   tensor_t keys   = writer.concat(1, {prev_keys,   xk});
   tensor_t values = writer.concat(1, {prev_values, xv});
 
@@ -166,16 +179,16 @@ void main08_attention() {
   values = values.transpose(1, 2);
 
   tensor_t scores = writer.matmul(xq, keys.transpose(2, 3));
-  string _scale_val = write_with_ss(double(1 / std::sqrt(1.0*head_dim)));
+  string _scale_val = write_with_ss(double(1 / std::sqrt(1.0*head_dim())));
   scores = writer.scale(_scale_val, scores);
   // scores: bsz, n heads, seqlen, start pos + seqlen
 
-  tensor_t mask = writer.input({bsz, n_heads, seqlen, start_pos + seqlen});
+  tensor_t mask = writer.input({bsz(), n_heads(), seqlen(), start_pos() + seqlen()});
   scores = writer.add(scores, mask);
 
   scores = writer.softmax(scores);
   tensor_t output = writer.matmul(scores, values);
-  output = output.transpose(1, 2).view({bsz, seqlen, dim});
+  output = output.transpose(1, 2).view(fs_t({bsz, seqlen, dim}));
 
   x = writer.matmul(output, wo.transpose(0,1));
 

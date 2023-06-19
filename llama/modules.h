@@ -4,32 +4,12 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/scalarop.h"
 
-using tensor_t = graph_writer_t::tensor_t;
+using tensor_t     = graph_writer_t::tensor_t;
+using full_dim_t   = graph_writer_t::full_dim_t;
+using full_shape_t = graph_writer_t::full_shape_t;
 
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
-struct full_dim_t {
-  vector<uint64_t> dim_parts;
-
-  uint64_t dim() const { return product(dim_parts); }
-
-  static full_dim_t singleton(uint64_t d) {
-    return full_dim_t { .dim_parts = { d } };
-  }
-};
-
-struct full_shape_t {
-  vector<full_dim_t> shape_parts;
-
-  vector<uint64_t> full_shape() {
-    return vector_flatten(
-      vector_from_each_member(shape_parts, vector<uint64_t>, dim_parts)
-    );
-  }
-  vector<uint64_t> shape() {
-    return vector_from_each_method(shape_parts, uint64_t, dim);
-  }
-};
 
 // Helpful structure for llama model
 struct model_args_t {
