@@ -34,6 +34,7 @@ struct full_shape_t {
 // Helpful structure for llama model
 struct model_args_t {
   static model_args_t make_default();
+  static model_args_t llama_7B();
 
   uint64_t dim;
   int n_layers;
