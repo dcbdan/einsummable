@@ -162,6 +162,10 @@ subset_t::subset_t(
     }
   }
 
+  if(squeeze.size() == selection.size()) {
+    throw std::runtime_error("selection must end up with more than zero dims");
+  }
+
   bool is_no_op = true;
   for(auto const& [d_inn, d_out, offset]: selection) {
     if(d_inn != d_out || offset != 0) {

@@ -1,6 +1,5 @@
 #include "../src/einsummable/graph.h"
 
-
 void main01() {
   using tensor_t = graph_writer_t::tensor_t;
   using fs_t = graph_writer_t::full_shape_t;
@@ -195,7 +194,40 @@ void main08_attention() {
   writer.get_graph().print();
 }
 
+void main09_subset() {
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+  using fd_t = graph_writer_t::full_dim_t;
+  using fs_t = graph_writer_t::full_shape_t;
+
+  using _all = graph_writer_t::idx_t::all;
+  using _idx = graph_writer_t::idx_t::idx;
+  using _rng = graph_writer_t::idx_t::rng;
+
+  fd_t di({20});
+  fd_t dj({30});
+  fd_t dk({40,50});
+
+  tensor_t a = writer.input(fs_t({di,dj,dk}));
+
+  tensor_t b = a.subset({ _all{}, _all{}, _all{}});
+  DOUT(b.get_shape() << " | " << a.get_id() << " " << b.get_id());
+  // b is just a no op
+
+  tensor_t c = a.subset({ _rng{5,10}, _rng{10,15}, _all{} });
+  DOUT(c.get_shape());
+
+  tensor_t d = a.subset({ _rng{5,10}, _idx{9}, _all{} });
+  DOUT(d.get_shape());
+
+  writer.get_graph().print();
+
+  // this should fail
+  //tensor_t e = a.subset({ _all{}, _all{}, _rng{3,6} });
+}
+
 int main() {
-  main08_attention();
+  main09_subset();
 }
 
