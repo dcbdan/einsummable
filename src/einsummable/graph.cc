@@ -161,6 +161,17 @@ subset_t::subset_t(
       throw std::runtime_error("can only squeeze modes with size 1");
     }
   }
+
+  bool is_no_op = true;
+  for(auto const& [d_inn, d_out, offset]: selection) {
+    if(d_inn != d_out || offset != 0) {
+      is_no_op = false;
+      break;
+    }
+  }
+  if(is_no_op) {
+    throw std::runtime_error("subset_t cannot be no op");
+  }
 }
 
 vector<uint64_t> subset_t::inn_shape() const {
@@ -1524,8 +1535,91 @@ graph_writer_t::subset(
   set<int> squeeze,
   tensor_t const& inn)
 {
-  // TODO
-  // TODO: if everything is being selected, return inn
+  full_shape_t inn_shape = inn.get_shape();
+  vector<uint64_t> inn_shape_ = inn_shape();
+  int rank = inn_shape_.size();
+
+  if(hrect.size() != rank) {
+    throw std::runtime_error("graph writer subset: incorrect len hrect");
+  }
+
+  {
+    bool is_no_op = true;
+    for(int i = 0; i != rank; ++i) {
+      auto [b,e] = hrect[i];
+      if(b != 0 || e != inn_shape_[i]) {
+        is_no_op = false;
+        break;
+      }
+    }
+    if(is_no_op) {
+      return inn;
+    }
+  }
+
+  // make sure that only singleton full_dim_t's are being
+  // subset.
+
+  auto is_subset_dim = [&](int i) {
+    auto const& [b,e] = hrect[i];
+    auto const& d = inn_shape_[i];
+    return (b != 0 || e != d);
+  };
+
+  auto breaks = inn_shape.get_breaks();
+  for(int i = 0; i != rank; ++i) {
+    auto const& [dim_idx_b,dim_idx_e] = breaks[i];
+    if(dim_idx_b + 1 != dim_idx_e) {
+      // dim part i is not a singleton
+      if(is_subset_dim(i)) {
+        throw std::runtime_error(
+          "only subsetting singleton dimensions are supported");
+      }
+    }
+  }
+
+  vector<uint64_t> inn_full_shape = inn_shape.full();
+
+  vector<tuple<uint64_t, uint64_t>> full_hrect;
+  full_hrect.reserve(inn_full_shape.size());
+
+  set<int> full_squeeze;
+
+  vector<vector<uint64_t>> out_vecvec;
+
+  for(int i = 0; i != rank; ++i) {
+    auto const& [b,e] = breaks[i];
+
+    if(is_subset_dim(i)) {
+      full_hrect.push_back(hrect[i]);
+      if(squeeze.count(i) == 0) {
+        auto const& [_b,_e] = hrect[i];
+        out_vecvec.push_back({ _e-_b});
+      } else {
+        full_squeeze.insert(b);
+      }
+    } else {
+      if(squeeze.count(i) > 0) {
+        throw std::runtime_error("subset graph writer error");
+      }
+      out_vecvec.emplace_back();
+      for(int f = b; f != e; ++f) {
+        uint64_t const& d = inn_full_shape[f];
+        full_hrect.emplace_back(0, d);
+        out_vecvec.back().push_back(d);
+      }
+    }
+  }
+
+  int out_id = graph.insert_subset(full_hrect, inn.get_id(), full_squeeze);
+
+  full_shape_t out_shape = full_shape_t::from_vecvec(out_vecvec);
+
+  if(!vector_equal(graph.out_shape(out_id), out_shape.full())) {
+    throw std::runtime_error("impl error: graph writer subset");
+  }
+
+  return tensor_t(out_shape, out_id, this);
 }
 
 graph_writer_t::tensor_t
