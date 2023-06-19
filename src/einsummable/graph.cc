@@ -769,6 +769,7 @@ void graph_t::print_graphviz(std::ostream& out) const {
     op_t const& op = node.op;
 
     string label;
+    string color = "";
     if(op.is_input()) {
       label = "input" + write_with_ss(id);
     } else if(op.is_formation()) {
@@ -777,10 +778,16 @@ void graph_t::print_graphviz(std::ostream& out) const {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
       label = "einsummable" + write_with_ss(id);
+    } else if(op.is_subset()) {
+      label = "subset" + write_with_ss(id);
     }
     out << tab
       << "n" << id
-      << " [style=filled,label=\"" << label << "\"]" << endl;
+      << " [style=filled,label=\"" << label << "\"";
+    if(color != "") {
+      out << ",color=\"" << color << "\"";
+    }
+    out << "]" << endl;
 
     for(auto const& inn: node.get_inns_set()) {
       out << tab << "n" << inn << " -> " << "n" << id << endl;

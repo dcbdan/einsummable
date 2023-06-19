@@ -784,7 +784,7 @@ taskgraph_make_state_t::form_concat(int gid) {
   graph_t::node_t const& node = graph.nodes.at(gid);
 
   if(!node.op.is_concat()) {
-    throw std::runtime_error("from_concat needs concat node");
+    throw std::runtime_error("form_concat needs concat node");
   }
 
   auto concat = node.op.get_concat();
@@ -878,8 +878,70 @@ taskgraph_make_state_t::form_concat(int gid) {
 vtensor_t<int>
 taskgraph_make_state_t::form_subset(int gid) {
   graph_t::node_t const& node = graph.nodes.at(gid);
-  placement_t const& pl = placements.at(gid);
-  // TODO
+
+  if(!node.op.is_subset()) {
+    throw std::runtime_error("form_subset needs subset node");
+  }
+
+  placement_t const& s_pl = placements.at(gid);
+  auto const& s_subset = node.op.get_subset();
+
+  // take s_subset and s_pl and
+  // (1) add back the squeeze dimensions and
+  // (2) double the last complex dimension, if complex
+
+  int const& inn_gid = node.inns[0];
+  int inn_rank = graph.out_shape(inn_gid).size();
+  vector<partdim_t> pds;
+  pds.reserve(inn_rank);
+  int j = 0;
+  for(int i = 0; i != inn_rank; ++i) {
+    if(s_subset.squeeze.count(j) > 0) {
+      pds.push_back(partdim_t::singleton(1));
+    } else {
+      pds.push_back(s_pl.partition.partdims[j]);
+      j++;
+    }
+  }
+
+  partition_t partition(pds);
+  auto new_selection = s_subset.selection;
+  dtype_t dtype = s_subset.dtype;
+  if(dtype_is_complex(dtype)) {
+    dtype = complex_to_real(dtype);
+    double_last_dim_inplace(partition);
+
+    auto& [last_dinn, last_dout, last_offset] = new_selection.back();
+    last_dinn   *= 2;
+    last_dout   *= 2;
+    last_offset *= 2;
+  }
+
+  auto block_shape = partition.block_shape();
+
+  placement_t pl(
+    partition,
+    vtensor_t<int>(block_shape, s_pl.locations.get()));
+
+  // get the offsets of placement with respect to the input
+  vector<uint64_t> offsets = vector_mapfst(
+    subset_t(new_selection, {}, dtype).get_hrect());
+
+  vtensor_t<int> ret(block_shape);
+  vector<int> idx(block_shape.size(), 0);
+  do {
+    auto hrect = pl.partition.get_hrect(idx);
+    for(int i = 0; i != hrect.size(); ++i) {
+      auto& [b,e] = hrect[i];
+      auto const& offset = offsets[i];
+      b += offset;
+      e += offset;
+    }
+    ret.at(idx) = access(inn_gid, hrect, pl.at(idx));
+  } while(increment_idxs(block_shape, idx));
+
+  // remove the squeeze dimensions in ret
+  return vtensor_t<int>(s_pl.partition.block_shape(), ret.get());
 }
 
 vtensor_t<int>

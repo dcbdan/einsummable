@@ -303,7 +303,7 @@ int main() {
 
   // TODO: set vocab_size
   args.vocab_size = 123;
-  args.n_layers = 3;
+  args.n_layers = 4;
 
   graph_writer_t writer;
 
@@ -338,7 +338,7 @@ int main() {
 
   std::ofstream f("g.gv");
   graph.print_graphviz(f);
-  DOUT("wroter to g.gv");
+  DOUT("wrote to g.gv");
 }
 
 

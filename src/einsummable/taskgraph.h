@@ -53,8 +53,6 @@ struct taskgraph_t {
     map<int, vtensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph, vector<placement_t> const& placements);
-  // TODO: The conversion between tensors is a bit tricky.
-  //       See what to optimize.
 
   // Methods to construct a task graph object
   // {{{
