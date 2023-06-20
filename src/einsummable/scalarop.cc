@@ -793,10 +793,13 @@ node_t node_t::simplify_once() const {
     }
 
     // Check for 1*x or x*1
-    if(lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::one(dtype)) {
+    scalar_t one = dtype_is_complex(dtype)    ?
+      scalar_t(std::complex<float>(1.0, 0.0)) :
+      scalar_t::one(dtype)                    ;
+    if(lhs.op.is_constant() && lhs.op.get_constant() == one) {
       return rhs;
     }
-    if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::one(dtype)) {
+    if(rhs.op.is_constant() && rhs.op.get_constant() == one) {
       return lhs;
     }
 

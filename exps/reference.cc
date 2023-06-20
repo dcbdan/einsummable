@@ -1091,10 +1091,10 @@ void main_touch_compose() {
   DOUT(touch_compose(a,b).value());
 }
 
-void main_subset1() {
+void main_subset(int which) {
   dtype_t dtype = dtype_random();
 
-  graph_writer_t w;
+  graph_writer_t writer;
 
   using id_t = graph_writer_t::tensor_t;
 
@@ -1102,17 +1102,42 @@ void main_subset1() {
   using _rng = graph_writer_t::idx_t::rng;
   using _idx = graph_writer_t::idx_t::idx;
 
-  id_t x = w.input({30,8,5}, dtype);
-  id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
-  id_t z = x.subset({ _all{}, _rng{2,4}, _rng{0,4} });
+  id_t x = writer.input({30,8,5}, dtype);
 
-  y = y.save();
-  z = z.save();
+  if(which == 0) {
+    // Don't use all of X
+    id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
+    id_t z = x.subset({ _all{}, _rng{2,4}, _rng{0,4} });
+
+    y = y.save();
+    z = z.save();
+  } else if(which == 1) {
+    // Use all of X
+    id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
+    id_t z = writer.add(x, x);
+    id_t w = writer.ew("ijk,ik->ijk", scalarop_t::make_mul(dtype), x, y);
+
+    y = y.save();
+    z = z.save();
+    w = w.save();
+  } else if(which == 2) {
+    scalar_t scalar =
+      dtype_is_complex(dtype)                         ?
+      scalar_t(std::complex<float>(0.01, 0.01)) :
+      scalar_t(dtype, "0.01");
+
+    id_t y = x.subset({ _rng{0, 5}, _rng{0, 5}, _all{} });
+    id_t z = y.scale(scalar);
+
+    z = z.save();
+  } else {
+    throw std::runtime_error("main subset invalid which");
+  }
 
   dbuffer_t x_data = make_dbuffer(dtype, product(x.get_shape()()));
   x_data.random();
 
-  graph_t const& graph = w.get_graph();
+  graph_t const& graph = writer.get_graph();
 
   int nloc = 4;
   random_placement_t random_placement { {1, 5}, nloc };
@@ -1176,7 +1201,9 @@ int main(int argc, char** argv) {
   for(int i = 0; i != 100; ++i) {
     DOUT(i);
     set_seed(i);
-    main_subset1();
+    for(int which = 0; which != 3; ++which) {
+      main_subset(which);
+    }
   }
 }
 

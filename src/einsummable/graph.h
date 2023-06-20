@@ -466,6 +466,9 @@ struct graph_writer_t {
 
     dtype_t get_dtype() const;
 
+    tensor_t scale(scalar_t const& scalar) const;
+    tensor_t scale(string const& str) const;
+
     tensor_t to_complex() const;
     tensor_t to_real() const;
 

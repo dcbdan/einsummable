@@ -1246,6 +1246,16 @@ dtype_t graph_writer_t::tensor_t::get_dtype() const {
 }
 
 graph_writer_t::tensor_t
+graph_writer_t::tensor_t::scale(scalar_t const& val) const {
+  return self->scale(val, *this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::scale(string const& val) const {
+  return self->scale(val, *this);
+}
+
+graph_writer_t::tensor_t
 graph_writer_t::tensor_t::to_complex() const {
   return self->to_complex(*this);
 }
