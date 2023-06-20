@@ -2896,11 +2896,12 @@ taskgraph_t::partialize_t::get_touch(int which_unit, int which_touch) const
       .size = unit.out_region[i].size
     });
   }
+
   return {
     input.id,
     touch_t {
       .selection = ts,
-      .castable = unit.castable,
+      .castable = unit.inputs.size() == 1 ? std::nullopt : unit.castable,
       .dtype = dtype
     }
   };
