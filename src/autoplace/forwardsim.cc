@@ -598,6 +598,11 @@ void forward_state_t::setup_refinement_partition(int join_id) {
             out_part, concat, which_input));
         }
       }
+    } else if(out_node.op.is_subset()) {
+      auto const& subset = out_node.op.get_subset();
+      auto const& [_, out_part_fixed] =
+        unsqueeze_subset_partition(subset, out_part);
+      insert_usage(out_part_fixed);
     } else {
       throw std::runtime_error("setup refinement part: should not reach");
     }
@@ -791,6 +796,7 @@ void forward_state_t::setup_joins(int graph_id) {
     //   formation: 0
     //   complexer: 0
     //   concat: 0
+    //   subset: 0
     //   einsummable: the tensor block size
     // (the join_t stores an optional einsummable_t)
     if(base_einsummable) {
@@ -804,6 +810,7 @@ void forward_state_t::setup_joins(int graph_id) {
     // deps
     //   input nodes: {}
     //   concat nodes: have to figure it out
+    //   subset nodes: have to figure it out
     //   formation nodes: same as a straight einsummable op
     //   complexer nodes: same as a straight einsummable op
     //   einsummable nodes: reach into each input and grab it
@@ -832,10 +839,10 @@ void forward_state_t::setup_joins(int graph_id) {
           }
 
           int const& inn = node.inns[which_inn];
-          auto& inn_ginfo = ginfos[inn];
+          auto const& inn_ginfo = ginfos[inn];
           partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
 
-          auto inn_region = inn_partition.get_region(copy_hrect);
+          auto inn_region = inn_partition.get_exact_region(copy_hrect);
           auto inn_shape = inn_partition.block_shape();
           auto inn_index = vector_mapfst(inn_region);
           do {
@@ -845,6 +852,33 @@ void forward_state_t::setup_joins(int graph_id) {
           } while(increment_idxs_region(inn_region, inn_index));
         }
       }
+    } else if(node.op.is_subset()) {
+      auto const& subset = node.op.get_subset();
+      int const& inn = node.inns[0];
+      auto const& inn_ginfo = ginfos[inn];
+      partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
+
+      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
+
+      hrect_t inn_hrect = subset.get_hrect();
+
+      // get the copy_hrect (with respect to the inn_hrect)
+      hrect_t copy_hrect = join_partition.get_hrect(join_index);
+      for(int i = 0; i != inn_hrect.size(); ++i) {
+        auto&       [jb,je] = copy_hrect[i];
+        auto const& [ib,_ ] = inn_hrect[i];
+        jb += ib;
+        je += ib;
+      }
+
+      auto inn_region = inn_partition.get_exact_region(copy_hrect);
+      auto inn_shape = inn_partition.block_shape();
+      auto inn_index = vector_mapfst(inn_region);
+      do {
+        int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
+        rid_t dep_rid { inn, inn_refi_bid };
+        join_info.deps.insert(dep_rid);
+      } while(increment_idxs_region(inn_region, inn_index));
     } else {
       optional<einsummable_t> maybe_einsummable;
       if(node.op.is_formation() || node.op.is_complexer()) {
@@ -889,7 +923,7 @@ void forward_state_t::setup_joins(int graph_id) {
           ei *= 2;
         }
 
-        auto inn_region = inn_partition.get_region(inn_hrect);
+        auto inn_region = inn_partition.get_exact_region(inn_hrect);
         vector<int> inn_index = vector_mapfst(inn_region);
         do {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
