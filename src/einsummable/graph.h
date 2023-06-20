@@ -56,6 +56,39 @@ struct subset_t {
 
   touch_t as_touch() const;
 
+  template <typename T>
+  vector<T> squeeze_vec(vector<T> const& inn) const {
+    if(inn.size() != selection.size()) {
+      throw std::runtime_error("invalid input to squeeze");
+    }
+    vector<T> ret;
+    ret.reserve(selection.size() - squeeze.size());
+    for(int i = 0; i != selection.size(); ++i) {
+      if(squeeze.count(i) == 0) {
+        ret.push_back(inn[i]);
+      }
+    }
+    return ret;
+  }
+  template <typename T>
+  vector<T> unsqueeze_vec(vector<T> const& out, T const& v) const {
+    if(out.size() + squeeze.size() != selection.size()) {
+      throw std::runtime_error("invalid input to unsqueeze");
+    }
+    vector<T> ret;
+    ret.reserve(selection.size());
+    int j = 0;
+    for(int i = 0; i != selection.size(); ++i) {
+      if(squeeze.count(i) > 0) {
+        ret.push_back(v);
+      } else {
+        ret.push_back(out[j]);
+        j++;
+      }
+    }
+    return ret;
+  }
+
 private:
   static vector<subsetdim_t> make_selection(
     vector<tuple<uint64_t, uint64_t>> const& hrect,

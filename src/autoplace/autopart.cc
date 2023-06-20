@@ -523,7 +523,8 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
   } else if(node.op.is_subset()) {
     auto const& subset = node.op.get_subset();
     auto const& inn_part = inn_parts[0];
-    auto new_part = inn_part.subset(subset.get_hrect());
+    auto new_part_full = inn_part.subset(subset.get_hrect());
+    auto new_part = partition_t(subset.squeeze_vec(new_part_full.partdims));
     set_partition(id, new_part);
   } else {
     throw std::runtime_error(

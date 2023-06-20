@@ -851,17 +851,22 @@ void forward_state_t::setup_joins(int graph_id) {
         }
       }
     } else if(node.op.is_subset()) {
-      auto const& subset = node.op.get_subset();
+      auto const& subset_ = node.op.get_subset();
+      vector<int> unsqueezed_join_index = subset_.unsqueeze_vec(join_index, 0);
+
       int const& inn = node.inns[0];
       auto const& inn_ginfo = ginfos[inn];
       partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
+
+      auto [subset, out_partition] = unsqueeze_subset_partition(
+        subset_, join_partition);
 
       using hrect_t = vector<tuple<uint64_t, uint64_t>>;
 
       hrect_t inn_hrect = subset.get_hrect();
 
       // get the copy_hrect (with respect to the inn_hrect)
-      hrect_t copy_hrect = join_partition.get_hrect(join_index);
+      hrect_t copy_hrect = out_partition.get_hrect(unsqueezed_join_index);
       for(int i = 0; i != inn_hrect.size(); ++i) {
         auto&       [jb,je] = copy_hrect[i];
         auto const& [ib,_ ] = inn_hrect[i];

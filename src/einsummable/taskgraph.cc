@@ -1823,19 +1823,8 @@ tuple<subset_t, partition_t> unsqueeze_subset_partition(
   subset_t const& subset,
   partition_t const& partition)
 {
-  int inn_rank = subset.selection.size();
-  vector<partdim_t> pds;
-  pds.reserve(inn_rank);
-  int j = 0;
-  for(int i = 0; i != inn_rank; ++i) {
-    if(subset.squeeze.count(i) > 0) {
-      pds.push_back(partdim_t::singleton(1));
-    } else {
-      pds.push_back(partition.partdims[j]);
-      j++;
-    }
-  }
-  partition_t ret(pds);
+  partition_t ret(subset.unsqueeze_vec(
+    partition.partdims, partdim_t::singleton(1)));
 
   int n_block_inn = product(ret.block_shape());
   int n_block_out = product(partition.block_shape());

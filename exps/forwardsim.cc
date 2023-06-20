@@ -357,9 +357,7 @@ void main05() {
 
     using _all = graph_writer_t::idx_t::all;
     using _idx = graph_writer_t::idx_t::idx;
-    DOUT(out.get_shape());
     out = out.subset({ _idx{-1}, _all{} });
-    DOUT(out.get_shape());
 
     out.save();
   }
@@ -378,7 +376,7 @@ void main05() {
   //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
   mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 
-  for(int i = 0; i != 200; ++i) {
+  for(int i = 0; i != 20000; ++i) {
     mcmc.step();
     if(i % 100 == 0) {
       double speedup = base / mcmc.best_makespan;
