@@ -170,7 +170,6 @@ capacity_scheduler_t::get_exact_start(double t)
       return lhs.beg < rhs;
     });
   if(iter == blocks.end() || iter->beg != t) {
-    DOUT(std::boolalpha << (iter == blocks.end()));
     throw std::runtime_error("failed get_exact_start");
   }
   return iter;
@@ -599,10 +598,9 @@ void forward_state_t::setup_refinement_partition(int join_id) {
         }
       }
     } else if(out_node.op.is_subset()) {
-      auto const& subset = out_node.op.get_subset();
-      auto const& [_, out_part_fixed] =
-        unsqueeze_subset_partition(subset, out_part);
-      insert_usage(out_part_fixed);
+      insert_usage(make_subset_input_partition(
+        out_node.op.get_subset(),
+        out_part));
     } else {
       throw std::runtime_error("setup refinement part: should not reach");
     }
@@ -842,7 +840,7 @@ void forward_state_t::setup_joins(int graph_id) {
           auto const& inn_ginfo = ginfos[inn];
           partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
 
-          auto inn_region = inn_partition.get_exact_region(copy_hrect);
+          auto inn_region = inn_partition.get_region(copy_hrect);
           auto inn_shape = inn_partition.block_shape();
           auto inn_index = vector_mapfst(inn_region);
           do {
@@ -871,7 +869,7 @@ void forward_state_t::setup_joins(int graph_id) {
         je += ib;
       }
 
-      auto inn_region = inn_partition.get_exact_region(copy_hrect);
+      auto inn_region = inn_partition.get_region(copy_hrect);
       auto inn_shape = inn_partition.block_shape();
       auto inn_index = vector_mapfst(inn_region);
       do {
@@ -923,7 +921,7 @@ void forward_state_t::setup_joins(int graph_id) {
           ei *= 2;
         }
 
-        auto inn_region = inn_partition.get_exact_region(inn_hrect);
+        auto inn_region = inn_partition.get_region(inn_hrect);
         vector<int> inn_index = vector_mapfst(inn_region);
         do {
           int inn_refi_bid = idxs_to_index(inn_shape, inn_index);

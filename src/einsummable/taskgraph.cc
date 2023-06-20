@@ -1653,6 +1653,9 @@ multiple_placement_t::make_subset_input(
   placement_t const& out_placement_,
   subset_t const& subset_)
 {
+  auto inn_partition = make_subset_input_partition(
+    subset_, out_placement_.partition);
+
   auto [subset, out_partition] =
     unsqueeze_subset_partition(subset_, out_placement_.partition);
 
@@ -1663,30 +1666,6 @@ multiple_placement_t::make_subset_input(
   auto hrect = subset.get_hrect();
   auto inn_shape = subset.inn_shape();
 
-  auto const& out_pds = out_partition.partdims;
-  vector<partdim_t> inn_pds;
-  inn_pds.reserve(out_pds.size());
-  for(int i = 0; i != out_pds.size(); ++i) {
-    auto const& [b,e] = hrect[i];
-    auto const& out_pd = out_pds[i];
-    uint64_t d = inn_shape[i];
-
-    vector<uint64_t> out_pd_sizes = out_pd.sizes();
-    vector<uint64_t> inn_pd_sizes;
-    inn_pd_sizes.reserve(out_pd_sizes.size() + 2);
-    if(b != 0) {
-      inn_pd_sizes.push_back(b);
-    }
-    for(auto const& sz: out_pd_sizes) {
-      inn_pd_sizes.push_back(sz);
-    }
-    if(e != d) {
-      inn_pd_sizes.push_back(d-e);
-    }
-    inn_pds.push_back(partdim_t::from_sizes(inn_pd_sizes));
-  }
-
-  partition_t inn_partition(inn_pds);
   vtensor_t<set<int>> locs(inn_partition.block_shape());
 
   auto region = inn_partition.get_exact_region(hrect);
@@ -1868,6 +1847,42 @@ tuple<subset_t, partition_t> unsqueeze_subset_partition(
     subset_t(subset.selection, {}, subset.dtype),
     ret
   };
+}
+
+partition_t make_subset_input_partition(
+  subset_t const& subset_,
+  partition_t const& out_partition_)
+{
+  auto [subset, out_partition] =
+    unsqueeze_subset_partition(subset_, out_partition_);
+
+  auto hrect = subset.get_hrect();
+  auto inn_shape = subset.inn_shape();
+
+  auto const& out_pds = out_partition.partdims;
+  vector<partdim_t> inn_pds;
+  inn_pds.reserve(out_pds.size());
+  for(int i = 0; i != out_pds.size(); ++i) {
+    auto const& [b,e] = hrect[i];
+    auto const& out_pd = out_pds[i];
+    uint64_t d = inn_shape[i];
+
+    vector<uint64_t> out_pd_sizes = out_pd.sizes();
+    vector<uint64_t> inn_pd_sizes;
+    inn_pd_sizes.reserve(out_pd_sizes.size() + 2);
+    if(b != 0) {
+      inn_pd_sizes.push_back(b);
+    }
+    for(auto const& sz: out_pd_sizes) {
+      inn_pd_sizes.push_back(sz);
+    }
+    if(e != d) {
+      inn_pd_sizes.push_back(d-e);
+    }
+    inn_pds.push_back(partdim_t::from_sizes(inn_pd_sizes));
+  }
+
+  return partition_t(inn_pds);
 }
 
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)

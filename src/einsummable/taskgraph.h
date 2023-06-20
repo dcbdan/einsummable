@@ -356,6 +356,10 @@ unsqueeze_subset_partition(
   subset_t const& subset,
   partition_t const& partition);
 
+partition_t make_subset_input_partition(
+  subset_t const& subset,
+  partition_t const& out_partition);
+
 partition_t double_last_dim(partition_t const& p);
 placement_t double_last_dim(placement_t const& p);
 

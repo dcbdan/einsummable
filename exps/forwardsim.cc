@@ -355,9 +355,22 @@ void main05() {
     out = out.to_complex();
     out = writer.add(out, out);
 
+    using _all = graph_writer_t::idx_t::all;
+    using _idx = graph_writer_t::idx_t::idx;
+    DOUT(out.get_shape());
+    out = out.subset({ _idx{-1}, _all{} });
+    DOUT(out.get_shape());
+
     out.save();
   }
+
   graph_t const& graph = writer.get_graph();
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("Printed to g.gv");
+  }
+
   equal_items_t<int> eqs = {};
 
   double base = simulate(cluster, graph, single_loc_placements(graph));
@@ -365,7 +378,7 @@ void main05() {
   //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
   mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 
-  for(int i = 0; i != 20000; ++i) {
+  for(int i = 0; i != 200; ++i) {
     mcmc.step();
     if(i % 100 == 0) {
       double speedup = base / mcmc.best_makespan;
@@ -384,5 +397,6 @@ void main05() {
 }
 
 int main() {
+  set_seed(0);
   main05();
 }
