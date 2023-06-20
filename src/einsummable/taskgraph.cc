@@ -249,9 +249,14 @@ struct multiple_placement_t {
     placement_t const& join_placement,
     concat_t const& concat,
     int which_input);
+  static multiple_placement_t make_subset_input(
+    placement_t const& out_placement,
+    subset_t const& subset);
 
   partition_t partition;
   vtensor_t<set<int>> const locations;
+  // Note: it is possible to have empty location sets
+  //       (from a subset operation, for example)
 };
 
 struct multiple_tensor_t {
@@ -274,6 +279,7 @@ struct multiple_tensor_t {
 
   partition_t partition;
   vtensor_t<vector<locid_t>> tensor;
+  // Note: it is possble to have empty locid sets
 
   vtensor_t<int> to_tensor(placement_t const& placement);
 };
@@ -394,7 +400,6 @@ struct taskgraph_make_state_t {
     multiple_placement_t const& placement,
     bool wrt_graph = true);
   // ^ wrt graph if wrt_graph else wrt_real (including the returned value!)
-  // TODO: have a cache for this method
 
   // this dispatches to the multiple tensor form_from_refinement
   vtensor_t<int> form_from_refinement(
@@ -892,29 +897,19 @@ taskgraph_make_state_t::form_subset(int gid) {
 
   int const& inn_gid = node.inns[0];
   int inn_rank = graph.out_shape(inn_gid).size();
-  vector<partdim_t> pds;
-  pds.reserve(inn_rank);
-  int j = 0;
-  for(int i = 0; i != inn_rank; ++i) {
-    if(s_subset.squeeze.count(j) > 0) {
-      pds.push_back(partdim_t::singleton(1));
-    } else {
-      pds.push_back(s_pl.partition.partdims[j]);
-      j++;
-    }
-  }
 
-  partition_t partition(pds);
-  auto new_selection = s_subset.selection;
-  dtype_t dtype = s_subset.dtype;
-  if(dtype_is_complex(dtype)) {
-    dtype = complex_to_real(dtype);
-    double_last_dim_inplace(partition);
+  auto [subset, partition] = unsqueeze_subset_partition(
+    s_subset, s_pl.partition);
 
-    auto& [last_dinn, last_dout, last_offset] = new_selection.back();
+  if(dtype_is_complex(subset.dtype)) {
+    subset.dtype = complex_to_real(subset.dtype);
+
+    auto& [last_dinn, last_dout, last_offset] = subset.selection.back();
     last_dinn   *= 2;
     last_dout   *= 2;
     last_offset *= 2;
+
+    double_last_dim_inplace(partition);
   }
 
   auto block_shape = partition.block_shape();
@@ -924,8 +919,7 @@ taskgraph_make_state_t::form_subset(int gid) {
     vtensor_t<int>(block_shape, s_pl.locations.get()));
 
   // get the offsets of placement with respect to the input
-  vector<uint64_t> offsets = vector_mapfst(
-    subset_t(new_selection, {}, dtype).get_hrect());
+  vector<uint64_t> offsets = vector_mapfst(subset.get_hrect());
 
   vtensor_t<int> ret(block_shape);
   vector<int> idx(block_shape.size(), 0);
@@ -1038,10 +1032,9 @@ taskgraph_make_state_t::form_relation(int gid)
       return form_from_refinement(inn_gid, double_last_dim(placements.at(gid)));
     }
   }
-  // TODO
-  //if(node.op.is_subset()) {
-  //  return form_subset(gid);
-  //}
+  if(node.op.is_subset()) {
+    return form_subset(gid);
+  }
   if(node.op.is_concat()) {
     return form_concat(gid);
   }
@@ -1194,8 +1187,11 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid) const
               which_input));
         }
       }
-    //} else if(out_node.op.is_subset()) {
-    //  // TODO
+    } else if(out_node.op.is_subset()) {
+      auto const& subset = out_node.op.get_subset();
+      insert_usage(
+        multiple_placement_t::make_subset_input(
+          out_pl, subset));
     } else {
       throw std::runtime_error(
           "taskgraph state construct refinement placement: "
@@ -1272,9 +1268,10 @@ taskgraph_make_state_t::construct_refinement_tensor(
   // Since all moved data is only used once, it is always consumed
   // when aggregated into a partial. Unless the selection shape
   // does not equal the refinement shape, in which case the
-  // moved data can't be consumed.
+  // moved data can't be consumed. (TODO: remove this comment when
+  // consumed partials are removed)
   //
-  // Moreover, this all occurs on an output index basis.
+  // Moreover, this all occurs one output index at a time
 
   vector<int> out_shape = out_partition.block_shape();
 
@@ -1324,6 +1321,12 @@ taskgraph_make_state_t::construct_refinement_tensor(
       // r for refinement
       vector<int> r_index = vector_from_each_member(subset_info, int, idx);
       set<int> const& required_locs = refinement.locations.at(r_index);
+
+      if(required_locs.size() == 0) {
+        // TODO: there could be dangling partials (unlikely) when there
+        //       are not output locs
+        continue;
+      }
 
       vector<uint64_t> selection_shape = vector_from_each_member(
         subset_info, uint64_t, size);
@@ -1839,6 +1842,63 @@ multiple_placement_t multiple_placement_t::make_concat_input(
       join_placement, concat, which_input));
 }
 
+multiple_placement_t
+multiple_placement_t::make_subset_input(
+  placement_t const& out_placement_,
+  subset_t const& subset_)
+{
+  auto [subset, out_partition] =
+    unsqueeze_subset_partition(subset_, out_placement_.partition);
+
+  placement_t out_placement(
+    out_partition,
+    vtensor_t<int>(out_partition.block_shape(), out_placement_.locations.get()));
+
+  auto hrect = subset.get_hrect();
+  auto inn_shape = subset.inn_shape();
+
+  auto const& out_pds = out_partition.partdims;
+  vector<partdim_t> inn_pds;
+  inn_pds.reserve(out_pds.size());
+  for(int i = 0; i != out_pds.size(); ++i) {
+    auto const& [b,e] = hrect[i];
+    auto const& out_pd = out_pds[i];
+    uint64_t d = inn_shape[i];
+
+    vector<uint64_t> out_pd_sizes = out_pd.sizes();
+    vector<uint64_t> inn_pd_sizes;
+    inn_pd_sizes.reserve(out_pd_sizes.size() + 2);
+    if(b != 0) {
+      inn_pd_sizes.push_back(b);
+    }
+    for(auto const& sz: out_pd_sizes) {
+      inn_pd_sizes.push_back(sz);
+    }
+    if(e != d) {
+      inn_pd_sizes.push_back(d-e);
+    }
+    inn_pds.push_back(partdim_t::from_sizes(inn_pd_sizes));
+  }
+
+  partition_t inn_partition(inn_pds);
+  vtensor_t<set<int>> locs(inn_partition.block_shape());
+
+  auto region = inn_partition.get_exact_region(hrect);
+
+  vector<int> offset_idx = vector_mapfst(region);
+
+  vector<int> inn_idx = offset_idx;
+  do {
+    auto out_idx = vector_sub(inn_idx, offset_idx);
+    locs.at(inn_idx).insert(out_placement.at(out_idx));
+  } while(increment_idxs_region(region, inn_idx));
+
+  return multiple_placement_t {
+    .partition = inn_partition,
+    .locations = locs
+  };
+}
+
 multiple_tensor_t::multiple_tensor_t(
   partition_t p,
   vtensor_t<vector<locid_t>> && t)
@@ -1972,6 +2032,28 @@ placement_t concat_split_placement(
     placement.partition, concat);
 
   return placement.refine(split_partition);
+}
+
+tuple<subset_t, partition_t> unsqueeze_subset_partition(
+  subset_t const& subset,
+  partition_t const& partition)
+{
+  int inn_rank = subset.selection.size();
+  vector<partdim_t> pds;
+  pds.reserve(inn_rank);
+  int j = 0;
+  for(int i = 0; i != inn_rank; ++i) {
+    if(subset.squeeze.count(j) > 0) {
+      pds.push_back(partdim_t::singleton(1));
+    } else {
+      pds.push_back(partition.partdims[j]);
+      j++;
+    }
+  }
+  return {
+    subset_t(subset.selection, {}, subset.dtype),
+    partition_t(pds)
+  };
 }
 
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)

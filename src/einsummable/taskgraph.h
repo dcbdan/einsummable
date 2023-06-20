@@ -386,6 +386,11 @@ placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat);
 
+tuple<subset_t, partition_t>
+unsqueeze_subset_partition(
+  subset_t const& subset,
+  partition_t const& partition);
+
 partition_t double_last_dim(partition_t const& p);
 placement_t double_last_dim(placement_t const& p);
 
