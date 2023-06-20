@@ -29,6 +29,8 @@ struct partdim_t {
 
   tuple<int,int> exact_region(uint64_t beg, uint64_t end) const;
 
+  partdim_t subset(uint64_t beg, uint64_t end) const;
+
   vector<uint64_t> spans;
 };
 

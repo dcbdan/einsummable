@@ -274,6 +274,8 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
       auto out_partdims = out_part.partdims;
       out_partdims[concat.dim] = partdim_t::singleton(shape[concat.dim]);
       update_with(out_partdims);
+    } else if(out_node.op.is_subset()) {
+      // just ignoring
     } else {
       // for complexer and formation
       update_with(out_part.partdims);
@@ -304,6 +306,8 @@ void autopartition_state_t::set_from_outputs_and_recurse(int id) {
       vector<int> const& is = node.op.get_einsummable().inns[which_inn];
       _update_pds_and_choice_from_input_for_nonmmlike(pds, choice, is, inn_partdims);
     } else if(node.op.is_concat()) {
+      // TODO?
+    } else if(node.op.is_subset()) {
       // TODO?
     } else {
       update_with(inn_partdims);
@@ -470,7 +474,6 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
 
       set_partition(id, new_part);
     } else {
-      // TODO for complexer
       if(node.op.is_complexer()) {
         partition_t new_part = inn_parts[0];
         if(dtype_is_real(node.op.out_dtype())) {
@@ -516,6 +519,11 @@ bool autopartition_state_t::set_from_inputs_and_recurse(int id) {
     if(is_too_fine(new_part)) {
       return false;
     }
+    set_partition(id, new_part);
+  } else if(node.op.is_subset()) {
+    auto const& subset = node.op.get_subset();
+    auto const& inn_part = inn_parts[0];
+    auto new_part = inn_part.subset(subset.get_hrect());
     set_partition(id, new_part);
   } else {
     throw std::runtime_error(

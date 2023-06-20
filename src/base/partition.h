@@ -20,6 +20,8 @@ struct partition_t {
 
   partition_t subset(vector<tuple<int, int>> const& region) const;
 
+  partition_t subset(vector<tuple<uint64_t, uint64_t>> const& hrect) const;
+
   // Get the hyper-rectanuglar set represnted by this index
   vector<tuple<uint64_t, uint64_t>>
   get_hrect(vector<int> const& idxs) const;

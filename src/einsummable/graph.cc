@@ -1363,6 +1363,14 @@ graph_writer_t::input(
   return tensor_t(shape, id, this);
 }
 
+graph_writer_t::tensor_t
+graph_writer_t::input(
+  vector<vector<uint64_t>> const& shape,
+  dtype_t dtype)
+{
+  return this->input(full_shape_t::from_vecvec(shape), dtype);
+}
+
 graph_writer_t::full_shape_t
 graph_writer_t::to_einsummable_info_t::get_out_shape() const
 {

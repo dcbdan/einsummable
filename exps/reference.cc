@@ -1102,7 +1102,7 @@ void main_subset(int which) {
   using _rng = graph_writer_t::idx_t::rng;
   using _idx = graph_writer_t::idx_t::idx;
 
-  id_t x = writer.input({30,8,5}, dtype);
+  id_t x = writer.input({{30,8}, {5}}, dtype).view_full();
 
   if(which == 0) {
     // Don't use all of X
@@ -1130,6 +1130,10 @@ void main_subset(int which) {
     id_t z = y.scale(scalar);
 
     z = z.save();
+  } else if(which == 3) {
+    id_t y = x.view({{30,8}, {5}});
+    id_t z = y.subset({ _all{}, _rng{0,2} });
+    z.save();
   } else {
     throw std::runtime_error("main subset invalid which");
   }
@@ -1201,7 +1205,7 @@ int main(int argc, char** argv) {
   for(int i = 0; i != 100; ++i) {
     DOUT(i);
     set_seed(i);
-    for(int which = 0; which != 3; ++which) {
+    for(int which = 0; which != 4; ++which) {
       main_subset(which);
     }
   }

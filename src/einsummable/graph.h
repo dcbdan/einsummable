@@ -525,6 +525,9 @@ struct graph_writer_t {
   tensor_t input(
     full_shape_t shape,
     dtype_t dtype = default_dtype());
+  tensor_t input(
+    vector<vector<uint64_t>> const& shape,
+    dtype_t dtype = default_dtype());
 
   tensor_t contraction(
     string str,

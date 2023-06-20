@@ -173,6 +173,36 @@ tuple<int,int> partdim_t::exact_region(uint64_t beg, uint64_t end) const {
   }
 }
 
+partdim_t partdim_t::subset(uint64_t beg, uint64_t end) const {
+  auto [b,e] = region(beg, end);
+
+  // In this case, [beg,end) is all within a single part
+  if(b + 1 == e) {
+    return partdim_t::singleton(end-beg);
+  }
+
+  vector<uint64_t> szs;
+  szs.reserve(e-b);
+  for(int i = b; i != e; ++i) {
+    szs.push_back(size_at(i));
+  }
+
+  {
+    auto [wbeg,wend] = which_vals(b);
+    if(wbeg != beg) {
+      szs[0] = (wend - beg);
+    }
+  }
+
+  {
+    auto [wbeg,wend] = which_vals(e-1);
+    if(wend != end) {
+      szs.back() = (end - wbeg);
+    }
+  }
+
+  return partdim_t::from_sizes(szs);
+}
 
 bool operator==(partdim_t const& lhs, partdim_t const& rhs) {
   return vector_equal(lhs.spans, rhs.spans);

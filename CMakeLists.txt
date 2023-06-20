@@ -50,6 +50,7 @@ add_base_application("forwardsim"      "exps" "forwardsim")
 add_base_application("allocator_test"  "exps" "allocator_test")
 add_base_application("gwriter"         "exps" "gwriter")
 add_base_application("deepff"          "exps" "deepff")
+add_base_application("base_test"       "exps" "base_test")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
