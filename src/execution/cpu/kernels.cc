@@ -36,8 +36,11 @@ inline float16_t _exp(float16_t const& v) {
       out[i] = op; \
     } \
   }
-#define _binary_ew_loop(name, TO, T0, T1, op) \
-  void name( \
+
+// a,a->a
+// ab,a->ab
+#define _binary_ew_loop(name1, name2, TO, T0, T1, op) \
+  void name1( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -48,50 +51,57 @@ inline float16_t _exp(float16_t const& v) {
     T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
     for(uint64_t i = 0; i != n; ++i) { \
-      out[i] = op; \
+      uint64_t const& j = i; \
+      out[j] = op; \
     } \
+  } \
+  void name2( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
+    for(uint64_t i = 0; i != n1; ++i) { \
+    for(uint64_t v = 0; v != n2; ++v) { \
+      uint64_t j = i*n2 + v; \
+      out[j] = op; \
+    }} \
   }
 
-//ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]
-//f32->f32
 _unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
-
-//power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b0,float,float,float,_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4)))))
-
-//*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b1,float,float,float,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i]))))
-
-//*[hole|f32@0,hole|f32@1]
-///f32,f32->f32
-_binary_ew_loop(b2,float,float,float,(x0[i]*x1[i]))
-
-//*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]
-//f32,f32->f32
-_binary_ew_loop(b3,float,float,float,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]))
-
-//+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b4,float,float,float,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i]))))
-
+_binary_ew_loop(b0,c0,float,float,float,_pow((x0[i]+((*((float*)(d+0)))*x1[j])),(*((double*)(d+4)))))
+_binary_ew_loop(b1,c1,float,float,float,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[j]))))
+_binary_ew_loop(b2,c2,float,float,float,(x0[i]*x1[j]))
+_binary_ew_loop(b3,c3,float,float,float,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[j]))
+_binary_ew_loop(b4,c4,float,float,float,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[j]))))
 _unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i]))
-_binary_ew_loop(b5,float16_t,float16_t,float16_t,_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2)))))
-_binary_ew_loop(b6,float16_t,float16_t,float16_t,((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i]))))
-_binary_ew_loop(b7,float16_t,float16_t,float16_t,(x0[i]*x1[i]))
-_binary_ew_loop(b8,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i]))
-_binary_ew_loop(b9,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
-_binary_ew_loop(b10,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
-
+_binary_ew_loop(b5,c5,float16_t,float16_t,float16_t,_pow((x0[i]+((*((float16_t*)(d+0)))*x1[j])),(*((double*)(d+2)))))
+_binary_ew_loop(b6,c6,float16_t,float16_t,float16_t,((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[j]))))
+_binary_ew_loop(b7,c7,float16_t,float16_t,float16_t,(x0[i]*x1[j]))
+_binary_ew_loop(b8,c8,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[j]))
+_binary_ew_loop(b9,c9,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[j]))))
+_binary_ew_loop(b10,c10,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[j]))))
 _unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i]))
-
-_binary_ew_loop(b11,double,double,double,_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8)))))
-_binary_ew_loop(b12,double,double,double,((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))
-_binary_ew_loop(b13,double,double,double,(x0[i]*x1[i]))
-_binary_ew_loop(b14,double,double,double,(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i]))
-_binary_ew_loop(b15,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
-_binary_ew_loop(b16,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
+_binary_ew_loop(b11,c11,double,double,double,_pow((x0[i]+((*((double*)(d+0)))*x1[j])),(*((double*)(d+8)))))
+_binary_ew_loop(b12,c12,double,double,double,((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[j]))))
+_binary_ew_loop(b13,c13,double,double,double,(x0[i]*x1[j]))
+_binary_ew_loop(b14,c14,double,double,double,(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[j]))
+_binary_ew_loop(b15,c15,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[j]))))
+_binary_ew_loop(b16,c16,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[j]))))
+_unary_ew_loop(u3,float16_t,float16_t,(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4))))))
+_binary_ew_loop(b17,c17,float,float,float,(x0[i]*_pow(x1[j],(*((double*)(d+0))))))
+_unary_ew_loop(u4,float,float,_exp(x0[i]))
+_unary_ew_loop(u5,float,float,_pow(x0[i],(*((double*)(d+0)))))
+_unary_ew_loop(u6,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
+_unary_ew_loop(u7,float,float,_pow(x0[i],(*((double*)(d+0)))))
+_unary_ew_loop(u8,float16_t,float,float16_t(x0[i]))
+_unary_ew_loop(u9,float16_t,float16_t,((*((float16_t*)(d+0)))*x0[i]))
+_unary_ew_loop(u10,float,float16_t,float(x0[i]))
 
 std::function<void(uint8_t const*, uint64_t, void*, void const*)>
 get_unary_kernel(string const& str)
@@ -102,7 +112,14 @@ get_unary_kernel(string const& str)
   static map<string, kernel_t> kernels = {
     { "f32->f32|((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])", u0 },
     { "f16->f16|((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i])", u1 },
-    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 }
+    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 },
+    { "f32->f32|_exp(x0[i])", u3 },
+    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u4 },
+    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u5 },
+    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u6 },
+    { "f32->f16|float16_t(x0[i])", u7 },
+    { "f16->f16|((*((float16_t*)(d+0)))*x0[i])", u8 },
+    { "f16->f32|float(x0[i])", u9 }
   };
 
   auto iter = kernels.find(str);
@@ -135,7 +152,8 @@ get_binary_kernel(string const& str)
     { "f64,f64->f64|(x0[i]*x1[i])", b13 },
     { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", b14 },
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b15 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 }
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 },
+    { "f16->f16|(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4)))))", b17 }
   };
 
   auto iter = kernels.find(str);
@@ -144,6 +162,41 @@ get_binary_kernel(string const& str)
   }
   return iter->second;
 }
+
+std::function<void(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*)>
+get_binary_ab_a_kernel(string const& str)
+{
+  using kernel_t = std::function<
+    void(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*)>;
+
+  static map<string, kernel_t> kernels = {
+    { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", c0 },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", c1 },
+    { "f32,f32->f32|(x0[i]*x1[i])", c2 },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", c3 },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", c4 },
+    { "f16,f16->f16|_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2))))", c5 },
+    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i])))", c6 },
+    { "f16,f16->f16|(x0[i]*x1[i])", c7 },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i])", c8 },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", c9 },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", c10 },
+    { "f64,f64->f64|_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8))))", c11 },
+    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i])))", c12 },
+    { "f64,f64->f64|(x0[i]*x1[i])", c13 },
+    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", c14 },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", c15 },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", c16 },
+    { "f16->f16|(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4)))))", c17 }
+  };
+
+  auto iter = kernels.find(str);
+  if(iter == kernels.end()) {
+    throw std::runtime_error("kernel undefined for " + str);
+  }
+  return iter->second;
+}
+
 
 vector<tuple<uint64_t, uint64_t>>
 _zip_parts(
@@ -249,6 +302,56 @@ build_binary_elementwise_kernel(
     }
   };
 }
+
+kernel_t
+build_binary_ab_a_elementwise_kernel(
+  int num_threads,
+  uint64_t na,
+  uint64_t nb,
+  scalarop_t op)
+{
+  if(na == 0 || nb == 0) {
+    throw std::runtime_error("elementwise: calling with zero");
+  }
+
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  string key = op.type_signature() + "|" + op_str;
+  auto f = get_binary_ab_a_kernel(key);
+
+  if(num_threads == 0 || na < num_threads) {
+    return [f,na,nb,bytes](void* out, vector<void const*> inns) {
+      return f(bytes.data(), na, nb, out, inns[0], inns[1]);
+    };
+  }
+
+  auto ranges = _zip_parts(divide_evenly(num_threads, na));
+
+  vector<uint64_t> strides;
+  strides.reserve(3);
+  strides.push_back(nb*dtype_size(op.out_dtype()         ));
+  strides.push_back(   dtype_size(op.inn_dtype(0).value()));
+  strides.push_back(nb*dtype_size(op.inn_dtype(1).value()));
+
+  return [f,nb,ranges,strides,bytes](void* out, vector<void const*> inns) {
+    vector<std::thread> ts;
+    void const* lhs = inns[0];
+    void const* rhs = inns[1];
+    for(auto const& [lower,upper]: ranges) {
+      ts.emplace_back(
+        f,
+        bytes.data(),
+        upper-lower,
+        nb,
+        (void*)((char*)out + strides[0]*lower),
+        (void*)((char*)lhs + strides[1]*lower),
+        (void*)((char*)rhs + strides[2]*lower));
+    }
+    for(auto& t: ts) {
+      t.join();
+    }
+  };
+}
+
 
 #define _touch1(name, op) \
   template <typename T> \
@@ -932,6 +1035,13 @@ build_einsummable(
               "straight elementwise kernel with " + std::to_string(n) +
               " inputs not supported!");
     }
+  }
+  if(einsummable.str() == "ab,a->ab") {
+    return build_binary_ab_a_elementwise_kernel(
+      num_threads,
+      einsummable.join_shape[0],
+      einsummable.join_shape[1],
+      einsummable.join);
   }
 
   auto matmul = _make_matrix_multiply(einsummable);

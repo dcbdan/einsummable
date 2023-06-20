@@ -1185,6 +1185,10 @@ bool scalarop_t::is_castable() const {
   return is_add() || is_mul() || is_min() || is_max();
 }
 
+bool scalarop_t::is_identity() const {
+  return *this == make_identity(node.dtype);
+}
+
 bool scalarop_t::is_add() const {
   return *this == make_add(node.dtype);
 }

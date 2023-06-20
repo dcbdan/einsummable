@@ -296,6 +296,86 @@ void test_ff() {
   }
 }
 
+void print_loop_kernel_info() {
+  vector<string> ks = {
+    "ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]",
+    "power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
+    "*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
+    "*[hole|f32@0,hole|f32@1]",
+    "*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]",
+    "+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]",
+    "ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},hole|f16@0]",
+    "power{2}[+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[constant{f16|2},+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
+    "*[hole|f16@0,hole|f16@1]",
+    "*[ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},constant{f16|1}],hole|f16@1]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
+    "ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},hole|f64@0]",
+    "power{2}[+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[constant{f64|2},+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
+    "*[hole|f64@0,hole|f64@1]",
+    "*[ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},constant{f64|1}],hole|f64@1]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
+    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
+    "*[hole|f16@0,power{-1}[+[constant{f16|1},exp[*[constant{f16|-1},hole|f16@0]]]]]",
+    "*[hole|f32@0,power{-1}[hole|f32@1]]",
+    "exp[hole|f32@0]",
+    "power{2}[hole|f32@0]",
+    "+[*[constant{f32|0.00195312},hole|f32@0],constant{f32|1e-05}]",
+    "power{-0.5}[hole|f32@0]",
+    "to_f16[hole|f32@0]",
+    "*[constant{f16|0.125},hole|f16@0]",
+    "to_f32[hole|f16@0]"
+  };
+
+  auto to_type_str = [](dtype_t const& d) {
+    if(d == dtype_t::f16) {
+      return "float16_t";
+    } else if(d == dtype_t::f32) {
+      return "float";
+    } else if(d == dtype_t::f64) {
+      return "double";
+    } else if(d == dtype_t::c64) {
+      return "std::complex<float>";
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  };
+
+  int nu = 0;
+  int nb = 0;
+  int nf = 0;
+  for(auto const& s: ks) {
+    scalarop_t f = parse_with_ss<scalarop_t>(s);
+    auto const& [op_str, _] = f.to_cpp_bytes();
+    int n_inn = f.num_inputs();
+    std::cout << s << std::endl;
+    std::cout << f.type_signature() << "|" << op_str << std::endl;
+    if(n_inn == 1) {
+      auto tout = to_type_str(f.out_dtype());
+      auto tinn = to_type_str(f.inn_dtype(0).value());
+      std::cout << "_unary_ew_loop(u" << (nu++) << ","
+        << tout << "," << tinn << ","
+        << op_str << ")" << std::endl;
+    } else if(n_inn == 2) {
+      auto tout = to_type_str(f.out_dtype());
+      auto tlhs = to_type_str(f.inn_dtype(0).value());
+      auto trhs = to_type_str(f.inn_dtype(1).value());
+      std::cout << "_binary_ew_loop(b" << (nb++) << ","
+        << tout << "," << tlhs << "," << trhs << ","
+        << op_str << ")" << std::endl;
+    } else {
+      nf++;
+    }
+    std::cout << std::endl;
+  }
+
+  if(nf != 0) {
+    throw std::runtime_error("COULD NOT PROCESS ALL");
+  }
+}
+
 int main() {
   set_default_dtype(dtype_t::f16);
 
@@ -360,8 +440,27 @@ int main() {
     }
   }
   for(auto const& e: es) {
-    DOUT(e);
+    if(!e.join.is_mul() && !e.join.is_add() && !e.join.is_identity()) {
+      DOUT(e.join);
+    }
   }
+
+  //for(auto const& e: es) {
+  //  DOUT(e.str());
+
+  //  if(e.join.is_mul()) {
+  //    DOUT("mul");
+  //  } else if(e.join.is_add()) {
+  //    DOUT("add");
+  //  } else {
+  //    DOUT(e.join);
+  //  }
+
+  //  if(e.castable) {
+  //    DOUT(e.castable.value());
+  //  }
+  //  DOUT("");
+  //}
 }
 
 

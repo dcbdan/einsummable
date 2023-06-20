@@ -22,6 +22,13 @@ build_binary_elementwise_kernel(
   uint64_t n,
   scalarop_t binary_op);
 
+kernel_t
+build_binary_ab_a_elementwise_kernel(
+  int num_threads,
+  uint64_t na,
+  uint64_t nb,
+  scalarop_t binary_op);
+
 // Note: This could be multithreaded.
 //       That should be straightforward to do:
 //       Partition the touch operation into the
