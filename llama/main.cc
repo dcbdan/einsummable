@@ -326,19 +326,42 @@ int main() {
   tensor_t x = input_input();
   tensor_t y = model.forward(x);
 
-  seq_len = 1;
+  //seq_len = 1;
 
   //x = input_input();
   //y = model.forward(x);
 
-  //x = input_input();
-  //y = model.forward(x);
+  y = y.save();
 
   graph_t const& graph = writer.get_graph();
 
-  std::ofstream f("g.gv");
-  graph.print_graphviz(f);
-  DOUT("wrote to g.gv");
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("wrote to g.gv");
+  }
+
+  auto const& [_0, _1, taskgraph] = taskgraph_t::make(
+    graph,
+    graph.make_singleton_placement());
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("Printed to tg.gv");
+  }
+
+  DOUT("--------------");
+
+  std::unordered_set<einsummable_t> es;
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& e = node.op.get_apply().einsummable;
+      es.insert(e.merge_adjacent_dims());
+    }
+  }
+  for(auto const& e: es) {
+    DOUT(e);
+  }
 }
 
 

@@ -797,8 +797,12 @@ void graph_t::print_graphviz(std::ostream& out) const {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
       label = "einsummable" + write_with_ss(id);
+    } else if(op.is_concat()) {
+      label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
       label = "subset" + write_with_ss(id);
+    } else {
+      throw std::runtime_error("printgraphviz missing graph node type");
     }
     out << tab
       << "n" << id
