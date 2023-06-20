@@ -66,6 +66,21 @@ bool dtype_is_complex(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+dtype_t dtype_random(bool include_complex) {
+  int dd = runif(include_complex ? 4 : 3);
+  if(dd == 0) {
+    return dtype_t::f16;
+  } else if(dd == 1) {
+    return dtype_t::f32;
+  } else if(dd == 2) {
+    return dtype_t::f64;
+  } else if(dd == 3) {
+    return dtype_t::c64;
+  } else {
+    throw std::runtime_error("dtype random should not reach");
+  }
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}

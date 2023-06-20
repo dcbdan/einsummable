@@ -309,9 +309,10 @@ taskgraph_t::make(
     }
   }
 
-  if(!state.taskgraph.all_zero_outs_is_save()) {
-    throw std::runtime_error("In taskgraph_t::make: non-saved outputs");
-  }
+  // Note: It used to be the cast that if there were any non-saved outputs,
+  //       an error would be thrown. However, there is a valid use case with
+  //       the subset operator that not all outs end up as saved.
+  //       Example: X = norm(X); Y = X[:,-1,:]
 
   // Note: Passthrough partials could serve a purpose. To go from columns to
   //       rows partitioning, it may be better to go columns -> singleton -> rows.
@@ -1848,16 +1849,24 @@ tuple<subset_t, partition_t> unsqueeze_subset_partition(
   pds.reserve(inn_rank);
   int j = 0;
   for(int i = 0; i != inn_rank; ++i) {
-    if(subset.squeeze.count(j) > 0) {
+    if(subset.squeeze.count(i) > 0) {
       pds.push_back(partdim_t::singleton(1));
     } else {
       pds.push_back(partition.partdims[j]);
       j++;
     }
   }
+  partition_t ret(pds);
+
+  int n_block_inn = product(ret.block_shape());
+  int n_block_out = product(partition.block_shape());
+  if(n_block_inn != n_block_out) {
+    throw std::runtime_error("unsqueeze_subset_partition: impl error");
+  }
+
   return {
     subset_t(subset.selection, {}, subset.dtype),
-    partition_t(pds)
+    ret
   };
 }
 

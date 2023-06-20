@@ -761,16 +761,7 @@ taskgraph_t test_random_concat(
   if(maybe_dtype) {
     dtype = maybe_dtype.value();
   } else {
-    int dd = runif(4);
-    if(dd == 0) {
-      dtype = dtype_t::f16;
-    } else if(dd == 1) {
-      dtype = dtype_t::f32;
-    } else if(dd == 2) {
-      dtype = dtype_t::f64;
-    } else if(dd == 3) {
-      dtype = dtype_t::c64;
-    }
+    dtype = dtype_random();
   }
 
   shape_template[dim] = 1;
@@ -1100,6 +1091,43 @@ void main_touch_compose() {
   DOUT(touch_compose(a,b).value());
 }
 
+void main_subset1() {
+  dtype_t dtype = dtype_random();
+
+  graph_writer_t w;
+
+  using id_t = graph_writer_t::tensor_t;
+
+  using _all = graph_writer_t::idx_t::all;
+  using _rng = graph_writer_t::idx_t::rng;
+  using _idx = graph_writer_t::idx_t::idx;
+
+  id_t x = w.input({30,8,5}, dtype);
+  id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
+  id_t z = x.subset({ _all{}, _rng{2,4}, _rng{0,4} });
+
+  y = y.save();
+  z = z.save();
+
+  dbuffer_t x_data = make_dbuffer(dtype, product(x.get_shape()()));
+  x_data.random();
+
+  graph_t const& graph = w.get_graph();
+
+  int nloc = 4;
+  random_placement_t random_placement { {1, 5}, nloc };
+
+  vector<placement_t> pls;
+  for(auto const& node: graph.nodes) {
+    pls.push_back(random_placement(node.op.shape()));
+  }
+
+  test_make_taskgraph(
+    graph,
+    pls,
+    { {x.get_id(), x_data} });
+}
+
 int main(int argc, char** argv) {
   //test_random_matmul();
 
@@ -1125,11 +1153,11 @@ int main(int argc, char** argv) {
   //set_seed(0);
   //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
 
-  for(int i = 0; i != 1000; ++i) {
-    DOUT(i);
-    set_seed(i);
-    test_random_goofy_ff();
-  }
+  //for(int i = 0; i != 1000; ++i) {
+  //  DOUT(i);
+  //  set_seed(i);
+  //  test_random_goofy_ff();
+  //}
 
   //set_seed(0);
   //test_random_goofy_ff();
@@ -1144,6 +1172,12 @@ int main(int argc, char** argv) {
   //  set_seed(i);
   //  test_with_complex_matmul();
   //}
+
+  for(int i = 0; i != 100; ++i) {
+    DOUT(i);
+    set_seed(i);
+    main_subset1();
+  }
 }
 
 
