@@ -3,6 +3,7 @@
 
 #include "../base/placement.h"
 #include "einsummable.h"
+#include "touch.h" // only for subset_t::as_touch
 
 struct concat_t {
   concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
@@ -52,6 +53,8 @@ struct subset_t {
   vector<uint64_t> out_shape() const;
 
   vector<tuple<uint64_t, uint64_t>> get_hrect() const;
+
+  touch_t as_touch() const;
 
 private:
   static vector<subsetdim_t> make_selection(
