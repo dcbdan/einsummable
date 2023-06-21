@@ -23,11 +23,19 @@ build_binary_elementwise_kernel(
   scalarop_t binary_op);
 
 kernel_t
-build_binary_ab_a_elementwise_kernel(
+build_binary_212_elementwise_kernel(
   int num_threads,
   uint64_t na,
   uint64_t nb,
   scalarop_t binary_op);
+
+kernel_t
+build_ab_a_reduction(
+  int num_thread,
+  uint64_t na,
+  uint64_t nb,
+  dtype_t dtype,
+  castable_t castable);
 
 // Note: This could be multithreaded.
 //       That should be straightforward to do:
@@ -93,4 +101,11 @@ void batch_matrix_multiply(
   void const* lhs,
   void const* rhs);
 
-
+void c64_mul_abcd_bd_to_abcd(
+  uint64_t na,
+  uint64_t nb,
+  uint64_t nc,
+  uint64_t nd,
+  std::complex<float>* out,
+  std::complex<float> const* lhs,
+  std::complex<float> const* rhs);

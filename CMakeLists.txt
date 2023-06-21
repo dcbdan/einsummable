@@ -100,6 +100,19 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+
+  function(add_cpu_llama_application exec filename)
+  add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    MKL::MKL)
+  endfunction()
+
+  add_cpu_llama_application("llama_cpu" "cpu")
+
 endif()
 
 if(${GPU_EXECUTION_ENGINE})

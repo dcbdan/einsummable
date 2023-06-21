@@ -550,6 +550,10 @@ std::size_t einsummable_t::hash() const {
 };
 
 bool einsummable_t::is_straight_elementwise() const {
+  if(has_aggregation()) {
+    return false;
+  }
+
   vector<int> reference(join_shape.size());
   std::iota(reference.begin(), reference.end(), 0);
   for(auto const& inn: inns) {
