@@ -326,7 +326,8 @@ taskgraph_t::make(
     state.taskgraph.remove_passthrough_partials();
 
   if(maybe_simplified) {
-    auto const& [to_new_tg, new_tg] = maybe_simplified.value();
+    auto const& to_new_tg = std::get<0>(maybe_simplified.value());
+    auto const& new_tg = std::get<1>(maybe_simplified.value());
 
     auto correct = [&](vtensor_t<int>& tids) {
       for(auto& tid: tids.get()) {
