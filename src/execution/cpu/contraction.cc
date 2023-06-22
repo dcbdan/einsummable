@@ -1,6 +1,5 @@
 #include "contraction.h"
 #include "kernels.h"
-#include "permute.h"
 
 void contraction_t::operator()(
   void* workspace,
@@ -64,9 +63,17 @@ void contraction_t::operator()(
   }}
 }
 
-contraction_t contraction_t::make(
-  dtype_t dtype,
-  vector<uint64_t> const& shape,
+bool contraction_t::can_make(
+  vector<int> const& lhs_inn_modes,
+  vector<int> const& rhs_inn_modes,
+  int out_rank)
+{
+  return bool(make_bs_is_js_ks(lhs_inn_modes, rhs_inn_modes, out_rank));
+}
+
+optional<tuple<
+  vector<int>, vector<int>, vector<int>, vector<int> >>
+contraction_t::make_bs_is_js_ks(
   vector<int> const& lhs_inn_modes,
   vector<int> const& rhs_inn_modes,
   int out_rank)
@@ -79,9 +86,6 @@ contraction_t contraction_t::make(
   int join_rank = 1 + std::max(
     *std::max_element(lhs_inn_modes.begin(), lhs_inn_modes.end()),
     *std::max_element(rhs_inn_modes.begin(), rhs_inn_modes.end()));
-  if(join_rank != shape.size()) {
-    throw std::runtime_error("incorrect shape size");
-  }
 
   for(int i = 0; i != join_rank; ++i) {
     bool in_lhs = std::find(
@@ -99,13 +103,33 @@ contraction_t contraction_t::make(
     } else if(!in_lhs && in_rhs && in_out) {
       ks.push_back(i);
     } else {
-      throw std::runtime_error(
-        "one-sided aggs like k in ijk,ij->i aren't supported "
-        "nor are broadcasting outs like z in ij,jk->ikz");
+      return std::nullopt;
     }
   }
 
+  using ret_t = tuple<vector<int>, vector<int>, vector<int>, vector<int> >;
+  return ret_t{bs,is,js,ks};
+}
+
+contraction_t contraction_t::make(
+  dtype_t dtype,
+  vector<uint64_t> const& shape,
+  vector<int> const& lhs_inn_modes,
+  vector<int> const& rhs_inn_modes,
+  int out_rank)
+{
+  auto maybe = make_bs_is_js_ks(lhs_inn_modes, rhs_inn_modes, out_rank);
+  if(!maybe) {
+    throw std::runtime_error(
+      "one-sided aggs like k in ijk,ij->i aren't supported "
+      "nor are broadcasting outs like z in ij,jk->ikz");
+  }
+
+  auto& [bs,is,js,ks] = maybe.value();
+
   optional<contraction_t> ret;
+
+  DOUT(lhs_inn_modes << " " << rhs_inn_modes);
 
   do { do { do { do {
   for(bool lhs_t: {false, true}) { // do false first to avoid
@@ -115,9 +139,13 @@ contraction_t contraction_t::make(
       batching_t { bs, is, js, ks, lhs_t, rhs_t });
     if(ret) {
       if(plan.workspace_size < ret.value().workspace_size) {
+        batching_t b { bs, is, js, ks, lhs_t, rhs_t };
+        DOUT("BEST " << b.modes_lhs() << " " << b.modes_rhs() << " ");
         ret = plan;
       }
     } else {
+      batching_t b { bs, is, js, ks, lhs_t, rhs_t };
+      DOUT("SET " << b.modes_lhs() << " " << b.modes_rhs() << " ");
       ret = plan;
     }
   }}
@@ -272,33 +300,6 @@ contraction_t::permute_info_t::leading_nelem() const
   return product(vector<uint64_t>(
     inn_shape.begin(),
     inn_shape.begin() + num_leading_modes()));
-}
-
-void permute_kernel(
-  dtype_t dtype,
-  uint64_t permute_block_size,
-  vector<uint64_t> const& inn_shape,
-  vector<int> const& out_perm,
-  void* out,
-  void const* inn)
-{
-  permute_t permute(permute_block_size);
-
-  if(dtype == dtype_t::f16) {
-    using T = float16_t;
-    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
-  } else if(dtype == dtype_t::f32) {
-    using T = float;
-    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
-  } else if(dtype == dtype_t::f64) {
-    using T = double;
-    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
-  } else if(dtype == dtype_t::c64) {
-    using T = std::complex<float>;
-    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
-  } else {
-    throw std::runtime_error("permute kernel missing dtype");
-  }
 }
 
 

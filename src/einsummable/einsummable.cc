@@ -385,6 +385,41 @@ einsummable_t::parse_str(string str)
   return {ret, out.size()};
 }
 
+string einsummable_t::make_str(
+  vector<vector<int>> const& inns,
+  int out_rank)
+{
+  int join_rank = 0;
+  for(auto const& inn: inns) {
+    join_rank = std::max(join_rank, *std::max_element(inn.begin(), inn.end()));
+  }
+  join_rank++;
+
+  vector<char> letters(join_rank);
+  std::iota(letters.begin(), letters.end(), 'a');
+
+  auto words = get_inputs_from_join_(inns, letters);
+
+  std::ostringstream ss;
+  ss << string(words[0].begin(), words[0].end());
+  for(int i = 1; i != words.size(); ++i) {
+    auto const& word = words[i];
+    ss << "," << string(word.begin(), word.end());
+  }
+
+  vector<char> outword(letters.begin(), letters.begin() + out_rank);
+  ss << "->" << string(outword.begin(), outword.end());
+
+  return ss.str();
+}
+
+string
+einsummable_t::normalize_str(string const& str)
+{
+  auto [inns, out_rank] = parse_str(str);
+  return make_str(inns, out_rank);
+}
+
 bool einsummable_t::valid_inns_out(
   vector<vector<int>> const& inns,
   int out_rank)
@@ -511,26 +546,7 @@ einsummable_t::input_idxs(vector<int> const& join_idx) const
 }
 
 string einsummable_t::str() const {
-  if(join_shape.size() > 26) {
-    throw std::runtime_error("not enough letters; what are you doing");
-  }
-
-  vector<char> letters(join_shape.size());
-  std::iota(letters.begin(), letters.end(), 'a');
-
-  auto words = get_inputs_from_join(letters);
-
-  std::ostringstream ss;
-  ss << string(words[0].begin(), words[0].end());
-  for(int i = 1; i != words.size(); ++i) {
-    auto const& word = words[i];
-    ss << "," << string(word.begin(), word.end());
-  }
-
-  vector<char> outword(letters.begin(), letters.begin() + out_rank);
-  ss << "->" << string(outword.begin(), outword.end());
-
-  return ss.str();
+  return make_str(inns, out_rank);
 }
 
 std::size_t einsummable_t::hash() const {
@@ -560,6 +576,19 @@ bool einsummable_t::is_straight_elementwise() const {
     if(reference != inn) {
       return false;
     }
+  }
+  return true;
+}
+
+bool einsummable_t::is_permutation() const {
+  if(inns.size() != 1) {
+    return false;
+  }
+  if(has_aggregation()) {
+    return false;
+  }
+  if(join != scalarop_t::make_identity(out_dtype())) {
+    return false;
   }
   return true;
 }

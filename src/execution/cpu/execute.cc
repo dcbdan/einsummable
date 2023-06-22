@@ -136,12 +136,9 @@ struct cpu_exec_state_t {
   cpu_exec_state_t(
     mpi_t& mpi,
     taskgraph_t const& taskgraph,
+    kernel_manager_t const& kernel_manager,
     map<int, buffer_t>& tensors,
     int num_apply_kernel_threads);
-
-  // make sure all kernels are available; print out a helpful
-  // message if not and then die
-  void verify_kernels();
 
   // launch the threads and wait for the threads to finish
   void run(int n_apply, int n_touch, int n_send, int n_recv);
@@ -172,6 +169,16 @@ struct cpu_exec_state_t {
   // misc
   bool check_complete() const;
 
+  tuple<
+    optional<tuple<void*, uint64_t>>,
+    optional<int>>
+  get_workspace(einsummable_t const&);
+
+  void release_workspace(int which);
+  void release_workspace(optional<int> w) {
+    if(w) { return release_workspace(w.value()); }
+  }
+
   // grab tensors (and allocate if necc) under mutex
   tuple<
     vector<buffer_t>,
@@ -182,6 +189,7 @@ struct cpu_exec_state_t {
 
   mpi_t& mpi;
   taskgraph_t const& taskgraph;
+  kernel_manager_t const& kernel_manager;
   map<int, buffer_t>& tensors;
   int const num_apply_kernel_threads;
 
@@ -194,6 +202,7 @@ struct cpu_exec_state_t {
   map<int, int> num_usages_remaining;
 
   // Concurrency management
+  std::mutex m_workspace;
   std::mutex m_tensors;
   std::mutex m;
   std::condition_variable cv;
@@ -207,15 +216,21 @@ struct cpu_exec_state_t {
   // Work for send and recv runners
   sends_progress_t sends_progress;
   int num_recv_post_remaining;
+
+  // Workspace management
+  vector<tuple<bool,buffer_t>> workspace;
 };
 
 void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
   mpi_t& mpi,
   map<int, buffer_t>& tensors)
 {
-  cpu_exec_state_t state(mpi, taskgraph, tensors, settings.num_apply_kernel_threads);
+  cpu_exec_state_t state(
+    mpi, taskgraph, kernel_manager, tensors,
+    settings.num_apply_kernel_threads);
 
   state.run(
     settings.num_apply_runner,
@@ -253,16 +268,17 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 cpu_exec_state_t::cpu_exec_state_t(
   mpi_t& mpi,
   taskgraph_t const& tg,
+  kernel_manager_t const& km,
   map<int, buffer_t>& ts,
   int n_ts)
   : mpi(mpi),
     taskgraph(tg),
+    kernel_manager(km),
     tensors(ts),
     num_remaining(0),
     num_recv_post_remaining(0),
     num_apply_kernel_threads(n_ts)
 {
-  // .. make sure all the kernels are available
   // .. tell mkl how many threads to use
   // 0. set num_remaining
   // 1. Set num_usages_remaining
@@ -270,8 +286,6 @@ cpu_exec_state_t::cpu_exec_state_t(
   // 3. register every partialize node at this location with touches_progress
   // 4. register every send from here
   // 5. register every recv to   here
-
-  verify_kernels();
 
   mkl_set_num_threads(num_apply_kernel_threads);
 
@@ -350,25 +364,6 @@ cpu_exec_state_t::cpu_exec_state_t(
   }
 }
 
-void cpu_exec_state_t::verify_kernels() {
-  string err_msg = "";
-  for(auto const& node: taskgraph.nodes) {
-    if(node.op.is_apply()) {
-      auto const& [_0, _1, e] = node.op.get_apply();
-      try {
-        build_einsummable(num_apply_kernel_threads, e);
-      } catch(...) {
-        err_msg += "\n" + write_with_ss(e) + "\n" + write_with_ss(e.join);
-      }
-    }
-  }
-  if(err_msg != "") {
-    throw std::runtime_error(
-      "cpu exec state: some kernels requested are not avaialable\n" +
-      err_msg + "\n");
-  }
-}
-
 void cpu_exec_state_t::apply_runner(int runner_id)
 {
   int which;
@@ -393,7 +388,8 @@ void cpu_exec_state_t::apply_runner(int runner_id)
     {
       auto const& node = taskgraph.nodes[which];
       auto const& [_0, inns, einsummable] = node.op.get_apply();
-      auto kernel = build_einsummable(num_apply_kernel_threads, einsummable);
+
+      auto [workspace, which_workspace] = get_workspace(einsummable);
 
       auto [_1, inputs] = get_buffers({}, inns);
 
@@ -421,7 +417,8 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         raw_inputs.push_back(buffer->data);
       }
 
-      kernel(out_buffer->data, raw_inputs);
+      kernel_manager(einsummable, out_buffer->data, raw_inputs, workspace);
+      release_workspace(which_workspace);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -457,7 +454,6 @@ void cpu_exec_state_t::touch_runner(int runner_id)
     auto const& [unit_id, inn_tensor, touch] = which;
 
     {
-      auto kernel = build_touch(touch);
       int partialize_id = touches_progress.units[unit_id].partialize_id;
       uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
       auto [_ps, _is] = get_buffers(
@@ -467,7 +463,7 @@ void cpu_exec_state_t::touch_runner(int runner_id)
       buffer_t& out_buffer = _ps[0];
       buffer_t& inn_buffer = _is[0];
 
-      kernel(out_buffer->data, inn_buffer->data);
+      kernel_manager(touch, out_buffer->data, inn_buffer->data);
     }
 
     this->completed_touch(inn_tensor, unit_id);
@@ -663,6 +659,56 @@ void cpu_exec_state_t::completed_apply(int apply_id)
 
 bool cpu_exec_state_t::check_complete() const {
   return num_remaining == 0;
+}
+
+tuple<
+  optional<tuple<void*, uint64_t>>,
+  optional<int>>
+cpu_exec_state_t::get_workspace(einsummable_t const& e)
+{
+  uint64_t size = kernel_manager.workspace_size(e);
+  if(size == 0) {
+    return {std::nullopt, std::nullopt};
+  }
+  std::unique_lock lk(m_workspace);
+  int ret = -1;
+  int smallest;
+  for(int i = 0; i != workspace.size(); ++i) {
+    auto const& [is_available, buffer] = workspace[i];
+    uint64_t const& sz = buffer->size;
+    if(is_available && size <= sz) {
+      if(ret == -1) {
+        ret = i;
+        smallest = sz;
+      } else {
+        if(sz < smallest) {
+          ret = i;
+          smallest = sz;
+        }
+      }
+    }
+  }
+  if(ret == -1) {
+    workspace.emplace_back(false, make_buffer(size));
+    ret = workspace.size()-1;
+  } else {
+    auto& [is_available, _] = workspace[ret];
+    is_available = false;
+  }
+
+  auto b = std::get<1>(workspace[ret]);
+  using t1 = optional<tuple<void*, uint64_t>>;
+  using t2 = optional<int>;
+  return tuple<t1,t2>{
+    t1({b->data, b->size}),
+    t2(ret)
+  };
+}
+
+void cpu_exec_state_t::release_workspace(int which) {
+  std::unique_lock lk(m_workspace);
+  auto& [is_available, _] = workspace[which];
+  is_available = true;
 }
 
 tuple<
@@ -877,4 +923,20 @@ void sends_progress_t::notify_tensor_ready(int inn_id) {
   }
 }
 
+kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph)
+{
+  kernel_manager_t ret;
+
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& e = node.op.get_apply().einsummable;
+      if(!ret.build(e)) {
+        throw std::runtime_error(
+          "could not build a kernel for " + write_with_ss(e));
+      }
+    }
+  }
+
+  return ret;
+}
 

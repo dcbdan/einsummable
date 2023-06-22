@@ -10,6 +10,8 @@
 
 #include <fstream>
 
+#include <mkl.h> // for mkl_set_num_threads
+
 string replace_substrs(string text, string replace, string with)
 {
   while(true) {
@@ -266,30 +268,13 @@ void main_() {
 //  //std::cout << std::endl;
 //}
 
-void main_permute_time_1() {
+void time_contraction1() {
   dtype_t dtype = dtype_t::f16;
 
-  {
-    // Time 314->134
-    // inn shape = {32,256,128}
-    vector<uint64_t> inn_shape{32,256,128};
-    vector<int> out_perm = as_out_perm({3,1,4},{1,3,4});
-
-
-    dbuffer_t inn_buffer = make_dbuffer(dtype, product(inn_shape));
-    inn_buffer.random();
-
-    dbuffer_t out_buffer = make_dbuffer(dtype, product(inn_shape));
-
-    permute_t permute(1024);
-
-    gremlin_t timer("permute 314->134 | input shape = {32,256,128}");
-    permute(inn_shape, out_perm, out_buffer.f16(), inn_buffer.f16());
-  }
+  // {8,256,4096,32,128}
+  // {0,3,1,4},{2,3,4}->{0,1,2}
 
   {
-    // {8,256,4096,32,128}
-    // {0,3,1,4},{2,3,4}->{0,1,2}
     einsummable_t e(
       {8,256,4096,32,128},
       { {0,1,3,4}, {2,3,4} },
@@ -305,48 +290,39 @@ void main_permute_time_1() {
     lhs_buffer.random();
     rhs_buffer.random();
     auto f = build_einsummable(1, e.merge_adjacent_dims());
-    gremlin_t timer("contraction " + write_with_ss(e));
+    gremlin_t timer("batch matmul " + write_with_ss(e));
     f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
+  }
+
+  {
+    // {8,256,4096,32,128}
+    einsummable_t e(
+      {8,256,4096,32,128},
+      { {0,3,1,4}, {2,3,4} },
+      3,
+      scalarop_t::make_mul(dtype),
+      castable_t::add);
+
+    auto inn_shapes = e.inn_shapes();
+    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
+    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
+    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
+
+    lhs_buffer.random();
+    rhs_buffer.random();
+    auto f = contraction_t::make(
+      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
+    buffer_t workspace = make_buffer(f.workspace_size);
+    gremlin_t timer("contraction " + write_with_ss(e));
+    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
   }
 }
 
-void main_permute_time_2() {
+void time_contraction2() {
   dtype_t dtype = dtype_t::f16;
 
   // ({0,2,1,4}->{0,1,2,4}),({0,3,1,4}->{0,1,4,3})->{0,1,2,3}
   // {8,32,256,256,128};
-
-  {
-    // Time 214->124
-    vector<uint64_t> inn_shape{256,32,128};
-    vector<int> out_perm = as_out_perm({2,1,4},{1,2,4});
-
-    dbuffer_t inn_buffer = make_dbuffer(dtype, product(inn_shape));
-    inn_buffer.random();
-
-    dbuffer_t out_buffer = make_dbuffer(dtype, product(inn_shape));
-
-    permute_t permute(1024);
-
-    gremlin_t timer("214->124");
-    permute(inn_shape, out_perm, out_buffer.f16(), inn_buffer.f16());
-  }
-
-  {
-    // Time 314->143
-    vector<uint64_t> inn_shape{256,32,128};
-    vector<int> out_perm = as_out_perm({3,1,4},{1,4,3});
-
-    dbuffer_t inn_buffer = make_dbuffer(dtype, product(inn_shape));
-    inn_buffer.random();
-
-    dbuffer_t out_buffer = make_dbuffer(dtype, product(inn_shape));
-
-    permute_t permute(1024);
-
-    gremlin_t timer("314->143");
-    permute(inn_shape, out_perm, out_buffer.f16(), inn_buffer.f16());
-  }
 
   {
     einsummable_t e(
@@ -364,12 +340,85 @@ void main_permute_time_2() {
     lhs_buffer.random();
     rhs_buffer.random();
     auto f = build_einsummable(1, e.merge_adjacent_dims());
-    gremlin_t timer("contraction " + write_with_ss(e));
+    gremlin_t timer("batch matmul " + write_with_ss(e));
     f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
+  }
+
+  {
+    einsummable_t e(
+      {8,32,256,256,128},
+      { {0,2,1,4}, {0,3,1,4} },
+      4,
+      scalarop_t::make_mul(dtype),
+      castable_t::add);
+
+    auto inn_shapes = e.inn_shapes();
+    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
+    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
+    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
+
+    lhs_buffer.random();
+    rhs_buffer.random();
+    auto f = contraction_t::make(
+      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
+    buffer_t workspace = make_buffer(f.workspace_size);
+    gremlin_t timer("contraction " + write_with_ss(e));
+    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
   }
 }
 
-void test_contraction_plan1() {
+void time_contraction3() {
+  dtype_t dtype = dtype_t::f16;
+
+  // [8,32,256,128,256]
+  // abce,aebd->abcd
+  // 0124 0413  0123
+  // bbij bjbk  bbik
+
+  {
+    einsummable_t e(
+      {8,32,256,128,256},
+      { {0,1,2,4}, {0,1,3,4} },
+      4,
+      scalarop_t::make_mul(dtype),
+      castable_t::add);
+
+    auto inn_shapes = e.inn_shapes();
+    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
+    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
+    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
+
+    lhs_buffer.random();
+    rhs_buffer.random();
+    auto f = build_einsummable(1, e.merge_adjacent_dims());
+    gremlin_t timer("batch matmul " + write_with_ss(e));
+    f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
+  }
+
+  {
+    einsummable_t e(
+      {8,32,256,128,256},
+      { {0,1,2,4}, {0,4,1,3} },
+      4,
+      scalarop_t::make_mul(dtype),
+      castable_t::add);
+
+    auto inn_shapes = e.inn_shapes();
+    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
+    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
+    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
+
+    lhs_buffer.random();
+    rhs_buffer.random();
+    auto f = contraction_t::make(
+      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
+    buffer_t workspace = make_buffer(f.workspace_size);
+    gremlin_t timer("contraction " + write_with_ss(e));
+    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
+  }
+}
+
+void test_contraction1() {
   dtype_t dtype = dtype_t::f64;
 
   //einsummable_t e(
@@ -418,7 +467,14 @@ void test_contraction_plan1() {
 
 int main() {
   //main_mm_plan();
-  //main_permute_time_2();
 
-  test_contraction_plan1();
+  //test_contraction1();
+
+  mkl_set_num_threads(1);
+
+  time_contraction1();
+  DOUT("--------");
+  time_contraction2();
+  DOUT("--------");
+  time_contraction3();
 }

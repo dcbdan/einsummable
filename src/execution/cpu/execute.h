@@ -5,6 +5,7 @@
 #include "../../einsummable/dbuffer.h"
 
 #include "mpi_class.h"
+#include "kernels.h"
 
 #include <thread>
 
@@ -30,11 +31,14 @@ struct settings_t {
   }
 };
 
+kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph);
+
 // Every input node in taskgraph should be in tensors.
 // After execution, only every save taskgraph node should be in tensors
 void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
   mpi_t& mpi,
   map<int, buffer_t>& tensors);
 

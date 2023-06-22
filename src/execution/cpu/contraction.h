@@ -79,6 +79,11 @@ public:
     void* out,
     void const* lhs, void const* rhs);
 
+  static bool can_make(
+    vector<int> const& lhs_inn_modes,
+    vector<int> const& rhs_inn_modes,
+    int out_rank);
+
   static contraction_t make(
     dtype_t dtype,
     vector<uint64_t> const& shape,
@@ -123,15 +128,14 @@ private:
     vector<int> const& rhs_inn_modes,
     int out_rank,
     batching_t const& plan);
+
+  static optional<tuple<
+    vector<int>, vector<int>, vector<int>, vector<int> >>
+  make_bs_is_js_ks(
+    vector<int> const& lhs_inn_modes,
+    vector<int> const& rhs_inn_modes,
+    int out_rank);
+
 };
-
-void permute_kernel(
-  dtype_t dtype,
-  uint64_t permute_block_size,
-  vector<uint64_t> const& inn_shape,
-  vector<int> const& out_perm,
-  void* out,
-  void const* inn);
-
 
 
