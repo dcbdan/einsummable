@@ -68,4 +68,35 @@ uint64_t align_to_power_of_two(uint64_t number, uint8_t power) {
   return number;
 }
 
+uint64_t uint64_log2(uint64_t val) {
+  uint64_t ret = 0;
+  while (val >>= 1) {
+    ret++;
+  }
+  return ret;
+}
 
+vector<int> as_out_perm(
+  vector<int> const& inn,
+  vector<int> const& out)
+{
+  if(inn.size() != out.size()) {
+    throw std::runtime_error("as out perm: must be same size");
+  }
+
+  // ijk->kij
+  // 012->???
+
+  map<int,int> i_to_o;
+  for(int z = 0; z != inn.size(); ++z) {
+    i_to_o[inn[z]] = z;
+  }
+
+  vector<int> out_perm;
+  out_perm.reserve(out.size());
+  for(int z = 0; z != out.size(); ++z) {
+    out_perm.push_back(i_to_o[out[z]]);
+  }
+
+  return out_perm;
+}

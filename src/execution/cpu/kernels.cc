@@ -261,7 +261,6 @@ build_unary_elementwise_kernel(
   op = op.simplify();
 
   auto [op_str, bytes] = op.to_cpp_bytes();
-  DOUT(op_str);
   string key = op.type_signature() + "|" + op_str;
   auto f = get_unary_kernel(key);
 
@@ -953,9 +952,9 @@ void batch_matrix_multiply(
   }
 }
 
-// Note: This test isn't perfect. It won't determine that
-//   (ijkl,jkmn->ijmn) is actually a matrix multiply.
-//   (TODO, perhaps as an einsummable.simplify method...)
+// Note: This test won't determine that
+//   (ijkl,jkmn->ijmn) is actually a matrix multiply. Insteaed,
+//   call einsummable's merge_adjacent_dim method
 // Note: This test also won't determine that
 //   (jk,ij->ik) is actually a matrix multiply with the inputs flipped.
 //   (TODO...)

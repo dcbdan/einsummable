@@ -3,7 +3,7 @@
 
 // This is an out of place tensor permute that attempts to be cache-oblivious by
 // generalizing the cache-oblivious tensor transpose algorithm.
-// The algorihtm is to recursively split the input tensor along the largest
+// The algorithm is to recursively split the input tensor along the largest
 // dimension until the resulting tensor block falls below a threshold size. Then a
 // naive permute is applied to the small tensor.
 
@@ -47,4 +47,5 @@ private:
 };
 
 #include "permute_.h"
+
 
