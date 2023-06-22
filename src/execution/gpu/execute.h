@@ -46,6 +46,8 @@ float* gpu_allocate_memory(size_t size);
 // debugging; set all the values in the memory to a specific value
 void init_value(float* ptr, int count, float value);
 
+// all debugging print functions
+
 void printFloatCPU(float const* ptr, int count);
 
 struct gpu_execute_state_t 
@@ -71,6 +73,7 @@ struct gpu_execute_state_t
     // if we have a new touch and its group id is in the list, 
     // we need to wait for the previous touch to finish
     std::set<int> group_id_executing;
+    std::set<int> all_group_ids;
     // keep a map from group id to the a queue of nodes waiting 
     // for the previous touch with the same id to finish
     std::map<int, std::queue<int>> groupID_to_nodeIDX;
@@ -135,15 +138,12 @@ struct gpu_execute_state_t
                 }
             }
         }
-        std::cout << "mem_size: " << mem_size << std::endl;
+        // std::cout << "mem_size: " << mem_size << std::endl;
         // allocate memory for the gpu
         memory_base_ptr = mem_ptr;
-        std::cout << "Initializing all values of the inputs to 1" << std::endl;
-        init_value(memory_base_ptr, 200, 1);
-        std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
+        // std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
     }
-    void run();
-    
+    void run();    
 };
 
 
