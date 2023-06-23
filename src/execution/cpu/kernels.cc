@@ -283,7 +283,8 @@ void kernel_manager_t::call(
     permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
     assert_num_inputs(1);
-    auto const& k = get<reduction_ab_a_t>(kernel);
+    auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
+    f(na,nb,out,inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     auto const& f = get<kernel_t>(kernel);
     f(out, inns);
@@ -471,7 +472,7 @@ inline float16_t _exp(float16_t const& v) {
     for(uint64_t j = 0; j != n2; ++j) { \
       uint64_t i0 = i*n2 + j; \
       uint64_t const& i1 = i; \
-      out[j] = op; \
+      out[i0] = op; \
     }} \
   } \
   void name3( \
@@ -489,7 +490,7 @@ inline float16_t _exp(float16_t const& v) {
     for(uint64_t j = 0; j != n2; ++j) { \
       uint64_t i0 = i*n2 + j; \
       uint64_t const& i1 = j; \
-      out[j] = op; \
+      out[i0] = op; \
     }} \
   }
 
@@ -504,6 +505,13 @@ _unary_ew_loop(u7,float,float,_pow(x0[i],(*((double*)(d+0)))))
 _unary_ew_loop(u8,float16_t,float,float16_t(x0[i]))
 _unary_ew_loop(u9,float16_t,float16_t,((*((float16_t*)(d+0)))*x0[i]))
 _unary_ew_loop(u10,float,float16_t,float(x0[i]))
+_unary_ew_loop(u12,double,double,(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16))))))
+_unary_ew_loop(u13,double,double,((*((double*)(d+0)))+x0[i]))
+_unary_ew_loop(u14,double,double,((*((double*)(d+0)))*x0[i]))
+_unary_ew_loop(u15,float,float,(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8))))))
+_unary_ew_loop(u16,float,float,((*((float*)(d+0)))+x0[i]))
+_unary_ew_loop(u17,float,float,((*((float*)(d+0)))*x0[i]))
+
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
 _binary_ew_loop(b2,c2,d2,float,float,float,(x0[i0]*x1[i1]))
@@ -524,6 +532,13 @@ _binary_ew_loop(b16,c16,d16,double,double,double,(x0[i0]+((*((double*)(d+0)))*((
 _binary_ew_loop(b17,c17,d17,float,float,float,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
 _binary_ew_loop(b18,c18,d18,float16_t,float16_t,float16_t,(x0[i0]+x1[i1]))
 _binary_ew_loop(b19,c19,d19,float,float,float,(x0[i0]+x1[i1]))
+_binary_ew_loop(b20,c20,d20,float16_t,float16_t,float16_t,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b21,c21,d21,float16_t,float16_t,float16_t,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b22,c22,d22,float,float,float,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b23,c23,d23,float,float,float,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b24,c24,d24,double,double,double,(x0[i0]+x1[i1]))
+_binary_ew_loop(b25,c25,d25,double,double,double,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b26,c26,d26,double,double,double,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
 
 optional<
   tuple<vector<uint8_t>,
@@ -553,6 +568,12 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f32->f16|float16_t(x0[i])", u8 },
     { "f16->f16|((*((float16_t*)(d+0)))*x0[i])", u9 },
     { "f16->f32|float(x0[i])", u10 },
+    { "f64->f64|(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16)))))", u12 },
+    { "f64->f64|((*((double*)(d+0)))+x0[i])", u13 },
+    { "f64->f64|((*((double*)(d+0)))*x0[i])", u14 },
+    { "f32->f32|(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8)))))", u15 },
+    { "f32->f32|((*((float*)(d+0)))+x0[i])", u16 },
+    { "f32->f32|((*((float*)(d+0)))*x0[i])", u17 }
   };
 
   auto iter = kernels.find(key);
@@ -595,7 +616,14 @@ lookup_binary_straight_ew_kernel(
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 },
     { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b17 },
     { "f16,f16->f16|(x0[i]+x1[i])", b18 },
-    { "f32,f32->f32|(x0[i]+x1[i])", b19 }
+    { "f32,f32->f32|(x0[i]+x1[i])", b19 },
+    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", b20 },
+    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", b21 },
+    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", b22 },
+    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", b23 },
+    { "f64,f64->f64|(x0[i]+x1[i])", b24 },
+    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", b25 },
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 }
   };
 
   auto iter = kernels.find(key);
@@ -639,7 +667,14 @@ lookup_binary_212_ew_kernel(
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", { c16, d16} },
     { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c17, d17} },
     { "f16,f16->f16|(x0[i]+x1[i])", { c18, d18} },
-    { "f32,f32->f32|(x0[i]+x1[i])", { c19, d19} }
+    { "f32,f32->f32|(x0[i]+x1[i])", { c19, d19} },
+    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", { c20, d20} },
+    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", { c21, d21} },
+    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", { c22, d22} },
+    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", { c23, d23} },
+    { "f64,f64->f64|(x0[i]+x1[i])", { c24, d24} },
+    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", { c25, d25} },
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", { c26, d26} }
   };
 
   auto iter = kernels.find(key);
@@ -689,13 +724,13 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     }
   } else if(dtype == dtype_t::f32) {
     if(castable == castable_t::add) {
-      return _reduction_lambda(add, float16_t);
+      return _reduction_lambda(add, float);
     } else if(castable == castable_t::mul) {
-      return _reduction_lambda(mul, float16_t);
+      return _reduction_lambda(mul, float);
     } else if(castable == castable_t::min) {
-      return _reduction_lambda(min, float16_t);
+      return _reduction_lambda(min, float);
     } else if(castable == castable_t::max) {
-      return _reduction_lambda(max, float16_t);
+      return _reduction_lambda(max, float);
     }
   } else if(dtype == dtype_t::f64) {
     if(castable == castable_t::add) {

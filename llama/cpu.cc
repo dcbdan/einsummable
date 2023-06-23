@@ -61,7 +61,20 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
     "to_f32[hole|f16@0]",
     "+[*[constant{f32|0.00195312},hole|f32@0],constant{f32|1e-05}]",
     "+[hole|f16@0,hole|f16@1]",
-    "+[hole|f32@0,hole|f32@1]"
+    "+[hole|f32@0,hole|f32@1]",
+    "*[hole|f64@0,power{-1}[+[constant{f64|1},exp[*[constant{f64|-1},hole|f64@0]]]]]",
+    "+[constant{f64|1.965},hole|f64@0]",
+    "*[constant{f64|1.965},hole|f64@0]",
+    "*[hole|f32@0,power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@0]]]]]",
+    "+[constant{f32|1.965},hole|f32@0]",
+    "*[constant{f32|1.965},hole|f32@0]",
+    "ite_<[hole|f16@0,hole|f16@1,hole|f16@0,hole|f16@1]",
+    "ite_>[hole|f16@0,hole|f16@1,hole|f16@0,hole|f16@1]",
+    "ite_<[hole|f32@0,hole|f32@1,hole|f32@0,hole|f32@1]",
+    "ite_>[hole|f32@0,hole|f32@1,hole|f32@0,hole|f32@1]",
+    "+[hole|f64@0,hole|f64@1]",
+    "ite_<[hole|f64@0,hole|f64@1,hole|f64@0,hole|f64@1]",
+    "ite_>[hole|f64@0,hole|f64@1,hole|f64@0,hole|f64@1]"
   };
 
   auto to_type_str = [](dtype_t const& d) {
@@ -146,8 +159,8 @@ void print_loop_kernel_info() {
 }
 
 void main_() {
-  //print_loop_kernel_info();
-  //return 1;
+  print_loop_kernel_info();
+  return;
 
   set_default_dtype(dtype_t::f16);
 
