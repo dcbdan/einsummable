@@ -100,6 +100,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+  add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
 
   function(add_cpu_llama_application exec filename)
   add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
