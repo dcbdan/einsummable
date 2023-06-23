@@ -16,7 +16,7 @@ using cutensor_kernel_t = std::function<
     void(cudaStream_t, cutensorHandle_t const*, float*, vector<float const*>)
   >;
 
-using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
+//using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
 
 
 touch_kernel_t build_touch(touch_t const& touch);
@@ -51,7 +51,7 @@ build_cutensor_reduction(
 
 struct cutensor_elementwise_op_t {
   struct arg_t {
-    float scale;
+    scalar_t scale;
     cutensorOperator_t op;
     vector<int> modes;
     // ^ modes is analagous to einsummable_t::inns[i]
