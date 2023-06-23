@@ -25,7 +25,7 @@ cudaStream_t cuda_create_stream() {
 
 // increment the pointer by the byte offset
 // ONLY USE IF THE UNIT OF OFFSET IS BYTE
-float* offset_increment(float* ptr, int offset) {
+float* offset_increment(const float* ptr, int offset) {
   return (float*)((char*)ptr + offset);
 }
 
@@ -49,7 +49,7 @@ void printFloatGPU(const float* gpu_ptr, int count) {
   free(cpu_ptr);
 }
 
-void printContractionInfo(int node_idx, memgraph_t const& memgraph, float* memory_base_ptr){
+void printContractionInfo(int node_idx, memgraph_t const& memgraph, float* memory_base_ptr, int num_elems){
     auto node = memgraph.nodes[node_idx];
     auto memory_vector = node.op.get_apply().mems;
     // print offsets
@@ -57,11 +57,11 @@ void printContractionInfo(int node_idx, memgraph_t const& memgraph, float* memor
     std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
     // print inputs
     std::cout << "Input 1: ";
-    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[1].offset), 100);
+    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[1].offset), num_elems);
     std::cout << "Input 2: ";
-    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[2].offset), 100);
+    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[2].offset), num_elems);
     std::cout << "Output: ";
-    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[0].offset), 100);
+    printFloatGPU(offset_increment(memory_base_ptr , memory_vector[0].offset), num_elems);
 }
 
 void init_value(float* ptr, int count, float value) {
@@ -186,7 +186,7 @@ struct callback_data_t {
       std::unique_lock lk(m);
       auto node = (*memgraph).nodes[node_idx];
     //   if (node.op.is_contraction()){
-    //     printContractionInfo(node_idx, *memgraph, mem_ptr);
+    //     printContractionInfo(node_idx, *memgraph, mem_ptr, 4);
     //   }
       // update the queue since this node is finished
       auto new_nodes = node_update(*dependency_count, *memgraph, node_idx, 
@@ -232,6 +232,7 @@ void gpu_execute_state_t::run() {
                 return pending_queue.size() > 0;
             });
         }
+
         // execute things that are in the apply_queue until the queue is empty
         while (pending_queue.size() != 0) {
             // print out the pending queue
@@ -241,6 +242,7 @@ void gpu_execute_state_t::run() {
             // remove the first element from the queue
             pending_queue.pop();
             // execute the node
+            printFloatGPU(memory_base_ptr, 12);
             if (node.op.is_input() || node.op.is_del() || node.op.is_partialize()) {
                 std::unique_lock lk(m);
                 // do nothing but update the memgraph execution since that node is finished
@@ -300,7 +302,6 @@ void gpu_execute_state_t::run() {
                     if (my_einsummable.is_contraction()) {
                         // merge the adjacent dims
                         // std::cout << "Got a contraction node" << std::endl;
-                        // printContractionInfo(node_idx, memgraph, memory_base_ptr);
                         einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
                         // print an error if we didn't find my_einsum_merged in the map
                         auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
@@ -310,7 +311,7 @@ void gpu_execute_state_t::run() {
                         }
                         
                         auto contraction_descriptor = einsum_iter->second;
-                        execute_contraction(stream, handle,& contraction_descriptor, 
+                        execute_contraction(stream, handle, &contraction_descriptor, 
                             offset_increment(memory_base_ptr, memory_vector[0].offset),
                             offset_increment(memory_base_ptr, memory_vector[1].offset), 
                             offset_increment(memory_base_ptr, memory_vector[2].offset));
@@ -336,8 +337,7 @@ void gpu_execute_state_t::run() {
                 data->num_nodes_remaining =& num_nodes_remaining;
                 data->group_id_executing =& group_id_executing;
                 data->groupID_to_nodeIDX =& groupID_to_nodeIDX;
-                data->mem_ptr = memory_base_ptr;
-                
+                data->mem_ptr = memory_base_ptr;                
                 // add the callback
                 cudaStreamAddCallback(
                     stream,

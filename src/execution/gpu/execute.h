@@ -1,7 +1,7 @@
 #pragma once
 #include "../../base/setup.h"
 #include "../../einsummable/memgraph.h"
-#include "../../einsummable/reference.h" // buffer_t
+#include "../../einsummable/reference.h"
 #include "cutensor.h"
 #include "dummy_kernels.h"
 #include "kernels.h"
@@ -48,7 +48,10 @@ void init_value(float* ptr, int count, float value);
 
 // all debugging print functions
 
-void printFloatCPU(float const* ptr, int count);
+void printFloatCPU(const float* cpu_ptr, int count);
+void printFloatGPU(const float* gpu_ptr, int count);
+
+cudaStream_t cuda_create_stream();
 
 struct gpu_execute_state_t 
 {

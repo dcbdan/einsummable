@@ -6,6 +6,7 @@
 #include "../src/einsummable/reference.h"
 
 #include <fstream>
+#include <iostream>
 #include <memory>
 
 void check_correctness(memgraph_t memgraph, bool debug = false){
@@ -33,11 +34,15 @@ void check_correctness(memgraph_t memgraph, bool debug = false){
     // create a buffer
     auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
     dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-    // d.random("-1.0", "1.0");
-    d.fill(scalar_t(float(1.0)));
+    d.random("-1.0", "1.0");
+    // d.fill(scalar_t(float(17.63)));
     buffer_t b = d.data;
     auto cpu_ptr = b->data;
     auto size = b->size;
+    if (debug){
+        std::cout << "Original buffer: " << std::endl;
+        printFloatCPU(reinterpret_cast<const float*>(cpu_ptr), num_elems);
+    }
     // allocate a buffer on GPU
     auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0]);
     // copy data from CPU to GPU
@@ -76,4 +81,88 @@ void check_correctness(memgraph_t memgraph, bool debug = false){
         printFloatCPU(reinterpret_cast<const float*>(out.data->data), num_elems);
     }
 
+}
+
+// ij,jk->ik
+void contractionTest(int di, int dj, int dk){
+    auto num_elems = di * dj + dj * dk + di * dk;
+    auto buffer_size = num_elems * sizeof(float);
+    // create the einsummable
+    auto einsummable = einsummable_t::from_matmul(di, dj, dk);
+    // create two input dbuffers
+    dbuffer_t input1 = make_dbuffer(dtype_t::f32, di * dj);
+    dbuffer_t input2 = make_dbuffer(dtype_t::f32, dj * dk);
+    input1.random("-1.0", "1.0");
+    input2.random("-1.0", "1.0");
+
+    auto gpu_ptr = gpu_allocate_memory(buffer_size);
+    if(cudaMemcpy(gpu_ptr, input1.data->data, input1.data->size, cudaMemcpyHostToDevice) != cudaSuccess) {
+        throw std::runtime_error("cudaMemcpy input 1");
+    }
+    if(cudaMemcpy(gpu_ptr + di * dj, input2.data->data, input2.data->size, cudaMemcpyHostToDevice) != cudaSuccess) {
+        throw std::runtime_error("cudaMemcpy input 2");
+    }
+
+    // print inputs
+    std::cout << "Input 1: " << std::endl;
+    printFloatCPU(reinterpret_cast<const float*>(input1.data->data), di * dj);
+    std::cout << "Input 2: " << std::endl;
+    printFloatCPU(reinterpret_cast<const float*>(input2.data->data), dj * dk);
+
+    dbuffer_t cpu_out = reference_einsummable(einsummable, {input1, input2});
+
+    // print GPU layout
+    // std::cout << "GPU layout before execution: " << std::endl;
+    // printFloatGPU(reinterpret_cast<const float*>(gpu_ptr), num_elems);
+
+    auto gpu_input1 = gpu_allocate_memory(input1.data->size);
+    auto gpu_input2 = gpu_allocate_memory(input2.data->size);
+    auto gpu_output = gpu_allocate_memory(cpu_out.data->size);
+
+    // copy data from CPU to GPU
+    if(cudaMemcpy(gpu_input1, input1.data->data, input1.data->size, cudaMemcpyHostToDevice) != cudaSuccess) {
+        throw std::runtime_error("cudaMemcpy input 1");
+    }
+    if(cudaMemcpy(gpu_input2, input2.data->data, input2.data->size, cudaMemcpyHostToDevice) != cudaSuccess) {
+        throw std::runtime_error("cudaMemcpy input 2");
+    }
+
+    cutensorHandle_t* handle;
+    HANDLE_ERROR( cutensorCreate(&handle) );
+    cutensorContractionDescriptor_t desc;
+    build_contraction(&desc, handle, einsummable);
+    cudaStream_t stream = cuda_create_stream();
+    execute_contraction(stream, handle, &desc, gpu_output,
+                            gpu_input1, 
+                            gpu_input2);
+    
+    // print GPU inputs and output
+    std::cout << "GPU input 1: " << std::endl;
+    printFloatGPU(reinterpret_cast<const float*>(gpu_input1), di * dj);
+    std::cout << "GPU input 2: " << std::endl;
+    printFloatGPU(reinterpret_cast<const float*>(gpu_input2), dj * dk);
+    std::cout << "GPU output: " << std::endl;
+    printFloatGPU(reinterpret_cast<const float*>(gpu_output), di * dk);
+
+    dbuffer_t gpu_out = make_dbuffer(dtype_t::f32, num_elems);
+    if(cudaMemcpy(gpu_out.data->data, gpu_output, cpu_out.data->size,
+        cudaMemcpyDeviceToHost) != cudaSuccess) {
+        throw std::runtime_error("cudaMemcpy");
+    }
+
+    // compare the results
+    auto result = is_close(cpu_out, gpu_out);
+    // print messages based on the result
+    if(result) {
+        std::cout << "Contraction test passed" << std::endl;
+    } else {
+        std::cout << "Contraction test failed" << std::endl;
+    }
+
+    if (!result){
+        std::cout << "Expected result: " << std::endl;
+        printFloatCPU(reinterpret_cast<const float*>(cpu_out.data->data), di * dk);
+        std::cout << "Actual result: " << std::endl;
+        printFloatCPU(reinterpret_cast<const float*>(gpu_out.data->data), di * dk);
+    }
 }

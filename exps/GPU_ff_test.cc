@@ -107,7 +107,7 @@ int main() {
   vector<int> compute_loc_to_cache(np, 0);
 
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
-    taskgraph, compute_loc_to_cache, { 100000 });
+    taskgraph, compute_loc_to_cache, { 1000000 });
 
   // print the number of nodes in the graph
     std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
@@ -129,5 +129,5 @@ int main() {
     mem_check(memgraph);
     
     uint64_t buffer_size = 0;
-    
+    check_correctness(memgraph, false);
 }
