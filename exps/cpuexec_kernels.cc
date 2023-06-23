@@ -20,7 +20,7 @@ void main_mm(dtype_t dtype) {
   dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
 
   dbuffer_t out = make_dbuffer(dtype, i*k);
-  auto f = build_einsummable(1, matmul);
+  auto f = build_einsummable(matmul);
   f(out.ptr(), {lhs.ptr(), rhs.ptr()});
 
   if(!is_close(out_ref, out)) {
@@ -55,7 +55,7 @@ void main_bmm(dtype_t dtype) {
   dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
 
   dbuffer_t out = make_dbuffer(dtype, b*i*k);
-  auto f = build_einsummable(1, matmul);
+  auto f = build_einsummable(matmul);
   f(out.ptr(), {lhs.ptr(), rhs.ptr()});
 
   if(!is_close(out_ref, out)) {

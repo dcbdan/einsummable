@@ -10,34 +10,6 @@
 #include <thread>
 
 struct kernel_manager_t {
-  kernel_manager_t();
-
-  // Register this einsummable with the manager and return the required
-  // workspace size. If the einsummable object cannot be registered,
-  // return None.
-  optional<uint64_t> build(einsummable_t const& e);
-
-  // get the workspace size
-  // (throw an error if e has not been built)
-  uint64_t workspace_size(einsummable_t const& e) const;
-  // TODO
-
-  // TODO
-  void operator()(
-    touch_t const& touch,
-    void* out,
-    void const* inn) const;
-
-  // TODO
-  // If no workspace size is zero, a workspace does not need to be provided.
-  // If not enough workspace is provided, an error is thrown.
-  // If build was not called for this einsummable, an error may be thrown.
-  void operator()(
-    einsummable_t const& e,
-    void* out,
-    vector<void const*> inns,
-    optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
-
 private:
   struct binfo_t {
     bool trans_lhs;
@@ -89,19 +61,63 @@ private:
   // kernel_t is a misc catchall that can just wrap a lambda
   using kernel_t = std::function<void(void*, vector<void const*>)>;
 
+public:
+
+  kernel_manager_t();
+
+  // Register this einsummable with the manager and return the required
+  // workspace size. If the einsummable object cannot be registered,
+  // return None.
+  optional<uint64_t> build(einsummable_t const& e);
+
+  // get the workspace size
+  // (throw an error if e has not been built)
+  uint64_t workspace_size(einsummable_t const& e) const;
+
+  void operator()(
+    touch_t const& touch,
+    void* out,
+    void const* inn) const;
+
+  // If no workspace size is zero, a workspace does not need to be provided.
+  // If not enough workspace is provided, an error is thrown.
+  // If build was not called for this einsummable, an error may be thrown.
+  void operator()(
+    einsummable_t const& e,
+    void* out,
+    vector<void const*> inns,
+    optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, binary_212_ew_t, tensor_permute_t,
     reduction_ab_a_t,
     kernel_t>;
 
+  kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;
+
+  static void call(
+    kernel_info_t const& info,
+    void* out,
+    vector<void const*> inns,
+    optional<tuple<void*, uint64_t>> workspace = std::nullopt);
+
+private:
+
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
 
+  // This is just a map from einsummable strs to the corresponding
+  // batch matmul settings
   std::map<string, binfo_t> binfos;
 
   optional<batch_matmul_t>
   make_batch_matmul(einsummable_t const& e);
 };
+
+// This is just a function to create a standalone kernel
+// that does not require a workspace
+std::function<void(void*, vector<void const*>)>
+build_einsummable(einsummable_t const& e);
 
 optional<tuple<
   vector<uint8_t>,

@@ -192,6 +192,116 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
   return std::nullopt;
 }
 
+// get the workspace size
+// (throw an error if e has not been built)
+uint64_t kernel_manager_t::workspace_size(einsummable_t const& e) const
+{
+  auto const& kernel = get_built_kernel_info(e);
+
+  if(std::holds_alternative<contraction_t>(kernel)) {
+    return std::get<contraction_t>(kernel).workspace_size;
+  } else {
+    return 0;
+  }
+}
+
+void kernel_manager_t::operator()(
+  touch_t const& touch,
+  void* out,
+  void const* inn) const
+{
+  // TODO: there is no reason to wrap the touch kernel in a lambda;
+  //       create touch_kernel
+  auto f = build_touch(touch);
+  f(out, inn);
+}
+
+void kernel_manager_t::operator()(
+  einsummable_t const& e,
+  void* out,
+  vector<void const*> inns,
+  optional<tuple<void*, uint64_t>> maybe_workspace) const
+{
+  auto const& info = get_built_kernel_info(e);
+  call(info, out, inns, maybe_workspace);
+}
+
+void kernel_manager_t::call(
+  kernel_manager_t::kernel_info_t const& kernel,
+  void* out,
+  vector<void const*> inns,
+  optional<tuple<void*, uint64_t>> maybe_workspace)
+{
+  using std::holds_alternative;
+  using std::get;
+
+  auto assert_num_inputs = [&inns](int n) {
+    if(inns.size() != n) {
+      throw std::runtime_error("kernel manager: incorrect number of input tensors");
+    }
+  };
+
+  if(holds_alternative<batch_matmul_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& b = get<batch_matmul_t>(kernel);
+    batch_matrix_multiply(
+      b.dtype,
+      b.nb,
+      b.info.batched_out, b.info.batched_lhs, b.info.batched_rhs,
+      b.ni, b.nj, b.nk,
+      b.info.trans_lhs, b.info.trans_rhs,
+      out, inns[0], inns[1]);
+  } else if(holds_alternative<contraction_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& c = get<contraction_t>(kernel);
+    if(c.workspace_size == 0) {
+      c(nullptr, out, inns[0], inns[1]);
+    } else if(!maybe_workspace) {
+      throw std::runtime_error("workspace required; none given");
+    } else {
+      auto [workspace, wsz] = maybe_workspace.value();
+      if(wsz < c.workspace_size) {
+        throw std::runtime_error("provided workspace is too small");
+      }
+      c(workspace, out, inns[0], inns[1]);
+    }
+  } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [n,data,f] = get<unary_straight_ew_t>(kernel);
+    f(data.data(), n, out, inns[0]);
+  } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
+    f(data.data(), n, out, inns[0], inns[1]);
+  } else if(holds_alternative<binary_212_ew_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
+    f(data.data(), na, nb, out, inns[0], inns[1]);
+  } else if(holds_alternative<tensor_permute_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [dtype, inn_shape, out_perm] = get<tensor_permute_t>(kernel);
+    permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
+  } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& k = get<reduction_ab_a_t>(kernel);
+  } else if(holds_alternative<kernel_t>(kernel)) {
+    auto const& f = get<kernel_t>(kernel);
+    f(out, inns);
+  } else {
+    throw std::runtime_error("workspace size: kernel unaccounted for");
+  }
+}
+
+kernel_manager_t::kernel_info_t const&
+kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
+{
+  auto iter = kernels.find(e.merge_adjacent_dims());
+  if(iter == kernels.end()) {
+    throw std::runtime_error("get_built_kernel_info: this einsummable has not been built");
+  }
+  return iter->second;
+}
+
 optional<kernel_manager_t::batch_matmul_t>
 kernel_manager_t::make_batch_matmul(einsummable_t const& e)
 {
@@ -249,6 +359,7 @@ kernel_manager_t::make_batch_matmul(einsummable_t const& e)
       nk = rhs[2];
     }
   } else {
+    nb = 1;
     if(info.trans_rhs) {
       // kj
       nk = rhs[0];
@@ -271,6 +382,23 @@ kernel_manager_t::make_batch_matmul(einsummable_t const& e)
     .ni = ni,
     .nj = nj,
     .nk = nk
+  };
+}
+
+std::function<void(void*, vector<void const*>)>
+build_einsummable(einsummable_t const& e)
+{
+  kernel_manager_t ks;
+  auto maybe = ks.build(e);
+  if(!maybe) {
+    throw std::runtime_error("could not build the kernel");
+  }
+  if(maybe.value() != 0) {
+    throw std::runtime_error("build_einsummable: this kernel requires a workspace");
+  }
+  auto const& meta_info = ks.get_built_kernel_info(e);
+  return [meta_info](void* out, vector<void const*> inns) {
+    kernel_manager_t::call(meta_info, out, inns);
   };
 }
 

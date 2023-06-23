@@ -77,7 +77,7 @@ public:
   void operator()(
     void* workspace,
     void* out,
-    void const* lhs, void const* rhs);
+    void const* lhs, void const* rhs) const;
 
   static bool can_make(
     vector<int> const& lhs_inn_modes,

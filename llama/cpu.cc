@@ -204,19 +204,31 @@ void main_() {
 
   DOUT("--------------");
 
-  std::unordered_map<einsummable_t, kernel_t> kernels;
+  kernel_manager_t kernel_manager;
+  int nfail = 0;
   for(auto const& node: taskgraph.nodes) {
     if(node.op.is_apply()) {
-      auto e = node.op.get_apply().einsummable.merge_adjacent_dims();
-      if(kernels.count(e) == 0) {
-        //DOUT(e);
-        //DOUT(e.join);
-        kernels[e] = build_einsummable(1, e);
-        DOUT("---------------");
+      auto const& e = node.op.get_apply().einsummable;
+      auto maybe = kernel_manager.build(e);
+      if(!maybe) {
+        DOUT("");
+        DOUT("Could not build kernel");
+        DOUT(e);
+        DOUT(e.join);
+        DOUT("")
+        nfail ++;
+      } else if(maybe.value() > 0) {
+        //DOUT("Built a kernel with workspace size " << maybe.value());
+      } else {
+        //DOUT("Built a kernel");
       }
     }
   }
-  DOUT("done");
+  if(nfail != 0) {
+    DOUT("still " << nfail << " more kernels");
+  } else {
+    DOUT("all kernels are available");
+  }
 }
 
 ///////////////////////////////////////////////////////////////////
@@ -289,7 +301,7 @@ void time_contraction1() {
 
     lhs_buffer.random();
     rhs_buffer.random();
-    auto f = build_einsummable(1, e.merge_adjacent_dims());
+    auto f = build_einsummable(e.merge_adjacent_dims());
     gremlin_t timer("batch matmul " + write_with_ss(e));
     f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
   }
@@ -339,7 +351,7 @@ void time_contraction2() {
 
     lhs_buffer.random();
     rhs_buffer.random();
-    auto f = build_einsummable(1, e.merge_adjacent_dims());
+    auto f = build_einsummable(e.merge_adjacent_dims());
     gremlin_t timer("batch matmul " + write_with_ss(e));
     f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
   }
@@ -390,7 +402,7 @@ void time_contraction3() {
 
     lhs_buffer.random();
     rhs_buffer.random();
-    auto f = build_einsummable(1, e.merge_adjacent_dims());
+    auto f = build_einsummable(e.merge_adjacent_dims());
     gremlin_t timer("batch matmul " + write_with_ss(e));
     f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
   }
@@ -466,15 +478,16 @@ void test_contraction1() {
 }
 
 int main() {
+  main_();
+
   //main_mm_plan();
 
   //test_contraction1();
 
-  mkl_set_num_threads(1);
-
-  time_contraction1();
-  DOUT("--------");
-  time_contraction2();
-  DOUT("--------");
-  time_contraction3();
+  //mkl_set_num_threads(1);
+  //time_contraction1();
+  //DOUT("--------");
+  //time_contraction2();
+  //DOUT("--------");
+  //time_contraction3();
 }

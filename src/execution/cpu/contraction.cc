@@ -4,7 +4,7 @@
 void contraction_t::operator()(
   void* workspace,
   void* out,
-  void const* lhs, void const* rhs)
+  void const* lhs, void const* rhs) const
 {
   void* lhs_work_ = (char*)workspace + lhs_work_offset;
   void* rhs_work_ = (char*)workspace + rhs_work_offset;
@@ -129,8 +129,6 @@ contraction_t contraction_t::make(
 
   optional<contraction_t> ret;
 
-  DOUT(lhs_inn_modes << " " << rhs_inn_modes);
-
   do { do { do { do {
   for(bool lhs_t: {false, true}) { // do false first to avoid
   for(bool rhs_t: {false, true}) { // transpositions in the event of ties
@@ -140,12 +138,10 @@ contraction_t contraction_t::make(
     if(ret) {
       if(plan.workspace_size < ret.value().workspace_size) {
         batching_t b { bs, is, js, ks, lhs_t, rhs_t };
-        DOUT("BEST " << b.modes_lhs() << " " << b.modes_rhs() << " ");
         ret = plan;
       }
     } else {
       batching_t b { bs, is, js, ks, lhs_t, rhs_t };
-      DOUT("SET " << b.modes_lhs() << " " << b.modes_rhs() << " ");
       ret = plan;
     }
   }}
