@@ -32,11 +32,13 @@ struct dbuffer_t {
   void* ptr();
   void const* ptr() const;
 
+  void*                raw() { return data->raw(); }
   float16_t          * f16();
   float              * f32();
   double             * f64();
   std::complex<float>* c64();
 
+  void                const* raw() const { return data->raw(); }
   float16_t           const* f16() const;
   float               const* f32() const;
   double              const* f64() const;

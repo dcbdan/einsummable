@@ -66,6 +66,21 @@ bool dtype_is_complex(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+dtype_t dtype_random(bool include_complex) {
+  int dd = runif(include_complex ? 4 : 3);
+  if(dd == 0) {
+    return dtype_t::f16;
+  } else if(dd == 1) {
+    return dtype_t::f32;
+  } else if(dd == 2) {
+    return dtype_t::f64;
+  } else if(dd == 3) {
+    return dtype_t::c64;
+  } else {
+    throw std::runtime_error("dtype random should not reach");
+  }
+}
+
 scalar_t::scalar_t()
   : scalar_t(float(0.0))
 {}
@@ -289,7 +304,7 @@ int op_t::num_inputs() const {
   if(is_constant() || is_hole()) {
     return 0;
   }
-  if(is_power() || is_exp()) {
+  if(is_power() || is_exp() || is_convert()) {
     return 1;
   }
   if(is_add() || is_mul()) {
@@ -778,10 +793,13 @@ node_t node_t::simplify_once() const {
     }
 
     // Check for 1*x or x*1
-    if(lhs.op.is_constant() && lhs.op.get_constant() == scalar_t::one(dtype)) {
+    scalar_t one = dtype_is_complex(dtype)    ?
+      scalar_t(std::complex<float>(1.0, 0.0)) :
+      scalar_t::one(dtype)                    ;
+    if(lhs.op.is_constant() && lhs.op.get_constant() == one) {
       return rhs;
     }
-    if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::one(dtype)) {
+    if(rhs.op.is_constant() && rhs.op.get_constant() == one) {
       return lhs;
     }
 
@@ -1167,6 +1185,10 @@ bool scalarop_t::is_castable() const {
   return is_add() || is_mul() || is_min() || is_max();
 }
 
+bool scalarop_t::is_identity() const {
+  return *this == make_identity(node.dtype);
+}
+
 bool scalarop_t::is_add() const {
   return *this == make_add(node.dtype);
 }
@@ -1272,8 +1294,16 @@ scalarop_t scalarop_t::from_string(string const& str) {
 }
 
 scalarop_t scalarop_t::make_identity(dtype_t dtype) {
-  string h0 = op_t::h_str(0, dtype);
-  return parse_with_ss<scalarop_t>(h0);
+  return make_arg(0, dtype);
+}
+
+scalarop_t scalarop_t::make_arg(int arg, dtype_t dtype) {
+  string h = op_t::h_str(arg, dtype);
+  return parse_with_ss<scalarop_t>(h);
+}
+
+scalarop_t scalarop_t::make_constant(scalar_t val) {
+  return parse_with_ss<scalarop_t>("constant{"+write_with_ss(val)+"}");
 }
 
 // x0 + x1
@@ -1294,6 +1324,7 @@ scalarop_t scalarop_t::make_div(dtype_t dtype) {
   string h1 = op_t::h_str(1, dtype);
   return parse_with_ss<scalarop_t>("*["+h0+",power{-1}["+h1+"]]");
 }
+
 // min(x0, x1)
 scalarop_t scalarop_t::make_min(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
@@ -1306,6 +1337,7 @@ scalarop_t scalarop_t::make_max(dtype_t dtype) {
   string h1 = op_t::h_str(1, dtype);
   return parse_with_ss<scalarop_t>("ite_>["+h0+","+h1+","+h0+","+h1+"]");
 }
+
 // xn * val
 scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
   string hole = op_t::h_str(arg, val.dtype);
@@ -1316,6 +1348,7 @@ scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
 scalarop_t scalarop_t::make_scale(scalar_t val) {
   return make_scale_which(val, 0);
 }
+
 // x0 - x1
 scalarop_t scalarop_t::make_sub(dtype_t dtype) {
   string negate = write_with_ss(make_scale_which(scalar_t::negative_one(dtype), 1));
@@ -1335,11 +1368,42 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{-0.5}["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_square(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{2.0}["+h0+"]");
+}
+
 scalarop_t scalarop_t::make_relu(dtype_t dtype) {
   string arg0 = op_t::h_str(0, dtype);
   string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
   string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
   return parse_with_ss<scalarop_t>(ite);
+}
+
+scalarop_t scalarop_t::make_silu(dtype_t dtype) {
+  string one          = write_with_ss(make_constant(scalar_t::one(dtype)));
+  string negative_one = write_with_ss(make_constant(scalar_t::negative_one(dtype)));
+
+  // x
+  string x = op_t::h_str(0, dtype);
+
+  // -1*x
+  string ret = "*["+negative_one+","+x+"]";
+  // exp(-1*x)
+  ret = "exp["+ret+"]";
+  // exp(-1*x) + 1
+  ret = "+["+ret+","+one+"]";
+  // 1 / (exp(-1*x) + 1)
+  ret = "power{-1.0}["+ret+"]";
+  // x * (1 / (exp(-1*x) + 1))
+  ret = "*["+x+","+ret+"]";
+
+  return parse_with_ss<scalarop_t>(ret);
 }
 
 scalarop_t scalarop_t::make_relu_deriv(dtype_t dtype) {
@@ -1358,6 +1422,15 @@ scalarop_t scalarop_t::make_from_castable(castable_t c, dtype_t dtype) {
   } else {
     throw std::runtime_error("should not reach");
   }
+}
+
+scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
+  if(src == dst) {
+    return make_identity(src);
+  }
+  string h0 = op_t::h_str(0, src);
+  string dst_s = write_with_ss(dst);
+  return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
 }
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {

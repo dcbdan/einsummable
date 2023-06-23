@@ -170,7 +170,6 @@ capacity_scheduler_t::get_exact_start(double t)
       return lhs.beg < rhs;
     });
   if(iter == blocks.end() || iter->beg != t) {
-    DOUT(std::boolalpha << (iter == blocks.end()));
     throw std::runtime_error("failed get_exact_start");
   }
   return iter;
@@ -598,6 +597,10 @@ void forward_state_t::setup_refinement_partition(int join_id) {
             out_part, concat, which_input));
         }
       }
+    } else if(out_node.op.is_subset()) {
+      insert_usage(make_subset_input_partition(
+        out_node.op.get_subset(),
+        out_part));
     } else {
       throw std::runtime_error("setup refinement part: should not reach");
     }
@@ -791,6 +794,7 @@ void forward_state_t::setup_joins(int graph_id) {
     //   formation: 0
     //   complexer: 0
     //   concat: 0
+    //   subset: 0
     //   einsummable: the tensor block size
     // (the join_t stores an optional einsummable_t)
     if(base_einsummable) {
@@ -804,6 +808,7 @@ void forward_state_t::setup_joins(int graph_id) {
     // deps
     //   input nodes: {}
     //   concat nodes: have to figure it out
+    //   subset nodes: have to figure it out
     //   formation nodes: same as a straight einsummable op
     //   complexer nodes: same as a straight einsummable op
     //   einsummable nodes: reach into each input and grab it
@@ -832,7 +837,7 @@ void forward_state_t::setup_joins(int graph_id) {
           }
 
           int const& inn = node.inns[which_inn];
-          auto& inn_ginfo = ginfos[inn];
+          auto const& inn_ginfo = ginfos[inn];
           partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
 
           auto inn_region = inn_partition.get_region(copy_hrect);
@@ -845,6 +850,38 @@ void forward_state_t::setup_joins(int graph_id) {
           } while(increment_idxs_region(inn_region, inn_index));
         }
       }
+    } else if(node.op.is_subset()) {
+      auto const& subset_ = node.op.get_subset();
+      vector<int> unsqueezed_join_index = subset_.unsqueeze_vec(join_index, 0);
+
+      int const& inn = node.inns[0];
+      auto const& inn_ginfo = ginfos[inn];
+      partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
+
+      auto [subset, out_partition] = unsqueeze_subset_partition(
+        subset_, join_partition);
+
+      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
+
+      hrect_t inn_hrect = subset.get_hrect();
+
+      // get the copy_hrect (with respect to the inn_hrect)
+      hrect_t copy_hrect = out_partition.get_hrect(unsqueezed_join_index);
+      for(int i = 0; i != inn_hrect.size(); ++i) {
+        auto&       [jb,je] = copy_hrect[i];
+        auto const& [ib,_ ] = inn_hrect[i];
+        jb += ib;
+        je += ib;
+      }
+
+      auto inn_region = inn_partition.get_region(copy_hrect);
+      auto inn_shape = inn_partition.block_shape();
+      auto inn_index = vector_mapfst(inn_region);
+      do {
+        int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
+        rid_t dep_rid { inn, inn_refi_bid };
+        join_info.deps.insert(dep_rid);
+      } while(increment_idxs_region(inn_region, inn_index));
     } else {
       optional<einsummable_t> maybe_einsummable;
       if(node.op.is_formation() || node.op.is_complexer()) {

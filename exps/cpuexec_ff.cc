@@ -105,9 +105,11 @@ void ff(
     buffers.insert({w, buffer_w.data});
   }
 
+  kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
+
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
-    execute(taskgraph, settings, mpi, buffers);
+    execute(taskgraph, settings, kernel_manager, mpi, buffers);
 
     if(i % 10 == 0) {
       scalar_t loss = dbuffer_t(dtype, buffers.at(sqdiff)).sum();

@@ -73,6 +73,9 @@ map<int, dbuffer_t> reference_compute_graph(
         inns.push_back(tensors[id_inn]);
       }
       tensors[id] = reference_concat(node.op.get_concat(), inns);
+    } else if(node.op.is_subset()) {
+      dbuffer_t inn = tensors[node.inns[0]];
+      tensors[id] = reference_subset(node.op.get_subset(), inn);
     } else {
       throw std::runtime_error("should not reach: reference compute graph");
     }
@@ -498,6 +501,18 @@ dbuffer_t reference_concat(
   }
 
   return ret;
+}
+
+dbuffer_t reference_subset(
+  subset_t const& subset,
+  dbuffer_t const& inn)
+{
+  uint64_t nelem = product(subset.out_shape());
+  dbuffer_t out = make_dbuffer(subset.dtype, nelem);
+
+  reference_touch(subset.as_touch(), out, inn);
+
+  return out;
 }
 
 template <typename T>

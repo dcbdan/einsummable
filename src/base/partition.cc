@@ -78,6 +78,22 @@ partition_t partition_t::subset(
   return partition_t(pds);
 }
 
+partition_t partition_t::subset(
+  vector<tuple<uint64_t, uint64_t>> const& hrect) const
+{
+  if(hrect.size() != partdims.size()) {
+    throw std::runtime_error("invalid region size for subsetting");
+  }
+
+  vector<partdim_t> pds;
+  for(int i = 0; i != hrect.size(); ++i) {
+    auto const& [b,e] = hrect[i];
+    pds.push_back(partdims[i].subset(b,e));
+  }
+
+  return partition_t(pds);
+}
+
 // Get the hyper-rectanuglar set represnted by this index
 vector<tuple<uint64_t, uint64_t>>
 partition_t::get_hrect(vector<int> const& idxs) const

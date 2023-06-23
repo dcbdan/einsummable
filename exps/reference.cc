@@ -203,7 +203,7 @@ void main05() {
   }
 }
 
-void test_make_taskgraph(
+taskgraph_t test_make_taskgraph(
   graph_t const& graph,
   vector<placement_t> const& placements,
   map<int, dbuffer_t> full_inns)
@@ -215,11 +215,11 @@ void test_make_taskgraph(
     _info = taskgraph_t::make(graph, placements);
   auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info;
 
-  {
-    std::cout << "Printing to tg.gv" << std::endl;
-    std::ofstream f("tg.gv");
-    taskgraph.print_graphviz(f);
-  }
+  //{
+  //  std::cout << "Printing to tg.gv" << std::endl;
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //}
 
   //taskgraph.print();
 
@@ -262,9 +262,10 @@ void test_make_taskgraph(
     //     throw std::runtime_error("make_taskgraph_test fail");
     //   }
   }
+  return taskgraph;
 }
 
-void test_make_taskgraph(
+taskgraph_t test_make_taskgraph(
   graph_constructor_t const& graph,
   map<int, dbuffer_t> full_inns)
 {
@@ -642,7 +643,7 @@ void main09(int argc, char** argv) {
 }
 
 void main10() {
-  for(int seed = 0; seed != 1000; ++seed) {
+  for(int seed = 0; seed != 100; ++seed) {
     std::cout << "seed: " << seed << std::endl;
     set_seed(seed);
     test_random_matmul();
@@ -662,10 +663,12 @@ void test_3d_matmul(int pi, int pj, int pk, int nloc)
   graph_constructor_t graph = three_dimensional_matrix_multiplication(pi,pj,pk,di,dj,dk,nloc);
 
   dbuffer_t buffer0 = make_dbuffer(default_dtype(), ni*nj);
-  buffer0.iota(-10);
+  buffer0.random("-0.001", "0.001");
+  //buffer0.iota(-10);
 
   dbuffer_t buffer1 = make_dbuffer(default_dtype(), nj*nk);
-  buffer1.iota(-20);
+  buffer1.random("-0.001", "0.001");
+  //buffer1.iota(-20);
 
   vector<int> inputs = graph.graph.get_inputs();
   map<int, dbuffer_t> inns{ {inputs[0], buffer0}, {inputs[1], buffer1} };
@@ -747,26 +750,18 @@ void main12() {
   run(1, {2,1,2});
 }
 
-void test_random_concat(
+taskgraph_t test_random_concat(
   int dim,
   vector<uint64_t> shape_template,
   int n_inn,
-  optional<dtype_t> maybe_dtype = std::nullopt)
+  optional<dtype_t> maybe_dtype = std::nullopt,
+  int maxpart = 10)
 {
   dtype_t dtype;
   if(maybe_dtype) {
     dtype = maybe_dtype.value();
   } else {
-    int dd = runif(4);
-    if(dd == 0) {
-      dtype = dtype_t::f16;
-    } else if(dd == 1) {
-      dtype = dtype_t::f32;
-    } else if(dd == 2) {
-      dtype = dtype_t::f64;
-    } else if(dd == 3) {
-      dtype = dtype_t::c64;
-    }
+    dtype = dtype_random();
   }
 
   shape_template[dim] = 1;
@@ -797,7 +792,7 @@ void test_random_concat(
   x.save();
 
   int nloc = 3;
-  random_placement_t random_placement { {1, 10}, nloc };
+  random_placement_t random_placement { {1, maxpart}, nloc };
 
   graph_t g = w.get_graph();
   vector<placement_t> pls;
@@ -805,7 +800,7 @@ void test_random_concat(
     pls.push_back(random_placement(g.nodes[gid].op.shape()));
   }
 
-  test_make_taskgraph(g, pls, inn_tensors);
+  return test_make_taskgraph(g, pls, inn_tensors);
 }
 
 void main13() {
@@ -855,6 +850,18 @@ void main13() {
         pls[id] = concat_split_placement(pls[id], node.op.get_concat());
       }
     }
+    // Now make sure the output formation nodes have the same placement
+    for(int id = 0; id != g.nodes.size(); ++id) {
+      auto const& node = g.nodes[id];
+      if(node.op.is_formation()) {
+        int inn_id = node.inns[0];
+        int inn_rank = pls[inn_id].partition.block_shape().size();
+        int rank = pls[id].partition.block_shape().size();
+        if(inn_rank == rank) {
+          pls[id] = pls[inn_id];
+        }
+      }
+    }
 
     test_make_taskgraph(g, pls, inns);
   }
@@ -881,27 +888,27 @@ void test_random_goofy_ff() {
   uint64_t d2 = 6;
   uint64_t d3 = 8;
 
-  uint64_t d01 = d0*d1;
-  uint64_t d12 = d1*d2;
-  uint64_t d22 = d2*d2;
-  uint64_t d32 = d3*d2;
-  uint64_t d33 = d3*d3;
+  vector<uint64_t> d01 = {d0, d1};
+  vector<uint64_t> d12 = {d1, d2};
+  vector<uint64_t> d22 = {d2, d2};
+  vector<uint64_t> d32 = {d3, d2};
+  vector<uint64_t> d33 = {d3, d3};
 
   dtype_t dtype = dtype_t::f32;
 
-  id_t x = writer.input({bsz,d0,d1}, dtype).view({bsz,d01});
+  id_t x = writer.input({bsz,d0,d1}, dtype).view({ {bsz}, d01 });
   id_t w0 = writer.input({d0,d1,d3,d2}, dtype).view({d01,d32});
   id_t w1 = writer.input({d3,d2}, dtype);
 
   map<int,dbuffer_t> inns;
   for(id_t id: vector<id_t>{x,w0,w1}) {
     int gid = id.get_id();
-    dbuffer_t buffer = make_dbuffer(dtype, product(id.get_shape()));
+    dbuffer_t buffer = make_dbuffer(dtype, product(id.get_shape()()));
     buffer.random();
     inns.insert({gid, buffer});
   }
 
-  id_t y = writer.matmul(x, w0).view({bsz, d3, d2});
+  id_t y = writer.matmul(x, w0).view_full({bsz, d3, d2});
   id_t z = writer.matmul(y, w1.transpose(0,1)); // bsz,d3,d3
   y = writer.concat(2, {y, z}); // bsz,d3,d33
   y = writer.reduction("bxy->bx", castable_t::add, y); // bsz,d1
@@ -958,7 +965,7 @@ void test_with_complex_matmul() {
   map<int,dbuffer_t> inns;
   for(id_t id: vector<id_t>{lhs, rhs}) {
     int gid = id.get_id();
-    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()));
+    dbuffer_t buffer = make_dbuffer(dtype_t::c64, product(id.get_shape()()));
     buffer.random();
     inns.insert({gid, buffer});
   }
@@ -1008,7 +1015,151 @@ void test_with_complex_matmul() {
   }
 }
 
+void main_pass_through_partials_stuff() {
+  {
+    taskgraph_t tg;
+    dtype_t dtype = default_dtype();
+
+    int a = tg.insert_input(0, dtype, {100});
+    int b = tg.insert_input(0, dtype, {100});
+
+    int x = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial_the_full_aggregate(x, a, castable_t::add, false);
+
+    int y = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial_the_full_aggregate(y, x, castable_t::add, false);
+    tg.add_to_partial_the_full_aggregate(y, b, castable_t::add, false);
+    tg.nodes[y].is_save = true;
+
+    DOUT("Printing the passthrough partials: ");
+    DOUT("  (x id is " << x << ")");
+    for(auto const& id: tg.collect_passthrough_partials()) {
+      DOUT("  id " << id);
+    }
+  }
+
+  {
+    taskgraph_t tg;
+    dtype_t dtype = default_dtype();
+
+    int a1 = tg.insert_input(0, dtype, {50});
+    int a2 = tg.insert_input(0, dtype, {50});
+    int b  = tg.insert_input(0, dtype, {100});
+
+    int x = tg.new_partial(0, dtype, {100});
+    tg.add_to_partial(x, a1,
+      touch_t {
+        .selection = { { 50, 100, 0, 0, 50 } },
+        .castable = std::nullopt,
+        .dtype = dtype
+      },
+      false);
+    tg.add_to_partial(x, a2,
+      touch_t {
+        .selection = { { 50, 100, 0, 50, 50 } },
+        .castable = std::nullopt,
+        .dtype = dtype
+      },
+      false);
+
+    int y = tg.new_partial(0, dtype, {100});
+    tg.nodes[y].is_save = true;
+    tg.add_to_partial_the_full_aggregate(y, x, castable_t::add, false);
+    tg.add_to_partial_the_full_aggregate(y, b, castable_t::add, false);
+
+    DOUT("Printing the passthrough partials: ");
+    DOUT("  (x id is " << x << ")");
+    for(auto const& id: tg.collect_passthrough_partials()) {
+      DOUT("  id " << id);
+    }
+  }
+}
+
+void main_touch_compose() {
+  auto make_1d_touch = [](vector<uint64_t> v) {
+    return touch_t {
+      .selection = { touchdim_t {
+        v[0], v[1], v[2], v[3], v[4]
+      }},
+      .castable = std::nullopt,
+      .dtype = default_dtype()
+    };
+  };
+
+  touch_t a = make_1d_touch({4,6,0,1,2});
+  touch_t b = make_1d_touch({6,4,2,0,1});
+  DOUT(touch_compose(a,b).value());
+}
+
+void main_subset(int which) {
+  dtype_t dtype = dtype_random();
+
+  graph_writer_t writer;
+
+  using id_t = graph_writer_t::tensor_t;
+
+  using _all = graph_writer_t::idx_t::all;
+  using _rng = graph_writer_t::idx_t::rng;
+  using _idx = graph_writer_t::idx_t::idx;
+
+  id_t x = writer.input({{30,8}, {5}}, dtype).view_full();
+
+  if(which == 0) {
+    // Don't use all of X
+    id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
+    id_t z = x.subset({ _all{}, _rng{2,4}, _rng{0,4} });
+
+    y = y.save();
+    z = z.save();
+  } else if(which == 1) {
+    // Use all of X
+    id_t y = x.subset({ _all{}, _idx{-1}, _all{} });
+    id_t z = writer.add(x, x);
+    id_t w = writer.ew("ijk,ik->ijk", scalarop_t::make_mul(dtype), x, y);
+
+    y = y.save();
+    z = z.save();
+    w = w.save();
+  } else if(which == 2) {
+    scalar_t scalar =
+      dtype_is_complex(dtype)                         ?
+      scalar_t(std::complex<float>(0.01, 0.01)) :
+      scalar_t(dtype, "0.01");
+
+    id_t y = x.subset({ _rng{0, 5}, _rng{0, 5}, _all{} });
+    id_t z = y.scale(scalar);
+
+    z = z.save();
+  } else if(which == 3) {
+    id_t y = x.view({{30,8}, {5}});
+    id_t z = y.subset({ _all{}, _rng{0,2} });
+    z.save();
+  } else {
+    throw std::runtime_error("main subset invalid which");
+  }
+
+  dbuffer_t x_data = make_dbuffer(dtype, product(x.get_shape()()));
+  x_data.random();
+
+  graph_t const& graph = writer.get_graph();
+
+  int nloc = 4;
+  random_placement_t random_placement { {1, 5}, nloc };
+
+  vector<placement_t> pls;
+  for(auto const& node: graph.nodes) {
+    pls.push_back(random_placement(node.op.shape()));
+  }
+
+  test_make_taskgraph(
+    graph,
+    pls,
+    { {x.get_id(), x_data} });
+}
+
 int main(int argc, char** argv) {
+  //test_random_matmul();
+
   //main09(argc, argv);
   //main10();
   //main11(argc, argv);
@@ -1023,8 +1174,13 @@ int main(int argc, char** argv) {
   //main13();
   //main14();
 
+  // Example 1
   //set_seed(0);
-  //test_random_concat(0, {20,19,18}, 3);
+  //test_random_concat(2, {20,19,18}, 3, std::nullopt, 3);
+
+  // Example 2
+  //set_seed(0);
+  //test_random_concat(0, {20,18}, 2, std::nullopt, 3);
 
   //for(int i = 0; i != 1000; ++i) {
   //  DOUT(i);
@@ -1040,9 +1196,19 @@ int main(int argc, char** argv) {
   //main04();
   //main05();
 
+  //for(int i = 0; i != 100; ++i) {
+  //  DOUT(i);
+  //  set_seed(i);
+  //  test_with_complex_matmul();
+  //}
+
   for(int i = 0; i != 100; ++i) {
     DOUT(i);
     set_seed(i);
-    test_with_complex_matmul();
+    for(int which = 0; which != 4; ++which) {
+      main_subset(which);
+    }
   }
 }
+
+

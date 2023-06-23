@@ -116,10 +116,12 @@ int main(int argc, char** argv) {
     }
   }
 
+  kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
+
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("cpuexec_mm time");
-    execute(taskgraph, execute_settings, mpi, tensors);
+    execute(taskgraph, execute_settings, kernel_manager, mpi, tensors);
     mpi.barrier();
   }
 }

@@ -3,6 +3,406 @@
 #include <mkl_cblas.h>
 #include <mkl.h>
 
+#include "permute.h"
+
+kernel_manager_t::kernel_manager_t()
+{
+  auto fix = einsummable_t::normalize_str;
+
+  binfos = {
+   { fix("ij,jk->ik"), { false,false, false,false,false } },
+   { fix("ij,kj->ik"), { false, true, false,false,false } },
+   { fix("ji,jk->ik"), {  true,false, false,false,false } },
+   { fix("ji,kj->ik"), {  true,false, false,false,false } },
+
+   { fix("bij,jk->ik"), { false,false, true,false,false } },
+   { fix("bij,kj->ik"), { false, true, true,false,false } },
+   { fix("bji,jk->ik"), {  true,false, true,false,false } },
+   { fix("bji,kj->ik"), {  true,false, true,false,false } },
+
+   { fix("ij,bjk->ik"), { false,false, false,true,false } },
+   { fix("ij,bkj->ik"), { false, true, false,true,false } },
+   { fix("ji,bjk->ik"), {  true,false, false,true,false } },
+   { fix("ji,bkj->ik"), {  true,false, false,true,false } },
+
+   { fix("bij,bjk->ik"), { false,false, true,true,false } },
+   { fix("bij,bkj->ik"), { false, true, true,true,false } },
+   { fix("bji,bjk->ik"), {  true,false, true,true,false } },
+   { fix("bji,bkj->ik"), {  true,false, true,true,false } },
+
+   { fix("bij,jk->bik"), { false,false, true,false,true } },
+   { fix("bij,kj->bik"), { false, true, true,false,true } },
+   { fix("bji,jk->bik"), {  true,false, true,false,true } },
+   { fix("bji,kj->bik"), {  true,false, true,false,true } },
+
+   { fix("ij,bjk->bik"), { false,false, false,true,true } },
+   { fix("ij,bkj->bik"), { false, true, false,true,true } },
+   { fix("ji,bjk->bik"), {  true,false, false,true,true } },
+   { fix("ji,bkj->bik"), {  true,false, false,true,true } },
+
+   { fix("bij,bjk->bik"), { false,false, true,true,true } },
+   { fix("bij,bkj->bik"), { false, true, true,true,true } },
+   { fix("bji,bjk->bik"), {  true,false, true,true,true } },
+   { fix("bji,bkj->bik"), {  true,false, true,true,true } }
+  };
+}
+
+optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
+{
+  auto einsummable = e_.merge_adjacent_dims();
+
+  if(einsummable.is_permutation()) {
+    auto const& inn_modes = einsummable.inns[0];
+
+    vector<int> out_modes(inn_modes.size());
+    std::iota(out_modes.begin(), out_modes.end(), 0);
+
+    kernels.insert({einsummable,
+      tensor_permute_t {
+        .dtype = einsummable.out_dtype(),
+        .inn_shape = einsummable.inn_shapes()[0],
+        .out_perm = as_out_perm(inn_modes, out_modes)
+      }
+    });
+    return 0;
+  }
+
+  if(einsummable.is_straight_elementwise()) {
+    int n = einsummable.inns.size();
+    if(n == 1) {
+      auto maybe = lookup_unary_straight_ew_kernel(einsummable.join);
+      if(maybe) {
+        auto const& [data, f] = maybe.value();
+        kernels.insert({einsummable,
+          unary_straight_ew_t {
+            .n = product(einsummable.join_shape),
+            .data = data,
+            .f = f
+          }
+        });
+        return 0;
+      } else {
+        return std::nullopt;
+      }
+    } else if(n == 2) {
+      auto maybe = lookup_binary_straight_ew_kernel(einsummable.join);
+      if(maybe) {
+        auto const& [data, f] = maybe.value();
+        kernels.insert({einsummable,
+          binary_straight_ew_t {
+            .n = product(einsummable.join_shape),
+            .data = data,
+            .f = f
+          }
+        });
+        return 0;
+      } else {
+        return std::nullopt;
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  auto estr = einsummable.str();
+
+  if(estr == "ab,a->ab" || estr == "ab,b->ab") {
+    bool is_ab_a = estr == "ab,a->ab";
+    auto maybe = lookup_binary_212_ew_kernel(einsummable.join, is_ab_a);
+    if(maybe) {
+      auto const& [data,f] = maybe.value();
+      kernels.insert({einsummable,
+        binary_212_ew_t {
+          .na = einsummable.join_shape[0],
+          .nb = einsummable.join_shape[1],
+          .data = data,
+          .f = f
+        }
+      });
+      return 0;
+    } else {
+      return std::nullopt;
+    }
+  }
+  if(estr == "ab->a") {
+    if(!einsummable.join.is_identity()) {
+      return std::nullopt;
+    }
+
+    auto reduction = build_ab_a_reduction_kernel(
+      einsummable.out_dtype(),
+      einsummable.castable.value());
+
+    kernels.insert({einsummable,
+      reduction_ab_a_t {
+        .na = einsummable.join_shape[0],
+        .nb = einsummable.join_shape[1],
+        .f = reduction
+      }
+    });
+    return 0;
+  }
+
+  if(estr == "abcd,bd->abcd")
+  {
+    if(einsummable.join.is_mul() && dtype_t::c64 == einsummable.out_dtype())
+    {
+      uint64_t na = einsummable.join_shape[0];
+      uint64_t nb = einsummable.join_shape[1];
+      uint64_t nc = einsummable.join_shape[2];
+      uint64_t nd = einsummable.join_shape[3];
+      kernel_t kernel = [na,nb,nc,nd](void* out, vector<void const*> inns) {
+        using T = std::complex<float>;
+        return c64_mul_abcd_bd_to_abcd(
+          na,nb,nc,nd,
+          (T*)out, (T const*)inns[0], (T const*)inns[1]);
+      };
+      kernels.insert({einsummable, kernel});
+      return 0;
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  auto maybe_batch_matmul = make_batch_matmul(einsummable);
+  if(maybe_batch_matmul) {
+    kernels.insert({einsummable, maybe_batch_matmul.value()});
+    return 0;
+  }
+
+  if(einsummable.is_contraction()) {
+    if(!contraction_t::can_make(
+      einsummable.inns[0],
+      einsummable.inns[1],
+      einsummable.out_rank))
+    {
+      return std::nullopt;
+    }
+
+    auto c = contraction_t::make(
+      einsummable.out_dtype(),
+      einsummable.join_shape,
+      einsummable.inns[0],
+      einsummable.inns[1],
+      einsummable.out_rank);
+
+    return c.workspace_size;
+  }
+
+  return std::nullopt;
+}
+
+// get the workspace size
+// (throw an error if e has not been built)
+uint64_t kernel_manager_t::workspace_size(einsummable_t const& e) const
+{
+  auto const& kernel = get_built_kernel_info(e);
+
+  if(std::holds_alternative<contraction_t>(kernel)) {
+    return std::get<contraction_t>(kernel).workspace_size;
+  } else {
+    return 0;
+  }
+}
+
+void kernel_manager_t::operator()(
+  touch_t const& touch,
+  void* out,
+  void const* inn) const
+{
+  // TODO: there is no reason to wrap the touch kernel in a lambda;
+  //       create touch_kernel
+  auto f = build_touch(touch);
+  f(out, inn);
+}
+
+void kernel_manager_t::operator()(
+  einsummable_t const& e,
+  void* out,
+  vector<void const*> inns,
+  optional<tuple<void*, uint64_t>> maybe_workspace) const
+{
+  auto const& info = get_built_kernel_info(e);
+  call(info, out, inns, maybe_workspace);
+}
+
+void kernel_manager_t::call(
+  kernel_manager_t::kernel_info_t const& kernel,
+  void* out,
+  vector<void const*> inns,
+  optional<tuple<void*, uint64_t>> maybe_workspace)
+{
+  using std::holds_alternative;
+  using std::get;
+
+  auto assert_num_inputs = [&inns](int n) {
+    if(inns.size() != n) {
+      throw std::runtime_error("kernel manager: incorrect number of input tensors");
+    }
+  };
+
+  if(holds_alternative<batch_matmul_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& b = get<batch_matmul_t>(kernel);
+    batch_matrix_multiply(
+      b.dtype,
+      b.nb,
+      b.info.batched_out, b.info.batched_lhs, b.info.batched_rhs,
+      b.ni, b.nj, b.nk,
+      b.info.trans_lhs, b.info.trans_rhs,
+      out, inns[0], inns[1]);
+  } else if(holds_alternative<contraction_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& c = get<contraction_t>(kernel);
+    if(c.workspace_size == 0) {
+      c(nullptr, out, inns[0], inns[1]);
+    } else if(!maybe_workspace) {
+      throw std::runtime_error("workspace required; none given");
+    } else {
+      auto [workspace, wsz] = maybe_workspace.value();
+      if(wsz < c.workspace_size) {
+        throw std::runtime_error("provided workspace is too small");
+      }
+      c(workspace, out, inns[0], inns[1]);
+    }
+  } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [n,data,f] = get<unary_straight_ew_t>(kernel);
+    f(data.data(), n, out, inns[0]);
+  } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
+    f(data.data(), n, out, inns[0], inns[1]);
+  } else if(holds_alternative<binary_212_ew_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
+    f(data.data(), na, nb, out, inns[0], inns[1]);
+  } else if(holds_alternative<tensor_permute_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [dtype, inn_shape, out_perm] = get<tensor_permute_t>(kernel);
+    permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
+  } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
+    f(na,nb,out,inns[0]);
+  } else if(holds_alternative<kernel_t>(kernel)) {
+    auto const& f = get<kernel_t>(kernel);
+    f(out, inns);
+  } else {
+    throw std::runtime_error("workspace size: kernel unaccounted for");
+  }
+}
+
+kernel_manager_t::kernel_info_t const&
+kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
+{
+  auto iter = kernels.find(e.merge_adjacent_dims());
+  if(iter == kernels.end()) {
+    throw std::runtime_error("get_built_kernel_info: this einsummable has not been built");
+  }
+  return iter->second;
+}
+
+optional<kernel_manager_t::batch_matmul_t>
+kernel_manager_t::make_batch_matmul(einsummable_t const& e)
+{
+  if(!e.is_contraction()) {
+    return std::nullopt;
+  }
+  auto iter = binfos.find(e.str());
+  if(iter == binfos.end()) {
+    return std::nullopt;
+  }
+  auto const& info = iter->second;
+
+  auto inn_shapes = e.inn_shapes();
+  auto const& lhs = inn_shapes[0];
+  auto const& rhs = inn_shapes[1];
+  auto out = e.out_shape();
+
+  uint64_t nb = 0;
+  uint64_t ni = 0;
+  uint64_t nj = 0;
+  uint64_t nk = 0;
+
+  if(info.batched_lhs) {
+    nb = lhs[0];
+    if(info.trans_lhs) {
+      // bji
+      nj = lhs[1];
+      ni = lhs[2];
+    } else {
+      // bij
+      ni = lhs[1];
+      nj = lhs[2];
+    }
+  } else {
+    if(info.trans_lhs) {
+      // ji
+      nj = lhs[0];
+      ni = lhs[1];
+    } else {
+      // ij
+      ni = lhs[0];
+      nj = lhs[1];
+    }
+  }
+
+  if(info.batched_rhs) {
+    nb = rhs[0];
+    if(info.trans_rhs) {
+      // bkj
+      nk = rhs[1];
+      nj = rhs[2];
+    } else {
+      // bjk
+      nj = rhs[1];
+      nk = rhs[2];
+    }
+  } else {
+    nb = 1;
+    if(info.trans_rhs) {
+      // kj
+      nk = rhs[0];
+      nj = rhs[1];
+    } else {
+      // jk
+      nj = rhs[0];
+      nk = rhs[1];
+    }
+  }
+
+  if(nb == 0 || ni == 0 || nj == 0 || nk == 0) {
+    throw std::runtime_error("all sizes should be set");
+  }
+
+  return batch_matmul_t {
+    .dtype = e.out_dtype(),
+    .info = info,
+    .nb = nb,
+    .ni = ni,
+    .nj = nj,
+    .nk = nk
+  };
+}
+
+std::function<void(void*, vector<void const*>)>
+build_einsummable(einsummable_t const& e)
+{
+  kernel_manager_t ks;
+  auto maybe = ks.build(e);
+  if(!maybe) {
+    throw std::runtime_error("could not build the kernel");
+  }
+  if(maybe.value() != 0) {
+    throw std::runtime_error("build_einsummable: this kernel requires a workspace");
+  }
+  auto const& meta_info = ks.get_built_kernel_info(e);
+  return [meta_info](void* out, vector<void const*> inns) {
+    kernel_manager_t::call(meta_info, out, inns);
+  };
+}
+
 template <typename T>
 inline T _pow(T const& v, double const& power) {
   return std::pow(v, power);
@@ -36,8 +436,12 @@ inline float16_t _exp(float16_t const& v) {
       out[i] = op; \
     } \
   }
-#define _binary_ew_loop(name, TO, T0, T1, op) \
-  void name( \
+
+// a,a->a
+// ab,a->ab
+// ab,b->ab
+#define _binary_ew_loop(name1, name2, name3, TO, T0, T1, op) \
+  void name1( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -48,75 +452,149 @@ inline float16_t _exp(float16_t const& v) {
     T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
     for(uint64_t i = 0; i != n; ++i) { \
+      uint64_t const& i0 = i; \
+      uint64_t const& i1 = i; \
       out[i] = op; \
     } \
+  } \
+  void name2( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
+    for(uint64_t i = 0; i != n1; ++i) { \
+    for(uint64_t j = 0; j != n2; ++j) { \
+      uint64_t i0 = i*n2 + j; \
+      uint64_t const& i1 = i; \
+      out[i0] = op; \
+    }} \
+  } \
+  void name3( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
+    for(uint64_t i = 0; i != n1; ++i) { \
+    for(uint64_t j = 0; j != n2; ++j) { \
+      uint64_t i0 = i*n2 + j; \
+      uint64_t const& i1 = j; \
+      out[i0] = op; \
+    }} \
   }
 
-//ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]
-//f32->f32
 _unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
-
-//power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b0,float,float,float,_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4)))))
-
-//*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b1,float,float,float,((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i]))))
-
-//*[hole|f32@0,hole|f32@1]
-///f32,f32->f32
-_binary_ew_loop(b2,float,float,float,(x0[i]*x1[i]))
-
-//*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]
-//f32,f32->f32
-_binary_ew_loop(b3,float,float,float,(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i]))
-
-//+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]
-//f32,f32->f32
-_binary_ew_loop(b4,float,float,float,(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i]))))
-
 _unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i]))
-_binary_ew_loop(b5,float16_t,float16_t,float16_t,_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2)))))
-_binary_ew_loop(b6,float16_t,float16_t,float16_t,((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i]))))
-_binary_ew_loop(b7,float16_t,float16_t,float16_t,(x0[i]*x1[i]))
-_binary_ew_loop(b8,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i]))
-_binary_ew_loop(b9,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
-_binary_ew_loop(b10,float16_t,float16_t,float16_t,(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i]))))
-
 _unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i]))
+_unary_ew_loop(u3,float16_t,float16_t,(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4))))))
+_unary_ew_loop(u4,float,float,_exp(x0[i]))
+_unary_ew_loop(u5,float,float,_pow(x0[i],(*((double*)(d+0)))))
+_unary_ew_loop(u6,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
+_unary_ew_loop(u7,float,float,_pow(x0[i],(*((double*)(d+0)))))
+_unary_ew_loop(u8,float16_t,float,float16_t(x0[i]))
+_unary_ew_loop(u9,float16_t,float16_t,((*((float16_t*)(d+0)))*x0[i]))
+_unary_ew_loop(u10,float,float16_t,float(x0[i]))
+_unary_ew_loop(u12,double,double,(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16))))))
+_unary_ew_loop(u13,double,double,((*((double*)(d+0)))+x0[i]))
+_unary_ew_loop(u14,double,double,((*((double*)(d+0)))*x0[i]))
+_unary_ew_loop(u15,float,float,(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8))))))
+_unary_ew_loop(u16,float,float,((*((float*)(d+0)))+x0[i]))
+_unary_ew_loop(u17,float,float,((*((float*)(d+0)))*x0[i]))
 
-_binary_ew_loop(b11,double,double,double,_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8)))))
-_binary_ew_loop(b12,double,double,double,((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))
-_binary_ew_loop(b13,double,double,double,(x0[i]*x1[i]))
-_binary_ew_loop(b14,double,double,double,(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i]))
-_binary_ew_loop(b15,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
-_binary_ew_loop(b16,double,double,double,(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i]))))
+_binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
+_binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
+_binary_ew_loop(b2,c2,d2,float,float,float,(x0[i0]*x1[i1]))
+_binary_ew_loop(b3,c3,d3,float,float,float,(((*((float*)(d+0)))>=x0[i0]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i1]))
+_binary_ew_loop(b4,c4,d4,float,float,float,(x0[i0]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))
+_binary_ew_loop(b5,c5,d5,float16_t,float16_t,float16_t,_pow((x0[i0]+((*((float16_t*)(d+0)))*x1[i1])),(*((double*)(d+2)))))
+_binary_ew_loop(b6,c6,d6,float16_t,float16_t,float16_t,((*((float16_t*)(d+0)))*(x0[i0]+((*((float16_t*)(d+2)))*x1[i1]))))
+_binary_ew_loop(b7,c7,d7,float16_t,float16_t,float16_t,(x0[i0]*x1[i1]))
+_binary_ew_loop(b8,c8,d8,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))>=x0[i0]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i1]))
+_binary_ew_loop(b9,c9,d9,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1]))))
+_binary_ew_loop(b10,c10,d10,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1]))))
+_binary_ew_loop(b11,c11,d11,double,double,double,_pow((x0[i0]+((*((double*)(d+0)))*x1[i1])),(*((double*)(d+8)))))
+_binary_ew_loop(b12,c12,d12,double,double,double,((*((double*)(d+0)))*(x0[i0]+((*((double*)(d+8)))*x1[i1]))))
+_binary_ew_loop(b13,c13,d13,double,double,double,(x0[i0]*x1[i1]))
+_binary_ew_loop(b14,c14,d14,double,double,double,(((*((double*)(d+0)))>=x0[i0]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i1]))
+_binary_ew_loop(b15,c15,d15,double,double,double,(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1]))))
+_binary_ew_loop(b16,c16,d16,double,double,double,(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1]))))
+_binary_ew_loop(b17,c17,d17,float,float,float,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
+_binary_ew_loop(b18,c18,d18,float16_t,float16_t,float16_t,(x0[i0]+x1[i1]))
+_binary_ew_loop(b19,c19,d19,float,float,float,(x0[i0]+x1[i1]))
+_binary_ew_loop(b20,c20,d20,float16_t,float16_t,float16_t,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b21,c21,d21,float16_t,float16_t,float16_t,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b22,c22,d22,float,float,float,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b23,c23,d23,float,float,float,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b24,c24,d24,double,double,double,(x0[i0]+x1[i1]))
+_binary_ew_loop(b25,c25,d25,double,double,double,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b26,c26,d26,double,double,double,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
 
-std::function<void(uint8_t const*, uint64_t, void*, void const*)>
-get_unary_kernel(string const& str)
+optional<
+  tuple<vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, void*, void const*)> >
+lookup_unary_straight_ew_kernel(scalarop_t op)
 {
-  using kernel_t = std::function<
-    void(uint8_t const*, uint64_t, void*, void const*)>;
+  using kernel_t = void(*)(uint8_t const*, uint64_t, void*, void const*);
+
+  // TODO: this shouldn't have to happen as op should always be simplified
+  //       to a unique value. For some reason
+  //       a kernel wasn't normalized in the same way as the key
+  //       requires...
+  op = op.simplify();
+
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  string key = op.type_signature() + "|" + op_str;
 
   static map<string, kernel_t> kernels = {
     { "f32->f32|((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])", u0 },
     { "f16->f16|((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i])", u1 },
-    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 }
+    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 },
+    { "f16->f16|(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4)))))", u3 },
+    { "f32->f32|_exp(x0[i])", u4 },
+    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u5 },
+    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u6 },
+    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u7 },
+    { "f32->f16|float16_t(x0[i])", u8 },
+    { "f16->f16|((*((float16_t*)(d+0)))*x0[i])", u9 },
+    { "f16->f32|float(x0[i])", u10 },
+    { "f64->f64|(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16)))))", u12 },
+    { "f64->f64|((*((double*)(d+0)))+x0[i])", u13 },
+    { "f64->f64|((*((double*)(d+0)))*x0[i])", u14 },
+    { "f32->f32|(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8)))))", u15 },
+    { "f32->f32|((*((float*)(d+0)))+x0[i])", u16 },
+    { "f32->f32|((*((float*)(d+0)))*x0[i])", u17 }
   };
 
-  auto iter = kernels.find(str);
+  auto iter = kernels.find(key);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + str);
+    return std::nullopt;
   }
-  return iter->second;
+  using tt = tuple<vector<uint8_t>, kernel_t>;
+  return tt{bytes, iter->second};
 }
 
-std::function<void(uint8_t const*, uint64_t, void*, void const*, void const*)>
-get_binary_kernel(string const& str)
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, void*, void const*, void const*)> >
+lookup_binary_straight_ew_kernel(
+  scalarop_t op)
 {
-  using kernel_t = std::function<
-    void(uint8_t const*, uint64_t, void*, void const*, void const*)>;
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  string key = op.type_signature() + "|" + op_str;
+
+  using kernel_t =
+    void(*)(uint8_t const*, uint64_t, void*, void const*, void const*);
 
   static map<string, kernel_t> kernels = {
     { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", b0 },
@@ -135,119 +613,143 @@ get_binary_kernel(string const& str)
     { "f64,f64->f64|(x0[i]*x1[i])", b13 },
     { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", b14 },
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b15 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 }
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 },
+    { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b17 },
+    { "f16,f16->f16|(x0[i]+x1[i])", b18 },
+    { "f32,f32->f32|(x0[i]+x1[i])", b19 },
+    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", b20 },
+    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", b21 },
+    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", b22 },
+    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", b23 },
+    { "f64,f64->f64|(x0[i]+x1[i])", b24 },
+    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", b25 },
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 }
   };
 
-  auto iter = kernels.find(str);
+  auto iter = kernels.find(key);
   if(iter == kernels.end()) {
-    throw std::runtime_error("kernel undefined for " + str);
+    return std::nullopt;
   }
-  return iter->second;
+  using tt = tuple<vector<uint8_t>, kernel_t>;
+  return optional<tt>(tt{bytes, iter->second});
 }
 
-vector<tuple<uint64_t, uint64_t>>
-_zip_parts(
-  vector<uint64_t> const& parts)
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*)> >
+lookup_binary_212_ew_kernel(
+  scalarop_t op,
+  bool is_ab_a)
 {
-  vector<tuple<uint64_t, uint64_t>> ret;
-  ret.reserve(parts.size());
-  uint64_t offset = 0;
-  for(auto const& p: parts) {
-    ret.emplace_back(offset, offset + p);
-    offset += p;
-  }
-  return ret;
-}
-
-kernel_t
-build_unary_elementwise_kernel(
-  int num_threads,
-  uint64_t n,
-  scalarop_t op)
-{
-  if(n == 0) {
-    throw std::runtime_error("elementwise: calling with zero");
-  }
-
   auto [op_str, bytes] = op.to_cpp_bytes();
   string key = op.type_signature() + "|" + op_str;
-  auto f = get_unary_kernel(key);
 
-  if(num_threads == 0 || n < num_threads) {
-    return [f,n,bytes](void* out, vector<void const*> inns) {
-      return f(bytes.data(), n, out, inns[0]);
-    };
-  }
+  using kernel_t =
+    void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*);
 
-  auto ranges = _zip_parts(divide_evenly(num_threads, n));
-
-  vector<uint64_t> strides;
-  strides.reserve(2);
-  strides.push_back(dtype_size(op.out_dtype()));
-  strides.push_back(dtype_size(op.inn_dtype(0).value()));
-
-  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
-    vector<std::thread> ts;
-    void const* inn = inns[0];
-    for(auto const& [lower,upper]: ranges) {
-      ts.emplace_back(
-        f,
-        bytes.data(),
-        upper-lower,
-        (void*)((char*)out + strides[0]*lower),
-        (void*)((char*)inn + strides[1]*lower));
-    }
-    for(auto& t: ts) {
-      t.join();
-    }
+  static map< string, tuple<kernel_t, kernel_t> > kernels = {
+    { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", { c0, d0} },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", { c1, d1} },
+    { "f32,f32->f32|(x0[i]*x1[i])", { c2, d2} },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", { c3, d3} },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", { c4, d4} },
+    { "f16,f16->f16|_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2))))", { c5, d5} },
+    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i])))", { c6, d6} },
+    { "f16,f16->f16|(x0[i]*x1[i])", { c7, d7} },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i])", { c8, d8} },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", { c9, d9} },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", { c10, d10} },
+    { "f64,f64->f64|_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8))))", { c11, d11} },
+    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i])))", { c12, d12} },
+    { "f64,f64->f64|(x0[i]*x1[i])", { c13, d13} },
+    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", { c14, d14} },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", { c15, d15} },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", { c16, d16} },
+    { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c17, d17} },
+    { "f16,f16->f16|(x0[i]+x1[i])", { c18, d18} },
+    { "f32,f32->f32|(x0[i]+x1[i])", { c19, d19} },
+    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", { c20, d20} },
+    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", { c21, d21} },
+    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", { c22, d22} },
+    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", { c23, d23} },
+    { "f64,f64->f64|(x0[i]+x1[i])", { c24, d24} },
+    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", { c25, d25} },
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", { c26, d26} }
   };
+
+  auto iter = kernels.find(key);
+  if(iter == kernels.end()) {
+    return std::nullopt;
+  }
+  using tt = tuple<vector<uint8_t>, kernel_t>;
+  if(is_ab_a) {
+    return optional<tt>(tt{bytes, std::get<0>(iter->second)});
+  } else {
+    return optional<tt>(tt{bytes, std::get<1>(iter->second)});
+  }
 }
 
-kernel_t
-build_binary_elementwise_kernel(
-  int num_threads,
-  uint64_t n,
-  scalarop_t op)
-{
-  if(n == 0) {
-    throw std::runtime_error("elementwise: calling with zero");
+#define _reduction_ab_a(name, op) \
+  template<typename T> \
+  void name(uint64_t n1, uint64_t n2, T* out, T const* inn) { \
+    for(uint64_t i = 0; i != n1; ++i) { \
+      out[i] = inn[i*n2]; \
+      for(uint64_t j = 1; j != n2; ++j) { \
+        uint64_t ij = i*n2 + j; \
+        out[i] op ; \
+      } \
+    } \
   }
+_reduction_ab_a(reduction_ab_a_add, += inn[ij]                  );
+_reduction_ab_a(reduction_ab_a_mul, *= inn[ij]                  );
+_reduction_ab_a(reduction_ab_a_min, =  std::min(out[i], inn[ij]));
+_reduction_ab_a(reduction_ab_a_max, =  std::max(out[i], inn[ij]));
 
-  auto [op_str, bytes] = op.to_cpp_bytes();
-  string key = op.type_signature() + "|" + op_str;
-  auto f = get_binary_kernel(key);
-
-  if(num_threads == 0 || n < num_threads) {
-    return [f,n,bytes](void* out, vector<void const*> inns) {
-      return f(bytes.data(), n, out, inns[0], inns[1]);
-    };
-  }
-
-  auto ranges = _zip_parts(divide_evenly(num_threads, n));
-
-  vector<uint64_t> strides;
-  strides.reserve(3);
-  strides.push_back(dtype_size(op.out_dtype()));
-  strides.push_back(dtype_size(op.inn_dtype(0).value()));
-  strides.push_back(dtype_size(op.inn_dtype(1).value()));
-
-  return [f,n,ranges,strides,bytes](void* out, vector<void const*> inns) {
-    vector<std::thread> ts;
-    void const* lhs = inns[0];
-    void const* rhs = inns[1];
-    for(auto const& [lower,upper]: ranges) {
-      ts.emplace_back(
-        f,
-        bytes.data(),
-        upper-lower,
-        (void*)((char*)out + strides[0]*lower),
-        (void*)((char*)lhs + strides[1]*lower),
-        (void*)((char*)rhs + strides[2]*lower));
-    }
-    for(auto& t: ts) {
-      t.join();
-    }
+#define _reduction_lambda(castable,T) \
+  [](uint64_t na, uint64_t nb, void* out, void const* inn) { \
+    reduction_ab_a_##castable(na, nb, (T*)out, (T const*)inn); \
   };
+
+std::function<void(uint64_t, uint64_t, void*, void const*)>
+build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
+  if(dtype == dtype_t::f16) {
+    if(castable == castable_t::add) {
+      return _reduction_lambda(add, float16_t);
+    } else if(castable == castable_t::mul) {
+      return _reduction_lambda(mul, float16_t);
+    } else if(castable == castable_t::min) {
+      return _reduction_lambda(min, float16_t);
+    } else if(castable == castable_t::max) {
+      return _reduction_lambda(max, float16_t);
+    }
+  } else if(dtype == dtype_t::f32) {
+    if(castable == castable_t::add) {
+      return _reduction_lambda(add, float);
+    } else if(castable == castable_t::mul) {
+      return _reduction_lambda(mul, float);
+    } else if(castable == castable_t::min) {
+      return _reduction_lambda(min, float);
+    } else if(castable == castable_t::max) {
+      return _reduction_lambda(max, float);
+    }
+  } else if(dtype == dtype_t::f64) {
+    if(castable == castable_t::add) {
+      return _reduction_lambda(add, double);
+    } else if(castable == castable_t::mul) {
+      return _reduction_lambda(mul, double);
+    } else if(castable == castable_t::min) {
+      return _reduction_lambda(min, double);
+    } else if(castable == castable_t::max) {
+      return _reduction_lambda(max, double);
+    }
+  } else if(dtype == dtype_t::c64) {
+    if(castable == castable_t::add) {
+      return _reduction_lambda(add, std::complex<float>);
+    } else if(castable == castable_t::mul) {
+      return _reduction_lambda(mul, std::complex<float>);
+    }
+  }
+  throw std::runtime_error("could not build ab_a reduction kernel");
 }
 
 #define _touch1(name, op) \
@@ -696,253 +1198,50 @@ void batch_matrix_multiply(
   }
 }
 
-// Note: This test isn't perfect. It won't determine that
-//   (ijkl,jkmn->ijmn) is actually a matrix multiply.
-//   (TODO, perhaps as an einsummable.simplify method...)
-// Note: This test also won't determine that
-//   (jk,ij->ik) is actually a matrix multiply with the inputs flipped.
-//   (TODO...)
-optional<kernel_t>
-_make_matrix_multiply(
-  einsummable_t const& einsummable)
+void c64_mul_abcd_bd_to_abcd(
+  uint64_t na,
+  uint64_t nb,
+  uint64_t nc,
+  uint64_t nd,
+  std::complex<float>* out,
+  std::complex<float> const* lhs,
+  std::complex<float> const* rhs)
 {
-  if(!einsummable.join.is_mul()) {
-    return std::nullopt;
-  }
-  if(einsummable.join_shape.size() != 3 ||
-     einsummable.out_rank          != 2)
-  {
-    return std::nullopt;;
-  }
-
-  int i = 0;
-  int j = 2;
-  int k = 1;
-
-  // 02,21->01  is the no transpose variant.
-  uint64_t const& ni = einsummable.join_shape[i];
-  uint64_t const& nj = einsummable.join_shape[j];
-  uint64_t const& nk = einsummable.join_shape[k];
-
-  bool trans_lhs, trans_rhs;
-
-  {
-    auto const& idxs_lhs = einsummable.inns[0];
-    if(idxs_lhs == vector<int>{i,j}) {
-      trans_lhs = false;
-    } else if(idxs_lhs == vector<int>({j,i})) {
-      trans_lhs = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  {
-    auto const& idxs_rhs = einsummable.inns[1];
-    if(idxs_rhs == vector<int>{j,k}) {
-      trans_rhs = false;
-    } else if(idxs_rhs == vector<int>({k,j})) {
-      trans_rhs = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  auto dtype = einsummable.out_dtype();
-  return [dtype,ni,nj,nk,trans_lhs,trans_rhs]
-    (void* out, vector<void const*> inns)
-  {
-    return matrix_multiply(
-      dtype,
-      ni,nj,nk,
-      trans_lhs,trans_rhs,
-      out, inns[0], inns[1]);
-  };
+  for(uint64_t a = 0; a != na; ++a) {
+  for(uint64_t b = 0; b != nb; ++b) {
+  for(uint64_t c = 0; c != nc; ++c) {
+  for(uint64_t d = 0; d != nd; ++d) {
+    uint64_t ol = a*nb*nc*nd + b*nc*nd + c*nd + d;
+    uint64_t rr = b*nd + d;
+    out[ol] = lhs[ol] * rhs[rr];
+  }}}}
 }
 
-// TODO: see _make_matrix_multiply todo.
-//       Also, this function is just too ugly
-optional<kernel_t>
-_make_batch_matrix_multiply(
-  einsummable_t const& e)
+void permute_kernel(
+  dtype_t dtype,
+  uint64_t permute_block_size,
+  vector<uint64_t> const& inn_shape,
+  vector<int> const& out_perm,
+  void* out,
+  void const* inn)
 {
-  if(!e.join.is_mul()) {
-    return std::nullopt;
-  }
-  if(e.join_shape.size() != 4 || e.inns.size() != 2) {
-    return std::nullopt;
-  }
+  permute_t permute(permute_block_size);
 
-  bool batched_lhs, batched_rhs, batched_out;
-
-  {
-    int rank_lhs = e.inns[0].size();
-    if(rank_lhs == 2) {
-      batched_lhs = false;
-    } else if(rank_lhs == 3) {
-      batched_lhs = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  {
-    int rank_rhs = e.inns[1].size();
-    if(rank_rhs == 2) {
-      batched_rhs = false;
-    } else if(rank_rhs == 3) {
-      batched_rhs = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  {
-    if(e.out_rank == 2) {
-      batched_out = false;
-    } else if(e.out_rank == 3) {
-      batched_out = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  int b,i,j,k;
-
-  if(batched_out) {
-    batched_out = true;
-    // (maybe b) ij, (maybe b) jk, -> bik
-    //  0        13   0        32     012
-
-    b = 0;
-    i = 1;
-    j = 3;
-    k = 2;
-
+  if(dtype == dtype_t::f16) {
+    using T = float16_t;
+    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
+  } else if(dtype == dtype_t::f32) {
+    using T = float;
+    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
+  } else if(dtype == dtype_t::f64) {
+    using T = double;
+    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
+  } else if(dtype == dtype_t::c64) {
+    using T = std::complex<float>;
+    permute(inn_shape, out_perm, (T*)out, (T const*)inn);
   } else {
-    // e.out_rank == 2
-    // (maybe b) ij, (maybe b) jk, -> ik
-    //  3        02   3        21     01
-    //  _OR_
-    //  2        03   2        31     01
-    // TODO: unless einsummable is modified to not
-    //       allow the indeterminism
-    if(batched_lhs) {
-      b = e.inns[0][0];
-    } else if(batched_rhs) {
-      b = e.inns[1][0];
-    } else {
-      // this is a matrix multiply, not a batched matrix multiply
-      return std::nullopt;
-    }
-
-    if(b == 2 || b == 3) {
-      j = b == 3 ? 2 : 3;
-    } else {
-      return std::nullopt;
-    }
-
-    i = 0;
-    k = 1;
+    throw std::runtime_error("permute kernel missing dtype");
   }
-
-  uint64_t const& nb = e.join_shape[b];
-  uint64_t const& ni = e.join_shape[i];
-  uint64_t const& nj = e.join_shape[j];
-  uint64_t const& nk = e.join_shape[k];
-
-  bool trans_lhs, trans_rhs;
-
-  {
-    auto const& idxs_lhs = e.inns[0];
-    if(batched_lhs) {
-      if(idxs_lhs == vector<int>{b,i,j}) {
-        trans_lhs == false;
-      } else if(idxs_lhs == vector<int>{b,j,i}) {
-        trans_lhs == true;
-      } else {
-        return std::nullopt;
-      }
-    } else {
-      if(idxs_lhs == vector<int>{i,j}) {
-        trans_lhs == false;
-      } else if(idxs_lhs == vector<int>{j,i}) {
-        trans_lhs == true;
-      } else {
-        return std::nullopt;
-      }
-    }
-  }
-
-  {
-    auto const& idxs_rhs = e.inns[1];
-    if(batched_rhs) {
-      if(idxs_rhs == vector<int>{b,j,k}) {
-        trans_rhs == false;
-      } else if(idxs_rhs == vector<int>{b,k,j}) {
-        trans_rhs == true;
-      } else {
-        return std::nullopt;
-      }
-    } else {
-      if(idxs_rhs == vector<int>{j,k}) {
-        trans_rhs == false;
-      } else if(idxs_rhs == vector<int>{k,j}) {
-        trans_rhs == true;
-      } else {
-        return std::nullopt;
-      }
-    }
-  }
-
-  auto dtype = e.out_dtype();
-  return [dtype,nb,batched_out,batched_lhs,batched_rhs,ni,nj,nk,trans_lhs,trans_rhs]
-    (void* out, vector<void const*> inns)
-  {
-    return batch_matrix_multiply(
-      dtype,
-      nb,batched_out,batched_lhs,batched_rhs,
-      ni,nj,nk,
-      trans_lhs,trans_rhs,
-      out, inns[0], inns[1]);
-  };
 }
 
-kernel_t
-build_einsummable(
-  int num_threads,
-  einsummable_t const& einsummable_)
-{
-  einsummable_t einsummable = einsummable_.merge_adjacent_dims();
 
-  if(einsummable.is_straight_elementwise()) {
-    int n = einsummable.inns.size();
-    if(n == 1) {
-      return build_unary_elementwise_kernel(
-        num_threads,
-        product(einsummable.join_shape),
-        einsummable.join);
-    } else if(n == 2) {
-      return build_binary_elementwise_kernel(
-        num_threads,
-        product(einsummable.join_shape),
-        einsummable.join);
-    } else {
-      throw std::runtime_error(
-              "straight elementwise kernel with " + std::to_string(n) +
-              " inputs not supported!");
-    }
-  }
-
-  auto matmul = _make_matrix_multiply(einsummable);
-  if(matmul) {
-    return matmul.value();
-  }
-
-  auto batch_matmul = _make_batch_matrix_multiply(einsummable);
-  if(batch_matmul) {
-    return batch_matmul.value();
-  }
-
-  throw std::runtime_error("could not acquire kernel for " + write_with_ss(einsummable));
-}

@@ -81,3 +81,10 @@ interval_intersect(
   }
 }
 
+vector<tuple<uint64_t, uint64_t>>
+hrect_full_hrect_from_shape(vector<uint64_t> const& xs)
+{
+  return vector_zip(
+    vector<uint64_t>(xs.size(), 0),
+    xs);
+}

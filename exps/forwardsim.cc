@@ -355,9 +355,20 @@ void main05() {
     out = out.to_complex();
     out = writer.add(out, out);
 
+    using _all = graph_writer_t::idx_t::all;
+    using _idx = graph_writer_t::idx_t::idx;
+    out = out.subset({ _idx{-1}, _all{} });
+
     out.save();
   }
+
   graph_t const& graph = writer.get_graph();
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("Printed to g.gv");
+  }
+
   equal_items_t<int> eqs = {};
 
   double base = simulate(cluster, graph, single_loc_placements(graph));
@@ -384,5 +395,6 @@ void main05() {
 }
 
 int main() {
+  set_seed(0);
   main05();
 }
