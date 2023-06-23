@@ -10,7 +10,6 @@ using full_shape_t = graph_writer_t::full_shape_t;
 
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
-
 // Helpful structure for llama model
 struct model_args_t {
   static model_args_t make_default();
@@ -43,7 +42,7 @@ struct rms_norm_t {
 
   rms_norm_t(
     graph_writer_t* w,
-    string name, //should be "ffn_norm." or "attention_norm"
+    string name, //should be "ffn_norm." or "attention_norm."
     full_dim_t dim,
     float eps,
     dtype_t dtype = default_dtype());

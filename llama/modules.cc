@@ -2,9 +2,6 @@
 
 #include "../src/base/hrect.h"
 
-// TODO: wherever division occurs, make sure no modulo;
-//       add a helper method to throw runtime error
-
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {
@@ -38,7 +35,7 @@ model_args_t model_args_t::llama_7B() {
     .norm_eps        = 1e-6,
     .max_batch_size  = 32,
     .max_seq_len     = 256,
-    .vocab_size      = 32000, //TODO: change according to the actual tokenizer size
+    .vocab_size      = 32000,
     .world_size      = 1
   };
 }
@@ -336,29 +333,28 @@ transformer_block_t::transformer_block_t(
 }
 
 map<int, string> transformer_block_t::input_map() const {
-  //TODO: loop the input_names mappping and insert to our
-  //      own map for both att and ffn
-
   map<int, string> input_names;
+
+  string header = "layers." + std::to_string(layer_id) + ".";
 
   //Attention_t names mapping
   map<int, string> att_inner_names = attention.input_map();
   for(auto const& [tensor_id, name]: attention.input_map()) {
-    input_names.insert({
-      tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name
-    });
+    input_names.insert({tensor_id, header + name});
   }
 
   //feedforward names mapping
   for(auto const& [tensor_id, name]: feedforward.input_map()) {
-    input_names.insert({
-      tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name
-    });
+    input_names.insert({tensor_id, header + name});
   }
 
-  // TODO: attention_norm and ffn_norm mappings
+  for(auto const& [tensor_id, name]: attention_norm.input_map()) {
+    input_names.insert({tensor_id, header + name});
+  }
+  for(auto const& [tensor_id, name]: feedforward_norm.input_map()) {
+    input_names.insert({tensor_id, header + name});
+  }
+
   return input_names;
 }
 
@@ -392,7 +388,7 @@ transformer_t::transformer_t(
     { args.max_seq_len, uint64_div(args.head_dim(), 2) },
     dtype_t::c64);
 
-  norm = rms_norm_t(writer, "norm.weight", args.full_dim(), args.norm_eps);
+  norm = rms_norm_t(writer, "norm.", args.full_dim(), args.norm_eps);
 
   full_shape_t to_vocab({
     full_dim_t::singleton(args.vocab_size),
@@ -437,9 +433,13 @@ tensor_t transformer_t::forward(tensor_t x)
 map<int, string> transformer_t::input_map() const {
   map<int, string> ret;
   for(transformer_block_t const& block: layers) {
-    for(auto [tensor_id, name]: block.input_map()) {
+    for(auto const& [tensor_id, name]: block.input_map()) {
       ret.insert({tensor_id, name});
     }
+  }
+
+  for(auto const& [tensor_id, name]: norm.input_map()) {
+    ret.insert({tensor_id, name});
   }
 
   ret.insert({w_vocab.get_id(), "output.weight"});
