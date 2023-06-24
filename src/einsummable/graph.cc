@@ -1445,7 +1445,7 @@ graph_writer_t::reduction(
 
   einsummable_t e = info.build_einsummable(
     scalarop_t::make_identity(inn.get_dtype()),
-    castable_t::add);
+    castable);
 
   if(!e.has_aggregation()) {
     throw std::runtime_error("build einsummable is not a reduction");
@@ -1810,7 +1810,6 @@ graph_writer_t::softmax(
   std::iota(h.begin(), h.end(), 'b');
   string ha = h + "a";
   string redstr = ha + "->" + h;
-  string ewustr = ha + "->" + ha;
   string ewbstr = ha + "," + h + "->" + ha;
 
   tensor_t x = inn;
@@ -1820,22 +1819,21 @@ graph_writer_t::softmax(
     castable_t::max,
     x);
 
-  // x = x + c
+  // x = x - c
   x = ew(
     ewbstr,
-    scalarop_t::make_add(dtype),
+    scalarop_t::make_sub(dtype),
     x, c);
 
   // ex = exp(x)
   tensor_t ex = ew(
-    ewustr,
     scalarop_t::make_exp(dtype),
     x);
 
   tensor_t sum_ex = reduction(
     redstr,
     castable_t::add,
-    x);
+    ex);
 
   return ew(
     ewbstr,

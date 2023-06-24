@@ -287,16 +287,19 @@ int main() {
   test_unary(scalarop_t::make_scale(scalar_t(float(1.965))));
 
   test_binary(scalarop_t::make_add(dtype_t::f16));
+  test_binary(scalarop_t::make_sub(dtype_t::f16));
   test_binary(scalarop_t::make_mul(dtype_t::f16));
   test_binary(scalarop_t::make_min(dtype_t::f16));
   test_binary(scalarop_t::make_max(dtype_t::f16));
 
   test_binary(scalarop_t::make_add(dtype_t::f32));
+  test_binary(scalarop_t::make_sub(dtype_t::f32));
   test_binary(scalarop_t::make_mul(dtype_t::f32));
   test_binary(scalarop_t::make_min(dtype_t::f32));
   test_binary(scalarop_t::make_max(dtype_t::f32));
 
   test_binary(scalarop_t::make_add(dtype_t::f64));
+  test_binary(scalarop_t::make_sub(dtype_t::f64));
   test_binary(scalarop_t::make_mul(dtype_t::f64));
   test_binary(scalarop_t::make_min(dtype_t::f64));
   test_binary(scalarop_t::make_max(dtype_t::f64));

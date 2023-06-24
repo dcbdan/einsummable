@@ -108,6 +108,7 @@ tensor_t rms_norm_t::forward(tensor_t x) {
   if(dtype != x.get_dtype()) {
     throw std::runtime_error("invalid input dtype rms norm t forward");
   }
+
   tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
 
   int out_rank = x.rank();

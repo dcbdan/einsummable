@@ -173,6 +173,20 @@ scalar_t dbuffer_t::sum() const {
   }
 }
 
+double dbuffer_t::sum_to_f64() const {
+  if(dtype == dtype_t::f16) {
+    return std::accumulate(f16(), f16() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::f32) {
+    return std::accumulate(f32(), f32() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::f64) {
+    return std::accumulate(f64(), f64() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("sum_to_f64 does not support complex");
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
 uint64_t dbuffer_t::nelem() const {
   if(size() % dtype_size(dtype) != 0) {
     throw std::runtime_error("incorrect size for dtype");

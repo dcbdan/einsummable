@@ -289,6 +289,42 @@ dbuffer_t lookup_embeddings(
   return ret;
 }
 
+template <typename T>
+vtensor_t<int> _get_top_choices(
+  T const* data,
+  uint64_t nrow,
+  uint64_t ncol,
+  uint64_t topn)
+{
+  topn = std::min(topn, ncol);
+  vtensor_t<int> ret({int(nrow), int(topn)});
+  int* ret_vec = ret.get().data();
+  for(int i = 0; i != nrow; ++i) {
+    T const* d = data    + i*ncol;
+    int*     r = ret_vec + i*topn;
+    vector<T const*> tops = select_topn(d, d + ncol, topn);
+    for(int j = 0; j != topn; ++j) {
+      r[j] = std::distance(d, tops[j]);
+    }
+  }
+  return ret;
+}
+
+vtensor_t<int> get_top_choices(
+  dbuffer_t const& data,
+  uint64_t nrow,
+  uint64_t ncol,
+  uint64_t topn)
+{
+  if(data.dtype == dtype_t::f16) {
+    return _get_top_choices(data.f16(), nrow, ncol, topn);
+  } else if(data.dtype == dtype_t::f32) {
+    return _get_top_choices(data.f32(), nrow, ncol, topn);
+  } else if(data.dtype == dtype_t::f64) {
+    return _get_top_choices(data.f64(), nrow, ncol, topn);
+  }
+  throw std::runtime_error("get_top_choices: no dtype support here");
+}
 
 void main_(int argc, char** argv) {
   if(argc != 2) {
@@ -298,6 +334,7 @@ void main_(int argc, char** argv) {
   set_default_dtype(dtype_t::f16);
 
   auto args = model_args_t::llama_7B();
+  args.n_layers = 1;
 
   graph_writer_t writer;
   auto model = transformer_t(&writer, "name", args);
@@ -313,17 +350,21 @@ void main_(int argc, char** argv) {
     for(auto const& [id, name]: model.input_map()) {
       inputs.insert({id, weights.at(name)});
       from_model.insert(name);
+
+      dbuffer_t d(dtype_t::f16, weights.at(name));
+      DOUT(name << " " << d.sum_to_f64() << " " << d.nelem() << " " << d.f16()[3]);
     }
 
-    for(auto const& [name, _]: weights) {
-      if(from_model.count(name) == 0) {
-        if(name.find("freqs") != string::npos || name == "tok_embeddings.weight") {
-          // these are not necc
-        } else {
-          throw std::runtime_error("missing weight: " + name);
-        }
-      }
-    }
+    // TODO
+    //for(auto const& [name, _]: weights) {
+    //  if(from_model.count(name) == 0) {
+    //    if(name.find("freqs") != string::npos || name == "tok_embeddings.weight") {
+    //      // these are not necc
+    //    } else {
+    //      throw std::runtime_error("missing weight: " + name);
+    //    }
+    //  }
+    //}
   }
 
   // prompts = [
@@ -341,7 +382,7 @@ void main_(int argc, char** argv) {
      {1,  306, 4658,  278, 6593,  310, 2834, 338,
       1, 3439,17632, 1925,29892,  278, 6368, 310,
       1,17166,  263, 4700,  508,  367, 2309, 297,
-      1, 4103, 9632, 4223,  304, 5176,29901,  13 });
+      1, 4103, 9632, 4223,  304, 5176,29901,  13});
 
   uint64_t bsz    = tokens.get_shape()[0];
   uint64_t seqlen = tokens.get_shape()[1];
@@ -359,6 +400,7 @@ void main_(int argc, char** argv) {
   }));
 
   tensor_t y = model.forward(x);
+  DOUT(y.get_shape()())
 
   y = y.save();
 
@@ -386,11 +428,11 @@ void main_(int argc, char** argv) {
     graph,
     graph.make_singleton_placement());
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("Printed to tg.gv");
-  //}
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("Printed to tg.gv");
+  }
 
   kernel_manager_t kernel_manager;
   for(auto const& node: taskgraph.nodes) {
@@ -398,6 +440,8 @@ void main_(int argc, char** argv) {
       auto const& e = node.op.get_apply().einsummable;
       auto maybe = kernel_manager.build(e);
       if(!maybe) {
+        DOUT(e);
+        DOUT(e.join);
         throw std::runtime_error("could not build a kernel!");
       }
     }
@@ -417,11 +461,6 @@ void main_(int argc, char** argv) {
     inputs = t_inputs;
   }
 
-  vector<int> saves;
-  for(auto const& [gid, tensor_tids]: saves_g_to_t) {
-    saves.push_back(tensor_tids.get()[0]);
-  }
-
   settings_t settings {
     .num_apply_runner = 1,
     .num_touch_runner = 1, // subsets use touch kernels
@@ -436,8 +475,39 @@ void main_(int argc, char** argv) {
 
   auto& data = inputs;
   execute(taskgraph, settings, kernel_manager, mpi, data);
+
+  int save;
+  for(auto const& [gid, tensor_tids]: saves_g_to_t) {
+    uint64_t const& tid = tensor_tids.get()[0];
+    dbuffer_t tensor(writer.get_graph().out_dtype(gid), data.at(tid));
+    DOUT("gid " << gid << "  sum: " << tensor.sum_to_f64() << "        " << tensor.sum());
+
+    if(gid == y.get_id()) {
+      save = tid;
+    }
+  }
+
+  uint64_t top_n = 5;
+  vtensor_t<int> top_choices = get_top_choices(
+    dbuffer_t(dtype_t::f16, data.at(save)),
+    bsz, args.vocab_size,
+    top_n);
+  DOUT(top_choices.get());
 }
 
 int main(int argc, char** argv) {
+  //float16_t x = scalar_t::negative_inf(dtype_t::f16).f16();
+  //float16_t y(9.9);
+
+  //DOUT(std::min(x,y));
+  //DOUT(std::max(x,y));
+
+  //DOUT(scalarop_t::make_min(dtype_t::f16).eval({scalar_t(x),scalar_t(y)}).f16());
+  //DOUT(scalarop_t::make_max(dtype_t::f16).eval({scalar_t(x),scalar_t(y)}).f16());
+
   main_(argc, argv);
+
+  //for(auto const& str: {"0.01", "0.1", "1.0", "10.0", "0.934"}) {
+  //  DOUT(str << " " << scalar_t(dtype_t::f16, str).convert(dtype_t::f32));
+  //}
 }

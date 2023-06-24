@@ -21,6 +21,7 @@ struct dbuffer_t {
   dbuffer_t view_f32_as_c64();
 
   scalar_t sum() const;
+  double sum_to_f64() const;
 
   uint64_t nelem() const;
   uint64_t const& size() const;

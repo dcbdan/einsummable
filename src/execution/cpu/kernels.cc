@@ -576,6 +576,9 @@ _binary_ew_loop(b23,c23,d23,float,float,float,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
 _binary_ew_loop(b24,c24,d24,double,double,double,(x0[i0]+x1[i1]))
 _binary_ew_loop(b25,c25,d25,double,double,double,(x0[i0]<x1[i1]?x0[i0]:x1[i1]))
 _binary_ew_loop(b26,c26,d26,double,double,double,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
+_binary_ew_loop(b27,c27,d27,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t*)(d+0)))*x1[i1])))
+_binary_ew_loop(b28,c28,d28,float,float,float,(x0[i0]+((*((float*)(d+0)))*x1[i1])))
+_binary_ew_loop(b29,c29,d29,double,double,double,(x0[i0]+((*((double*)(d+0)))*x1[i1])))
 
 optional<
   tuple<vector<uint8_t>,
@@ -660,7 +663,10 @@ lookup_binary_straight_ew_kernel(
     { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", b23 },
     { "f64,f64->f64|(x0[i]+x1[i])", b24 },
     { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", b25 },
-    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 }
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", b27 },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", b28 },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", b29 }
   };
 
   auto iter = kernels.find(key);
@@ -711,7 +717,10 @@ lookup_binary_212_ew_kernel(
     { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", { c23, d23} },
     { "f64,f64->f64|(x0[i]+x1[i])", { c24, d24} },
     { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", { c25, d25} },
-    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", { c26, d26} }
+    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", { c26, d26} },
+    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", { c27, d27} },
+    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", { c28, d28} },
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", { c29, d29} },
   };
 
   auto iter = kernels.find(key);

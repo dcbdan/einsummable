@@ -813,4 +813,32 @@ vector<T> backward_permute(
     out_shape);
 }
 
+template <typename Iter>
+struct iter_greater_t {
+  bool operator()(Iter const& lhs, Iter const& rhs) const {
+    return *lhs > *rhs;
+  }
+};
+
+template <typename Iter>
+vector<Iter> select_topn(Iter beg, Iter end, int topn) {
+  std::priority_queue<Iter, std::vector<Iter>, iter_greater_t<Iter>> q;
+  auto& iter = beg;
+  for(; iter != end && q.size() != topn; ++iter) {
+    q.push(iter);
+  }
+  for(; iter != end; ++iter) {
+    q.push(iter);
+    q.pop();
+  }
+  vector<Iter> ret;
+  while(q.size() > 0) {
+    ret.push_back(q.top());
+    q.pop();
+  }
+
+  std::reverse(ret.begin(), ret.end());
+
+  return ret;
+}
 
