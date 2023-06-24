@@ -397,14 +397,15 @@ void cpu_exec_state_t::apply_runner(int runner_id)
 
       // Can we donate one of the input buffers to
       // this computation?
-      for(int i = 0; i != inns.size(); ++i) {
-        int const& inn = inns[i];
-        buffer_t& input = inputs[i];
-        if(applys_progress.is_donatable.count(inn)) {
-          out_buffer = input;
-          break;
-        }
-      }
+      // TODO: this does not seem to be working
+      ////for(int i = 0; i != inns.size(); ++i) {
+      ////  int const& inn = inns[i];
+      ////  buffer_t& input = inputs[i];
+      ////  if(applys_progress.is_donatable.count(inn)) {
+      ////    out_buffer = input;
+      ////    break;
+      ////  }
+      ////}
 
       // If not, allocate.
       if(!out_buffer) {

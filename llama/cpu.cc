@@ -8,6 +8,8 @@
 #include "../src/execution/cpu/permute.h"
 #include "../src/execution/cpu/contraction.h"
 
+#include "../src/execution/cpu/execute.h"
+
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
@@ -301,7 +303,7 @@ void main_(int argc, char** argv) {
   auto model = transformer_t(&writer, "name", args);
 
   buffer_t embedding_matrix;
-  map<int, buffer_t> graph_inputs;
+  map<int, buffer_t> inputs;
   {
     map<string, buffer_t> weights = read_all_weights(argv[1]);
 
@@ -309,7 +311,7 @@ void main_(int argc, char** argv) {
 
     std::set<string> from_model;
     for(auto const& [id, name]: model.input_map()) {
-      graph_inputs.insert({id, weights.at(name)});
+      inputs.insert({id, weights.at(name)});
       from_model.insert(name);
     }
 
@@ -362,14 +364,14 @@ void main_(int argc, char** argv) {
 
   graph_t const& graph = writer.get_graph();
 
-  graph_inputs.insert({ x.get_id(), x_data.data });
+  inputs.insert({ x.get_id(), x_data.data });
 
-  graph_inputs.insert({
+  inputs.insert({
     model.full_freqs_cis.get_id(),
     model.form_full_freqs_cis(args).data
   });
 
-  graph_inputs.insert({
+  inputs.insert({
     model.mask_infos.back().mask.get_id(),
     model.form_start_mask(seqlen).data
   });
@@ -380,9 +382,10 @@ void main_(int argc, char** argv) {
   //  DOUT("wrote to g.gv");
   //}
 
-  auto const& [_0, _1, taskgraph] = taskgraph_t::make(
+  auto const& [inns_g_to_t, saves_g_to_t, taskgraph] = taskgraph_t::make(
     graph,
     graph.make_singleton_placement());
+
   //{
   //  std::ofstream f("tg.gv");
   //  taskgraph.print_graphviz(f);
@@ -399,6 +402,40 @@ void main_(int argc, char** argv) {
       }
     }
   }
+
+  // convert graph_inputs to taskgraph inputs
+  // (using the fact that every tensor_tids is singleton)
+  {
+    auto const& g_inputs = inputs;
+
+    map<int, buffer_t> t_inputs;
+    for(auto const& [gid, tensor_tids]: inns_g_to_t) {
+      auto const& tid = tensor_tids.get()[0];
+      t_inputs.insert({tid, g_inputs.at(gid)});
+    }
+
+    inputs = t_inputs;
+  }
+
+  vector<int> saves;
+  for(auto const& [gid, tensor_tids]: saves_g_to_t) {
+    saves.push_back(tensor_tids.get()[0]);
+  }
+
+  settings_t settings {
+    .num_apply_runner = 1,
+    .num_touch_runner = 1, // subsets use touch kernels
+    .num_send_runner = 0,
+    .num_recv_runner = 0,
+    .num_apply_kernel_threads = 12
+  };
+
+  DOUT("taskgraph num nodes: " << taskgraph.nodes.size());
+
+  mpi_t mpi(argc, argv);
+
+  auto& data = inputs;
+  execute(taskgraph, settings, kernel_manager, mpi, data);
 }
 
 int main(int argc, char** argv) {

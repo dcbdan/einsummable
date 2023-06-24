@@ -185,6 +185,7 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
       einsummable.inns[0],
       einsummable.inns[1],
       einsummable.out_rank);
+    kernels.insert({einsummable, c});
 
     return c.workspace_size;
   }
