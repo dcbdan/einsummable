@@ -48,6 +48,7 @@ struct scalar_t {
   static scalar_t convert(scalar_t const&, dtype_t);
 
   static scalar_t zero(dtype_t);
+  static scalar_t negative_inf(dtype_t);
 
   // not valid for complex
   static scalar_t one(dtype_t);

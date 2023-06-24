@@ -3,6 +3,7 @@
 
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/scalarop.h"
+#include "../src/einsummable/dbuffer.h"
 
 using tensor_t     = graph_writer_t::tensor_t;
 using full_dim_t   = graph_writer_t::full_dim_t;
@@ -169,15 +170,15 @@ struct transformer_t {
     return layers[0].start_pos();
   }
 
+  static dbuffer_t form_full_freqs_cis(model_args_t const& args);
+  static dbuffer_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
+
   // grab full_freqs_cis from [:, start_pos(): start_pos()+n]
   tensor_t next_freqs_cis(uint64_t n);
   tensor_t next_mask(uint64_t seqlen);
 
   graph_writer_t* writer;
   model_args_t args;
-
-  // TODO: list freq_cis info
-  // TODO: list mask info
 
   tensor_t full_freqs_cis;
 
@@ -193,3 +194,6 @@ struct transformer_t {
   vector<mask_info_t> mask_infos;
 };
 
+// TODO: This is only tested when the default_dtype is set to 16...
+//       Perhaps force that to be the case everywhere or test in other
+//       scenarios

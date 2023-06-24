@@ -447,6 +447,63 @@ map<int, string> transformer_t::input_map() const {
   return ret;
 }
 
+dbuffer_t transformer_t::form_full_freqs_cis(model_args_t const& args) {
+  float theta = 10000.0;
+  uint64_t dim  = uint64_div(args.dim, args.n_heads);
+  uint64_t hdim = uint64_div(dim, 2);
+  uint64_t end = 2*args.max_seq_len;
+
+  dbuffer_t xs = make_dbuffer(dtype_t::f32, hdim);
+  for(int i = 0; i != hdim; ++i) {
+    xs.f32()[i] = 1.0 / (std::pow(theta, (i*2.0) / dim));
+  }
+
+  dbuffer_t t = make_dbuffer(dtype_t::f32, end);
+  for(int i = 0; i != end; ++i) {
+    t.f32()[i] = 1.0*i;
+  }
+
+  dbuffer_t freqs = make_dbuffer(dtype_t::f32, end*hdim);
+  for(int i = 0; i != end;  ++i) {
+  for(int j = 0; j != hdim; ++j) {
+    freqs.f32()[i*hdim+j] = t.f32()[i] * xs.f32()[j];
+  }}
+
+  dbuffer_t freqs_cis = make_dbuffer(dtype_t::c64, end*hdim);
+  for(int i = 0; i != hdim*dim; ++i) {
+    freqs_cis.c64()[i] = std::polar(float(1.0), freqs.f32()[i]);
+  }
+
+  return freqs_cis;
+}
+
+template <typename T>
+void _form_start_mask_set_zero(uint64_t const& seqlen, T* data)
+{
+  for(int i = 0; i != seqlen; ++i) {
+  for(int j = 0; j != i+1;    ++j) {
+    data[i*seqlen + j] = 0.0;
+  }}
+}
+
+dbuffer_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype) {
+  dbuffer_t mask = make_dbuffer(dtype, seqlen*seqlen);
+
+  mask.fill(scalar_t::negative_inf(dtype));
+
+  if(dtype == dtype_t::f16) {
+    _form_start_mask_set_zero(seqlen, mask.f16());
+  } else if(dtype == dtype_t::f32) {
+    _form_start_mask_set_zero(seqlen, mask.f32());
+  } else if(dtype == dtype_t::f64) {
+    _form_start_mask_set_zero(seqlen, mask.f64());
+  } else {
+    throw std::runtime_error("should not happen: invalid dtype form start mask");
+  }
+
+  return mask;
+}
+
 tensor_t transformer_t::next_freqs_cis(uint64_t n) {
   using _all = graph_writer_t::idx_t::all;
   using _rng = graph_writer_t::idx_t::rng;

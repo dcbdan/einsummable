@@ -362,20 +362,32 @@ void main_(int argc, char** argv) {
 
   graph_t const& graph = writer.get_graph();
 
-  {
-    std::ofstream f("g.gv");
-    graph.print_graphviz(f);
-    DOUT("wrote to g.gv");
-  }
+  graph_inputs.insert({ x.get_id(), x_data.data });
+
+  graph_inputs.insert({
+    model.full_freqs_cis.get_id(),
+    model.form_full_freqs_cis(args).data
+  });
+
+  graph_inputs.insert({
+    model.mask_infos.back().mask.get_id(),
+    model.form_start_mask(seqlen).data
+  });
+
+  //{
+  //  std::ofstream f("g.gv");
+  //  graph.print_graphviz(f);
+  //  DOUT("wrote to g.gv");
+  //}
 
   auto const& [_0, _1, taskgraph] = taskgraph_t::make(
     graph,
     graph.make_singleton_placement());
-  {
-    std::ofstream f("tg.gv");
-    taskgraph.print_graphviz(f);
-    DOUT("Printed to tg.gv");
-  }
+  //{
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //  DOUT("Printed to tg.gv");
+  //}
 
   kernel_manager_t kernel_manager;
   for(auto const& node: taskgraph.nodes) {

@@ -150,6 +150,25 @@ scalar_t scalar_t::zero(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+scalar_t scalar_t::negative_inf(dtype_t dtype) {
+  if(!std::numeric_limits<double>::is_iec559) {
+    throw std::runtime_error("uh oh; can't get -inf");
+  }
+  double ninf = - std::numeric_limits<double>::infinity();
+
+  switch(dtype) {
+    case dtype_t::f16:
+      return scalar_t(float16_t(ninf));
+    case dtype_t::f32:
+      return scalar_t(float(ninf));
+    case dtype_t::f64:
+      return scalar_t(ninf);
+    case dtype_t::c64:
+      throw std::runtime_error("no -inf for complex");
+  }
+  throw std::runtime_error("should not reach");
+}
+
 scalar_t scalar_t::one(dtype_t dtype) {
   if(dtype == dtype_t::c64) {
     throw std::runtime_error("no one provided for c64");
