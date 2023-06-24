@@ -206,6 +206,42 @@ uint64_t kernel_manager_t::workspace_size(einsummable_t const& e) const
   }
 }
 
+vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
+{
+  auto const& kernel = get_built_kernel_info(e);
+
+  vector<int> maybe;
+  maybe.reserve(2);
+
+  if(std::holds_alternative<unary_straight_ew_t>(kernel)) {
+    dtype_t inn = e.inn_dtype(0);
+    maybe.push_back(0);
+  } else if(std::holds_alternative<binary_straight_ew_t>(kernel)) {
+    maybe.push_back(0);
+    maybe.push_back(1);
+  } else if(std::holds_alternative<binary_212_ew_t>(kernel)) {
+    maybe.push_back(0);
+  }
+
+  dtype_t out_dtype = e.out_dtype();
+
+  // Things will end badly if the input dtype
+  // does not match the output dtype. For instance, if
+  // e = "ijk->ijk" and converts from f32 to f64, then
+  // donating the first input will only have half
+  // as much memory as required.
+
+  vector<int> ret;
+  ret.reserve(maybe.size());
+  for(int const& inn: maybe) {
+    if(e.inn_dtype(inn) == out_dtype) {
+      ret.push_back(inn);
+    }
+  }
+
+  return ret;
+}
+
 void kernel_manager_t::operator()(
   touch_t const& touch,
   void* out,

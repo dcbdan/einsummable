@@ -74,6 +74,14 @@ public:
   // (throw an error if e has not been built)
   uint64_t workspace_size(einsummable_t const& e) const;
 
+  // Return the inputs of e that may be donated,
+  //   so if e  is out = inn0 + inn1, this might return {0,1}
+  //   so that either
+  //     inn0 = inn0 + inn1  or
+  //     inn1 = inn0 + inn1
+  // (throw an error if e has not been built)
+  vector<int> donatables(einsummable_t const& e) const;
+
   void operator()(
     touch_t const& touch,
     void* out,

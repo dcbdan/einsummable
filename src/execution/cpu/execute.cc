@@ -325,14 +325,21 @@ cpu_exec_state_t::cpu_exec_state_t(
         // Can this be marked as donated?
         // 1. not a save node
         // 2. used only once
-        // 3. usage node is straight-elementwise
+        // 3. the kernel manager says the usage node is fine
+        //    with donating this input
         bool can_donate = false;
         if(!node.is_save && node.outs.size() == 1) {
           int const& node_out_id = *node.outs.begin();
           auto const& node_out = taskgraph.nodes[node_out_id];
           if(node_out.op.is_apply()) {
-            auto const& einsummable = node_out.op.get_apply().einsummable;
-            can_donate = einsummable.is_straight_elementwise();
+            auto const& out_apply = node_out.op.get_apply();
+            auto donatables = kernel_manager.donatables(out_apply.einsummable);
+            for(auto const& which_inn: donatables) {
+              if(out_apply.inns[which_inn] == id) {
+                can_donate = true;
+                break;
+              }
+            }
           }
         }
 
@@ -397,15 +404,14 @@ void cpu_exec_state_t::apply_runner(int runner_id)
 
       // Can we donate one of the input buffers to
       // this computation?
-      // TODO: this does not seem to be working
-      ////for(int i = 0; i != inns.size(); ++i) {
-      ////  int const& inn = inns[i];
-      ////  buffer_t& input = inputs[i];
-      ////  if(applys_progress.is_donatable.count(inn)) {
-      ////    out_buffer = input;
-      ////    break;
-      ////  }
-      ////}
+      for(int i = 0; i != inns.size(); ++i) {
+        int const& inn = inns[i];
+        buffer_t& input = inputs[i];
+        if(applys_progress.is_donatable.count(inn)) {
+          out_buffer = input;
+          break;
+        }
+      }
 
       // If not, allocate.
       if(!out_buffer) {
@@ -646,14 +652,12 @@ void cpu_exec_state_t::completed_apply(int apply_id)
   auto const& node = taskgraph.nodes[apply_id];
   set<int> inns = node.op.inputs();
 
-
   _completed(
     std::unique_lock(m),
     true,
     vector<int>(inns.begin(), inns.end()),
     optional<int>(apply_id)
   );
-
 
   cv.notify_all();
 }
