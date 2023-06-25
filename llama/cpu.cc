@@ -14,6 +14,8 @@
 
 #include <mkl.h> // for mkl_set_num_threads
 
+#include <iomanip> // setprecision
+
 void time_contraction1() {
   dtype_t dtype = dtype_t::f16;
 
@@ -211,6 +213,108 @@ void test_contraction1() {
   }
 }
 
+void test_norm() {
+  vector<double> data{
+     0.104102411965,  1.75819599444 ,  0.241436410543, -0.923549600062,
+     2.098498404957, -0.01980048358 ,  0.719057520776,  1.582565440747,
+     0.011832471646,  0.583231115325,  1.735792867821, -1.075010469408,
+    -0.491300759802,  0.900173883415, -0.696549140976, -0.017318511128,
+     0.779691427962,  1.525656976835,  0.186386673303,  0.151327731509,
+     0.372845878592,  0.132723343527,  1.466696600695, -0.293139876364,
+    -0.575411014743, -0.661329473696, -0.112476311142, -0.681607609168,
+     2.271264890919, -0.055723774135,  0.792926540523,  1.330586035915,
+     0.014505599309,  1.072342068897,  0.502588730809, -0.034059581526,
+     0.53419634156 , -1.864580855143,  0.944462033663, -0.153446086103
+  };
+  uint64_t ni = 2;
+  uint64_t nj = 20;
+
+  dtype_t dtype = dtype_t::f64;
+
+  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype);
+  scalarop_t square       = scalarop_t::make_square(dtype);
+  scalarop_t identity     = scalarop_t::make_identity(dtype);
+
+  scalar_t _e(dtype, write_with_ss(1e-6));
+  scalar_t _a(dtype, write_with_ss(1.0/double(double(1.0)*nj)));
+  scalarop_t scale_then_add_eps = scalarop_t::combine(
+    scalarop_t::make_add(dtype),
+    {
+      scalarop_t::make_scale(_a),
+      scalarop_t::make_constant(_e)
+    });
+
+  // y = np.power(np.mean(np.square(x), axis=-1) + eps, -0.5)
+
+  einsummable_t e_square(
+    {ni, nj},
+    { {0,1} },
+    2,
+    square);
+  einsummable_t e_reduction(
+    {ni, nj},
+    { {0, 1} },
+    1,
+    identity,
+    castable_t::add);
+  einsummable_t e_scale_add(
+    {ni},
+    { {0} },
+    1,
+    scale_then_add_eps);
+  einsummable_t e_inverse_sqrt(
+    {ni},
+    { {0} },
+    1,
+    inverse_sqrt);
+
+  dbuffer_t y = make_dbuffer(dtype, ni*nj);
+
+  if(dtype == dtype_t::f16) {
+    std::copy(data.begin(), data.end(), y.f16());
+  } else if(dtype == dtype_t::f32) {
+    std::copy(data.begin(), data.end(), y.f32());
+  } else if(dtype == dtype_t::f64) {
+    std::copy(data.begin(), data.end(), y.f64());
+  }
+
+  auto execute_einsummable = [](einsummable_t const& e, dbuffer_t data) {
+    kernel_manager_t k;
+    k.build(e);
+    dbuffer_t out = make_dbuffer(e.out_dtype(), e.out_nelem());
+    k(e, out.raw(), { data.raw() });
+    return out;
+  };
+
+  //dbuffer_t y1 = reference_einsummable(e_square,       { y  });
+  //dbuffer_t y2 = reference_einsummable(e_reduction,    { y1 });
+  //dbuffer_t y3 = reference_einsummable(e_scale_add,    { y2 });
+  //dbuffer_t y4 = reference_einsummable(e_inverse_sqrt, { y3 });
+
+  dbuffer_t y1 = execute_einsummable(e_square,       y );
+  dbuffer_t y2 = execute_einsummable(e_reduction,    y1);
+  dbuffer_t y3 = execute_einsummable(e_scale_add,    y2);
+  dbuffer_t y4 = execute_einsummable(e_inverse_sqrt, y3);
+
+  auto print = [&dtype](string name, dbuffer_t y) {
+    DOUT(name);
+    if(y.dtype == dtype_t::f16) {
+      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f16()[i]); }
+    } else if(y.dtype == dtype_t::f32) {
+      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f32()[i]); }
+    } else if(y.dtype == dtype_t::f64) {
+      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f64()[i]); }
+    }
+    DOUT("");
+  };
+
+  print("y1", y1);
+  print("y2", y2);
+  print("y3", y3);
+  print("y4", y4);
+  print("y5", y4.copy(dtype_t::f32));
+}
+
 map<string, buffer_t>
 read_all_weights(string filename)
 {
@@ -331,7 +435,14 @@ void main_(int argc, char** argv) {
     throw std::runtime_error("usage: filename");
   }
 
-  set_default_dtype(dtype_t::f16);
+  set_default_dtype(dtype_t::f32);
+
+  auto convert_f16_to_default = [](buffer_t buffer) {
+    if(default_dtype() != dtype_t::f16) {
+      buffer = dbuffer_t(dtype_t::f16, buffer).copy(default_dtype()).data;
+    }
+    return buffer;
+  };
 
   auto args = model_args_t::llama_7B();
   args.n_layers = 1;
@@ -344,15 +455,15 @@ void main_(int argc, char** argv) {
   {
     map<string, buffer_t> weights = read_all_weights(argv[1]);
 
-    embedding_matrix = weights.at("tok_embeddings.weight");
+    embedding_matrix = convert_f16_to_default(
+      weights.at("tok_embeddings.weight"));
 
     std::set<string> from_model;
     for(auto const& [id, name]: model.input_map()) {
-      inputs.insert({id, weights.at(name)});
+      buffer_t weight = weights.at(name);
+      weight = convert_f16_to_default(weight);
+      inputs.insert({id, weight});
       from_model.insert(name);
-
-      dbuffer_t d(dtype_t::f16, weights.at(name));
-      DOUT(name << " " << d.sum_to_f64() << " " << d.nelem() << " " << d.f16()[3]);
     }
 
     // TODO
@@ -390,7 +501,7 @@ void main_(int argc, char** argv) {
   dbuffer_t x_data = lookup_embeddings(
     args.vocab_size,
     args.dim,
-    dbuffer_t(dtype_t::f16, embedding_matrix),
+    dbuffer_t(default_dtype(), embedding_matrix),
     tokens);
 
   tensor_t x = writer.input(full_shape_t({
@@ -418,21 +529,21 @@ void main_(int argc, char** argv) {
     model.form_start_mask(seqlen).data
   });
 
-  //{
-  //  std::ofstream f("g.gv");
-  //  graph.print_graphviz(f);
-  //  DOUT("wrote to g.gv");
-  //}
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("wrote to g.gv");
+  }
 
   auto const& [inns_g_to_t, saves_g_to_t, taskgraph] = taskgraph_t::make(
     graph,
     graph.make_singleton_placement());
 
-  {
-    std::ofstream f("tg.gv");
-    taskgraph.print_graphviz(f);
-    DOUT("Printed to tg.gv");
-  }
+  //{
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //  DOUT("Printed to tg.gv");
+  //}
 
   kernel_manager_t kernel_manager;
   for(auto const& node: taskgraph.nodes) {
@@ -480,16 +591,38 @@ void main_(int argc, char** argv) {
   for(auto const& [gid, tensor_tids]: saves_g_to_t) {
     uint64_t const& tid = tensor_tids.get()[0];
     dbuffer_t tensor(writer.get_graph().out_dtype(gid), data.at(tid));
-    DOUT("gid " << gid << "  sum: " << tensor.sum_to_f64() << "        " << tensor.sum());
+    DOUT("gid " << gid << "  sum: " << std::setprecision(12) << tensor.sum_to_f64());
 
     if(gid == y.get_id()) {
       save = tid;
     }
+    //if(gid == 8) {
+    //  for(int i = 0; i != 4096; ++i) {
+    //    DOUT(std::setprecision(12) << tensor.f64()[i]);
+    //  }
+    //}
+    //if(gid == 25) {
+    //  for(int i = 0; i != 100; ++i) {
+    //    DOUT(std::setprecision(12) << tensor.f32()[i]);
+    //  }
+    //}
+    //if(gid == 28) {
+    //  einsummable_t e(
+    //    {4096,4,8},
+    //    { { 1,2,0} },
+    //    1,
+    //    scalarop_t::make_identity(tensor.dtype),
+    //    castable_t::min);
+    //  dbuffer_t xx = reference_einsummable(e, { tensor });
+    //  for(int i = 0; i != 4096; ++i) {
+    //    DOUT(std::setprecision(12) << xx.f64()[i]);
+    //  }
+    //}
   }
 
   uint64_t top_n = 5;
   vtensor_t<int> top_choices = get_top_choices(
-    dbuffer_t(dtype_t::f16, data.at(save)),
+    dbuffer_t(default_dtype(), data.at(save)),
     bsz, args.vocab_size,
     top_n);
   DOUT(top_choices.get());
@@ -510,4 +643,6 @@ int main(int argc, char** argv) {
   //for(auto const& str: {"0.01", "0.1", "1.0", "10.0", "0.934"}) {
   //  DOUT(str << " " << scalar_t(dtype_t::f16, str).convert(dtype_t::f32));
   //}
+
+  //test_norm();
 }

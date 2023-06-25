@@ -74,7 +74,16 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
     "ite_>[hole|f64@0,hole|f64@1,hole|f64@0,hole|f64@1]",
     "+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]",
     "+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]",
-    "+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]"
+    "+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]",
+    "to_f32[hole|f64@0]",
+    "to_f64[hole|f32@0]",
+    "to_f16[hole|f64@0]",
+    "to_f64[hole|f16@0]",
+    "power{2}[hole|f64@0]",
+    "+[*[constant{f32|0.000244141},hole|f32@0],constant{f32|1e-06}]",
+    "+[*[constant{f64|0.000244141},hole|f64@0],constant{f64|1e-06}]",
+    "exp[hole|f64@0]",
+    "*[hole|f64@0,power{-1}[hole|f64@1]]"
   };
 
   auto to_type_str = [](dtype_t const& d) {

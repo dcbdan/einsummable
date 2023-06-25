@@ -59,8 +59,10 @@ map<int, string> rms_norm_t::input_map() const
 }
 
 tensor_t rms_norm_t::norm(tensor_t x) {
-  if(x.get_dtype() != dtype_t::f32) {
-    throw std::runtime_error("invalid dtype in rms norm :: norm");
+  dtype_t d = x.get_dtype();
+
+  if(d == dtype_t::f16) {
+    throw std::runtime_error("rms_norm_t::norm needs >16 precision");
   }
 
   auto x_shape = x.get_shape()();
@@ -69,14 +71,14 @@ tensor_t rms_norm_t::norm(tensor_t x) {
     throw std::runtime_error("rms_norm: not a big enough output rank");
   }
 
-  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype_t::f32);
-  scalarop_t square       = scalarop_t::make_square(dtype_t::f32);
-  scalarop_t mul          = scalarop_t::make_mul(dtype_t::f32);
+  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(d);
+  scalarop_t square       = scalarop_t::make_square(d);
+  scalarop_t mul          = scalarop_t::make_mul(d);
 
-  scalar_t _e(eps);
-  scalar_t _a(1/float(1.0*x_shape.back()));
+  scalar_t _e(d, write_with_ss(eps));
+  scalar_t _a(d, write_with_ss(1.0/double(double(1.0)*x_shape.back())));
   scalarop_t scale_then_add_eps = scalarop_t::combine(
-    scalarop_t::make_add(dtype_t::f32),
+    scalarop_t::make_add(d),
     {
       scalarop_t::make_scale(_a),
       scalarop_t::make_constant(_e)
@@ -109,7 +111,13 @@ tensor_t rms_norm_t::forward(tensor_t x) {
     throw std::runtime_error("invalid input dtype rms norm t forward");
   }
 
-  tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+  // compute output with a minimum precision of 32
+  tensor_t output;
+  if(dtype == dtype_t::f16) {
+    output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+  } else {
+    output = norm(x);
+  }
 
   int out_rank = x.rank();
 
@@ -231,7 +239,12 @@ tensor_t attention_t::forward(
       mask.value());
   }
 
-  scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  // compute softmax with a minimum of 32 bits precision
+  if(dtype == dtype_t::f16) {
+    scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  } else {
+    scores = writer->softmax(scores);
+  }
 
   tensor_t output;
   output = writer->matmul(scores, values);
@@ -308,6 +321,7 @@ tensor_t feedforward_t::forward(tensor_t x) {
   //                 c
 
   tensor_t a = writer->ew(silu, writer->matmul(x, w1t));
+
   tensor_t b = writer->matmul(x, w3t) ;
 
   tensor_t c = writer->mul(a, b);

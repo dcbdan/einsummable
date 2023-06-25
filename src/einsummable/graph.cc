@@ -804,6 +804,7 @@ void graph_t::print_graphviz(std::ostream& out) const {
     } else {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
+    label += ":" + write_with_ss(out_dtype(id));
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";

@@ -194,6 +194,3 @@ struct transformer_t {
   vector<mask_info_t> mask_infos;
 };
 
-// TODO: This is only tested when the default_dtype is set to 16...
-//       Perhaps force that to be the case everywhere or test in other
-//       scenarios

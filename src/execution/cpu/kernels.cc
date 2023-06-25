@@ -548,6 +548,14 @@ _unary_ew_loop(u14,double,double,((*((double*)(d+0)))*x0[i]))
 _unary_ew_loop(u15,float,float,(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8))))))
 _unary_ew_loop(u16,float,float,((*((float*)(d+0)))+x0[i]))
 _unary_ew_loop(u17,float,float,((*((float*)(d+0)))*x0[i]))
+_unary_ew_loop(u18,float,double,float(x0[i]))
+_unary_ew_loop(u19,double,float,double(x0[i]))
+_unary_ew_loop(u20,float16_t,double,float16_t(x0[i]))
+_unary_ew_loop(u21,double,float16_t,double(x0[i]))
+_unary_ew_loop(u22,double,double,_pow(x0[i],(*((double*)(d+0)))))
+_unary_ew_loop(u23,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
+_unary_ew_loop(u24,double,double,((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i])))
+_unary_ew_loop(u25,double,double,_exp(x0[i]))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -579,6 +587,7 @@ _binary_ew_loop(b26,c26,d26,double,double,double,(x0[i0]>x1[i1]?x0[i0]:x1[i1]))
 _binary_ew_loop(b27,c27,d27,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t*)(d+0)))*x1[i1])))
 _binary_ew_loop(b28,c28,d28,float,float,float,(x0[i0]+((*((float*)(d+0)))*x1[i1])))
 _binary_ew_loop(b29,c29,d29,double,double,double,(x0[i0]+((*((double*)(d+0)))*x1[i1])))
+_binary_ew_loop(b30,c30,d30,double,double,double,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
 
 optional<
   tuple<vector<uint8_t>,
@@ -613,7 +622,15 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f64->f64|((*((double*)(d+0)))*x0[i])", u14 },
     { "f32->f32|(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8)))))", u15 },
     { "f32->f32|((*((float*)(d+0)))+x0[i])", u16 },
-    { "f32->f32|((*((float*)(d+0)))*x0[i])", u17 }
+    { "f32->f32|((*((float*)(d+0)))*x0[i])", u17 },
+    { "f64->f32|float(x0[i])", u18 },
+    { "f32->f64|double(x0[i])", u19 },
+    { "f64->f16|float16_t(x0[i])", u20 },
+    { "f16->f64|double(x0[i])", u21 },
+    { "f64->f64|_pow(x0[i],(*((double*)(d+0))))", u22 },
+    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u23 },
+    { "f64->f64|((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i]))", u24 },
+    { "f64->f64|_exp(x0[i])", u25 }
   };
 
   auto iter = kernels.find(key);
@@ -630,6 +647,12 @@ optional<tuple<
 lookup_binary_straight_ew_kernel(
   scalarop_t op)
 {
+  // TODO: this shouldn't have to happen as op should always be simplified
+  //       to a unique value. For some reason
+  //       a kernel wasn't normalized in the same way as the key
+  //       requires...
+  op = op.simplify();
+
   auto [op_str, bytes] = op.to_cpp_bytes();
   string key = op.type_signature() + "|" + op_str;
 
@@ -666,7 +689,8 @@ lookup_binary_straight_ew_kernel(
     { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 },
     { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", b27 },
     { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", b28 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", b29 }
+    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", b29 },
+    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b30 }
   };
 
   auto iter = kernels.find(key);
@@ -684,6 +708,12 @@ lookup_binary_212_ew_kernel(
   scalarop_t op,
   bool is_ab_a)
 {
+  // TODO: this shouldn't have to happen as op should always be simplified
+  //       to a unique value. For some reason
+  //       a kernel wasn't normalized in the same way as the key
+  //       requires...
+  op = op.simplify();
+
   auto [op_str, bytes] = op.to_cpp_bytes();
   string key = op.type_signature() + "|" + op_str;
 
@@ -721,6 +751,7 @@ lookup_binary_212_ew_kernel(
     { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", { c27, d27} },
     { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", { c28, d28} },
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", { c29, d29} },
+    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c30, d30} }
   };
 
   auto iter = kernels.find(key);
@@ -735,22 +766,46 @@ lookup_binary_212_ew_kernel(
   }
 }
 
-#define _reduction_ab_a(name, op) \
+#define _real_reduction_ab_a(name, op) \
   template<typename T> \
   void name(uint64_t n1, uint64_t n2, T* out, T const* inn) { \
+    double total; \
     for(uint64_t i = 0; i != n1; ++i) { \
-      out[i] = inn[i*n2]; \
+      total = inn[i*n2]; \
       for(uint64_t j = 1; j != n2; ++j) { \
         uint64_t ij = i*n2 + j; \
-        out[i] op ; \
+        total op ; \
       } \
+      out[i] = total; \
     } \
   }
+#define _reduction_ab_a(name, op) \
+   template<typename T> \
+   void name(uint64_t n1, uint64_t n2, T* out, T const* inn) { \
+     for(uint64_t i = 0; i != n1; ++i) { \
+       out[i] = inn[i*n2]; \
+       for(uint64_t j = 1; j != n2; ++j) { \
+         uint64_t ij = i*n2 + j; \
+         out[i] op ; \
+       } \
+     } \
+   }
+_real_reduction_ab_a(real_reduction_ab_a_add, += double(inn[ij])                );
+_real_reduction_ab_a(real_reduction_ab_a_mul, *= double(inn[ij])                );
+_real_reduction_ab_a(real_reduction_ab_a_min, =  std::min(total, double(inn[ij])));
+_real_reduction_ab_a(real_reduction_ab_a_max, =  std::max(total, double(inn[ij])));
+
 _reduction_ab_a(reduction_ab_a_add, += inn[ij]                  );
 _reduction_ab_a(reduction_ab_a_mul, *= inn[ij]                  );
 _reduction_ab_a(reduction_ab_a_min, =  std::min(out[i], inn[ij]));
 _reduction_ab_a(reduction_ab_a_max, =  std::max(out[i], inn[ij]));
 
+// TODO: better precision algorithm for reductions would be preferred
+
+#define _real_reduction_lambda(castable,T) \
+  [](uint64_t na, uint64_t nb, void* out, void const* inn) { \
+    real_reduction_ab_a_##castable(na, nb, (T*)out, (T const*)inn); \
+  };
 #define _reduction_lambda(castable,T) \
   [](uint64_t na, uint64_t nb, void* out, void const* inn) { \
     reduction_ab_a_##castable(na, nb, (T*)out, (T const*)inn); \
@@ -760,9 +815,11 @@ std::function<void(uint64_t, uint64_t, void*, void const*)>
 build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
   if(dtype == dtype_t::f16) {
     if(castable == castable_t::add) {
-      return _reduction_lambda(add, float16_t);
+      return _real_reduction_lambda(add, float16_t);
+      //return _reduction_lambda(add, float16_t);
     } else if(castable == castable_t::mul) {
-      return _reduction_lambda(mul, float16_t);
+      return _real_reduction_lambda(mul, float16_t);
+      //return _reduction_lambda(mul, float16_t);
     } else if(castable == castable_t::min) {
       return _reduction_lambda(min, float16_t);
     } else if(castable == castable_t::max) {
@@ -770,9 +827,11 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     }
   } else if(dtype == dtype_t::f32) {
     if(castable == castable_t::add) {
-      return _reduction_lambda(add, float);
+      return _real_reduction_lambda(add, float);
+      //return _reduction_lambda(add, float);
     } else if(castable == castable_t::mul) {
-      return _reduction_lambda(mul, float);
+      return _real_reduction_lambda(mul, float);
+      //return _reduction_lambda(mul, float);
     } else if(castable == castable_t::min) {
       return _reduction_lambda(min, float);
     } else if(castable == castable_t::max) {
