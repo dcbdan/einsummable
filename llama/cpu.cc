@@ -444,11 +444,31 @@ void main_(int argc, char** argv) {
     return buffer;
   };
 
-  auto args = model_args_t::llama_7B();
+  // prompts = [
+  //   # For these prompts, the expected answer is the natural continuation of the prompt
+  //   "I believe the meaning of life is",
+  //   "Simply put, the theory of relativity states that ",
+  //   "Building a website can be done in 10 simple steps:\n",
+  //   """Translate English to French:
+  //      sea otter => loutre de mer
+  //      plush girafe => girafe peluche
+  //      cheese =>"""
+  // ]
+  vtensor_t<int> tokens(
+     {4,8},
+     {1,  306, 4658,  278, 6593,  310, 2834, 338,
+      1, 3439,17632, 1925,29892,  278, 6368, 310,
+      1,17166,  263, 4700,  508,  367, 2309, 297,
+      1, 4103, 9632, 4223,  304, 5176,29901,  13});
+
+  uint64_t bsz    = tokens.get_shape()[0];
+  uint64_t seqlen = tokens.get_shape()[1];
+
+  auto args = model_args_t::llama_7B(bsz);
   //args.n_layers = 1;
 
   graph_writer_t writer;
-  auto model = transformer_t(&writer, "name", args);
+  auto model = transformer_t(&writer, "name", args, 0);
 
   buffer_t embedding_matrix;
   map<int, buffer_t> inputs;
@@ -477,26 +497,6 @@ void main_(int argc, char** argv) {
     }
   }
 
-  // prompts = [
-  //   # For these prompts, the expected answer is the natural continuation of the prompt
-  //   "I believe the meaning of life is",
-  //   "Simply put, the theory of relativity states that ",
-  //   "Building a website can be done in 10 simple steps:\n",
-  //   """Translate English to French:
-  //      sea otter => loutre de mer
-  //      plush girafe => girafe peluche
-  //      cheese =>"""
-  // ]
-  vtensor_t<int> tokens(
-     {4,8},
-     {1,  306, 4658,  278, 6593,  310, 2834, 338,
-      1, 3439,17632, 1925,29892,  278, 6368, 310,
-      1,17166,  263, 4700,  508,  367, 2309, 297,
-      1, 4103, 9632, 4223,  304, 5176,29901,  13});
-
-  uint64_t bsz    = tokens.get_shape()[0];
-  uint64_t seqlen = tokens.get_shape()[1];
-
   dbuffer_t x_data = lookup_embeddings(
     args.vocab_size,
     args.dim,
@@ -510,7 +510,6 @@ void main_(int argc, char** argv) {
   }));
 
   tensor_t y = model.forward(x);
-  DOUT(y.get_shape()())
 
   y = y.save();
 
@@ -524,7 +523,7 @@ void main_(int argc, char** argv) {
   });
 
   inputs.insert({
-    model.mask_infos.back().mask.get_id(),
+    model.mask.value().get_id(),
     model.form_start_mask(seqlen).data
   });
 

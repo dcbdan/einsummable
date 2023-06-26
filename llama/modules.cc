@@ -12,28 +12,28 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
   }
 }
 
-model_args_t model_args_t::make_default() {
+model_args_t model_args_t::make_default(uint64_t batch_size) {
   return model_args_t {
     .dim             = 512,
     .n_layers        = 8,
     .n_heads         = 8,
     .multiple_of     = 256,
     .norm_eps        = 1e-5,
-    .max_batch_size  = 32,
+    .batch_size      = batch_size,
     .max_seq_len     = 2048,
     .vocab_size      = 0,
     .world_size      = 1
   };
 }
 
-model_args_t model_args_t::llama_7B() {
+model_args_t model_args_t::llama_7B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 4096,
     .n_layers        = 32,
     .n_heads         = 32,
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
-    .max_batch_size  = 32,
+    .batch_size      = batch_size,
     .max_seq_len     = 256,
     .vocab_size      = 32000,
     .world_size      = 1
@@ -134,8 +134,10 @@ tensor_t rms_norm_t::forward(tensor_t x) {
 attention_t::attention_t(
   graph_writer_t* w,
   string name,
-  model_args_t args)
+  model_args_t args,
+  uint64_t start_pos)
   : writer(w), args(args), name(name),
+    batch_size(args.batch_size),
     n_local_heads(args.n_local_heads()),
     head_dim(args.head_dim())
 {
@@ -143,13 +145,21 @@ attention_t::attention_t(
 
   //  outshape comes first because F.linear is xA^t,
   //  so shape is (out_features, in_features)
-
   full_shape_t kqv_shape({ args.full_dim(), args.full_dim() });
 
   wq = writer->input(kqv_shape);
   wk = writer->input(kqv_shape);
   wv = writer->input(kqv_shape);
   wo = writer->input(kqv_shape);
+
+  if(start_pos != 0) {
+    vector<uint64_t> prev_shape({
+      batch_size, start_pos, n_local_heads, head_dim });
+    prev_kv = tuple<tensor_t, tensor_t> {
+      writer->input(prev_shape),
+      writer->input(prev_shape)
+    };
+  }
 }
 
 tensor_t attention_t::apply_rotary_embedding(
@@ -193,7 +203,6 @@ tensor_t attention_t::forward(
 {
   dtype_t dtype = x.get_dtype();
   vector<uint64_t> input_shape = x.get_shape()();
-  uint64_t bsz = input_shape[0];
   uint64_t seqlen = input_shape[1];
 
   if(input_shape.size() != 3 || input_shape[2] != args.dim) {
@@ -205,7 +214,7 @@ tensor_t attention_t::forward(
   tensor_t xv = writer->matmul(x, wv.transpose(0,1));
 
   vector<uint64_t> full_xshape = {
-    bsz, seqlen, n_local_heads, head_dim
+    batch_size, seqlen, n_local_heads, head_dim
   };
 
   xq = xq.view_full(full_xshape);
@@ -215,7 +224,10 @@ tensor_t attention_t::forward(
   xq = apply_rotary_embedding(xq.to_f32(), freqs_cis).to_dtype(dtype);
   xk = apply_rotary_embedding(xk.to_f32(), freqs_cis).to_dtype(dtype);
 
-  auto [keys, values] = get_keys_and_values(xk, xv);
+  // set next_kv for use later
+  set_next_keys_and_values(xk, xv);
+  auto& [keys, values] = next_kv;
+  // batch_size, start_pos + seqlen, n_local_heads, head_dim
 
   xq = xq.transpose(1, 2);
   keys = keys.transpose(1, 2);
@@ -251,7 +263,7 @@ tensor_t attention_t::forward(
   output = output.transpose(1, 2);
 
   full_shape_t output_shape({
-    full_dim_t::singleton(bsz),
+    full_dim_t::singleton(batch_size),
     full_dim_t::singleton(seqlen),
     full_dim_t({n_local_heads, head_dim})
   });
@@ -260,22 +272,22 @@ tensor_t attention_t::forward(
   return writer->matmul(output, wo.transpose(0,1));
 }
 
-tuple<tensor_t, tensor_t>
-attention_t::get_keys_and_values(tensor_t k, tensor_t v)
+void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
 {
   if(k.get_shape() != v.get_shape()) {
     throw std::runtime_error("k and v must have the same shape");
   }
 
-  if(prev_k) {
-    prev_k = writer->concat(1, {prev_k.value(), k});
-    prev_v = writer->concat(1, {prev_v.value(), v});
-  } else {
-    prev_k = k;
-    prev_v = v;
-  }
+  auto& [next_k, next_v] = next_kv;
 
-  return {prev_k.value(), prev_v.value()};
+  if(prev_kv) {
+    auto const& [prev_k, prev_v] = prev_kv.value();
+    next_k = writer->concat(1, {prev_k, k});
+    next_v = writer->concat(1, {prev_v, v});
+  } else {
+    next_k = k;
+    next_v = v;
+  }
 }
 
 feedforward_t::feedforward_t(
@@ -332,10 +344,11 @@ tensor_t feedforward_t::forward(tensor_t x) {
 transformer_block_t::transformer_block_t(
   graph_writer_t* w,
   int layer_id,
-  model_args_t args)
+  model_args_t args,
+  uint64_t start_pos)
   : writer(w), layer_id(layer_id), args(args)
 {
-  attention = attention_t(writer, "attention.", args);
+  attention = attention_t(writer, "attention.", args, start_pos);
 
   uint64_t hidden_dim = 4 * args.dim;
   hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
@@ -390,13 +403,15 @@ tensor_t transformer_block_t::forward(
 transformer_t::transformer_t(
   graph_writer_t* w,
   std::string name,
-  model_args_t args)
-  : writer(w), args(args)
+  model_args_t args,
+  uint64_t start_pos)
+  : writer(w), args(args),
+    expected_batch_size(args.batch_size), start_pos(start_pos)
 {
   for (int layer_id = 0; layer_id != args.n_layers; ++layer_id) {
     //loop over input_map and insert into our own map.
     layers.emplace_back(
-      writer, layer_id, args);
+      writer, layer_id, args, start_pos);
   }
 
   full_freqs_cis = writer->input(
@@ -418,18 +433,21 @@ tensor_t transformer_t::forward(tensor_t x)
   uint64_t const& bsz    = x_shape[0];
   uint64_t const& seqlen = x_shape[1];
 
-  optional<tensor_t> mask;
+  if(bsz != expected_batch_size) {
+    throw std::runtime_error("The batch size cannot be variable!");
+  }
+
   if(seqlen > 1) {
-    if(start_pos() != 0) {
+    if(start_pos != 0) {
       throw std::runtime_error(
         "Masks are only supported on the first iteration");
       // TODO: how do masks work and should they be supported
       //       whenever seqlen > 1?
     }
-    mask = next_mask(seqlen);
+    mask = writer->input({ seqlen, seqlen });
   }
 
-  tensor_t freqs_cis = next_freqs_cis(seqlen);
+  tensor_t freqs_cis = get_freqs_cis(seqlen);
 
   for(auto& layer: layers) {
     x = layer.forward(x, freqs_cis, mask);
@@ -519,7 +537,7 @@ dbuffer_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype) {
   return mask;
 }
 
-tensor_t transformer_t::next_freqs_cis(uint64_t n) {
+tensor_t transformer_t::get_freqs_cis(uint64_t n) {
   using _all = graph_writer_t::idx_t::all;
   using _rng = graph_writer_t::idx_t::rng;
   using idx_t = graph_writer_t::idx_t;
@@ -528,18 +546,11 @@ tensor_t transformer_t::next_freqs_cis(uint64_t n) {
 
   vector<idx_t> subset(shape.size(), _all{});
 
-  int64_t b0 = int64_t(start_pos());
-  int64_t e0 = int64_t(start_pos() + n);
+  int64_t b0 = int64_t(start_pos);
+  int64_t e0 = int64_t(start_pos + n);
   subset[0] = _rng{ b0, e0 };
 
   return full_freqs_cis.subset(subset);
 }
 
-tensor_t transformer_t::next_mask(uint64_t seqlen) {
-  mask_infos.push_back(mask_info_t {
-    .mask = writer->input({ seqlen, seqlen }),
-    .start_pos = start_pos(),
-    .seqlen = seqlen
-  });
-  return mask_infos.back().mask;
-}
+

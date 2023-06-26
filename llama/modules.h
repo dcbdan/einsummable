@@ -13,15 +13,15 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
 // Helpful structure for llama model
 struct model_args_t {
-  static model_args_t make_default();
-  static model_args_t llama_7B();
+  static model_args_t make_default(uint64_t batch_size = 1);
+  static model_args_t llama_7B(uint64_t batch_size = 1);
 
   uint64_t dim;
   int n_layers;
   uint64_t n_heads;
   uint64_t multiple_of;
   double norm_eps;
-  uint64_t max_batch_size;
+  uint64_t batch_size;
   uint64_t max_seq_len;
   uint64_t vocab_size;
   int world_size;
@@ -70,7 +70,8 @@ struct attention_t {
   attention_t(
     graph_writer_t* w,
     string name, //should be "attention."
-    model_args_t args);
+    model_args_t args,
+    uint64_t start_pos);
 
   tensor_t apply_rotary_embedding(tensor_t x, tensor_t freqs_cis);
 
@@ -82,12 +83,7 @@ struct attention_t {
     tensor_t freqs_cis,
     optional<tensor_t> mask);
 
-  tuple<tensor_t, tensor_t>
-  get_keys_and_values(tensor_t k, tensor_t v);
-
-  uint64_t start_pos() const {
-    return prev_k ? prev_k.value().get_shape()()[1] : 0;
-  }
+  void set_next_keys_and_values(tensor_t k, tensor_t v);
 
   map<int, string> input_map() const;
 
@@ -95,6 +91,7 @@ struct attention_t {
   model_args_t args;
   string name;
 
+  uint64_t batch_size;
   uint64_t n_local_heads;
   uint64_t head_dim;
 
@@ -103,8 +100,10 @@ struct attention_t {
   tensor_t wv;
   tensor_t wo;
 
-  optional<tensor_t> prev_k;
-  optional<tensor_t> prev_v;
+  optional<tuple<tensor_t, tensor_t>> prev_kv;
+
+  // This gets set after in the forward pass
+  tuple<tensor_t, tensor_t> next_kv;
 };
 
 struct feedforward_t {
@@ -133,7 +132,8 @@ struct transformer_block_t {
   transformer_block_t(
     graph_writer_t* w,
     int layer_id,
-    model_args_t args);
+    model_args_t args,
+    uint64_t start_pos);
 
   tensor_t forward(
     tensor_t x,
@@ -141,10 +141,6 @@ struct transformer_block_t {
     optional<tensor_t> mask);
 
   map<int, string> input_map() const;
-
-  uint64_t start_pos() const {
-    return attention.start_pos();
-  }
 
   graph_writer_t* writer;
   model_args_t args;
@@ -160,37 +156,29 @@ struct transformer_t {
   transformer_t(
     graph_writer_t* w,
     std::string name,
-    model_args_t args);
+    model_args_t args,
+    uint64_t start_pos);
 
   tensor_t forward(tensor_t x);
 
   map<int, string> input_map() const;
 
-  uint64_t start_pos() const {
-    return layers[0].start_pos();
-  }
-
   static dbuffer_t form_full_freqs_cis(model_args_t const& args);
   static dbuffer_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
 
-  // grab full_freqs_cis from [:, start_pos(): start_pos()+n]
-  tensor_t next_freqs_cis(uint64_t n);
-  tensor_t next_mask(uint64_t seqlen);
+  // grab full_freqs_cis from [start_pos: start_pos+seqlen]
+  tensor_t get_freqs_cis(uint64_t seqlen);
 
   graph_writer_t* writer;
   model_args_t args;
+  uint64_t expected_batch_size;
+  uint64_t start_pos;
 
   tensor_t full_freqs_cis;
+  optional<tensor_t> mask;
 
   vector<transformer_block_t> layers;
   rms_norm_t norm;
   tensor_t w_vocab;
-
-  struct mask_info_t {
-    tensor_t mask;
-    uint64_t start_pos;
-    uint64_t seqlen;
-  };
-  vector<mask_info_t> mask_infos;
 };
 
