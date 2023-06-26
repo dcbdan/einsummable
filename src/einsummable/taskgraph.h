@@ -174,9 +174,9 @@ private:
   //   };
   // and vectors x,y with x[:u] := y[v:v+u]. That has
   //   d_inn = |y|
-  //   d_out = |x]
-  //   offset_inn = 0
-  //   offset_out = v
+  //   d_out = |x|
+  //   offset_inn = v
+  //   offset_out = 0
   //   size = u
   // For arbitrary ranked tensors, life gets more complicated. In this case,
   // a offset and size have to be specified for each dimension and the product
