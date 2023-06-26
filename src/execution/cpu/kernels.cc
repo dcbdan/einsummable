@@ -792,8 +792,6 @@ lookup_binary_212_ew_kernel(
    }
 _real_reduction_ab_a(real_reduction_ab_a_add, += double(inn[ij])                );
 _real_reduction_ab_a(real_reduction_ab_a_mul, *= double(inn[ij])                );
-_real_reduction_ab_a(real_reduction_ab_a_min, =  std::min(total, double(inn[ij])));
-_real_reduction_ab_a(real_reduction_ab_a_max, =  std::max(total, double(inn[ij])));
 
 _reduction_ab_a(reduction_ab_a_add, += inn[ij]                  );
 _reduction_ab_a(reduction_ab_a_mul, *= inn[ij]                  );

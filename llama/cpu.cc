@@ -435,7 +435,7 @@ void main_(int argc, char** argv) {
     throw std::runtime_error("usage: filename");
   }
 
-  set_default_dtype(dtype_t::f32);
+  set_default_dtype(dtype_t::f16);
 
   auto convert_f16_to_default = [](buffer_t buffer) {
     if(default_dtype() != dtype_t::f16) {
@@ -445,7 +445,7 @@ void main_(int argc, char** argv) {
   };
 
   auto args = model_args_t::llama_7B();
-  args.n_layers = 1;
+  //args.n_layers = 1;
 
   graph_writer_t writer;
   auto model = transformer_t(&writer, "name", args);
@@ -466,16 +466,15 @@ void main_(int argc, char** argv) {
       from_model.insert(name);
     }
 
-    // TODO
-    //for(auto const& [name, _]: weights) {
-    //  if(from_model.count(name) == 0) {
-    //    if(name.find("freqs") != string::npos || name == "tok_embeddings.weight") {
-    //      // these are not necc
-    //    } else {
-    //      throw std::runtime_error("missing weight: " + name);
-    //    }
-    //  }
-    //}
+    for(auto const& [name, _]: weights) {
+      if(from_model.count(name) == 0) {
+        if(name.find("freqs") != string::npos || name == "tok_embeddings.weight") {
+          // these are not necc
+        } else {
+          throw std::runtime_error("missing weight: " + name);
+        }
+      }
+    }
   }
 
   // prompts = [
