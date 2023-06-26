@@ -347,10 +347,10 @@ int graph_t::insert_formation(
   bool is_save)
 {
   return this->insert(
-    formation_t {
+    op_t(formation_t {
       .dtype = out_dtype(inn),
-      .shape = out_shape(inn),
-      .is_save = is_save },
+      .shape = out_shape(inn) },
+      is_save),
     {inn});
 }
 
@@ -594,6 +594,14 @@ graph_t::complexer_t::inn_shape() const {
   }
 }
 
+graph_t::op_t::op_t(graph_t::op_t::_op_t op_, bool s)
+  : op(op_), is_save_(s)
+{
+  if(has_aggregation() && is_save()) {
+    throw std::runtime_error("an einsummable with an aggregation cannot be saved");
+  }
+}
+
 dtype_t graph_t::op_t::out_dtype() const {
   if(is_input()) {
     return get_input().dtype;
@@ -614,6 +622,14 @@ dtype_t graph_t::op_t::out_dtype() const {
     return get_einsummable().out_dtype();
   }
   throw std::runtime_error("graph::op_t should not reach");
+}
+
+void graph_t::op_t::set_save(bool s) {
+  if(has_aggregation() && s) {
+    throw std::runtime_error("set_save: "
+      "an einsummable with an aggregation cannot be saved");
+  }
+  is_save_ = s;
 }
 
 vector<uint64_t>
@@ -677,12 +693,10 @@ void graph_t::set_saves() {
 
     node_t& n = nodes[i];
     if(n.outs.size() == 0 && !n.op.is_save()) {
-      if(n.op.is_formation()) {
-        n.op.get_formation().is_save = true;
+      if(n.op.has_aggregation()) {
+        this->insert_formation(i, true);
       } else {
-        this->insert_formation(
-          i,
-          true);
+        n.op.set_save(true);
       }
     }
   }
@@ -1233,15 +1247,12 @@ graph_writer_t::tensor_t::save() const
   // this will permute if necc
   tensor_t ret = physically_permute();
 
-  {
-    auto& op = self->graph.nodes[ret.id].op;
-    if(op.is_formation()) {
-      op.get_formation().is_save = true;
-      return ret;
-    }
+  auto& op = self->graph.nodes[ret.id].op;
+  if(op.has_aggregation()) {
+    ret.id = self->graph.insert_formation(ret.id, true);
+  } else {
+    op.set_save(true);
   }
-
-  ret.id = self->graph.insert_formation(ret.id, true);
 
   return ret;
 }

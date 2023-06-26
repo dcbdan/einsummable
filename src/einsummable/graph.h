@@ -179,7 +179,6 @@ public:
   struct formation_t {
     dtype_t dtype;
     vector<uint64_t> shape;
-    bool is_save; // if this is false, it is a temporary
   };
 
   // An op for converting complex <-> float
@@ -209,14 +208,14 @@ public:
       concat_t, subset_t, einsummable_t>;
 
   public:
-    op_t(_op_t op): op(op) {}
+    op_t(_op_t op, bool is_save);
 
-    op_t(input_t       x): op_t(_op_t(x)) {}
-    op_t(formation_t   x): op_t(_op_t(x)) {}
-    op_t(complexer_t   x): op_t(_op_t(x)) {}
-    op_t(concat_t      x): op_t(_op_t(x)) {}
-    op_t(subset_t      x): op_t(_op_t(x)) {}
-    op_t(einsummable_t x): op_t(_op_t(x)) {}
+    op_t(input_t       x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(formation_t   x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(complexer_t   x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(concat_t      x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(subset_t      x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(einsummable_t x, bool s = false): op_t(_op_t(x), s) {}
 
     vector<uint64_t> out_shape() const;
     vector<uint64_t> shape() const;
@@ -226,9 +225,8 @@ public:
 
     dtype_t out_dtype() const;
 
-    bool is_save() const {
-      return is_formation() && get_formation().is_save;
-    }
+    bool is_save() const { return is_save_; }
+    void set_save(bool s);
 
     bool is_input()       const { return std::holds_alternative<input_t>(op);     }
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
@@ -256,7 +254,9 @@ public:
       return get_einsummable().castable.value();
     }
 
+  private:
     _op_t op;
+    bool is_save_;
   };
 
   struct node_t {
@@ -647,7 +647,6 @@ private:
     scalarop_t op,
     int id);
 
-  // TODO
   optional<to_einsummable_info_t>
   make_einsummable_info(string str, vector<tensor_t> const& inns);
 
