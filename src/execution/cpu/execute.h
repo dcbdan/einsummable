@@ -29,6 +29,19 @@ struct settings_t {
       .num_apply_kernel_threads = num_threads
     };
   }
+  static settings_t only_touch_settings() {
+    // standards says hardware_concurrency could return 0
+    // if not computable or well defined
+    int num_threads = std::max(1u, std::thread::hardware_concurrency());
+
+    return settings_t {
+      .num_apply_runner = 0,
+      .num_touch_runner = std::max(1, num_threads / 2),
+      .num_send_runner  = 2,
+      .num_recv_runner  = 2,
+      .num_apply_kernel_threads = 1
+    };
+  }
 };
 
 kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph);
