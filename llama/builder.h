@@ -8,15 +8,13 @@ struct builder_t {
   static builder_t
   make_first_token(model_args_t const& args, uint64_t seqlen);
 
-  // TODO
   static builder_t
   make_next_token(builder_t const& prev);
 
-  bool is_first() const { return start_pos     == 0;                }
-  bool is_last()  const { return start_pos + 1 == args.max_seq_len; }
+  bool is_first() const { return start_pos == 0; }
+  bool is_last()  const { return !bool(next_kv); }
 
-  // TODO
-  map<int, buffer_t> transform_from_prev(map<int, buffer_t> &&) const;
+  void transform_from_prev(map<int, buffer_t>& data) const;
 
   struct tinfo_t {
     dtype_t dtype;
@@ -47,6 +45,16 @@ struct builder_t {
 
   // if not first
   optional<map<int, int>> prev_tid_to_input_tids;
+private:
+  static builder_t _make(
+    model_args_t const& args,
+    uint64_t start_pos,
+    uint64_t seqlen);
+
+  static void same_placement_convert(
+    map<int, int>& prev_to_new,
+    tinfo_t const& prev_info,
+    tinfo_t const& new_info);
 };
 
 void repartition_into_map_single_loc(

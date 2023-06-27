@@ -554,6 +554,15 @@ tensor_t transformer_t::get_freqs_cis(uint64_t n) {
 }
 
 vector<tuple<tensor_t, tensor_t>>
+transformer_t::get_prev_kvs() const {
+  vector<tuple<tensor_t, tensor_t>> ret;
+  for(auto const& layer: layers) {
+    ret.push_back(layer.get_prev_kv());
+  }
+  return ret;
+}
+
+vector<tuple<tensor_t, tensor_t>>
 transformer_t::get_new_kvs() const {
   vector<tuple<tensor_t, tensor_t>> ret;
   for(auto const& layer: layers) {

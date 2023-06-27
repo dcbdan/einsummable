@@ -88,6 +88,9 @@ struct attention_t {
   map<string, tensor_t> weight_map() const;
 
   tuple<tensor_t, tensor_t>
+  get_prev_kv() const { return prev_kv.value(); }
+
+  tuple<tensor_t, tensor_t>
   get_new_kv() const { return next_kv.value(); }
 
   graph_writer_t* writer;
@@ -146,6 +149,9 @@ struct transformer_block_t {
   map<string, tensor_t> weight_map() const;
 
   tuple<tensor_t, tensor_t>
+  get_prev_kv() const { return attention.get_prev_kv(); }
+
+  tuple<tensor_t, tensor_t>
   get_new_kv() const { return attention.get_new_kv(); }
 
   graph_writer_t* writer;
@@ -174,6 +180,7 @@ struct transformer_t {
   // grab full_freqs_cis from [start_pos: start_pos+seqlen]
   tensor_t get_freqs_cis(uint64_t seqlen);
 
+  vector<tuple<tensor_t, tensor_t>> get_prev_kvs() const;
   vector<tuple<tensor_t, tensor_t>> get_new_kvs() const;
 
   graph_writer_t* writer;
