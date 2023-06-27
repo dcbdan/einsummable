@@ -1257,6 +1257,20 @@ graph_writer_t::tensor_t::save() const
   return ret;
 }
 
+void graph_writer_t::tensor_t::save_inplace() {
+  // would it need a permutation?
+  if(_has_permutation()) {
+    throw std::runtime_error("tensor with virtual permutation can't be saved");
+  }
+
+  auto& op = self->graph.nodes[id].op;
+  if(op.has_aggregation()) {
+    throw std::runtime_error("save inplace: can't save if has agg");
+  } else {
+    op.set_save(true);
+  }
+}
+
 dtype_t graph_writer_t::tensor_t::get_dtype() const {
   return self->graph.out_dtype(id);
 }
@@ -1323,17 +1337,21 @@ graph_writer_t::tensor_t::subset(
   return self->subset(hrect, squeeze, *this);
 }
 
+bool
+graph_writer_t::tensor_t::_has_permutation() const {
+  for(int i = 0; i != modes.size(); ++i) {
+    if(modes[i] != i) {
+      return true;
+    }
+  }
+  return false;
+}
+
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::physically_permute() const {
   tensor_t ret = *this;
 
-  vector<int> no_permute_modes(ret.modes.size());
-  std::iota(
-    no_permute_modes.begin(),
-    no_permute_modes.end(),
-    0);
-
-  if(ret.modes == no_permute_modes) {
+  if(!ret._has_permutation()) {
     return ret;
   }
 
@@ -1357,7 +1375,7 @@ graph_writer_t::tensor_t::physically_permute() const {
     str,
     scalarop_t::make_identity(dtype),
     ret.id);
-  ret.modes = no_permute_modes;
+  std::iota(ret.modes.begin(), ret.modes.end(), 0);
 
   return ret;
 }

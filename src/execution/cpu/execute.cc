@@ -10,7 +10,7 @@
 using std::thread;
 using std::queue;
 
-#define RLINEOUT(x) // if(mpi.this_rank == 0) { DLINEOUT(x); }
+#define RLINEOUT(x) // if(mpi->this_rank == 0) { DLINEOUT(x); }
 
 struct applys_progress_t {
   queue<int> ready;
@@ -134,7 +134,7 @@ struct sends_progress_t {
 struct cpu_exec_state_t {
   // collect all the meta data and get this mpi rank ready for execution
   cpu_exec_state_t(
-    mpi_t& mpi,
+    mpi_t* mpi,
     taskgraph_t const& taskgraph,
     kernel_manager_t const& kernel_manager,
     map<int, buffer_t>& tensors,
@@ -187,7 +187,7 @@ struct cpu_exec_state_t {
     vector<tuple<uint64_t, int>> const& which_allocate,
     vector<int> const& which_get);
 
-  mpi_t& mpi;
+  mpi_t* mpi;
   taskgraph_t const& taskgraph;
   kernel_manager_t const& kernel_manager;
   map<int, buffer_t>& tensors;
@@ -225,18 +225,20 @@ void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
   kernel_manager_t const& kernel_manager,
-  mpi_t& mpi,
+  mpi_t* mpi,
   map<int, buffer_t>& tensors)
 {
   cpu_exec_state_t state(
     mpi, taskgraph, kernel_manager, tensors,
     settings.num_apply_kernel_threads);
 
+  int world_size = bool(mpi) ? mpi->world_size : 1;
+
   state.run(
     settings.num_apply_runner,
     settings.num_touch_runner,
-    mpi.world_size > 1 ? settings.num_send_runner : 0,
-    mpi.world_size > 1 ? settings.num_recv_runner : 0);
+    world_size > 1 ? settings.num_send_runner : 0,
+    world_size > 1 ? settings.num_recv_runner : 0);
 
   if(!state.check_complete()) {
     throw std::runtime_error("execute did not finish all the tasks");
@@ -266,7 +268,7 @@ void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
 }
 
 cpu_exec_state_t::cpu_exec_state_t(
-  mpi_t& mpi,
+  mpi_t* mpi,
   taskgraph_t const& tg,
   kernel_manager_t const& km,
   map<int, buffer_t>& ts,
@@ -295,25 +297,29 @@ cpu_exec_state_t::cpu_exec_state_t(
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
+      if(!mpi) {
+        throw std::runtime_error("mpi object must be provided to do moves!");
+      }
+
       auto const& [src,dst,inn,_] = node.op.get_move();
 
       if(src == dst) {
         throw std::runtime_error("Moves to self are not allowed");
       }
 
-      if(src == mpi.this_rank) {
+      if(src == mpi->this_rank) {
         // This is a send
         num_remaining += 1;
         num_usages_remaining[inn] += 1;
         sends_progress.insert(id, inn);
-      } else if(dst == mpi.this_rank) {
+      } else if(dst == mpi->this_rank) {
         // This is a recv
         num_remaining += 1;
         num_recv_post_remaining += 1;
       }
     } else {
       // Only do stuff on this location!
-      if(node.op.out_loc() != mpi.this_rank) {
+      if(node.op.out_loc() != mpi->this_rank) {
         continue;
       }
 
@@ -500,12 +506,12 @@ void cpu_exec_state_t::send_runner(int runner_id)
     auto const& node = taskgraph.nodes[send_id];
     auto const& [_0, dst, inn_id, _1] = node.op.get_move();
 
-    mpi.send_int(send_id, dst, mpi.max_tag);
+    mpi->send_int(send_id, dst, mpi->max_tag);
 
     auto [_, read_buffers] = get_buffers({}, {inn_id});
     auto& buffer = read_buffers[0];
 
-    mpi.send(buffer, dst, send_id);
+    mpi->send(buffer, dst, send_id);
 
     completed_send(send_id);
   }
@@ -527,7 +533,7 @@ void cpu_exec_state_t::recv_runner(int runner_id)
       //  called twice waiting for the same data and would would hang)
     }
 
-    int recv_id = mpi.recv_int_from_anywhere(mpi.max_tag);
+    int recv_id = mpi->recv_int_from_anywhere(mpi->max_tag);
 
     auto const& node = taskgraph.nodes[recv_id];
     auto const& [src, _0, _1, size] = node.op.get_move();
@@ -535,7 +541,7 @@ void cpu_exec_state_t::recv_runner(int runner_id)
     auto [should_be_new_buffers, _] = get_buffers({ {size, recv_id} }, {});
     auto& recv_buffer = should_be_new_buffers[0];
 
-    mpi.recv(recv_buffer, src, recv_id);
+    mpi->recv(recv_buffer, src, recv_id);
 
     completed_recv(recv_id);
   }

@@ -493,7 +493,8 @@ struct graph_writer_t {
     full_shape_t const& get_shape() const { return shape; }
     int rank() const { return shape.rank(); }
 
-    tensor_t save() const;
+    [[nodiscard]] tensor_t save() const;
+    void save_inplace();
 
     int get_id() const { return id; }
 
@@ -522,6 +523,8 @@ struct graph_writer_t {
       full_shape_t const& shape,
       int id,
       graph_writer_t* self);
+
+    bool _has_permutation() const;
 
     full_shape_t shape;
 

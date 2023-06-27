@@ -39,6 +39,6 @@ void execute(
   taskgraph_t const& taskgraph,
   settings_t const& settings,
   kernel_manager_t const& kernel_manager,
-  mpi_t& mpi,
+  mpi_t* mpi, // if this is nullptr, the taskgraph must be single-node
   map<int, buffer_t>& tensors);
 

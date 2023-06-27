@@ -109,7 +109,7 @@ void ff(
 
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
-    execute(taskgraph, settings, kernel_manager, mpi, buffers);
+    execute(taskgraph, settings, kernel_manager, &mpi, buffers);
 
     if(i % 10 == 0) {
       scalar_t loss = dbuffer_t(dtype, buffers.at(sqdiff)).sum();

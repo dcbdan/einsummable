@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("3D Matmul Time");
-    execute(taskgraph, settings, kernel_manager, mpi, tensors);
+    execute(taskgraph, settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 
