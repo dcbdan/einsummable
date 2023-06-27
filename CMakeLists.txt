@@ -58,7 +58,6 @@ add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_llama_application("load_weights" "load_weights")
 add_llama_application("llama_main" "main")
 
 if(${CPU_EXECUTION_ENGINE})

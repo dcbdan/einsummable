@@ -260,7 +260,7 @@ void main02() {
   //  x = writer.concat(1, {x, y});
   //  x = writer.matmul(x, w_ab_c);
 
-  //  x.save();
+  //  x = x.save();
   //}
   //graph_t const& graph = writer.get_graph();
 
@@ -329,7 +329,7 @@ void main05() {
   //  x = writer.concat(1, {x, y});
   //  x = writer.matmul(x, w_ab_c);
 
-  //  x.save();
+  //  x = x.save();
   //}
   //graph_t const& graph = writer.get_graph();
   //equal_items_t<int> eqs = {};
@@ -359,7 +359,7 @@ void main05() {
     using _idx = graph_writer_t::idx_t::idx;
     out = out.subset({ _idx{-1}, _all{} });
 
-    out.save();
+    out = out.save();
   }
 
   graph_t const& graph = writer.get_graph();
