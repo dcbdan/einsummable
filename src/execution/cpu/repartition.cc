@@ -18,6 +18,10 @@ repartition(
   return repartition(mpi, dtype, out_placement, inn_data, inn_placement);
 }
 
+// TODO: Calling execute may be overkill in some cases...
+//       Doing this for every weight matrix might be slow because of the
+//       overhead of launching and closing the execution engine over and over
+//       (Or maybe not)
 vtensor_t<optional<buffer_t>>
 repartition(
   mpi_t* mpi,
@@ -65,7 +69,11 @@ repartition(
   vtensor_t<buffer_t> const& inn_data,
   partition_t const& inn_partition)
 {
-  vtensor_t<optional<buffer_t>> maybe_inn_data;
+  if(out_partition == inn_partition) {
+    return inn_data;
+  }
+
+  vtensor_t<optional<buffer_t>> maybe_inn_data(inn_partition.block_shape());
   std::copy(
     inn_data.get().begin(), inn_data.get().end(),
     maybe_inn_data.get().begin());
@@ -115,7 +123,7 @@ make_repartition(
   graph_constructor_t g;
 
   int inn = g.insert_input(inn_placement, dtype);
-  int out = g.insert_formation(out_placement, true);
+  int out = g.insert_formation(out_placement, inn, true);
 
   auto [inn_g_to_t, out_g_to_t, tg] = taskgraph_t::make(g.graph, g.get_placements());
 

@@ -48,7 +48,7 @@ struct rms_norm_t {
     float eps,
     dtype_t dtype = default_dtype());
 
-  map<int, string> input_map() const;
+  map<string, tensor_t> weight_map() const;
 
   tensor_t norm(tensor_t x);
 
@@ -85,7 +85,10 @@ struct attention_t {
 
   void set_next_keys_and_values(tensor_t k, tensor_t v);
 
-  map<int, string> input_map() const;
+  map<string, tensor_t> weight_map() const;
+
+  tuple<tensor_t, tensor_t>
+  get_new_kv() const { return next_kv.value(); }
 
   graph_writer_t* writer;
   model_args_t args;
@@ -103,7 +106,7 @@ struct attention_t {
   optional<tuple<tensor_t, tensor_t>> prev_kv;
 
   // This gets set after in the forward pass
-  tuple<tensor_t, tensor_t> next_kv;
+  optional<tuple<tensor_t, tensor_t>> next_kv;
 };
 
 struct feedforward_t {
@@ -115,7 +118,7 @@ struct feedforward_t {
     full_dim_t dim,
     uint64_t hidden_dim);
 
-  map<int, string> input_map() const;
+  map<string, tensor_t> weight_map() const;
 
   tensor_t forward(tensor_t x);
 
@@ -140,7 +143,10 @@ struct transformer_block_t {
     tensor_t freqs_cis,
     optional<tensor_t> mask);
 
-  map<int, string> input_map() const;
+  map<string, tensor_t> weight_map() const;
+
+  tuple<tensor_t, tensor_t>
+  get_new_kv() const { return attention.get_new_kv(); }
 
   graph_writer_t* writer;
   model_args_t args;
@@ -155,19 +161,20 @@ struct transformer_block_t {
 struct transformer_t {
   transformer_t(
     graph_writer_t* w,
-    std::string name,
     model_args_t args,
     uint64_t start_pos);
 
   tensor_t forward(tensor_t x);
 
-  map<int, string> input_map() const;
+  map<string, tensor_t> weight_map() const;
 
   static dbuffer_t form_full_freqs_cis(model_args_t const& args);
   static dbuffer_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
 
   // grab full_freqs_cis from [start_pos: start_pos+seqlen]
   tensor_t get_freqs_cis(uint64_t seqlen);
+
+  vector<tuple<tensor_t, tensor_t>> get_new_kvs() const;
 
   graph_writer_t* writer;
   model_args_t args;
@@ -181,4 +188,5 @@ struct transformer_t {
   rms_norm_t norm;
   tensor_t w_vocab;
 };
+
 

@@ -51,10 +51,10 @@ rms_norm_t::rms_norm_t(
   weight = writer->input(full_shape_t({ dim }), dtype);
 }
 
-map<int, string> rms_norm_t::input_map() const
+map<string, tensor_t> rms_norm_t::weight_map() const
 {
-  map<int, string> ret;
-  ret.insert({weight.get_id(), name + "weight"});
+  map<string, tensor_t> ret;
+  ret.insert({name + "weight", weight});
   return ret;
 }
 
@@ -185,15 +185,13 @@ tensor_t attention_t::_apply_rotary_embedding(
   return x.to_real();
 }
 
-map<int, string> attention_t::input_map() const {
-  map<int, string> input_names;
-
-  input_names.insert({wq.get_id(), name + "wq.weight"});
-  input_names.insert({wk.get_id(), name + "wk.weight"});
-  input_names.insert({wv.get_id(), name + "wv.weight"});
-  input_names.insert({wo.get_id(), name + "wo.weight"});
-
-  return input_names;
+map<string, tensor_t> attention_t::weight_map() const {
+  return map<string, tensor_t> {
+    {name + "wq.weight", wq },
+    {name + "wk.weight", wk },
+    {name + "wv.weight", wv },
+    {name + "wo.weight", wo }
+  };
 }
 
 tensor_t attention_t::forward(
@@ -226,7 +224,8 @@ tensor_t attention_t::forward(
 
   // set next_kv for use later
   set_next_keys_and_values(xk, xv);
-  auto& [keys, values] = next_kv;
+  // copy the tensor objects so that we can transpose them here
+  auto [keys, values] = next_kv.value();
   // batch_size, start_pos + seqlen, n_local_heads, head_dim
 
   xq = xq.transpose(1, 2);
@@ -278,7 +277,12 @@ void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
     throw std::runtime_error("k and v must have the same shape");
   }
 
-  auto& [next_k, next_v] = next_kv;
+  if(next_kv) {
+    throw std::runtime_error("can't have multiple next kvs");
+  }
+
+  next_kv = tuple<tensor_t, tensor_t>();
+  auto& [next_k, next_v] = next_kv.value();
 
   if(prev_kv) {
     auto const& [prev_k, prev_v] = prev_kv.value();
@@ -309,14 +313,12 @@ feedforward_t::feedforward_t(
   w3 = writer->input(to_hidden);
 }
 
-map<int, string> feedforward_t::input_map() const {
-  map<int, string> input_names;
-
-  input_names.insert({w1.get_id(), name + "w1.weight"});
-  input_names.insert({w2.get_id(), name + "w2.weight"});
-  input_names.insert({w3.get_id(), name + "w3.weight"});
-
-  return input_names;
+map<string, tensor_t> feedforward_t::weight_map() const {
+  return map<string, tensor_t> {
+    { name + "w1.weight", w1, },
+    { name + "w2.weight", w2, },
+    { name + "w3.weight", w3, }
+  };
 }
 
 tensor_t feedforward_t::forward(tensor_t x) {
@@ -360,30 +362,29 @@ transformer_block_t::transformer_block_t(
   feedforward_norm = rms_norm_t(writer, "ffn_norm.",       args.full_dim(), args.norm_eps);
 }
 
-map<int, string> transformer_block_t::input_map() const {
-  map<int, string> input_names;
+map<string, tensor_t> transformer_block_t::weight_map() const {
+  map<string, tensor_t> ret;
 
   string header = "layers." + std::to_string(layer_id) + ".";
 
   //Attention_t names mapping
-  map<int, string> att_inner_names = attention.input_map();
-  for(auto const& [tensor_id, name]: attention.input_map()) {
-    input_names.insert({tensor_id, header + name});
+  for(auto const& [name, tensor_id]: attention.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
 
   //feedforward names mapping
-  for(auto const& [tensor_id, name]: feedforward.input_map()) {
-    input_names.insert({tensor_id, header + name});
+  for(auto const& [name, tensor_id]: feedforward.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
 
-  for(auto const& [tensor_id, name]: attention_norm.input_map()) {
-    input_names.insert({tensor_id, header + name});
+  for(auto const& [name, tensor_id]: attention_norm.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
-  for(auto const& [tensor_id, name]: feedforward_norm.input_map()) {
-    input_names.insert({tensor_id, header + name});
+  for(auto const& [name, tensor_id]: feedforward_norm.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
 
-  return input_names;
+  return ret;
 }
 
 tensor_t transformer_block_t::forward(
@@ -402,14 +403,12 @@ tensor_t transformer_block_t::forward(
 
 transformer_t::transformer_t(
   graph_writer_t* w,
-  std::string name,
   model_args_t args,
   uint64_t start_pos)
   : writer(w), args(args),
     expected_batch_size(args.batch_size), start_pos(start_pos)
 {
   for (int layer_id = 0; layer_id != args.n_layers; ++layer_id) {
-    //loop over input_map and insert into our own map.
     layers.emplace_back(
       writer, layer_id, args, start_pos);
   }
@@ -463,19 +462,20 @@ tensor_t transformer_t::forward(tensor_t x)
   return writer->matmul(x, w_vocab.transpose(0,1));
 }
 
-map<int, string> transformer_t::input_map() const {
-  map<int, string> ret;
+map<string, tensor_t> transformer_t::weight_map() const {
+  map<string, tensor_t> ret;
+
   for(transformer_block_t const& block: layers) {
-    for(auto const& [tensor_id, name]: block.input_map()) {
-      ret.insert({tensor_id, name});
+    for(auto const& [name, tensor_id]: block.weight_map()) {
+      ret.insert({name, tensor_id});
     }
   }
 
-  for(auto const& [tensor_id, name]: norm.input_map()) {
-    ret.insert({tensor_id, name});
+  for(auto const& [name, tensor_id]: norm.weight_map()) {
+    ret.insert({name, tensor_id});
   }
 
-  ret.insert({w_vocab.get_id(), "output.weight"});
+  ret.insert({"output.weight", w_vocab});
 
   return ret;
 }
@@ -553,4 +553,11 @@ tensor_t transformer_t::get_freqs_cis(uint64_t n) {
   return full_freqs_cis.subset(subset);
 }
 
-
+vector<tuple<tensor_t, tensor_t>>
+transformer_t::get_new_kvs() const {
+  vector<tuple<tensor_t, tensor_t>> ret;
+  for(auto const& layer: layers) {
+    ret.push_back(layer.get_new_kv());
+  }
+  return ret;
+}

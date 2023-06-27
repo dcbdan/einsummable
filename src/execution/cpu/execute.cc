@@ -294,6 +294,8 @@ cpu_exec_state_t::cpu_exec_state_t(
   vector<int> input_ids;
 
   int num_nodes = taskgraph.nodes.size();
+  int this_rank = bool(mpi) ? mpi->this_rank : 0;
+
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_move()) {
@@ -307,19 +309,19 @@ cpu_exec_state_t::cpu_exec_state_t(
         throw std::runtime_error("Moves to self are not allowed");
       }
 
-      if(src == mpi->this_rank) {
+      if(src == this_rank) {
         // This is a send
         num_remaining += 1;
         num_usages_remaining[inn] += 1;
         sends_progress.insert(id, inn);
-      } else if(dst == mpi->this_rank) {
+      } else if(dst == this_rank) {
         // This is a recv
         num_remaining += 1;
         num_recv_post_remaining += 1;
       }
     } else {
       // Only do stuff on this location!
-      if(node.op.out_loc() != mpi->this_rank) {
+      if(node.op.out_loc() != this_rank) {
         continue;
       }
 

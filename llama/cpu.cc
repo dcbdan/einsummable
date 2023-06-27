@@ -1,5 +1,6 @@
 #include "misc.h"
 #include "modules.h"
+#include "builder.h"
 
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
@@ -315,51 +316,97 @@ void test_norm() {
   print("y5", y4.copy(dtype_t::f32));
 }
 
-map<string, buffer_t>
-read_all_weights(string filename)
-{
-  std::ifstream file(filename, std::ios::binary);
-
-  if(!file) {
-    throw std::runtime_error("Failed to open the file.");
+struct tensor_reader_t {
+  tensor_reader_t(string filename) : file(filename, std::ios::binary) {
+    if(!file) {
+      throw std::runtime_error("Failed to open the file.");
+    }
   }
 
-  map<string, buffer_t> extracted_data;
+  vector<string> all_names() {
+    vector<string> ret;
+    while(true) {
+      auto maybe_info = read_next_weight_info();
+      if(!maybe_info) {
+        break;
+      }
+      auto const& [name, nelem] = maybe_info.value();
+      ret.push_back(name);
 
-  while(true) {
+      // Assuming all tensors are stored in float16s
+      uint64_t size = nelem * sizeof(float16_t);
+
+      file.seekg(file.tellg() + std::ifstream::pos_type(size));
+      // TODO: how to use pos_type correctly?
+    }
+    to_beginning();
+    return ret;
+  }
+
+  buffer_t operator()(string tensor_name) {
+    while(true) {
+      auto maybe_info = read_next_weight_info();
+      if(!maybe_info) {
+        break;
+      }
+
+      auto const& [name, nelem] = maybe_info.value();
+
+      // Assuming all tensors are stored in float16s
+      uint64_t size = nelem * sizeof(float16_t);
+
+      if(name == tensor_name) {
+        // Read the tensor data
+        buffer_t buffer = make_buffer(size);
+        file.read(reinterpret_cast<char*>(buffer->data), size);
+
+        to_beginning();
+        return buffer;
+      } else {
+        file.seekg(file.tellg() + std::ifstream::pos_type(size));
+        // TODO: how to use pos_type correctly?
+      }
+    }
+
+    to_beginning();
+    throw std::runtime_error("did not find \"" + tensor_name + "\"");
+  }
+
+private:
+  std::ifstream file;
+
+  void to_beginning() {
+    file.clear();
+    file.seekg(0);
+  }
+
+  optional<tuple<string, uint64_t>>
+  read_next_weight_info() {
+    if(file.eof()) {
+      return std::nullopt;
+    }
+
     // Read the text data (name of weight tensor)
     char text_data[51];
     file.read(text_data, 50);
     text_data[50] = '\0';
     std::string name(text_data);
 
-    // If no more data to read, break the loop
-    if(name.empty() || file.eof()) {
-      break;
+    if(file.eof()) {
+      return std::nullopt;
     }
 
     std::string space = " ";
-    const auto strEnd = name.find_last_not_of(space);
-    const auto strRange = strEnd + 1;
-    name = name.substr(0, strRange);
+    const auto str_end = name.find_last_not_of(space);
+    const auto str_range = str_end + 1;
+    name = name.substr(0, str_range);
 
     // Read the binary data (size of tensor)
     int64_t nelem;
     file.read(reinterpret_cast<char*>(&nelem), sizeof(int64_t));
-
-    // Assuming all tensors are stored in float16s
-    uint64_t size = nelem * sizeof(float16_t);
-
-    // Read the tensor data
-    buffer_t buffer = make_buffer(size);
-    file.read(reinterpret_cast<char*>(buffer->data), size);
-
-    // Store the extracted data
-    extracted_data.insert({name, buffer});
+    return optional<tuple<string, uint64_t>>({name, nelem});
   }
-
-  return extracted_data;
-}
+};
 
 dbuffer_t lookup_embeddings(
   int nvocab,
@@ -437,6 +484,8 @@ void main_(int argc, char** argv) {
 
   set_default_dtype(dtype_t::f16);
 
+  tensor_reader_t reader(argv[1]);
+
   auto convert_f16_to_default = [](buffer_t buffer) {
     if(default_dtype() != dtype_t::f16) {
       buffer = dbuffer_t(dtype_t::f16, buffer).copy(default_dtype()).data;
@@ -465,109 +514,55 @@ void main_(int argc, char** argv) {
   uint64_t seqlen = tokens.get_shape()[1];
 
   auto args = model_args_t::llama_7B(bsz);
-  //args.n_layers = 1;
 
-  graph_writer_t writer;
-  auto model = transformer_t(&writer, "name", args, 0);
+  builder_t build_first_token = builder_t::make_first_token(args, seqlen);
 
-  buffer_t embedding_matrix;
-  map<int, buffer_t> inputs;
-  {
-    map<string, buffer_t> weights = read_all_weights(argv[1]);
+  // need all weights, freqcis, embeddings, mask
 
-    embedding_matrix = convert_f16_to_default(
-      weights.at("tok_embeddings.weight"));
-
-    std::set<string> from_model;
-    for(auto const& [id, name]: model.input_map()) {
-      buffer_t weight = weights.at(name);
-      weight = convert_f16_to_default(weight);
-      inputs.insert({id, weight});
-      from_model.insert(name);
-    }
-
-    for(auto const& [name, _]: weights) {
-      if(from_model.count(name) == 0) {
-        if(name.find("freqs") != string::npos || name == "tok_embeddings.weight") {
-          // these are not necc
-        } else {
-          throw std::runtime_error("missing weight: " + name);
-        }
-      }
-    }
+  map<int, buffer_t> data;
+  for(auto const& [name, tinfo]: build_first_token.weights) {
+    buffer_t w = reader(name);
+    w = convert_f16_to_default(w);
+    repartition_into_map_single_loc(data, tinfo, w);
   }
 
-  dbuffer_t x_data = lookup_embeddings(
-    args.vocab_size,
-    args.dim,
-    dbuffer_t(default_dtype(), embedding_matrix),
-    tokens);
-
-  tensor_t x = writer.input(full_shape_t({
-    full_dim_t::singleton(bsz),
-    full_dim_t::singleton(seqlen),
-    args.full_dim()
-  }));
-
-  tensor_t y = model.forward(x);
-
-  y = y.save();
-
-  graph_t const& graph = writer.get_graph();
-
-  inputs.insert({ x.get_id(), x_data.data });
-
-  inputs.insert({
-    model.full_freqs_cis.get_id(),
-    model.form_full_freqs_cis(args).data
-  });
-
-  inputs.insert({
-    model.mask.value().get_id(),
-    model.form_start_mask(seqlen).data
-  });
-
-  {
-    std::ofstream f("g.gv");
-    graph.print_graphviz(f);
-    DOUT("wrote to g.gv");
+  if(build_first_token.mask) {
+    auto const& tinfo = build_first_token.mask.value();
+    buffer_t mask = transformer_t::form_start_mask(seqlen).data;
+    repartition_into_map_single_loc(data, tinfo, mask);
   }
 
-  auto const& [inns_g_to_t, saves_g_to_t, taskgraph] = taskgraph_t::make(
-    graph,
-    graph.make_singleton_placement());
+  {
+    auto const& tinfo = build_first_token.freqs_cis;
+    buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
+    repartition_into_map_single_loc(data, tinfo, freqs_cis);
+  }
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("Printed to tg.gv");
-  //}
+  dbuffer_t embedding_matrix(
+    default_dtype(),
+    convert_f16_to_default(reader("tok_embeddings.weight")));
+
+  {
+    buffer_t embeddings = lookup_embeddings(
+      args.vocab_size,
+      args.dim,
+      embedding_matrix,
+      tokens).data;
+
+    auto const& tinfo = build_first_token.embeddings;
+    repartition_into_map_single_loc(data, tinfo, embeddings);
+  }
 
   kernel_manager_t kernel_manager;
-  for(auto const& node: taskgraph.nodes) {
+
+  for(auto const& node: build_first_token.taskgraph.nodes) {
     if(node.op.is_apply()) {
       auto const& e = node.op.get_apply().einsummable;
       auto maybe = kernel_manager.build(e);
       if(!maybe) {
-        DOUT(e);
-        DOUT(e.join);
         throw std::runtime_error("could not build a kernel!");
       }
     }
-  }
-
-  // convert graph_inputs to taskgraph inputs
-  // (using the fact that every tensor_tids is singleton)
-  {
-    auto const& g_inputs = inputs;
-
-    map<int, buffer_t> t_inputs;
-    for(auto const& [gid, tensor_tids]: inns_g_to_t) {
-      auto const& tid = tensor_tids.get()[0];
-      t_inputs.insert({tid, g_inputs.at(gid)});
-    }
-
-    inputs = t_inputs;
   }
 
   settings_t settings {
@@ -578,51 +573,13 @@ void main_(int argc, char** argv) {
     .num_apply_kernel_threads = 12
   };
 
-  DOUT("taskgraph num nodes: " << taskgraph.nodes.size());
+  execute(build_first_token.taskgraph, settings, kernel_manager, nullptr, data);
 
-  mpi_t mpi(argc, argv);
-
-  auto& data = inputs;
-  execute(taskgraph, settings, kernel_manager, mpi, data);
-
-  int save;
-  for(auto const& [gid, tensor_tids]: saves_g_to_t) {
-    uint64_t const& tid = tensor_tids.get()[0];
-    dbuffer_t tensor(writer.get_graph().out_dtype(gid), data.at(tid));
-    DOUT("gid " << gid << "  sum: " << std::setprecision(12) << tensor.sum_to_f64());
-
-    if(gid == y.get_id()) {
-      save = tid;
-    }
-    //if(gid == 8) {
-    //  for(int i = 0; i != 4096; ++i) {
-    //    DOUT(std::setprecision(12) << tensor.f64()[i]);
-    //  }
-    //}
-    //if(gid == 25) {
-    //  for(int i = 0; i != 100; ++i) {
-    //    DOUT(std::setprecision(12) << tensor.f32()[i]);
-    //  }
-    //}
-    //if(gid == 28) {
-    //  einsummable_t e(
-    //    {4096,4,8},
-    //    { { 1,2,0} },
-    //    1,
-    //    scalarop_t::make_identity(tensor.dtype),
-    //    castable_t::min);
-    //  dbuffer_t xx = reference_einsummable(e, { tensor });
-    //  for(int i = 0; i != 4096; ++i) {
-    //    DOUT(std::setprecision(12) << xx.f64()[i]);
-    //  }
-    //}
-  }
+  dbuffer_t scores = unpartitioned_from_map_single_loc(data, build_first_token.scores);
 
   uint64_t top_n = 5;
   vtensor_t<int> top_choices = get_top_choices(
-    dbuffer_t(default_dtype(), data.at(save)),
-    bsz, args.vocab_size,
-    top_n);
+    scores, bsz, args.vocab_size, top_n);
   DOUT(top_choices.get());
 }
 
