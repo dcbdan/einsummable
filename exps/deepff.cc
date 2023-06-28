@@ -73,13 +73,20 @@ int main() {
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, placements);
 
+  //{
+  //  std::ofstream f("deepff_tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //  DOUT("wrote taskgraph to deepff_tg.gv");
+  //}
+
   int np = taskgraph.num_locs();
   vector<int> compute_loc_to_cache(np, 0);
 
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
-    taskgraph, compute_loc_to_cache, { 100000 });
+    taskgraph, compute_loc_to_cache, { 1000000 });
 
   std::ofstream f("deepff.gv");
   memgraph.print_graphviz(f);
+  DOUT("wrote memgraph to deepff.gv");
 }
 
