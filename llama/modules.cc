@@ -2,9 +2,6 @@
 
 #include "../src/base/hrect.h"
 
-// TODO: wherever division occurs, make sure no modulo;
-//       add a helper method to throw runtime error
-
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {
@@ -15,30 +12,30 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
   }
 }
 
-model_args_t model_args_t::make_default() {
+model_args_t model_args_t::make_default(uint64_t batch_size) {
   return model_args_t {
     .dim             = 512,
     .n_layers        = 8,
     .n_heads         = 8,
     .multiple_of     = 256,
     .norm_eps        = 1e-5,
-    .max_batch_size  = 32,
+    .batch_size      = batch_size,
     .max_seq_len     = 2048,
     .vocab_size      = 0,
     .world_size      = 1
   };
 }
 
-model_args_t model_args_t::llama_7B() {
+model_args_t model_args_t::llama_7B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 4096,
     .n_layers        = 32,
     .n_heads         = 32,
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
-    .max_batch_size  = 32,
+    .batch_size      = batch_size,
     .max_seq_len     = 256,
-    .vocab_size      = 32000, //TODO: change according to the actual tokenizer size
+    .vocab_size      = 32000,
     .world_size      = 1
   };
 }
@@ -54,16 +51,18 @@ rms_norm_t::rms_norm_t(
   weight = writer->input(full_shape_t({ dim }), dtype);
 }
 
-map<int, string> rms_norm_t::input_map() const
+map<string, tensor_t> rms_norm_t::weight_map() const
 {
-  map<int, string> ret;
-  ret.insert({weight.get_id(), name + "weight"});
+  map<string, tensor_t> ret;
+  ret.insert({name + "weight", weight});
   return ret;
 }
 
 tensor_t rms_norm_t::norm(tensor_t x) {
-  if(x.get_dtype() != dtype_t::f32) {
-    throw std::runtime_error("invalid dtype in rms norm :: norm");
+  dtype_t d = x.get_dtype();
+
+  if(d == dtype_t::f16) {
+    throw std::runtime_error("rms_norm_t::norm needs >16 precision");
   }
 
   auto x_shape = x.get_shape()();
@@ -72,14 +71,14 @@ tensor_t rms_norm_t::norm(tensor_t x) {
     throw std::runtime_error("rms_norm: not a big enough output rank");
   }
 
-  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype_t::f32);
-  scalarop_t square       = scalarop_t::make_square(dtype_t::f32);
-  scalarop_t mul          = scalarop_t::make_mul(dtype_t::f32);
+  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(d);
+  scalarop_t square       = scalarop_t::make_square(d);
+  scalarop_t mul          = scalarop_t::make_mul(d);
 
-  scalar_t _e(eps);
-  scalar_t _a(1/float(1.0*x_shape.back()));
+  scalar_t _e(d, write_with_ss(eps));
+  scalar_t _a(d, write_with_ss(1.0/double(double(1.0)*x_shape.back())));
   scalarop_t scale_then_add_eps = scalarop_t::combine(
-    scalarop_t::make_add(dtype_t::f32),
+    scalarop_t::make_add(d),
     {
       scalarop_t::make_scale(_a),
       scalarop_t::make_constant(_e)
@@ -111,7 +110,14 @@ tensor_t rms_norm_t::forward(tensor_t x) {
   if(dtype != x.get_dtype()) {
     throw std::runtime_error("invalid input dtype rms norm t forward");
   }
-  tensor_t output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+
+  // compute output with a minimum precision of 32
+  tensor_t output;
+  if(dtype == dtype_t::f16) {
+    output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+  } else {
+    output = norm(x);
+  }
 
   int out_rank = x.rank();
 
@@ -128,8 +134,10 @@ tensor_t rms_norm_t::forward(tensor_t x) {
 attention_t::attention_t(
   graph_writer_t* w,
   string name,
-  model_args_t args)
+  model_args_t args,
+  uint64_t start_pos)
   : writer(w), args(args), name(name),
+    batch_size(args.batch_size),
     n_local_heads(args.n_local_heads()),
     head_dim(args.head_dim())
 {
@@ -137,13 +145,21 @@ attention_t::attention_t(
 
   //  outshape comes first because F.linear is xA^t,
   //  so shape is (out_features, in_features)
-
   full_shape_t kqv_shape({ args.full_dim(), args.full_dim() });
 
   wq = writer->input(kqv_shape);
   wk = writer->input(kqv_shape);
   wv = writer->input(kqv_shape);
   wo = writer->input(kqv_shape);
+
+  if(start_pos != 0) {
+    vector<uint64_t> prev_shape({
+      batch_size, start_pos, n_local_heads, head_dim });
+    prev_kv = tuple<tensor_t, tensor_t> {
+      writer->input(prev_shape),
+      writer->input(prev_shape)
+    };
+  }
 }
 
 tensor_t attention_t::apply_rotary_embedding(
@@ -169,15 +185,13 @@ tensor_t attention_t::_apply_rotary_embedding(
   return x.to_real();
 }
 
-map<int, string> attention_t::input_map() const {
-  map<int, string> input_names;
-
-  input_names.insert({wq.get_id(), name + "wq.weight"});
-  input_names.insert({wk.get_id(), name + "wk.weight"});
-  input_names.insert({wv.get_id(), name + "wv.weight"});
-  input_names.insert({wo.get_id(), name + "wo.weight"});
-
-  return input_names;
+map<string, tensor_t> attention_t::weight_map() const {
+  return map<string, tensor_t> {
+    {name + "wq.weight", wq },
+    {name + "wk.weight", wk },
+    {name + "wv.weight", wv },
+    {name + "wo.weight", wo }
+  };
 }
 
 tensor_t attention_t::forward(
@@ -187,7 +201,6 @@ tensor_t attention_t::forward(
 {
   dtype_t dtype = x.get_dtype();
   vector<uint64_t> input_shape = x.get_shape()();
-  uint64_t bsz = input_shape[0];
   uint64_t seqlen = input_shape[1];
 
   if(input_shape.size() != 3 || input_shape[2] != args.dim) {
@@ -199,7 +212,7 @@ tensor_t attention_t::forward(
   tensor_t xv = writer->matmul(x, wv.transpose(0,1));
 
   vector<uint64_t> full_xshape = {
-    bsz, seqlen, n_local_heads, head_dim
+    batch_size, seqlen, n_local_heads, head_dim
   };
 
   xq = xq.view_full(full_xshape);
@@ -209,7 +222,11 @@ tensor_t attention_t::forward(
   xq = apply_rotary_embedding(xq.to_f32(), freqs_cis).to_dtype(dtype);
   xk = apply_rotary_embedding(xk.to_f32(), freqs_cis).to_dtype(dtype);
 
-  auto [keys, values] = get_keys_and_values(xk, xv);
+  // set next_kv for use later
+  set_next_keys_and_values(xk, xv);
+  // copy the tensor objects so that we can transpose them here
+  auto [keys, values] = next_kv.value();
+  // batch_size, start_pos + seqlen, n_local_heads, head_dim
 
   xq = xq.transpose(1, 2);
   keys = keys.transpose(1, 2);
@@ -233,14 +250,19 @@ tensor_t attention_t::forward(
       mask.value());
   }
 
-  scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  // compute softmax with a minimum of 32 bits precision
+  if(dtype == dtype_t::f16) {
+    scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  } else {
+    scores = writer->softmax(scores);
+  }
 
   tensor_t output;
   output = writer->matmul(scores, values);
   output = output.transpose(1, 2);
 
   full_shape_t output_shape({
-    full_dim_t::singleton(bsz),
+    full_dim_t::singleton(batch_size),
     full_dim_t::singleton(seqlen),
     full_dim_t({n_local_heads, head_dim})
   });
@@ -249,22 +271,27 @@ tensor_t attention_t::forward(
   return writer->matmul(output, wo.transpose(0,1));
 }
 
-tuple<tensor_t, tensor_t>
-attention_t::get_keys_and_values(tensor_t k, tensor_t v)
+void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
 {
   if(k.get_shape() != v.get_shape()) {
     throw std::runtime_error("k and v must have the same shape");
   }
 
-  if(prev_k) {
-    prev_k = writer->concat(1, {prev_k.value(), k});
-    prev_v = writer->concat(1, {prev_v.value(), v});
-  } else {
-    prev_k = k;
-    prev_v = v;
+  if(next_kv) {
+    throw std::runtime_error("can't have multiple next kvs");
   }
 
-  return {prev_k.value(), prev_v.value()};
+  next_kv = tuple<tensor_t, tensor_t>();
+  auto& [next_k, next_v] = next_kv.value();
+
+  if(prev_kv) {
+    auto const& [prev_k, prev_v] = prev_kv.value();
+    next_k = writer->concat(1, {prev_k, k});
+    next_v = writer->concat(1, {prev_v, v});
+  } else {
+    next_k = k;
+    next_v = v;
+  }
 }
 
 feedforward_t::feedforward_t(
@@ -286,14 +313,12 @@ feedforward_t::feedforward_t(
   w3 = writer->input(to_hidden);
 }
 
-map<int, string> feedforward_t::input_map() const {
-  map<int, string> input_names;
-
-  input_names.insert({w1.get_id(), name + "w1.weight"});
-  input_names.insert({w2.get_id(), name + "w2.weight"});
-  input_names.insert({w3.get_id(), name + "w3.weight"});
-
-  return input_names;
+map<string, tensor_t> feedforward_t::weight_map() const {
+  return map<string, tensor_t> {
+    { name + "w1.weight", w1, },
+    { name + "w2.weight", w2, },
+    { name + "w3.weight", w3, }
+  };
 }
 
 tensor_t feedforward_t::forward(tensor_t x) {
@@ -310,6 +335,7 @@ tensor_t feedforward_t::forward(tensor_t x) {
   //                 c
 
   tensor_t a = writer->ew(silu, writer->matmul(x, w1t));
+
   tensor_t b = writer->matmul(x, w3t) ;
 
   tensor_t c = writer->mul(a, b);
@@ -320,10 +346,11 @@ tensor_t feedforward_t::forward(tensor_t x) {
 transformer_block_t::transformer_block_t(
   graph_writer_t* w,
   int layer_id,
-  model_args_t args)
+  model_args_t args,
+  uint64_t start_pos)
   : writer(w), layer_id(layer_id), args(args)
 {
-  attention = attention_t(writer, "attention.", args);
+  attention = attention_t(writer, "attention.", args, start_pos);
 
   uint64_t hidden_dim = 4 * args.dim;
   hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
@@ -335,31 +362,29 @@ transformer_block_t::transformer_block_t(
   feedforward_norm = rms_norm_t(writer, "ffn_norm.",       args.full_dim(), args.norm_eps);
 }
 
-map<int, string> transformer_block_t::input_map() const {
-  //TODO: loop the input_names mappping and insert to our
-  //      own map for both att and ffn
+map<string, tensor_t> transformer_block_t::weight_map() const {
+  map<string, tensor_t> ret;
 
-  map<int, string> input_names;
+  string header = "layers." + std::to_string(layer_id) + ".";
 
   //Attention_t names mapping
-  map<int, string> att_inner_names = attention.input_map();
-  for(auto const& [tensor_id, name]: attention.input_map()) {
-    input_names.insert({
-      tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name
-    });
+  for(auto const& [name, tensor_id]: attention.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
 
   //feedforward names mapping
-  for(auto const& [tensor_id, name]: feedforward.input_map()) {
-    input_names.insert({
-      tensor_id,
-      "layers." + std::to_string(layer_id) + "." + name
-    });
+  for(auto const& [name, tensor_id]: feedforward.weight_map()) {
+    ret.insert({header + name, tensor_id});
   }
 
-  // TODO: attention_norm and ffn_norm mappings
-  return input_names;
+  for(auto const& [name, tensor_id]: attention_norm.weight_map()) {
+    ret.insert({header + name, tensor_id});
+  }
+  for(auto const& [name, tensor_id]: feedforward_norm.weight_map()) {
+    ret.insert({header + name, tensor_id});
+  }
+
+  return ret;
 }
 
 tensor_t transformer_block_t::forward(
@@ -378,21 +403,21 @@ tensor_t transformer_block_t::forward(
 
 transformer_t::transformer_t(
   graph_writer_t* w,
-  std::string name,
-  model_args_t args)
-  : writer(w), args(args)
+  model_args_t args,
+  uint64_t start_pos)
+  : writer(w), args(args),
+    expected_batch_size(args.batch_size), start_pos(start_pos)
 {
   for (int layer_id = 0; layer_id != args.n_layers; ++layer_id) {
-    //loop over input_map and insert into our own map.
     layers.emplace_back(
-      writer, layer_id, args);
+      writer, layer_id, args, start_pos);
   }
 
   full_freqs_cis = writer->input(
     { args.max_seq_len, uint64_div(args.head_dim(), 2) },
     dtype_t::c64);
 
-  norm = rms_norm_t(writer, "norm.weight", args.full_dim(), args.norm_eps);
+  norm = rms_norm_t(writer, "norm.", args.full_dim(), args.norm_eps);
 
   full_shape_t to_vocab({
     full_dim_t::singleton(args.vocab_size),
@@ -407,18 +432,21 @@ tensor_t transformer_t::forward(tensor_t x)
   uint64_t const& bsz    = x_shape[0];
   uint64_t const& seqlen = x_shape[1];
 
-  optional<tensor_t> mask;
+  if(bsz != expected_batch_size) {
+    throw std::runtime_error("The batch size cannot be variable!");
+  }
+
   if(seqlen > 1) {
-    if(start_pos() != 0) {
+    if(start_pos != 0) {
       throw std::runtime_error(
         "Masks are only supported on the first iteration");
       // TODO: how do masks work and should they be supported
       //       whenever seqlen > 1?
     }
-    mask = next_mask(seqlen);
+    mask = writer->input({ seqlen, seqlen });
   }
 
-  tensor_t freqs_cis = next_freqs_cis(seqlen);
+  tensor_t freqs_cis = get_freqs_cis(seqlen);
 
   for(auto& layer: layers) {
     x = layer.forward(x, freqs_cis, mask);
@@ -434,20 +462,82 @@ tensor_t transformer_t::forward(tensor_t x)
   return writer->matmul(x, w_vocab.transpose(0,1));
 }
 
-map<int, string> transformer_t::input_map() const {
-  map<int, string> ret;
+map<string, tensor_t> transformer_t::weight_map() const {
+  map<string, tensor_t> ret;
+
   for(transformer_block_t const& block: layers) {
-    for(auto [tensor_id, name]: block.input_map()) {
-      ret.insert({tensor_id, name});
+    for(auto const& [name, tensor_id]: block.weight_map()) {
+      ret.insert({name, tensor_id});
     }
   }
 
-  ret.insert({w_vocab.get_id(), "output.weight"});
+  for(auto const& [name, tensor_id]: norm.weight_map()) {
+    ret.insert({name, tensor_id});
+  }
+
+  ret.insert({"output.weight", w_vocab});
 
   return ret;
 }
 
-tensor_t transformer_t::next_freqs_cis(uint64_t n) {
+dbuffer_t transformer_t::form_full_freqs_cis(model_args_t const& args) {
+  float theta = 10000.0;
+  uint64_t dim  = uint64_div(args.dim, args.n_heads);
+  uint64_t hdim = uint64_div(dim, 2);
+  uint64_t end = 2*args.max_seq_len;
+
+  dbuffer_t xs = make_dbuffer(dtype_t::f32, hdim);
+  for(int i = 0; i != hdim; ++i) {
+    xs.f32()[i] = 1.0 / (std::pow(theta, (i*2.0) / dim));
+  }
+
+  dbuffer_t t = make_dbuffer(dtype_t::f32, end);
+  for(int i = 0; i != end; ++i) {
+    t.f32()[i] = 1.0*i;
+  }
+
+  dbuffer_t freqs = make_dbuffer(dtype_t::f32, end*hdim);
+  for(int i = 0; i != end;  ++i) {
+  for(int j = 0; j != hdim; ++j) {
+    freqs.f32()[i*hdim+j] = t.f32()[i] * xs.f32()[j];
+  }}
+
+  dbuffer_t freqs_cis = make_dbuffer(dtype_t::c64, end*hdim);
+  for(int i = 0; i != hdim*dim; ++i) {
+    freqs_cis.c64()[i] = std::polar(float(1.0), freqs.f32()[i]);
+  }
+
+  return freqs_cis;
+}
+
+template <typename T>
+void _form_start_mask_set_zero(uint64_t const& seqlen, T* data)
+{
+  for(int i = 0; i != seqlen; ++i) {
+  for(int j = 0; j != i+1;    ++j) {
+    data[i*seqlen + j] = 0.0;
+  }}
+}
+
+dbuffer_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype) {
+  dbuffer_t mask = make_dbuffer(dtype, seqlen*seqlen);
+
+  mask.fill(scalar_t::negative_inf(dtype));
+
+  if(dtype == dtype_t::f16) {
+    _form_start_mask_set_zero(seqlen, mask.f16());
+  } else if(dtype == dtype_t::f32) {
+    _form_start_mask_set_zero(seqlen, mask.f32());
+  } else if(dtype == dtype_t::f64) {
+    _form_start_mask_set_zero(seqlen, mask.f64());
+  } else {
+    throw std::runtime_error("should not happen: invalid dtype form start mask");
+  }
+
+  return mask;
+}
+
+tensor_t transformer_t::get_freqs_cis(uint64_t n) {
   using _all = graph_writer_t::idx_t::all;
   using _rng = graph_writer_t::idx_t::rng;
   using idx_t = graph_writer_t::idx_t;
@@ -456,18 +546,27 @@ tensor_t transformer_t::next_freqs_cis(uint64_t n) {
 
   vector<idx_t> subset(shape.size(), _all{});
 
-  int64_t b0 = int64_t(start_pos());
-  int64_t e0 = int64_t(start_pos() + n);
+  int64_t b0 = int64_t(start_pos);
+  int64_t e0 = int64_t(start_pos + n);
   subset[0] = _rng{ b0, e0 };
 
   return full_freqs_cis.subset(subset);
 }
 
-tensor_t transformer_t::next_mask(uint64_t seqlen) {
-  mask_infos.push_back(mask_info_t {
-    .mask = writer->input({ seqlen, seqlen }),
-    .start_pos = start_pos(),
-    .seqlen = seqlen
-  });
-  return mask_infos.back().mask;
+vector<tuple<tensor_t, tensor_t>>
+transformer_t::get_prev_kvs() const {
+  vector<tuple<tensor_t, tensor_t>> ret;
+  for(auto const& layer: layers) {
+    ret.push_back(layer.get_prev_kv());
+  }
+  return ret;
+}
+
+vector<tuple<tensor_t, tensor_t>>
+transformer_t::get_new_kvs() const {
+  vector<tuple<tensor_t, tensor_t>> ret;
+  for(auto const& layer: layers) {
+    ret.push_back(layer.get_new_kv());
+  }
+  return ret;
 }

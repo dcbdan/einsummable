@@ -789,7 +789,7 @@ taskgraph_t test_random_concat(
 
   id_t x = w.concat(dim, inns);
 
-  x.save();
+  x = x.save();
 
   int nloc = 3;
   random_placement_t random_placement { {1, maxpart}, nloc };
@@ -826,8 +826,8 @@ void main13() {
   id_t x = w.concat(1, {a,b});
   id_t y = w.concat(0, {a,c});
 
-  x.save();
-  y.save();
+  x = x.save();
+  y = y.save();
 
   graph_t g = w.get_graph();
 
@@ -915,7 +915,7 @@ void test_random_goofy_ff() {
   y = y.to_complex();
   y = y.to_real();
 
-  y.save();
+  y = y.save();
 
   int nloc = 3;
   random_placement_t random_placement { {1, 10}, nloc };
@@ -960,7 +960,7 @@ void test_with_complex_matmul() {
   out = writer.add(out, out);
   sames.push_back(out.get_id());
 
-  out.save();
+  out = out.save();
 
   map<int,dbuffer_t> inns;
   for(id_t id: vector<id_t>{lhs, rhs}) {
@@ -1133,7 +1133,7 @@ void main_subset(int which) {
   } else if(which == 3) {
     id_t y = x.view({{30,8}, {5}});
     id_t z = y.subset({ _all{}, _rng{0,2} });
-    z.save();
+    z = z.save();
   } else {
     throw std::runtime_error("main subset invalid which");
   }

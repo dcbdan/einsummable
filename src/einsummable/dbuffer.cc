@@ -72,27 +72,53 @@ void dbuffer_t::random(string b, string e) {
   }
 }
 
-dbuffer_t dbuffer_t::copy() {
-  auto ret = make_dbuffer(dtype, nelem());
+dbuffer_t dbuffer_t::copy(optional<dtype_t> maybe_dst) {
+  dtype_t const& src = dtype;
+  dtype_t        dst = maybe_dst ? maybe_dst.value() : src ;
 
-  if(dtype == dtype_t::f16) {
+  auto ret = make_dbuffer(dst, nelem());
+
+  if(src == dtype_t::f16) {
     auto inn = f16();
-    auto out = ret.f16();
-    std::copy(inn, inn + nelem(), out);
-  } else if(dtype == dtype_t::f32) {
+    if(dst == dtype_t::f16) {
+      auto out = ret.f16(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f32) {
+      auto out = ret.f32(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f64) {
+      auto out = ret.f64(); std::copy(inn, inn + nelem(), out);
+    } else {
+      throw std::runtime_error("copy: incorrect dst dtype");
+    }
+  } else if(src == dtype_t::f32) {
     auto inn = f32();
-    auto out = ret.f32();
-    std::copy(inn, inn + nelem(), out);
-  } else if(dtype == dtype_t::f64) {
+    if(dst == dtype_t::f16) {
+      auto out = ret.f16(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f32) {
+      auto out = ret.f32(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f64) {
+      auto out = ret.f64(); std::copy(inn, inn + nelem(), out);
+    } else {
+      throw std::runtime_error("copy: incorrect dst dtype");
+    }
+  } else if(src == dtype_t::f64) {
     auto inn = f64();
-    auto out = ret.f64();
-    std::copy(inn, inn + nelem(), out);
-  } else if(dtype == dtype_t::c64) {
+    if(dst == dtype_t::f16) {
+      auto out = ret.f16(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f32) {
+      auto out = ret.f32(); std::copy(inn, inn + nelem(), out);
+    } else if(dst == dtype_t::f64) {
+      auto out = ret.f64(); std::copy(inn, inn + nelem(), out);
+    } else {
+      throw std::runtime_error("copy: incorrect dst dtype");
+    }
+  } else if(src == dtype_t::c64) {
     auto inn = c64();
-    auto out = ret.c64();
-    std::copy(inn, inn + nelem(), out);
+    if(dst != dtype_t::c64) {
+      throw std::runtime_error("copying c64 to c64 only");
+    }
+    auto out = ret.c64(); std::copy(inn, inn + nelem(), out);
   } else {
-    throw std::runtime_error("should not reach fill");
+    throw std::runtime_error("should not reach copy");
   }
 
   return ret;
@@ -168,6 +194,20 @@ scalar_t dbuffer_t::sum() const {
   } else if(dtype == dtype_t::c64) {
     return scalar_t(
       std::accumulate(c64(), c64() + nelem(), std::complex<float>(0.0, 0.0)));
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+double dbuffer_t::sum_to_f64() const {
+  if(dtype == dtype_t::f16) {
+    return std::accumulate(f16(), f16() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::f32) {
+    return std::accumulate(f32(), f32() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::f64) {
+    return std::accumulate(f64(), f64() + nelem(), double(0.0));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("sum_to_f64 does not support complex");
   } else {
     throw std::runtime_error("should not reach");
   }

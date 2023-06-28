@@ -55,7 +55,7 @@ int main() {
     nw_prev = nw_next;
   }
 
-  x.save();
+  x = x.save();
 
   graph_t const& graph = writer.get_graph();
 

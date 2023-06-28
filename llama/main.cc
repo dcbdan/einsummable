@@ -49,7 +49,7 @@ void test_rms_norm() {
   tensor_t x = writer.input(shape_x, dtype);
   tensor_t y = rms_norm.forward(x);
 
-  y.save();
+  y = y.save();
 
   map<int, dbuffer_t> inputs {
     { x.get_id(), buffer_x },
@@ -203,7 +203,7 @@ void test_rotary_embedding() {
   tensor_t freqs_cis = writer.input({dx,dy/2}, dtype_t::c64);
 
   tensor_t y = attention_t::_apply_rotary_embedding(writer, x, freqs_cis);
-  y.save();
+  y = y.save();
 
   map<int, dbuffer_t> inputs {
     { x.get_id(), buffer_x },
@@ -279,7 +279,7 @@ void test_ff() {
     full_dim_t::singleton(dim),
     hidden);
   tensor_t y = ff.forward(x);
-  y.save();
+  y = y.save();
 
   map<int, dbuffer_t> inputs {
     { x.get_id(), buffer_x },
@@ -307,10 +307,12 @@ int main() {
 
   graph_writer_t writer;
 
-  auto model = transformer_t(&writer, "name", args);
-
   uint64_t bsz = 3;
   uint64_t seq_len = 17;
+
+  args.batch_size = bsz;
+
+  auto model = transformer_t(&writer, args, 0);
 
   // read bsz and seq_len and input input tensor
   auto input_input = [&]() {
