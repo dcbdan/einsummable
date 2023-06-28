@@ -528,10 +528,36 @@ memgraph_make_state_t::memgraph_make_state_t(
     allocators(as),
     _group(0)
 {
-  remaining_usage_counts.reserve(taskgraph.nodes.size());
+  remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
+
+  // We may have an einsummable y = x + x. In this case,
+  // x gets used once by y.
+  //
+  // We may also have  a partialize
+  //   y = touch from the left  side of x
+  //   y = touch from the right side of x
+  // In this case, x gets used twice in the formation of y,
+  // once for each touch.
+
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
-    remaining_usage_counts.push_back(node.outs.size());
+    if(node.op.is_partialize()) {
+      auto const& partialize = node.op.get_partialize();
+      // each touch incurs a usage, even if there are multiple touches
+      // from the sasme input
+      for(auto const& [inn,_]: partialize.as_touches_from_flat()) {
+        remaining_usage_counts[inn] += 1;
+      }
+    } else {
+      set<int> inns = node.op.inputs();
+      // for input nodes, inns is empty
+      // for move nodes, there is only one input
+      // for apply nodes, we can't double count like x in y = x + x,
+      //   so inns being a set is desired
+      for(auto const& inn: inns) {
+        remaining_usage_counts[inn] += 1;
+      }
+    }
   }
 }
 
@@ -852,10 +878,13 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
       }
     }
   }
-  // TODO: if the node is a partialize that only has
+  // TODO: If the node is a partialize that only has
   //       one input, and that input is the same size as the output,
   //       and it's not a save, and it has a singleton usage,
-  //       the input can be donated
+  //       the input can be donated.
+  //
+  //       If the node is a partial reduction,
+  //       is it even clear which one comes first?
 
   if(!did_get_donation) {
     int loc = node.op.out_loc();
