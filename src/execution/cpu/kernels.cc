@@ -1265,6 +1265,7 @@ void batch_matrix_multiply(
 {
   if(nb == 1) {
     matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
+    return;
   }
 
   uint8_t      * out = (uint8_t      *)_out;

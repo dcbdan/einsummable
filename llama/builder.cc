@@ -210,6 +210,28 @@ void builder_t::transform_from_prev(map<int, buffer_t>& data) const
   data = ret;
 }
 
+void builder_t::print_info() const {
+  std::cout << "start_pos " << start_pos << std::endl;
+  std::cout << "weight ids: " << std::endl;
+  for(auto const& [name, tinfo]: weights) {
+    std::cout << "  " << name << " " << tinfo.tids.get() << std::endl;
+  }
+  std::cout << "freqs_cis " << freqs_cis.tids.get() << std::endl;
+  std::cout << "embeddings " << embeddings.tids.get() << std::endl;
+  if(prev_kv) {
+    std::cout << "prev_kv: " << std::endl;
+    for(auto const& [k,v]: prev_kv.value()) {
+      std::cout << "  " << "kv: " << k.tids.get() << ", " << v.tids.get() << std::endl;
+    }
+  }
+  if(next_kv) {
+    std::cout << "next_kv: " << std::endl;
+    for(auto const& [k,v]: next_kv.value()) {
+      std::cout << "  " << "kv: " << k.tids.get() << ", " << v.tids.get() << std::endl;
+    }
+  }
+}
+
 void builder_t::same_placement_convert(
   map<int, int>& prev_to_new,
   tinfo_t const& prev_info,

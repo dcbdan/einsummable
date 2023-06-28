@@ -477,6 +477,26 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
+vtensor_t<int> append_tokens_with_best(
+  vtensor_t<int> const& prev_tokens, // batch by seqlen
+  vtensor_t<int> const& best_n) // batch by topn ; only use the first column
+{
+  auto block_shape = prev_tokens.get_shape();
+  int bsz = block_shape[0];
+  int seqlen = block_shape[1];
+
+  vtensor_t<int> ret({bsz, seqlen+1});
+  for(int b = 0; b != bsz;    ++b) {
+    int s = 0;
+    for(s = 0; s != seqlen; ++s) {
+      ret.at({b,s}) = prev_tokens.at({b,s});
+    }
+    ret.at({b,s}) = best_n.at({b,0});
+  }
+
+  return ret;
+}
+
 void main_(int argc, char** argv) {
   if(argc != 2) {
     throw std::runtime_error("usage: filename");
@@ -493,47 +513,53 @@ void main_(int argc, char** argv) {
     return buffer;
   };
 
-  // prompts = [
-  //   # For these prompts, the expected answer is the natural continuation of the prompt
-  //   "I believe the meaning of life is",
-  //   "Simply put, the theory of relativity states that ",
-  //   "Building a website can be done in 10 simple steps:\n",
-  //   """Translate English to French:
-  //      sea otter => loutre de mer
-  //      plush girafe => girafe peluche
-  //      cheese =>"""
-  // ]
+  //// prompts = [
+  ////   # For these prompts, the expected answer is the natural continuation of the prompt
+  ////   "I believe the meaning of life is",
+  ////   "Simply put, the theory of relativity states that ",
+  ////   "Building a website can be done in 10 simple steps:\n",
+  ////   """Translate English to French:
+  ////      sea otter => loutre de mer
+  ////      plush girafe => girafe peluche
+  ////      cheese =>"""
+  //// ]
+  //vtensor_t<int> tokens(
+  //   {4,8},
+  //   {1,  306, 4658,  278, 6593,  310, 2834, 338,
+  //    1, 3439,17632, 1925,29892,  278, 6368, 310,
+  //    1,17166,  263, 4700,  508,  367, 2309, 297,
+  //    1, 4103, 9632, 4223,  304, 5176,29901,  13});
+
   vtensor_t<int> tokens(
-     {4,8},
-     {1,  306, 4658,  278, 6593,  310, 2834, 338,
-      1, 3439,17632, 1925,29892,  278, 6368, 310,
-      1,17166,  263, 4700,  508,  367, 2309, 297,
-      1, 4103, 9632, 4223,  304, 5176,29901,  13});
+     {1,8},
+     {1,  306, 4658,  278, 6593,  310, 2834, 338});
 
   uint64_t bsz    = tokens.get_shape()[0];
   uint64_t seqlen = tokens.get_shape()[1];
 
   auto args = model_args_t::llama_7B(bsz);
 
-  builder_t build_first_token = builder_t::make_first_token(args, seqlen);
+  builder_t builder = builder_t::make_first_token(args, seqlen);
+
+  //builder.print_info();
 
   // need all weights, freqcis, embeddings, mask
 
   map<int, buffer_t> data;
-  for(auto const& [name, tinfo]: build_first_token.weights) {
+  for(auto const& [name, tinfo]: builder.weights) {
     buffer_t w = reader(name);
     w = convert_f16_to_default(w);
     repartition_into_map_single_loc(data, tinfo, w);
   }
 
-  if(build_first_token.mask) {
-    auto const& tinfo = build_first_token.mask.value();
+  if(builder.mask) {
+    auto const& tinfo = builder.mask.value();
     buffer_t mask = transformer_t::form_start_mask(seqlen).data;
     repartition_into_map_single_loc(data, tinfo, mask);
   }
 
   {
-    auto const& tinfo = build_first_token.freqs_cis;
+    auto const& tinfo = builder.freqs_cis;
     buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
     repartition_into_map_single_loc(data, tinfo, freqs_cis);
   }
@@ -549,13 +575,13 @@ void main_(int argc, char** argv) {
       embedding_matrix,
       tokens).data;
 
-    auto const& tinfo = build_first_token.embeddings;
+    auto const& tinfo = builder.embeddings;
     repartition_into_map_single_loc(data, tinfo, embeddings);
   }
 
   kernel_manager_t kernel_manager;
 
-  for(auto const& node: build_first_token.taskgraph.nodes) {
+  for(auto const& node: builder.taskgraph.nodes) {
     if(node.op.is_apply()) {
       auto const& e = node.op.get_apply().einsummable;
       auto maybe = kernel_manager.build(e);
@@ -566,21 +592,74 @@ void main_(int argc, char** argv) {
   }
 
   settings_t settings {
-    .num_apply_runner = 1,
-    .num_touch_runner = 1, // subsets use touch kernels
+    .num_apply_runner = 8,
+    .num_touch_runner = 4, // subsets use touch kernels
     .num_send_runner = 0,
     .num_recv_runner = 0,
-    .num_apply_kernel_threads = 12
+    .num_apply_kernel_threads = 1 // 12
   };
 
-  execute(build_first_token.taskgraph, settings, kernel_manager, nullptr, data);
+  execute(builder.taskgraph, settings, kernel_manager, nullptr, data);
 
-  dbuffer_t scores = unpartitioned_from_map_single_loc(data, build_first_token.scores);
+  //for(auto const& [tid, buffer]: data) {
+  //  DOUT(tid << "  " << dbuffer_t(dtype_t::f16, buffer).sum_to_f64());
+  //}
 
-  uint64_t top_n = 5;
-  vtensor_t<int> top_choices = get_top_choices(
-    scores, bsz, args.vocab_size, top_n);
-  DOUT(top_choices.get());
+  {
+    dbuffer_t scores = unpartitioned_from_map_single_loc(data, builder.scores);
+
+    uint64_t top_n = 5;
+    vtensor_t<int> top_choices = get_top_choices(
+      scores, bsz, args.vocab_size, top_n);
+    DOUT(top_choices.get());
+
+    tokens = vtensor_t<int>({int(bsz), 1});
+    for(int i = 0; i != bsz; ++i) {
+      tokens.at({i, 0}) = top_choices.at({i, 0});
+    }
+  }
+
+  builder = builder_t::make_next_token(builder);
+
+  //builder.print_info();
+
+  builder.transform_from_prev(data);
+
+  {
+    buffer_t embeddings = lookup_embeddings(
+      args.vocab_size,
+      args.dim,
+      embedding_matrix,
+      tokens).data;
+
+    auto const& tinfo = builder.embeddings;
+    repartition_into_map_single_loc(data, tinfo, embeddings);
+  }
+
+  for(auto const& node: builder.taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& e = node.op.get_apply().einsummable;
+      auto maybe = kernel_manager.build(e);
+      if(!maybe) {
+        throw std::runtime_error("could not build a kernel!");
+      }
+    }
+  }
+
+  execute(builder.taskgraph, settings, kernel_manager, nullptr, data);
+
+  {
+    dbuffer_t scores = unpartitioned_from_map_single_loc(data, builder.scores);
+
+    uint64_t top_n = 5;
+    vtensor_t<int> top_choices = get_top_choices(
+      scores, bsz, args.vocab_size, top_n);
+    DOUT(top_choices.get());
+  }
+
+  //for(auto const& [tid, buffer]: data) {
+  //  DOUT(tid << "  " << dbuffer_t(dtype_t::f16, buffer).sum_to_f64());
+  //}
 }
 
 int main(int argc, char** argv) {

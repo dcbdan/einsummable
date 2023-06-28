@@ -2,6 +2,17 @@
 
 #include "../src/base/hrect.h"
 
+#define SAVE_TENSOR(t, x) \
+  [&] { \
+    auto ret = t.save(); \
+    DLINEOUT(x << " | tensor id " << ret.get_id()); \
+    return ret; \
+  }()
+#define NO_SAVE_TENSOR(t, x) \
+  [&] { \
+    return t; \
+  }()
+
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {

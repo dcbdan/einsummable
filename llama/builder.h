@@ -16,6 +16,8 @@ struct builder_t {
 
   void transform_from_prev(map<int, buffer_t>& data) const;
 
+  void print_info() const;
+
   struct tinfo_t {
     dtype_t dtype;
     placement_t placement;
