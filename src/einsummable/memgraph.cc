@@ -19,7 +19,7 @@ allocator_settings_t allocator_settings_t::default_settings()
 {
   return allocator_settings_t {
     .strat = allocator_strat_t::lowest_dependency,
-    .alignment = 0
+    .alignment_power = 0
   };
 }
 
@@ -27,7 +27,7 @@ allocator_settings_t allocator_settings_t::gpu_alignment_settings()
 {
   return allocator_settings_t {
     .strat = allocator_strat_t::lowest_dependency,
-    .alignment = 4
+    .alignment_power = 4
   };
 }
 
@@ -991,7 +991,7 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
-  : strat(s.strat), alignment(s.alignment)
+  : strat(s.strat), alignment(s.alignment_power)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");

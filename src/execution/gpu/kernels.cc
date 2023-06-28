@@ -157,7 +157,7 @@ build_einsummable(einsummable_t const& e_)
   throw std::runtime_error(err_msg);
 }
 
-void build_contraction(
+std::vector<cutensorTensorDescriptor_t> build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,
   einsummable_t const& e_)
@@ -240,11 +240,11 @@ void build_contraction(
 
   // get the memory pointers to the tensors
   // TODO: WE NEED TO CHECK WHAT IS THE CORRECT ALIGNMENT
-  // USED TO BE 16, BUT 3d MATMUL FAILS WITH (1, 1, 1, a, b, 2b) settings
+  // USED TO BE 16, BUT 3d MATMUL FAILS WITH (1, 1, 1, a, b, 2b) settings (a needs to be odd as well)
   // THIS NEEDS TO BE CHECKED MORE CAREFULLY
-  uint32_t alignmentRequirementA = 4;
-  uint32_t alignmentRequirementB = 4;
-  uint32_t alignmentRequirementC = 4;
+  uint32_t alignmentRequirementA = 16;
+  uint32_t alignmentRequirementB = 16;
+  uint32_t alignmentRequirementC = 16;
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
@@ -258,7 +258,7 @@ void build_contraction(
       &descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
 
-  // return {descA, descB, descC};
+  return {descC, descA, descB};
 }
 
 void execute_contraction(

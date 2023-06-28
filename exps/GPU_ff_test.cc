@@ -86,7 +86,7 @@ int main() {
     nw_prev = nw_next;
   }
 
-  x.save();
+  auto result = x.save();
 
   graph_t const& graph = writer.get_graph();
 

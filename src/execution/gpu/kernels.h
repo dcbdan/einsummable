@@ -8,6 +8,7 @@
 
 #include <cuda_runtime.h>
 #include <cutensor.h>
+#include <vector>
 
 using touch_kernel_t = std::function<
     void(cudaStream_t, float*, float const*)
@@ -28,7 +29,7 @@ build_einsummable(einsummable_t const& einsummable);
 // the einsummable is not a contraction
 // TODO: right now it has to return the descriptors to check alignment
 // but there might be a better way to do this
-void build_contraction(
+std::vector<cutensorTensorDescriptor_t> build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,
   einsummable_t const& einsummable);

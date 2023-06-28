@@ -89,6 +89,9 @@ struct gpu_execute_state_t
 
     std::unordered_map<einsummable_t, cutensorContractionDescriptor_t> einsum_to_contraction;
 
+    // FOR DEBUGGING ALIGNMENT
+    std::unordered_map<einsummable_t, std::vector<cutensorTensorDescriptor_t>> contraction_alignment;
+
     // synchronization variables used by the callback function
     std::mutex m;
     std::condition_variable cv;
@@ -136,7 +139,8 @@ struct gpu_execute_state_t
                         cutensorContractionDescriptor_t desc;
                         // when building the contraction we already merge
                         // the adjacent dims so we don't need to do it here
-                        build_contraction(&desc, handle, my_einsum_merged);
+                        auto tensor_descriptors = build_contraction(&desc, handle, my_einsum_merged);
+                        contraction_alignment[my_einsum_merged] = tensor_descriptors;
                         // add the contraction to the map
                         einsum_to_contraction[my_einsum_merged] = desc;
                     }

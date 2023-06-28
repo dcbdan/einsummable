@@ -31,7 +31,7 @@ enum class allocator_strat_t { lowest_dependency, first };
 
 struct allocator_settings_t {
   allocator_strat_t strat;
-  uint8_t alignment; // 2^alignment
+  uint8_t alignment_power; // 2^alignment
 
   static allocator_settings_t default_settings();
 
@@ -66,7 +66,7 @@ struct memgraph_t {
     vector<int> const& which_cache,
     vector<uint64_t> mem_sizes = {},
     // NOTE: this got changed to satisfy the GPU alignment
-    allocator_settings_t settings = allocator_settings_t::default_settings());
+    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
 
   void print_graphviz(std::ostream& out) const;
 
@@ -287,7 +287,7 @@ struct allocator_t {
 
   allocator_t(
     uint64_t memsize_t,
-    allocator_settings_t settings = allocator_settings_t::default_settings());
+    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
 
   // Allocate this much memory if possible and return
   // the offset and all dependents. If there is not

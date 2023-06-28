@@ -49,6 +49,19 @@ void printFloatGPU(const float* gpu_ptr, int count) {
   free(cpu_ptr);
 }
 
+void checkAlignment(cutensorHandle_t* handle, float* ptr, cutensorTensorDescriptor_t desc){
+    uint32_t alignmentRequirement;
+    HANDLE_ERROR( cutensorGetAlignmentRequirement( handle,
+              ptr,
+              &desc,
+              &alignmentRequirement) );
+              
+    if (alignmentRequirement != 16){
+        // print the alignment requirement
+        std::cout << "*** Alignment requirement mismatch; alignment: " << alignmentRequirement << std::endl;
+    }
+}
+
 void printContractionInfo(int node_idx, memgraph_t const& memgraph, float* memory_base_ptr, int num_elems){
     auto node = memgraph.nodes[node_idx];
     auto memory_vector = node.op.get_apply().mems;
@@ -117,7 +130,8 @@ vector<int> node_update(std::map<int, int>& dependency_count, const memgraph_t& 
         // at this point we know that the it's not the first time we see this touch's group id
         auto group_id = node.op.get_apply().group;
         // remove the group id from the executing list since we are done
-        // std::cout << "Removing group id from executing list" << std::endl;
+        std::cout << "Removing group id from executing list" << std::endl;
+        // TODO: removing could go wrong
         group_id_executing.erase(group_id);
         // find if there are any other nodes in the same group that are waiting for this touch to finish
         if(groupID_to_nodeIDX[group_id].size() != 0) {
@@ -326,6 +340,17 @@ void gpu_execute_state_t::run() {
                             throw std::runtime_error
                                 ("Error: contraction descriptor not found in the map of contraction plans.");
                         }
+
+                        // check the alignment
+                        auto tensor_descriptors_iter = contraction_alignment.find(my_einsum_merged);
+                        if (tensor_descriptors_iter == contraction_alignment.end()) {
+                            throw std::runtime_error
+                                ("Error: tensor descriptors not found in the map of contraction alignment.");
+                        }
+                        auto tensor_descriptors = tensor_descriptors_iter->second;
+                        checkAlignment(handle, offset_increment(memory_base_ptr, memory_vector[0].offset), tensor_descriptors[0]);
+                        checkAlignment(handle, offset_increment(memory_base_ptr, memory_vector[1].offset), tensor_descriptors[1]);
+                        checkAlignment(handle, offset_increment(memory_base_ptr, memory_vector[2].offset), tensor_descriptors[2]);
                         
                         auto contraction_descriptor = einsum_iter->second;
                         execute_contraction(stream, handle, &contraction_descriptor, 
