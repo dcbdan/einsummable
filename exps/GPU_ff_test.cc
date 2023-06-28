@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <memory>
 
 void mem_check(memgraph_t const& m){
@@ -106,11 +107,13 @@ int main() {
   int np = taskgraph.num_locs();
   vector<int> compute_loc_to_cache(np, 0);
 
+  std::cout << "Generating memgraph now" << std::endl;
+
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
     taskgraph, compute_loc_to_cache, { 1000000 });
 
   // print the number of nodes in the graph
-    std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
+  std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
     // print the input and output of every node
     // for(int i = 0; i < memgraph.nodes.size(); ++i) {
     //   std::cout << "Node " << i << " has input: ";
@@ -124,10 +127,11 @@ int main() {
     //   std::cout << std::endl;
     // }
 
-    std::ofstream f("deepff.gv");
-    memgraph.print_graphviz(f);
-    mem_check(memgraph);
+  std::ofstream f("deepff.gv");
+  memgraph.print_graphviz(f);
+  mem_check(memgraph);
+  std::cout << "Starting execution" << std::endl;
     
-    uint64_t buffer_size = 0;
-    check_correctness(memgraph, false);
+  execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
+    // check_correctness(memgraph, false);
 }

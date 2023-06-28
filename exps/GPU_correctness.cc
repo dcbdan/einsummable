@@ -8,6 +8,8 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
+#include <sys/types.h>
 
 void check_correctness(memgraph_t memgraph, bool debug = false){
     if (debug) {
@@ -89,6 +91,7 @@ void contractionTest(int di, int dj, int dk){
     auto buffer_size = num_elems * sizeof(float);
     // create the einsummable
     auto einsummable = einsummable_t::from_matmul(di, dj, dk);
+    einsummable = einsummable.merge_adjacent_dims();
     // create two input dbuffers
     dbuffer_t input1 = make_dbuffer(dtype_t::f32, di * dj);
     dbuffer_t input2 = make_dbuffer(dtype_t::f32, dj * dk);
@@ -104,10 +107,10 @@ void contractionTest(int di, int dj, int dk){
     }
 
     // print inputs
-    std::cout << "Input 1: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float*>(input1.data->data), di * dj);
-    std::cout << "Input 2: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float*>(input2.data->data), dj * dk);
+    // std::cout << "Input 1: " << std::endl;
+    // printFloatCPU(reinterpret_cast<const float*>(input1.data->data), di * dj);
+    // std::cout << "Input 2: " << std::endl;
+    // printFloatCPU(reinterpret_cast<const float*>(input2.data->data), dj * dk);
 
     dbuffer_t cpu_out = reference_einsummable(einsummable, {input1, input2});
 
@@ -137,14 +140,14 @@ void contractionTest(int di, int dj, int dk){
                             gpu_input2);
     
     // print GPU inputs and output
-    std::cout << "GPU input 1: " << std::endl;
-    printFloatGPU(reinterpret_cast<const float*>(gpu_input1), di * dj);
-    std::cout << "GPU input 2: " << std::endl;
-    printFloatGPU(reinterpret_cast<const float*>(gpu_input2), dj * dk);
-    std::cout << "GPU output: " << std::endl;
-    printFloatGPU(reinterpret_cast<const float*>(gpu_output), di * dk);
+    // std::cout << "GPU input 1: " << std::endl;
+    // printFloatGPU(reinterpret_cast<const float*>(gpu_input1), di * dj);
+    // std::cout << "GPU input 2: " << std::endl;
+    // printFloatGPU(reinterpret_cast<const float*>(gpu_input2), dj * dk);
+    // std::cout << "GPU output: " << std::endl;
+    // printFloatGPU(reinterpret_cast<const float*>(gpu_output), di * dk);
 
-    dbuffer_t gpu_out = make_dbuffer(dtype_t::f32, num_elems);
+    dbuffer_t gpu_out = make_dbuffer(dtype_t::f32, std::floor(cpu_out.data->size / sizeof(float)));
     if(cudaMemcpy(gpu_out.data->data, gpu_output, cpu_out.data->size,
         cudaMemcpyDeviceToHost) != cudaSuccess) {
         throw std::runtime_error("cudaMemcpy");
@@ -161,8 +164,48 @@ void contractionTest(int di, int dj, int dk){
 
     if (!result){
         std::cout << "Expected result: " << std::endl;
-        printFloatCPU(reinterpret_cast<const float*>(cpu_out.data->data), di * dk);
+        printFloatCPU(reinterpret_cast<const float*>(cpu_out.data->data), std::floor(cpu_out.data->size / sizeof(float)));
         std::cout << "Actual result: " << std::endl;
-        printFloatCPU(reinterpret_cast<const float*>(gpu_out.data->data), di * dk);
+        printFloatCPU(reinterpret_cast<const float*>(gpu_out.data->data), std::floor(gpu_out.data->size / sizeof(float)));
     }
+}
+
+void alignmentTest(int di, int dj, int dk){
+    int num_elems = di * dj + dj * dk + di * dk;
+    int total_size = num_elems * sizeof(float) * 200;
+    auto my_allocator = allocator_t(total_size, allocator_settings_t::gpu_alignment_settings());
+
+    // randomly initialize the inputs
+    dbuffer_t input1 = make_dbuffer(dtype_t::f32, di * dj);
+    dbuffer_t input2 = make_dbuffer(dtype_t::f32, dj * dk);
+    dbuffer_t output = make_dbuffer(dtype_t::f32, di * dk);
+    input1.random("-1.0", "1.0");
+    input2.random("-1.0", "1.0");
+
+    auto input_mem1 = my_allocator.allocate(input1.data->size);
+    auto offset_input1 = std::get<0>(input_mem1);
+    auto input_mem2 = my_allocator.allocate(input2.data->size);
+    auto offset_input2 = std::get<0>(input_mem2);
+    auto output_mem = my_allocator.allocate(output.data->size);
+    // print the offsets
+    std::cout << "Input 1 offset: " << std::get<0>(input_mem1) << std::endl;
+    // print the offsets
+    std::cout << "Input 2 offset: " << std::get<0>(input_mem2) << std::endl;
+    // print the offsets
+    std::cout << "Output offset: " << std::get<0>(output_mem) << std::endl;
+
+    // cuda malloc
+    auto gpu_ptr = gpu_allocate_memory(total_size);
+
+    auto einsummable = einsummable_t::from_matmul(di, dj, dk);
+    einsummable = einsummable.merge_adjacent_dims();
+    cutensorHandle_t* handle;
+    HANDLE_ERROR( cutensorCreate(&handle) );
+    cutensorContractionDescriptor_t desc;
+    build_contraction(&desc, handle, einsummable);
+    cudaStream_t stream = cuda_create_stream();
+    execute_contraction(stream, handle, &desc, offset_increment(gpu_ptr, std::get<0>(output_mem)),
+                            offset_increment(gpu_ptr, std::get<0>(output_mem)), 
+                            offset_increment(gpu_ptr, std::get<0>(output_mem)));
+
 }

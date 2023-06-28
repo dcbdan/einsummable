@@ -66,7 +66,7 @@ struct memgraph_t {
     vector<int> const& which_cache,
     vector<uint64_t> mem_sizes = {},
     // NOTE: this got changed to satisfy the GPU alignment
-    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
+    allocator_settings_t settings = allocator_settings_t::default_settings());
 
   void print_graphviz(std::ostream& out) const;
 

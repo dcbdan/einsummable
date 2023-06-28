@@ -30,9 +30,9 @@ float* offset_increment(const float* ptr, int offset) {
 }
 
 // USE THIS IF THE UNIT OF OFFSET IS FLOAT
-// float* offset_increment(float* ptr, int offset) {
-//     return ptr + offset;
-// }
+float* float_increment(float* ptr, int offset) {
+    return ptr + offset;
+}
 
 // prints float starting from ptr with count number of elements
 void printFloatCPU(const float* cpu_ptr, int count) {
@@ -62,6 +62,21 @@ void printContractionInfo(int node_idx, memgraph_t const& memgraph, float* memor
     printFloatGPU(offset_increment(memory_base_ptr , memory_vector[2].offset), num_elems);
     std::cout << "Output: ";
     printFloatGPU(offset_increment(memory_base_ptr , memory_vector[0].offset), num_elems);
+}
+void checkContractionOffset(int node_idx, memgraph_t const& memgraph){
+    auto node = memgraph.nodes[node_idx];
+    auto memory_vector = node.op.get_apply().mems;
+    auto output_offset = memory_vector[0].offset;
+    auto input1_offset = memory_vector[1].offset;
+    auto input2_offset = memory_vector[2].offset;
+    // check if the offsets are divisible by 4
+    if (output_offset % 4 != 0 || input1_offset % 4 != 0 || input2_offset % 4 != 0) {
+        // print the offsets
+        std::cout << "Offset 1: " << input1_offset << std::endl;
+        std::cout << "Offset 2: " << input2_offset << std::endl;
+        std::cout << "Offset 3: " << output_offset << std::endl;
+        throw std::runtime_error("Offset is not divisible by 4");
+    }
 }
 
 void init_value(float* ptr, int count, float value) {
@@ -186,7 +201,7 @@ struct callback_data_t {
       std::unique_lock lk(m);
       auto node = (*memgraph).nodes[node_idx];
     //   if (node.op.is_contraction()){
-    //     printContractionInfo(node_idx, *memgraph, mem_ptr, 4);
+    //     std::cout << "Finished executing contraction node " << node_idx << std::endl;
     //   }
       // update the queue since this node is finished
       auto new_nodes = node_update(*dependency_count, *memgraph, node_idx, 
@@ -242,7 +257,6 @@ void gpu_execute_state_t::run() {
             // remove the first element from the queue
             pending_queue.pop();
             // execute the node
-            printFloatGPU(memory_base_ptr, 12);
             if (node.op.is_input() || node.op.is_del() || node.op.is_partialize()) {
                 std::unique_lock lk(m);
                 // do nothing but update the memgraph execution since that node is finished
@@ -300,6 +314,9 @@ void gpu_execute_state_t::run() {
                     auto my_einsummable = node.op.get_einsummable();
                     // CASE: CONTRACTION
                     if (my_einsummable.is_contraction()) {
+                        // do a check of the offsets
+                        checkContractionOffset(node_idx, memgraph);
+                        // printContractionInfo(node_idx, memgraph, memory_base_ptr, 50);
                         // merge the adjacent dims
                         // std::cout << "Got a contraction node" << std::endl;
                         einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();

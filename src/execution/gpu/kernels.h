@@ -26,6 +26,8 @@ build_einsummable(einsummable_t const& einsummable);
 
 // build a cutensor contraction description; throw an error if
 // the einsummable is not a contraction
+// TODO: right now it has to return the descriptors to check alignment
+// but there might be a better way to do this
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,

@@ -50,6 +50,8 @@ void init_value(float* ptr, int count, float value);
 
 void printFloatCPU(const float* cpu_ptr, int count);
 void printFloatGPU(const float* gpu_ptr, int count);
+float* offset_increment(const float* ptr, int offset);
+float* float_increment(float* ptr, int offset);
 
 cudaStream_t cuda_create_stream();
 

@@ -163,19 +163,15 @@ void build_contraction(
   einsummable_t const& e_)
 {
   einsummable_t e = e_.merge_adjacent_dims();
-
   if(!e.is_contraction()) {
     throw std::runtime_error("build_contraction must be given a contraction");
   }
-
   //Assuming we are doing C = A contraction B
-
   // if we have mhkn, ukvh -> munv
   // then we should have:
   //   std::vector<int> modeC{'m','u','n','v'};
   //   std::vector<int> modeA{'m','h','k','n'};
   //   std::vector<int> modeB{'u','k','v','h'};
-
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeB = e.inns[1];
   std::vector<int> modeC;
@@ -183,19 +179,24 @@ void build_contraction(
     modeC.push_back(i);
   }
 
+  // Cutensor is column major, so reverse the modes
+  std::reverse(modeA.begin(), modeA.end());
+  std::reverse(modeB.begin(), modeB.end());
+  std::reverse(modeC.begin(), modeC.end());
+
   int nmodeA = e.inns[0].size();
   int nmodeB = e.inns[1].size();
-
   //dimension of C
   int nmodeC = e.out_rank;
-
   // CUDA types
   cudaDataType_t typeA = CUDA_R_32F;
   cudaDataType_t typeB = CUDA_R_32F;
   cudaDataType_t typeC = CUDA_R_32F;
   cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_32F;
-
   // extent = size of each dimension
+  //
+  // Since modeA/B/C are reversed, this shape will be reversed,
+  // which is the column major shape
   vector<int64_t> extent_A;
   for(auto const& mode: modeA) {
     extent_A.push_back(e.join_shape[mode]);
@@ -204,12 +205,10 @@ void build_contraction(
   for(auto const& mode: modeB) {
     extent_B.push_back(e.join_shape[mode]);
   }
-
   vector<int64_t> extent_C;
   for(auto const& mode: modeC) {
     extent_C.push_back(e.join_shape[mode]);
   }
-
   // Set up Tensor Descriptors for A, B, and C
   cutensorTensorDescriptor_t descA;
   handle_cutensor_error(
@@ -220,7 +219,6 @@ void build_contraction(
       extent_A.data(),
       NULL,/*stride*/
       typeA, CUTENSOR_OP_IDENTITY ) );
-
   cutensorTensorDescriptor_t descB;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
@@ -230,7 +228,6 @@ void build_contraction(
       extent_B.data(),
       NULL,/*stride*/
       typeB, CUTENSOR_OP_IDENTITY ) );
-
   cutensorTensorDescriptor_t descC;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
@@ -242,10 +239,12 @@ void build_contraction(
       typeC, CUTENSOR_OP_IDENTITY ) );
 
   // get the memory pointers to the tensors
-  uint32_t alignmentRequirementA = 16;
-  uint32_t alignmentRequirementB = 16;
-  uint32_t alignmentRequirementC = 16;
-
+  // TODO: WE NEED TO CHECK WHAT IS THE CORRECT ALIGNMENT
+  // USED TO BE 16, BUT 3d MATMUL FAILS WITH (1, 1, 1, a, b, 2b) settings
+  // THIS NEEDS TO BE CHECKED MORE CAREFULLY
+  uint32_t alignmentRequirementA = 4;
+  uint32_t alignmentRequirementB = 4;
+  uint32_t alignmentRequirementC = 4;
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
@@ -258,6 +257,8 @@ void build_contraction(
       &descC, modeC.data(), alignmentRequirementC,
       &descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
+
+  // return {descA, descB, descC};
 }
 
 void execute_contraction(
@@ -267,7 +268,7 @@ void execute_contraction(
   float* out,
   float const* lhs,
   float const* rhs)
-{
+{ 
   typedef float floatTypeCompute;
   floatTypeCompute alpha = (floatTypeCompute)1.0f;
   floatTypeCompute beta  = (floatTypeCompute)0.0f;
