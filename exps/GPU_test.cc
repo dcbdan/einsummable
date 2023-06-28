@@ -57,8 +57,7 @@ int main(int argc, char** argv) {
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
         compute_loc_to_cache,
-        {},
-        { allocator_strat_t::lowest_dependency, 1 } );
+        {} );
     auto const& [_2, _3, memgraph] = _info1;
 
    
