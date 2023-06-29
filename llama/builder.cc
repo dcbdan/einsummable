@@ -53,6 +53,7 @@ builder_t::_make(
   model_args_t const& args,
   uint64_t start_pos,
   uint64_t seqlen,
+  std::function<vector<placement_t>(graph_t const&)> build_placements,
   bool make_last)
 {
   bool is_first = start_pos == 0;
@@ -86,8 +87,7 @@ builder_t::_make(
     }
   }
 
-  // TODO: will need to choose a proper placement
-  vector<placement_t> pls = writer.get_graph().make_singleton_placement();
+  vector<placement_t> pls = build_placements(writer.get_graph());
 
   auto const& [inns_g_to_t, saves_g_to_t, taskgraph] = taskgraph_t::make(
     writer.get_graph(), pls);
@@ -134,16 +134,18 @@ builder_t::_make(
     .next_kv                = std::move(next_kv),
     .mask                   = std::move(mask),
     .scores                 = m.make_save(scores),
-    .prev_tid_to_input_tids = std::nullopt
+    .prev_tid_to_input_tids = std::nullopt,
+    .build_placements       = build_placements
   };
 }
 
 builder_t
 builder_t::make_first_token(
   model_args_t const& args,
-  uint64_t seqlen)
+  uint64_t seqlen,
+  std::function<vector<placement_t>(graph_t const&)> build_pls)
 {
-  return _make(args, 0, seqlen, false);
+  return _make(args, 0, seqlen, build_pls, false);
 }
 
 builder_t
@@ -168,7 +170,7 @@ builder_t::make_next_token(
 
   uint64_t seqlen = 1;
 
-  builder_t ret = _make(args, start_pos, seqlen, make_last);
+  builder_t ret = _make(args, start_pos, seqlen, prev.build_placements, make_last);
 
   ret.prev_tid_to_input_tids = map<int,int>();
   map<int,int>& conversion = ret.prev_tid_to_input_tids.value();

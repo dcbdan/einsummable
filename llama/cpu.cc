@@ -11,6 +11,8 @@
 
 #include "../src/execution/cpu/execute.h"
 
+#include "../src/autoplace/autoplace.h"
+
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
@@ -243,24 +245,134 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
-vtensor_t<int> append_tokens_with_best(
-  vtensor_t<int> const& prev_tokens, // batch by seqlen
-  vtensor_t<int> const& best_n) // batch by topn ; only use the first column
-{
-  auto block_shape = prev_tokens.get_shape();
-  int bsz = block_shape[0];
-  int seqlen = block_shape[1];
+struct cluster_settings_t {
+  int num_nodes;
+  int num_threads_per_node;
+  uint64_t compute_per_thread;
+  uint64_t bandwidth;
+};
 
-  vtensor_t<int> ret({bsz, seqlen+1});
-  for(int b = 0; b != bsz;    ++b) {
-    int s = 0;
-    for(s = 0; s != seqlen; ++s) {
-      ret.at({b,s}) = prev_tokens.at({b,s});
+struct autoplace_settings_t {
+  int num_steps;
+  vector<double> betas;
+  bool do_balanced;
+  bool do_singleloc;
+};
+
+cluster_t make_cluster(cluster_settings_t settings)
+{
+  int      const& num_nodes            = settings.num_nodes;
+  int      const& num_threads_per_node = settings.num_threads_per_node;
+  uint64_t const& compute_per_thread   = settings.compute_per_thread;
+  uint64_t const& bandwidth            = settings.bandwidth;
+
+  using device_t = cluster_t::device_t;
+  using connection_t = cluster_t::connection_t;
+
+  // all workers compute kernels single threaded
+  auto f_cost = [compute_per_thread](einsummable_t const& e) {
+    uint64_t flops = product(e.join_shape);
+    double time = (1.0 / compute_per_thread) * flops;
+    return tuple<int,double>{1, time};
+  };
+
+  vector<device_t> devices(num_nodes, device_t(
+    num_threads_per_node,
+    f_cost));
+
+  vector<connection_t> connections;
+  for(int i = 0; i != num_nodes; ++i) {
+  for(int j = 0; j != num_nodes; ++j) {
+    if(i != j) {
+      connections.push_back(connection_t {
+        .bandwidth = bandwidth,
+        .src = i,
+        .dst = j
+      });
     }
-    ret.at({b,s}) = best_n.at({b,0});
+  }}
+
+  return cluster_t::make(devices, connections);
+}
+
+struct run_mcmc_t {
+  std::mutex m;
+  optional<tuple<double, vector<placement_t>>> best_option;
+
+  void operator()(mcmc_t && mcmc, int num_steps) {
+    for(int i = 0; i != num_steps; ++i) {
+      mcmc.step();
+    }
+
+    std::unique_lock lk(m);
+    if(!best_option) {
+      best_option = {mcmc.best_makespan, mcmc.best_placements};
+    } else {
+      auto const& [best_makespan, best_placements] = best_option.value();
+      if(mcmc.best_makespan < best_makespan) {
+        best_option = {mcmc.best_makespan, mcmc.best_placements};
+      }
+    }
+  }
+};
+
+vector<placement_t> solve(
+  graph_t const& graph,
+  cluster_settings_t cluster_settings,
+  autoplace_settings_t autoplace_settings)
+{
+  cluster_t cluster = make_cluster(cluster_settings);
+
+  run_mcmc_t runner;
+
+  vector<std::thread> threads;
+  for(auto const& beta: autoplace_settings.betas) {
+    if(autoplace_settings.do_balanced) {
+      threads.emplace_back([&]() {
+        runner(
+          mcmc_t::init_balanced(cluster, graph, beta),
+          autoplace_settings.num_steps);
+      });
+    }
+    if(autoplace_settings.do_singleloc) {
+      threads.emplace_back([&]() {
+        runner(
+          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          autoplace_settings.num_steps);
+      });
+    }
   }
 
-  return ret;
+  for(std::thread& thread: threads) {
+    thread.join();
+  }
+
+  auto const& [_0, pls] = runner.best_option.value();
+  return pls;
+}
+
+vector<placement_t> autoplace(graph_t const& graph) {
+  gremlin_t gremlin("autoplace");
+
+  uint64_t giga = 1e9;
+
+  cluster_settings_t cluster_settings {
+    .num_nodes = 1,
+    .num_threads_per_node = 24,
+    .compute_per_thread = 5*giga,
+    .bandwidth = 1*giga
+  };
+
+  autoplace_settings_t autoplace_settings {
+    .num_steps = 100,
+    .betas = {10000.0},
+    .do_balanced = true,
+    .do_singleloc = false
+  };
+
+  auto ret = solve(graph, cluster_settings, autoplace_settings);
+
+  return std::move(ret);
 }
 
 void main_(int argc, char** argv) {
@@ -304,9 +416,9 @@ void main_(int argc, char** argv) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 10;
+  int niter = 0;
 
-  builder_t builder = builder_t::make_first_token(args, seqlen);
+  builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
 
   // need all weights, freqcis, embeddings, mask
 
@@ -358,8 +470,8 @@ void main_(int argc, char** argv) {
   }
 
   settings_t settings {
-    .num_apply_runner = 12,
-    .num_touch_runner = 4, // subsets use touch kernels
+    .num_apply_runner = 24,
+    .num_touch_runner = 12, // subsets use touch kernels
     .num_send_runner = 0,
     .num_recv_runner = 0,
     .num_apply_kernel_threads = 1

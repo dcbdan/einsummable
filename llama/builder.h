@@ -6,7 +6,10 @@
 
 struct builder_t {
   static builder_t
-  make_first_token(model_args_t const& args, uint64_t seqlen);
+  make_first_token(
+    model_args_t const& args,
+    uint64_t seqlen,
+    std::function<vector<placement_t>(graph_t const&)> build_pls);
 
   static builder_t
   make_next_token(builder_t const& prev, bool make_last = false);
@@ -47,11 +50,14 @@ struct builder_t {
 
   // if not first
   optional<map<int, int>> prev_tid_to_input_tids;
+
+  std::function<vector<placement_t>(graph_t const&)> build_placements;
 private:
   static builder_t _make(
     model_args_t const& args,
     uint64_t start_pos,
     uint64_t seqlen,
+    std::function<vector<placement_t>(graph_t const&)> build_pls,
     bool make_last);
 
   static void same_placement_convert(

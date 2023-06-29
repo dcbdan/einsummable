@@ -102,8 +102,13 @@ mcmc_t mcmc_t::init_balanced(
 {
   construct_equal_placements_inplace(graph, eqs);
 
-  int nloc = cluster.devices.size();
-  vector<partition_t> parts = autopartition(graph, nloc, 4*nloc, eqs);
+  int ncompute = 0;
+  for(auto const& d: cluster.devices) {
+    ncompute += d.capacity;
+  }
+
+  uint64_t min_sizing = 1;
+  vector<partition_t> parts = autopartition(graph, min_sizing, ncompute, eqs);
 
   vector<placement_t> pls = load_balanced_placement(
     graph, parts, cluster.devices.size(), false);
@@ -126,6 +131,7 @@ bool mcmc_t::step() {
 
   if(makespan < best_makespan) {
     best_makespan = makespan;
+    //DOUT(best_makespan);
     best_placements = pls;
   }
 
