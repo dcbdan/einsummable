@@ -19,7 +19,7 @@ allocator_settings_t allocator_settings_t::default_settings()
 {
   return allocator_settings_t {
     .strat = allocator_strat_t::lowest_dependency,
-    .alignment = 0
+    .alignment_power = 0
   };
 }
 
@@ -983,7 +983,7 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
-  : strat(s.strat), alignment(s.alignment)
+  : strat(s.strat), alignment_power(s.alignment_power)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");
@@ -1010,7 +1010,7 @@ allocator_t::find_first_available(uint64_t size) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz  = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       for(; iter != blocks.end() && iter->available(); ++iter) {
         sz += iter->size();
         if(rem != 0 && sz > rem) {
@@ -1036,7 +1036,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       int inner_max_dep = -1;
       for(iter_t inner_iter = iter;
           inner_iter != blocks.end() && inner_iter->available();
@@ -1060,15 +1060,15 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
 }
 
 optional< tuple<uint64_t, vector<int>> >
-allocator_t::try_to_allocate(uint64_t size)
+allocator_t::try_to_allocate(uint64_t size_without_rem)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
   optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
   if(strat == allocator_strat_t::lowest_dependency) {
-    maybe_info = find_lowest_dependency_available(size);
+    maybe_info = find_lowest_dependency_available(size_without_rem);
   } else if(strat == allocator_strat_t::first) {
-    maybe_info = find_first_available(size);
+    maybe_info = find_first_available(size_without_rem);
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -1077,7 +1077,10 @@ allocator_t::try_to_allocate(uint64_t size)
 
     // collect the output information
     uint64_t offset = beg->beg;
-    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment);
+    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
+
+    uint64_t size = size_without_rem + (aligned_offset - offset);
+
     vector<int> deps;
     for(auto iter = beg; iter != end; ++iter) {
       if(!iter->dep) {
