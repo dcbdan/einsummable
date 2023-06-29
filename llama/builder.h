@@ -9,7 +9,7 @@ struct builder_t {
   make_first_token(model_args_t const& args, uint64_t seqlen);
 
   static builder_t
-  make_next_token(builder_t const& prev);
+  make_next_token(builder_t const& prev, bool make_last = false);
 
   bool is_first() const { return start_pos == 0; }
   bool is_last()  const { return !bool(next_kv); }
@@ -51,7 +51,8 @@ private:
   static builder_t _make(
     model_args_t const& args,
     uint64_t start_pos,
-    uint64_t seqlen);
+    uint64_t seqlen,
+    bool make_last);
 
   static void same_placement_convert(
     map<int, int>& prev_to_new,

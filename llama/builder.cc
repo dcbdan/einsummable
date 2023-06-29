@@ -52,10 +52,11 @@ builder_t
 builder_t::_make(
   model_args_t const& args,
   uint64_t start_pos,
-  uint64_t seqlen)
+  uint64_t seqlen,
+  bool make_last)
 {
   bool is_first = start_pos == 0;
-  bool is_last = start_pos + seqlen >= args.max_seq_len;
+  bool is_last = make_last || start_pos + seqlen >= args.max_seq_len;
 
   graph_writer_t writer;
 
@@ -142,11 +143,13 @@ builder_t::make_first_token(
   model_args_t const& args,
   uint64_t seqlen)
 {
-  return _make(args, 0, seqlen);
+  return _make(args, 0, seqlen, false);
 }
 
 builder_t
-builder_t::make_next_token(builder_t const& prev)
+builder_t::make_next_token(
+  builder_t const& prev,
+  bool make_last)
 {
   if(prev.is_last()) {
     throw std::runtime_error("can't build next token from a last builder");
@@ -165,7 +168,7 @@ builder_t::make_next_token(builder_t const& prev)
 
   uint64_t seqlen = 1;
 
-  builder_t ret = _make(args, start_pos, seqlen);
+  builder_t ret = _make(args, start_pos, seqlen, make_last);
 
   ret.prev_tid_to_input_tids = map<int,int>();
   map<int,int>& conversion = ret.prev_tid_to_input_tids.value();
