@@ -170,6 +170,9 @@ taskgraph_t solve(
 
 int main(int argc, char** argv)
 {
+  uint64_t matrix_size;
+  matrix_size = parse_with_ss<uint64_t>(argv[1]);
+
   set_seed(0);
 
   mpi_t mpi(argc, argv);
@@ -193,22 +196,24 @@ int main(int argc, char** argv)
     uint64_t giga = 1e9;
 
     int num_nodes = mpi.world_size;
+    DOUT("num_nodes " << num_nodes)
 
     cluster_settings_t cluster_settings {
       .num_nodes = num_nodes,
       .num_threads_per_node = num_threads_per_node,
-      .compute_per_thread = 5*giga,
-      .bandwidth = 1*giga
+      .compute_per_thread = 10000*giga,
+      .bandwidth = 10*giga
     };
 
     autoplace_settings_t autoplace_settings {
-      .num_steps = 1000,
-      .betas = {10000.0},
+      .num_steps = 4000,
+      .betas = {100000000.0},
       .do_balanced = true,
-      .do_singleloc = false
+      .do_singleloc = true
     };
 
-    graph_t graph = seven_matmul_graph(2000);
+    // graph_t graph = seven_matmul_graph(2000);
+    graph_t graph = matmul_graph(matrix_size);
 
     taskgraph = solve(graph, cluster_settings, autoplace_settings);
     string taskgraph_str = taskgraph.to_wire();
@@ -234,12 +239,10 @@ int main(int argc, char** argv)
     }
   }
 
-  kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
-
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("cpuexec time");
-    execute(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
+    execute(taskgraph, execute_settings, mpi, tensors);
     mpi.barrier();
   }
 }

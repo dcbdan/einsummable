@@ -12,7 +12,7 @@ void usage() {
             << "\n"
             << "Multiply a ('di'*'pi', 'dj'*'pj') matrix with\n"
             << "         a ('dj'*'pj', 'dk'*'pk') marrix\n"
-            << "using the 3d matrix multiply algorithm.\n"
+            << "using the 3D matrix multiply algorithm.\n"
             << "\n"
             << "The multiply occurs over a virtual grid of\n"
             << "'pi'*'pj'*'pk' processors mapped to\n"
@@ -40,7 +40,18 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto settings = settings_t::default_settings();
+  // auto settings = settings_t::default_settings();
+  int num_threads_per_node = 4;
+  settings_t execute_settings {
+    
+    // .num_apply_runner = num_threads_per_node,
+    // .num_touch_runner = 2,
+  
+    .num_kernel_runner = num_threads_per_node,
+    .num_send_runner  = 1,
+    .num_recv_runner  = 1,
+    .num_apply_kernel_threads = 1
+  };
 
   mpi_t mpi(argc, argv);
 
@@ -48,8 +59,7 @@ int main(int argc, char** argv) {
 
   dtype_t dtype = default_dtype();
 
-  auto g = three_dimensional_matrix_multiplication(
-    pi,pj,pk, di,dj,dk, num_processors);
+  auto g = three_dimensional_matrix_multiplication(pi,pj,pk, di,dj,dk, num_processors);
   graph_t const& graph = g.graph;
   auto pls = g.get_placements();
 
@@ -84,8 +94,6 @@ int main(int argc, char** argv) {
     }
   }
 
-  kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
-
   //if(mpi.this_rank == 0) {
   //  std::cout << line << std::endl << std::endl;
   //}
@@ -93,25 +101,9 @@ int main(int argc, char** argv) {
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("3D Matmul Time");
-    execute(taskgraph, settings, kernel_manager, &mpi, tensors);
+    execute(taskgraph, execute_settings, mpi, tensors);
     mpi.barrier();
   }
-
-  //for(int rank = 0; rank != mpi.world_size; ++rank) {
-  //  mpi.barrier();
-  //  if(rank == mpi.this_rank) {
-  //    for(auto const& [gid, out_blocks]: output_blocks) {
-  //      for(auto const& out: out_blocks.get()) {
-  //        auto out_loc = taskgraph.nodes[out].op.output_loc();
-  //        if(out_loc == mpi.this_rank) {
-  //          std::cout << "rank " << rank << " | " << out << " " << tensors.at(out) << std::endl;
-  //        }
-  //      }
-  //    }
-  //  }
-  //}
-
-  // TODO: verify results are correct to reference over the graph
 }
 
 
