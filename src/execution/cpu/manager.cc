@@ -7,6 +7,9 @@ loc_manager_t::loc_manager_t(mpi_t* mpi, settings_t const& settings)
 {}
 
 void loc_manager_t::listen() {
+  if(!mpi) {
+    throw std::runtime_error("should not call listen if mpi is not setup");
+  }
   if(mpi->this_rank == 0) {
     throw std::runtime_error("rank zero should not call listen method");
   }
@@ -62,6 +65,10 @@ void loc_manager_t::partition_into_data(
   relation_t const& relation,
   dbuffer_t src_tensor)
 {
+  if(relation.dtype != src_tensor.dtype) {
+    throw std::runtime_error("can't partition different dtypes");
+  }
+
   broadcast_cmd(cmd_t::partition_into_data);
 
   remap_relations_t remap;
@@ -95,6 +102,8 @@ void loc_manager_t::broadcast_cmd(cmd_t const& cmd) {
 }
 
 void loc_manager_t::broadcast_str(string const& str) {
+  if(!mpi) { return; }
+
   for(int i = 1; i != mpi->world_size; ++i) {
     mpi->send_str(str, i);
   }
