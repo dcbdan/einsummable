@@ -119,11 +119,11 @@ int main(){
     cudaMemcpy(C_d, C, sizeC, cudaMemcpyHostToDevice);
     cudaMemcpy(A_d, A, sizeA, cudaMemcpyHostToDevice);
 
-    float* out;
+    void* out;
     float* inn0;
 
     cudaMalloc(&inn0, sizeA);
-    cudaMalloc(&out, sizeC);
+    cudaMalloc((void**)&out, sizeC);
 
     cudaMemcpy(out, C, sizeC, cudaMemcpyHostToDevice);
     cudaMemcpy(inn0, A, sizeA, cudaMemcpyHostToDevice);
@@ -131,8 +131,12 @@ int main(){
 
 
     //float* out = C;
-    std::vector<float const*> inns;
-    inns.push_back(inn0);
+    //std::vector<float const*> inns;
+    std::vector<void const*> inns;
+    
+    inns.push_back(A_d);
+    //inns.push_back(A);
+
 
 
     std::vector<int64_t> extent_A;
@@ -153,7 +157,9 @@ int main(){
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    func(stream,handle,out, inns);
+    //func(stream,handle,out, inns);
+    //func(stream, handle, C, inns);
+    func(stream, handle, out, inns);
 
 
 
@@ -163,14 +169,17 @@ int main(){
 
     printf("Reduction Executed!\n");
 
-    for (size_t i = 0; i < extent_A.size(); i++) {
-        std::cout << extent_A.data()[i] << " ";
+    for (size_t i = 0; i < modeA.size(); i++) {
+        std::cout << modeA.data()[i] << " ";
     }
     std::cout << std::endl;
-    for (size_t i = 0; i < extent_C.size(); i++) {
-            std::cout << extent_C.data()[i] << " ";
+    for (size_t i = 0; i < modeC.size(); i++) {
+            std::cout << modeC.data()[i] << " ";
     }
     std::cout << std::endl;
+
+    std::cout << nmodeA << std::endl;
+    std::cout << nmodeC << std::endl;
 
     std::cout << sizeA << std::endl;
     std::cout << sizeC << std::endl;
@@ -212,12 +221,62 @@ int main(){
             worksize = 0;
         }
     } 
+
+    dtype_t type = dtype_t::f32;
+
+    void* ptr1;
+    void* ptr2;
+    float16_t alpha1, beta1;
+    float alpha2, beta2;
+    double alpha3, beta3;
+    std::complex<float> alpha4(1.0f, 0.0f);
+    std::complex<float> beta4(0.0f, 0.0f);
+
+    if(type == dtype_t::f16){
+      alpha1 = float16_t(1.0f);
+      ptr1 = static_cast<void*>(&alpha1);
+      beta1 = float16_t(0.0f);
+      ptr2 = static_cast<void*>(&beta1);
+    }
+    else if(type == dtype_t::f32){
+      alpha2 = 1.0f;
+      ptr1 = static_cast<void*>(&alpha2);
+      beta2 = 0.0f;
+      ptr2 = static_cast<void*>(&beta2);
+    }
+    else if(type == dtype_t::f64){
+      alpha3 = 1.0;
+      ptr1 = static_cast<void*>(&alpha3);
+      beta3 = 0.0;
+      ptr2 = static_cast<void*>(&beta3);
+    }
+    else if(type == dtype_t::c64){
+      ptr1 =  static_cast<void*>(&alpha4);
+      ptr2 =  static_cast<void*>(&beta4);
+    }
+
+    void const* alphayi = ptr1; 
+    void const* betayi = ptr2; 
+
+    //void* A_xd = (void*)inns[0];
+
+    std::vector<void const*> innst;
+    innst.push_back(A_d);
+    //std::vector<float const*> innst;
+    //innst.push_back(inn0);
+    //void const* angst = (void*)innst[0];
+
     cutensorStatus_t err;
     err = cutensorReduction(handle, 
-                (const void*)&alpha, A_d, &descA, modeA.data(),
-                (const void*)&beta,  C_d, &descC, modeC.data(), 
+                /*(const void*)&alpha*/alphayi, innst[0], &descA, modeA.data(),
+                /*(const void*)&beta*/betayi,  C_d, &descC, modeC.data(), 
                                      C_d, &descC, modeC.data(), 
                 opReduce, typeCompute, work, worksize, 0 /* stream */);
+
+    if(err != CUTENSOR_STATUS_SUCCESS)
+            printf("ERROR: %s\n", cutensorGetErrorString(err) );
+
+    std::cout << "worksize" << worksize << std::endl;
 
     float* out1 = new float[elementsC]();
     float* out2 = new float[elementsC]();

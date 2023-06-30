@@ -13,7 +13,7 @@ using touch_kernel_t = std::function<
     void(cudaStream_t, float*, float const*)
   >;
 using cutensor_kernel_t = std::function<
-    void(cudaStream_t, cutensorHandle_t const*, float*, vector<float const*>)
+    void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>)
   >;
 
 //using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
