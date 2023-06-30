@@ -36,7 +36,7 @@ void usage() {
   DOUT("pi pj pk di dj dk np");
 }
 
-int main(int argc, char** argv) {
+int main_(int argc, char** argv) {
   if(argc != 8) {
     usage();
     return 1;
@@ -104,4 +104,63 @@ int main(int argc, char** argv) {
     std::ofstream f("mm3d_mem_first.gv");
     memgraph.print_graphviz(f);
   }
+
+  return 0;
+}
+
+int main02() {
+  auto settings = allocator_settings_t::default_settings();
+  settings.alignment_power = 4;
+
+  allocator_t allocator = allocator_t(100, settings);
+
+  auto [o0, _0] = allocator.allocate(1);
+  auto [o1, _1] = allocator.allocate(2);
+  auto [o2, _2] = allocator.allocate(3);
+  auto [o3, _3] = allocator.allocate(4);
+
+  DOUT(o0);
+  DOUT(o1);
+  DOUT(o2);
+  DOUT(o3);
+
+  allocator.print();
+  return 0;
+}
+
+int main03() {
+  auto settings = allocator_settings_t::default_settings();
+
+  allocator_t alo = allocator_t(100, settings);
+
+  auto [o0, _0] = alo.allocate(25);
+  auto [o1, _1] = alo.allocate(25);
+  auto [o2, _2] = alo.allocate(25);
+  auto [o3, _3] = alo.allocate(25);
+
+  DOUT("the allocator is full with four \"tensors\"");
+  alo.print();
+  DOUT("");
+
+  alo.free(o0, 0);
+  alo.free(o1, 1);
+  alo.free(o2, 2);
+  alo.free(o3, 3);
+
+  DOUT("the allocator is empty now");
+  alo.print();
+  DOUT("");
+
+  auto [o4, deps] = alo.allocate(100);
+  DOUT("the allocator is full again with one \"tensor\"");
+  alo.print();
+  DOUT("and that tensor depends on " << deps);
+
+  return 0;
+}
+
+
+int main(int argc, char** argv) {
+  main_(argc, argv);
+  //main03();
 }

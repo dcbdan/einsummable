@@ -317,7 +317,7 @@ bool vector_has(vector<T> const& xs, T const& value)
 template <typename T1, typename T2>
 vector<tuple<T1, T2>> vector_zip(
   vector<T1> const& lhs,
-  vector<T1> const& rhs)
+  vector<T2> const& rhs)
 {
   if(lhs.size() != rhs.size()) {
     throw std::runtime_error("vector_zip expects inputs to be the same size");
@@ -773,4 +773,79 @@ Iter binary_search_find(Iter beg, Iter end, F evaluate)
     return beg;
   }
 }
+
+uint64_t uint64_log2(uint64_t val);
+
+// out_perm = {2,0,1} implies we have ijk->kij
+vector<int> as_out_perm(
+  vector<int> const& inn,
+  vector<int> const& out);
+
+template <typename T>
+vector<T> forward_permute(
+  vector<int> const& out_perm,
+  vector<T> const& inn_shape)
+{
+  if(inn_shape.size() != out_perm.size()) {
+    throw std::runtime_error("incorrect sizing: forward permute");
+  }
+
+  // 012->201
+  // vvv->???
+  vector<T> ret;
+  ret.reserve(inn_shape.size());
+  for(int i = 0; i != inn_shape.size(); ++i) {
+    ret.push_back(inn_shape[out_perm[i]]);
+  }
+  return ret;
+}
+
+template <typename T>
+vector<T> backward_permute(
+  vector<int> const& out_perm,
+  vector<T> const& out_shape)
+{
+  vector<int> modes(out_perm.size());
+  std::iota(modes.begin(), modes.end(), 0);
+
+  return forward_permute(
+    as_out_perm(out_perm, modes),
+    out_shape);
+}
+
+template <typename Iter>
+struct iter_greater_t {
+  bool operator()(Iter const& lhs, Iter const& rhs) const {
+    return *lhs > *rhs;
+  }
+};
+
+template <typename Iter>
+vector<Iter> select_topn(Iter beg, Iter end, int topn) {
+  std::priority_queue<Iter, std::vector<Iter>, iter_greater_t<Iter>> q;
+  auto& iter = beg;
+  for(; iter != end && q.size() != topn; ++iter) {
+    q.push(iter);
+  }
+  for(; iter != end; ++iter) {
+    q.push(iter);
+    q.pop();
+  }
+  vector<Iter> ret;
+  while(q.size() > 0) {
+    ret.push_back(q.top());
+    q.pop();
+  }
+
+  std::reverse(ret.begin(), ret.end());
+
+  return ret;
+}
+
+// make sure that istream has xs up next; throw an error if not
+void istream_expect(std::istream& inn, string const& xs);
+
+// find the longest parse of the options; throw an error if no parse
+int istream_expect_or(std::istream& inn, vector<string> const& options);
+
 

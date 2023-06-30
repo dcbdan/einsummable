@@ -39,6 +39,10 @@ dbuffer_t reference_concat(
   concat_t const& concat,
   vector<dbuffer_t> const& inputs);
 
+dbuffer_t reference_subset(
+  subset_t const& subset,
+  dbuffer_t const& input);
+
 void reference_touch(
   touch_t const& touch,
   dbuffer_t out,

@@ -3,29 +3,7 @@
 
 #include "einsummable.h"
 #include "graph.h"
-
-struct touchdim_t {
-  uint64_t d_inn;
-  uint64_t d_out;
-  uint64_t offset_inn;
-  uint64_t offset_out;
-  uint64_t size;
-};
-
-struct touch_t {
-  vector<touchdim_t> selection;
-  optional<castable_t> castable;
-  dtype_t dtype;
-
-  // Merge out dimensions that are fully copied.
-  // So
-  //   selection = [10,10,3,3,2],[20,20,0,0,20]
-  //   (X[3:5,0:20] = Y[3:5,0:20] for two (10,20) matrices)
-  // Becomes
-  //   selection = [200,200,60,60,40]
-  //   (X.flatten()[60:100] = Y.flatten()[60:100])
-  touch_t simplify() const;
-};
+#include "touch.h"
 
 struct regiondim_t {
   uint64_t dim;
@@ -40,8 +18,6 @@ struct taskgraph_t {
     map<int, vtensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph, vector<placement_t> const& placements);
-  // TODO: The conversion between tensors is a bit tricky.
-  //       See what to optimize.
 
   // Methods to construct a task graph object
   // {{{
@@ -103,9 +79,22 @@ struct taskgraph_t {
 
   uint64_t get_size_at(int id) const;
 
-  // find all partial inputs that can be consumed and
-  // consume them
-  void insert_possible_consumables() { /* TODO */ }
+  // a passthrough partial is a partialize node that
+  // (1) is not a save
+  // (2) does no aggregation and
+  // (3) is only used by other partializes (with the same shape)
+  bool is_passthrough_partial(int id) const;
+
+  set<int> collect_passthrough_partials() const;
+
+  optional<
+    tuple<
+      map<int, int>,
+      taskgraph_t > >
+  remove_passthrough_partials() const;
+  // This simplification maintains that all inn nodes are still there and all
+  // save nodes are still there, but everything inbetween may be different.
+  // A map which is guaranteed to have all source save and inn tids is returned
 
   // for debugging
   void print() const;
@@ -135,6 +124,7 @@ struct taskgraph_t {
   static taskgraph_t from_wire(string const& str);
 
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
+  int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
 private:
   struct input_t {
@@ -184,9 +174,9 @@ private:
   //   };
   // and vectors x,y with x[:u] := y[v:v+u]. That has
   //   d_inn = |y|
-  //   d_out = |x]
-  //   offset_inn = 0
-  //   offset_out = v
+  //   d_out = |x|
+  //   offset_inn = v
+  //   offset_out = 0
   //   size = u
   // For arbitrary ranked tensors, life gets more complicated. In this case,
   // a offset and size have to be specified for each dimension and the product
@@ -218,6 +208,8 @@ private:
       vector<inn_regiondim_t> region;
     };
     // TODO: Where does consumable get used? How to use it?
+    //       We should be able to determine if it is a consumable without
+    //       this flag so it should be removed, maybe
 
     struct partial_unit_t {
       // Each partial unit can have a different castable.
@@ -236,6 +228,13 @@ private:
     vector<vector<tuple<int, touch_t> > > as_touches_from() const;
     tuple<int, touch_t> get_touch(int which_unit, int which_touch_in_unit) const;
 
+    vector<tuple<int, touch_t>> as_touches_from_flat() const {
+      return vector_flatten(as_touches_from());
+    }
+
+    static partialize_t make_from_touches(
+      int loc, vector<tuple<int, touch_t>> const&);
+
     // determine if the entire write shape has been touched
     // by exactly one unit
     bool valid() const;
@@ -243,6 +242,12 @@ private:
     // determine if this op is a direct copy from one
     // buffer to another of the same size
     bool is_straight_copy() const;
+
+    bool does_agg() const;
+
+    // collect all the shapes that id is used as an input
+    // (this should usally be of length 1, but you never know)
+    vector<vector<uint64_t>> inn_shapes_of(int id) const;
 
     int loc;
     dtype_t dtype;
@@ -294,24 +299,24 @@ public:
     bool is_valid_if_partialize() const {
       return !is_partialize() || get_partialize().valid();
     }
-    // TODO: figure out where check these don't occur
+    // TODO: check in taskgraph make that these don't occur
     bool is_no_op_partialize() const {
       return is_partialize() && get_partialize().is_straight_copy();
     }
 
-    input_t const& get_input() const {
-      return std::get<input_t>(op);
-    }
-    apply_t const& get_apply() const {
-      return std::get<apply_t>(op);
-    }
-    move_t const& get_move() const {
-      return std::get<move_t>(op);
-    }
+    input_t const& get_input() const { return std::get<input_t>(op); }
+    input_t&       get_input()       { return std::get<input_t>(op); }
+
+    apply_t const& get_apply() const { return std::get<apply_t>(op); }
+    apply_t&       get_apply()       { return std::get<apply_t>(op); }
+
+    move_t const& get_move() const { return std::get<move_t>(op); }
+    move_t&       get_move()       { return std::get<move_t>(op); }
 
     partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
-
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+
+    op_t remap(std::function<int(int)> to_new_tid) const;
 
     vector<vector<tuple<int, touch_t>>> get_touches() const {
       return get_partialize().as_touches_from();
@@ -319,7 +324,7 @@ public:
   };
 
   struct node_t {
-    node_t(op_t op, bool is_save): op(op), is_save(false) {}
+    node_t(op_t op, bool is_save): op(op), is_save(is_save) {}
 
     op_t op;
     set<int> outs;
@@ -346,6 +351,15 @@ placement_t concat_split_placement(
   placement_t const& placement,
   concat_t const& concat);
 
+tuple<subset_t, partition_t>
+unsqueeze_subset_partition(
+  subset_t const& subset,
+  partition_t const& partition);
+
+partition_t make_subset_input_partition(
+  subset_t const& subset,
+  partition_t const& out_partition);
+
 partition_t double_last_dim(partition_t const& p);
 placement_t double_last_dim(placement_t const& p);
 
@@ -367,3 +381,4 @@ bool operator!=(
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
+

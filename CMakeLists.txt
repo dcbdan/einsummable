@@ -42,14 +42,23 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-add_base_application("make_3dmatmul"   "exps" "make_3dmatmul")
-add_base_application("reference"       "exps" "reference")
-add_base_application("copyregion"      "exps" "copyregion")
-add_base_application("scalarop"        "exps" "scalarop")
-add_base_application("forwardsim"      "exps" "forwardsim")
-add_base_application("allocator_test"  "exps" "allocator_test")
-add_base_application("gwriter"         "exps" "gwriter")
-add_base_application("deepff"          "exps" "deepff")
+add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+add_base_application("reference"        "exps" "reference")
+add_base_application("copyregion"       "exps" "copyregion")
+add_base_application("scalarop"         "exps" "scalarop")
+add_base_application("forwardsim"       "exps" "forwardsim")
+add_base_application("allocator_test"   "exps" "allocator_test")
+add_base_application("gwriter"          "exps" "gwriter")
+add_base_application("deepff"           "exps" "deepff")
+add_base_application("base_test"        "exps" "base_test")
+add_base_application("einsummable_test" "exps" "einsummable_test")
+
+function(add_llama_application exec filename)
+add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
+target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
+endfunction()
+
+add_llama_application("llama_main" "main")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
@@ -90,6 +99,20 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+  add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+
+  function(add_cpu_llama_application exec filename)
+  add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/builder.cc llama/misc.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    MKL::MKL)
+  endfunction()
+
+  add_cpu_llama_application("llama_cpu" "cpu")
+
 endif()
 
 if(${GPU_EXECUTION_ENGINE})

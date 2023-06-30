@@ -14,6 +14,21 @@ partdim_t partdim_t::from_sizes(vector<uint64_t> const& sizes) {
   return partdim_t { .spans = spans };
 }
 
+partdim_t partdim_t::from_wire(string const& str) {
+  es_proto::Partdim p;
+  if(!p.ParseFromString(str)) {
+    throw std::runtime_error("could not parse partdim");
+  }
+  return from_proto(p);
+}
+
+partdim_t partdim_t::from_proto(es_proto::Partdim const& p) {
+  auto const& sp = p.spans();
+  return partdim_t {
+    .spans = vector<uint64_t>(sp.begin(), sp.end())
+  };
+}
+
 partdim_t partdim_t::repeat(int n_repeat, uint64_t sz) {
   return from_sizes(vector<uint64_t>(n_repeat, sz));
 }
@@ -173,6 +188,50 @@ tuple<int,int> partdim_t::exact_region(uint64_t beg, uint64_t end) const {
   }
 }
 
+partdim_t partdim_t::subset(uint64_t beg, uint64_t end) const {
+  auto [b,e] = region(beg, end);
+
+  // In this case, [beg,end) is all within a single part
+  if(b + 1 == e) {
+    return partdim_t::singleton(end-beg);
+  }
+
+  vector<uint64_t> szs;
+  szs.reserve(e-b);
+  for(int i = b; i != e; ++i) {
+    szs.push_back(size_at(i));
+  }
+
+  {
+    auto [wbeg,wend] = which_vals(b);
+    if(wbeg != beg) {
+      szs[0] = (wend - beg);
+    }
+  }
+
+  {
+    auto [wbeg,wend] = which_vals(e-1);
+    if(wend != end) {
+      szs.back() = (end - wbeg);
+    }
+  }
+
+  return partdim_t::from_sizes(szs);
+}
+
+string partdim_t::to_wire() const {
+  es_proto::Partdim p;
+  to_proto(p);
+  string ret;
+  p.SerializeToString(&ret);
+  return ret;
+}
+
+void partdim_t::to_proto(es_proto::Partdim& p) const {
+  for(auto const& s: spans) {
+    p.add_spans(s);
+  }
+}
 
 bool operator==(partdim_t const& lhs, partdim_t const& rhs) {
   return vector_equal(lhs.spans, rhs.spans);

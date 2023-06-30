@@ -10,10 +10,13 @@ compare_t compare_flip(compare_t);
 enum class dtype_t { f16, f32, f64, c64 };
 
 uint64_t dtype_size(dtype_t);
+
 bool dtype_is_real(dtype_t);
 bool dtype_is_complex(dtype_t);
 // Assumption: could be the case that there is something
 //             other than real and complex (in the future)
+
+dtype_t dtype_random(bool include_complex=true);
 
 struct scalar_t {
   scalar_t();
@@ -45,6 +48,7 @@ struct scalar_t {
   static scalar_t convert(scalar_t const&, dtype_t);
 
   static scalar_t zero(dtype_t);
+  static scalar_t negative_inf(dtype_t);
 
   // not valid for complex
   static scalar_t one(dtype_t);
@@ -264,6 +268,8 @@ struct scalarop_t {
 
   bool is_castable() const;
 
+  bool is_identity() const;
+
   // Check if this is exactly equal to op[hole0, hole1]
   bool is_mul() const;
   bool is_max() const;
@@ -288,6 +294,10 @@ struct scalarop_t {
   static scalarop_t from_string(string const& str);
 
   static scalarop_t make_identity(dtype_t d = default_dtype());
+
+  static scalarop_t make_arg(int arg, dtype_t d = default_dtype());
+
+  static scalarop_t make_constant(scalar_t val);
 
   // x0 + x1
   static scalarop_t make_add(dtype_t d = default_dtype());
@@ -318,11 +328,19 @@ struct scalarop_t {
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
+  static scalarop_t make_inverse_sqrt(dtype_t d = default_dtype());
+
+  static scalarop_t make_square(dtype_t d = default_dtype());
+
   static scalarop_t make_relu(dtype_t d = default_dtype());
+
+  static scalarop_t make_silu(dtype_t d = default_dtype());
 
   static scalarop_t make_relu_deriv(dtype_t d = default_dtype());
 
   static scalarop_t make_from_castable(castable_t castable, dtype_t d = default_dtype());
+
+  static scalarop_t make_convert_dtype(dtype_t src, dtype_t dst);
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);

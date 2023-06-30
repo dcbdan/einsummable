@@ -19,7 +19,7 @@ allocator_settings_t allocator_settings_t::default_settings()
 {
   return allocator_settings_t {
     .strat = allocator_strat_t::lowest_dependency,
-    .alignment = 0
+    .alignment_power = 0
   };
 }
 
@@ -528,10 +528,36 @@ memgraph_make_state_t::memgraph_make_state_t(
     allocators(as),
     _group(0)
 {
-  remaining_usage_counts.reserve(taskgraph.nodes.size());
+  remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
+
+  // We may have an einsummable y = x + x. In this case,
+  // x gets used once by y.
+  //
+  // We may also have  a partialize
+  //   y = touch from the left  side of x
+  //   y = touch from the right side of x
+  // In this case, x gets used twice in the formation of y,
+  // once for each touch.
+
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
-    remaining_usage_counts.push_back(node.outs.size());
+    if(node.op.is_partialize()) {
+      auto const& partialize = node.op.get_partialize();
+      // each touch incurs a usage, even if there are multiple touches
+      // from the sasme input
+      for(auto const& [inn,_]: partialize.as_touches_from_flat()) {
+        remaining_usage_counts[inn] += 1;
+      }
+    } else {
+      set<int> inns = node.op.inputs();
+      // for input nodes, inns is empty
+      // for move nodes, there is only one input
+      // for apply nodes, we can't double count like x in y = x + x,
+      //   so inns being a set is desired
+      for(auto const& inn: inns) {
+        remaining_usage_counts[inn] += 1;
+      }
+    }
   }
 }
 
@@ -852,10 +878,13 @@ uint64_t memgraph_make_state_t::get_output_alloc_if_necc(
       }
     }
   }
-  // TODO: if the node is a partialize that only has
+  // TODO: If the node is a partialize that only has
   //       one input, and that input is the same size as the output,
   //       and it's not a save, and it has a singleton usage,
-  //       the input can be donated
+  //       the input can be donated.
+  //
+  //       If the node is a partial reduction,
+  //       is it even clear which one comes first?
 
   if(!did_get_donation) {
     int loc = node.op.out_loc();
@@ -954,7 +983,7 @@ vector<_which_touch_t> get_which_touches_from_to(
 }
 
 allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
-  : strat(s.strat), alignment(s.alignment)
+  : strat(s.strat), alignment_power(s.alignment_power)
 {
   if(memsize == 0) {
     throw std::runtime_error("invalid memsize for allocator");
@@ -981,7 +1010,7 @@ allocator_t::find_first_available(uint64_t size) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz  = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       for(; iter != blocks.end() && iter->available(); ++iter) {
         sz += iter->size();
         if(rem != 0 && sz > rem) {
@@ -1007,7 +1036,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment) - iter->beg;
+      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       int inner_max_dep = -1;
       for(iter_t inner_iter = iter;
           inner_iter != blocks.end() && inner_iter->available();
@@ -1031,15 +1060,15 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
 }
 
 optional< tuple<uint64_t, vector<int>> >
-allocator_t::try_to_allocate(uint64_t size)
+allocator_t::try_to_allocate(uint64_t size_without_rem)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
   optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
   if(strat == allocator_strat_t::lowest_dependency) {
-    maybe_info = find_lowest_dependency_available(size);
+    maybe_info = find_lowest_dependency_available(size_without_rem);
   } else if(strat == allocator_strat_t::first) {
-    maybe_info = find_first_available(size);
+    maybe_info = find_first_available(size_without_rem);
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -1048,7 +1077,10 @@ allocator_t::try_to_allocate(uint64_t size)
 
     // collect the output information
     uint64_t offset = beg->beg;
-    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment);
+    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
+
+    uint64_t size = size_without_rem + (aligned_offset - offset);
+
     vector<int> deps;
     for(auto iter = beg; iter != end; ++iter) {
       if(!iter->dep) {

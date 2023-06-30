@@ -29,7 +29,7 @@ enum class allocator_strat_t { lowest_dependency, first };
 
 struct allocator_settings_t {
   allocator_strat_t strat;
-  uint8_t alignment; // 2^alignment
+  uint8_t alignment_power; // 2^alignment_power
 
   static allocator_settings_t default_settings();
 };
@@ -298,7 +298,7 @@ private:
 
   vector<block_t> blocks;
   allocator_strat_t strat;
-  uint64_t alignment;
+  uint64_t alignment_power;
 
   using iter_t = vector<block_t>::iterator;
 

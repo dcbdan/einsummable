@@ -15,12 +15,13 @@ struct dbuffer_t {
   void random(string lower = "0.0", string upper = "1.0");
   void random(scalar_t lower, scalar_t upper);
 
-  dbuffer_t copy();
+  dbuffer_t copy(optional<dtype_t> to_dtype=std::nullopt);
 
   dbuffer_t view_c64_as_f32();
   dbuffer_t view_f32_as_c64();
 
   scalar_t sum() const;
+  double sum_to_f64() const;
 
   uint64_t nelem() const;
   uint64_t const& size() const;
@@ -32,11 +33,13 @@ struct dbuffer_t {
   void* ptr();
   void const* ptr() const;
 
+  void*                raw() { return data->raw(); }
   float16_t          * f16();
   float              * f32();
   double             * f64();
   std::complex<float>* c64();
 
+  void                const* raw() const { return data->raw(); }
   float16_t           const* f16() const;
   float               const* f32() const;
   double              const* f64() const;

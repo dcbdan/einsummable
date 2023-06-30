@@ -43,104 +43,134 @@ einsummable_t::einsummable_t(
     }
   }
 
+  int join_rank = 0;
+  for(auto const& inn: inns) {
+    join_rank = std::max(join_rank, *std::max_element(inn.begin(), inn.end()));
+  }
+  join_rank += 1;
+
+  if(join_rank != join_shape.size()) {
+    throw std::runtime_error("invalid join shape size");
+  }
+
   if(!valid_inns_out(inns, out_rank)) {
     throw std::runtime_error("einsummable: invalid inns, out rank");
   }
 }
 
+int _count_adjacent(
+  vector<int>::const_iterator iter,
+  vector<int>::const_iterator end)
+{
+  int cnt = 0;
+  int v = *iter;
+  while(iter != end && *iter++ == v++) {
+    cnt++;
+  }
+  return cnt;
+}
+
+int update_count_adjacent(
+  int score,
+  int r,
+  vector<int> const& is)
+{
+  auto iter = std::find(is.begin(), is.end(), r);
+  if(score == 0) {
+    return _count_adjacent(iter, is.end());
+  } else {
+    if(iter == is.end()) {
+      int e = score + r;
+      for(auto const& i: is) {
+        if(i >= r && i < e) {
+          e = i;
+        }
+      }
+      return e-r;
+    } else {
+      return std::min(score, _count_adjacent(iter, is.end()));
+    }
+  }
+}
+
+vector<tuple<int,int>> build_adjacents(
+  vector<vector<int>> const& inns)
+{
+  int r = 0;
+  vector<tuple<int,int>> ret;
+
+  int m = 0;
+  for(auto const& inn: inns) {
+    m = std::max(m, *std::max_element(inn.begin(), inn.end()));
+  }
+  m += 1;
+
+  while(r != m) {
+    int score = update_count_adjacent(0, r, inns[0]);
+    for(int i = 1; i != inns.size(); ++i) {
+      score = update_count_adjacent(score, r, inns[i]);
+    }
+
+    if(score <= 0) {
+      throw std::runtime_error("impl err");
+    }
+
+    ret.emplace_back(r, r+score);
+    r += score;
+  }
+
+  return ret;
+}
+
 einsummable_t einsummable_t::merge_adjacent_dims() const {
   int join_rank = join_shape.size();
 
-  auto count_adjacent = [](int r, vector<int> const& is) {
-    auto iter = std::find(is.begin(), is.end(), r);
-    if(iter == is.end()) {
-      return -1;
-    }
-    int c = r;
-    for(; iter != is.end(); ++iter) {
-      if(*iter == c) {
-        c++;
-      } else {
-        break;
-      }
-    }
-    return c-r;
-  };
-
-  // for each index, return the new index and the count and the size
-  map<int, tuple<int, int>> merges;
-
-  int r = 0;
-  int new_r = 0;
-  while(r != join_rank) {
-    int n_adj = count_adjacent(r, inns[0]);
-    for(int i = 1; i != inns.size(); ++i) {
-      if(n_adj == 1) {
-        break;
-      }
-      int n = count_adjacent(r, inns[i]);
-      if(n != -1) {
-        if(n_adj == -1) {
-          n_adj = n;
-        } else {
-          n_adj = std::min(n_adj, n);
-        }
-      }
-    }
-    if(r < out_rank) {
-      // Consider 0123->012
-      // n_adj @ 0 = 4 but it can only be 3
-      n_adj = std::min(n_adj, out_rank - r);
-    }
-
-    merges.insert({r, {new_r, n_adj}});
-    r += n_adj;
-    new_r += 1;
+  auto _inns = inns;
+  {
+    vector<int> is(out_rank);
+    std::iota(is.begin(), is.end(), 0);
+    _inns.push_back(is);
   }
+
+  vector<tuple<int,int>> merges = build_adjacents(_inns);
 
   if(merges.size() == join_rank) {
     return *this;
   }
 
+  map<int,int> backwards;
   vector<uint64_t> new_join_shape;
   {
-    int r = 0;
-    while(r != join_rank) {
-      auto const& [_, n_adj] = merges.at(r);
+    for(int w = 0; w != merges.size(); ++w) {
+      auto const& [b,e] = merges[w];
+
+      backwards.insert({b,w});
 
       uint64_t sz = 1;
-      for(int i = r; i != r + n_adj; ++i) {
+      for(int i = b; i != e; ++i) {
         sz *= join_shape[i];
       }
-
       new_join_shape.push_back(sz);
-
-      r += n_adj;
-    }
-  }
-
-  int new_out_rank;
-  {
-    auto iter = merges.find(out_rank);
-    if(iter == merges.end()){
-      new_out_rank = new_join_shape.size();
-    } else {
-      new_out_rank = std::get<0>(merges.at(out_rank));
     }
   }
 
   vector<vector<int>> new_inns;
-  for(auto const& inn: inns) {
+  for(auto const& inn: _inns) {
     new_inns.emplace_back();
     vector<int>& new_inn = new_inns.back();
 
     int i = 0;
     while(i != inn.size()) {
-      auto const& [new_r, n_adj] = merges.at(inn[i]);
-      new_inn.push_back(new_r);
-      i += n_adj;
+      auto const& w = backwards.at(inn[i]);
+      new_inn.push_back(w);
+
+      auto const& [b,e] = merges[w];
+      i += (e-b);
     }
   }
+
+  int new_out_rank = new_inns.back().size();
+  new_inns.resize(inns.size());
 
   return einsummable_t(
     new_join_shape, new_inns, new_out_rank,
@@ -355,6 +385,41 @@ einsummable_t::parse_str(string str)
   return {ret, out.size()};
 }
 
+string einsummable_t::make_str(
+  vector<vector<int>> const& inns,
+  int out_rank)
+{
+  int join_rank = 0;
+  for(auto const& inn: inns) {
+    join_rank = std::max(join_rank, *std::max_element(inn.begin(), inn.end()));
+  }
+  join_rank++;
+
+  vector<char> letters(join_rank);
+  std::iota(letters.begin(), letters.end(), 'a');
+
+  auto words = get_inputs_from_join_(inns, letters);
+
+  std::ostringstream ss;
+  ss << string(words[0].begin(), words[0].end());
+  for(int i = 1; i != words.size(); ++i) {
+    auto const& word = words[i];
+    ss << "," << string(word.begin(), word.end());
+  }
+
+  vector<char> outword(letters.begin(), letters.begin() + out_rank);
+  ss << "->" << string(outword.begin(), outword.end());
+
+  return ss.str();
+}
+
+string
+einsummable_t::normalize_str(string const& str)
+{
+  auto [inns, out_rank] = parse_str(str);
+  return make_str(inns, out_rank);
+}
+
 bool einsummable_t::valid_inns_out(
   vector<vector<int>> const& inns,
   int out_rank)
@@ -481,26 +546,7 @@ einsummable_t::input_idxs(vector<int> const& join_idx) const
 }
 
 string einsummable_t::str() const {
-  if(join_shape.size() > 26) {
-    throw std::runtime_error("not enough letters; what are you doing");
-  }
-
-  vector<char> letters(join_shape.size());
-  std::iota(letters.begin(), letters.end(), 'a');
-
-  auto words = get_inputs_from_join(letters);
-
-  std::ostringstream ss;
-  ss << string(words[0].begin(), words[0].end());
-  for(int i = 1; i != words.size(); ++i) {
-    auto const& word = words[i];
-    ss << "," << string(word.begin(), word.end());
-  }
-
-  vector<char> outword(letters.begin(), letters.begin() + out_rank);
-  ss << "->" << string(outword.begin(), outword.end());
-
-  return ss.str();
+  return make_str(inns, out_rank);
 }
 
 std::size_t einsummable_t::hash() const {
@@ -520,12 +566,29 @@ std::size_t einsummable_t::hash() const {
 };
 
 bool einsummable_t::is_straight_elementwise() const {
+  if(has_aggregation()) {
+    return false;
+  }
+
   vector<int> reference(join_shape.size());
   std::iota(reference.begin(), reference.end(), 0);
   for(auto const& inn: inns) {
     if(reference != inn) {
       return false;
     }
+  }
+  return true;
+}
+
+bool einsummable_t::is_permutation() const {
+  if(inns.size() != 1) {
+    return false;
+  }
+  if(has_aggregation()) {
+    return false;
+  }
+  if(join != scalarop_t::make_identity(out_dtype())) {
+    return false;
   }
   return true;
 }

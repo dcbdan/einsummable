@@ -84,6 +84,8 @@ int main(int argc, char** argv) {
     }
   }
 
+  kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
+
   //if(mpi.this_rank == 0) {
   //  std::cout << line << std::endl << std::endl;
   //}
@@ -91,7 +93,7 @@ int main(int argc, char** argv) {
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("3D Matmul Time");
-    execute(taskgraph, settings, mpi, tensors);
+    execute(taskgraph, settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 

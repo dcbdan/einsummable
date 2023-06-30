@@ -68,6 +68,10 @@ struct einsummable_t {
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
+  static string make_str(vector<vector<int>> const& inns, int out_rank);
+
+  static string normalize_str(string const& str);
+
   static bool valid_inns_out(
     vector<vector<int>> const& inns,
     int out_rank);
@@ -108,6 +112,8 @@ struct einsummable_t {
   //                   happens.
   bool is_straight_elementwise() const;
 
+  bool is_permutation() const;
+
   bool has_aggregation() const;
 
   bool is_contraction() const;
@@ -129,12 +135,10 @@ struct einsummable_t {
   }
 
   template <typename T>
-  vector<vector<T>> get_inputs_from_join(vector<T> const& join_ts) const
+  static vector<vector<T>> get_inputs_from_join_(
+    vector<vector<int>> const& inns,
+    vector<T> const& join_ts)
   {
-    if(join_shape.size() != join_ts.size()) {
-      throw std::runtime_error("einsummable_t::input_idxs");
-    }
-
     vector<vector<T>> ret(inns.size());
     for(int i = 0; i != inns.size(); ++i) {
       ret[i].reserve(inns.size());
@@ -144,6 +148,16 @@ struct einsummable_t {
     }
 
     return ret;
+  }
+
+  template <typename T>
+  vector<vector<T>> get_inputs_from_join(vector<T> const& join_ts) const
+  {
+    if(join_shape.size() != join_ts.size()) {
+      throw std::runtime_error("einsummable_t::input_idxs");
+    }
+
+    return get_inputs_from_join_(inns, join_ts);
   }
 
   template <typename T, typename F>
