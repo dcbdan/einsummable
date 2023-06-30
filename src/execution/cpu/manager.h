@@ -55,7 +55,8 @@ private:
   };
 
   static vector<string> const& cmd_strs() {
-    static vector<string> ret {"execute", "unpartition", "partition_into_data", "shutdown"};
+    static vector<string> ret {
+      "execute", "unpartition", "partition_into_data", "remap_data", "shutdown"};
     return ret;
   }
 

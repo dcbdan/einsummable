@@ -39,6 +39,7 @@ void loc_manager_t::listen() {
 
 void loc_manager_t::execute(taskgraph_t const& taskgraph)
 {
+  //gremlin_t gremlin("execute from manager");
   broadcast_cmd(cmd_t::execute);
   broadcast_str(taskgraph.to_wire());
   _execute(taskgraph);
@@ -104,6 +105,10 @@ void loc_manager_t::broadcast_cmd(cmd_t const& cmd) {
 void loc_manager_t::broadcast_str(string const& str) {
   if(!mpi) { return; }
 
+  if(mpi->this_rank != 0) {
+    throw std::runtime_error("only rank 0 should do broadcasting");
+  }
+
   for(int i = 1; i != mpi->world_size; ++i) {
     mpi->send_str(str, i);
   }
@@ -124,8 +129,13 @@ void loc_manager_t::copy_into_data(
   remap_relations_t const& remap)
 {
   for(auto const& [_, dst]: remap.remap) {
-    for(auto const& tid: dst.tids.get()) {
-      data.insert_or_assign(tid, tmp.at(tid));
+    vector<int> const& locs = dst.placement.locations.get();
+    vector<int> const& tids = dst.tids.get();
+    for(int i = 0; i != locs.size(); ++i) {
+      if(mpi && locs[i] == mpi->this_rank) {
+        int const& tid = tids[i];
+        data.insert_or_assign(tid, tmp.at(tid));
+      }
     }
   }
 }

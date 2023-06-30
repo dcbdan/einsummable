@@ -354,7 +354,7 @@ vector<placement_t> solve(
 }
 
 int num_threads_per_node = 12;
-int num_touch_threads = 6;
+int num_touch_threads = 4;
 
 vector<placement_t> autoplace(graph_t const& graph) {
   gremlin_t gremlin("autoplace");
@@ -363,13 +363,13 @@ vector<placement_t> autoplace(graph_t const& graph) {
 
   cluster_settings_t cluster_settings {
     .num_nodes = 1,
-    .num_threads_per_node = num_threads_per_node,
-    .compute_per_thread = 5*giga,
-    .bandwidth = 1*giga
+    .num_threads_per_node = 2*num_threads_per_node,
+    .compute_per_thread = 1*giga,
+    .bandwidth = 10*giga
   };
 
   autoplace_settings_t autoplace_settings {
-    .num_steps = 10,
+    .num_steps = 1,
     .betas = {10000.0},
     .do_balanced = true,
     .do_singleloc = false
@@ -423,7 +423,7 @@ void main_(loc_manager_t& manager, string filename) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 4;
+  int niter = 1; // 256-seqlen-1;
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
 
@@ -488,9 +488,10 @@ void main_(loc_manager_t& manager, string filename) {
     uint64_t top_n = 5;
     vtensor_t<int> top_choices = get_top_choices(
       scores, bsz, args.vocab_size, top_n);
-    DOUT(top_choices.get());
+    //DOUT(top_choices.get());
 
     token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
+    DOUT(token_maker.get_tokens().get());
   }
 
   for(int i = 0; i != niter; ++i) {
@@ -519,9 +520,10 @@ void main_(loc_manager_t& manager, string filename) {
       uint64_t top_n = 5;
       vtensor_t<int> top_choices = get_top_choices(
         scores, bsz, args.vocab_size, top_n);
-      DOUT(top_choices.get());
+      //DOUT(top_choices.get());
 
       token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
+      DOUT(token_maker.get_tokens().get());
     }
   }
 
@@ -537,15 +539,17 @@ int main(int argc, char** argv) {
     .num_apply_kernel_threads = 1
   };
 
-  mpi_t* mpi = nullptr;
+  mpi_t mpi(argc, argv);
 
-  loc_manager_t manager(mpi, settings);
-  if(mpi && mpi->this_rank != 0) {
+  loc_manager_t manager(&mpi, settings);
+  if(mpi.this_rank != 0) {
     manager.listen();
   } else {
     if(argc != 2) {
       throw std::runtime_error("usage: filename");
     }
     main_(manager, argv[1]);
+    manager.shutdown();
   }
+
 }

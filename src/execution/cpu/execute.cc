@@ -228,8 +228,6 @@ void execute(
   mpi_t* mpi,
   map<int, buffer_t>& tensors)
 {
-  //gremlin_t gremlin("execute time");
-
   cpu_exec_state_t state(
     mpi, taskgraph, kernel_manager, tensors,
     settings.num_apply_kernel_threads);
