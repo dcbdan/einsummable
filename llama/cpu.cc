@@ -10,6 +10,7 @@
 #include "../src/execution/cpu/contraction.h"
 
 #include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/repartition.h"
 
 #include "../src/autoplace/autoplace.h"
 
@@ -245,6 +246,85 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
+void repartition_tinfos(mpi_t* mpi,
+  vector<tuple<builder_t::tinfo_t, builder_t::tinfo_t>> const& remap,
+  map<int, buffer_t>& data)
+{
+  graph_constructor_t g;
+
+  vector<tuple<int,int>> remap_gid;
+  for(auto const& [src,dst]: remap) {
+    int gid_src = g.insert_input(src.placement, src.dtype);
+    int gid_dst = g.insert_formation(dst.placement, gid_src, true);
+    remap_gid.emplace_back(gid_src, gid_dst);
+  }
+
+  auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
+    g.graph, g.get_placements());
+
+  {
+    map<int, buffer_t> tmp;
+    for(int i = 0; i != remap_gid.size(); ++i) {
+      auto const& gid  = std::get<0>(remap_gid[i]);
+      auto const& info = std::get<0>(remap[i]);
+      vector<int> const& inn_tids = info.tids.get();
+      vector<int> const& mid_tids = gid_to_inn.at(gid).get();
+      if(inn_tids.size() != mid_tids.size()) {
+        throw std::runtime_error("!");
+      }
+      for(int j = 0; j != inn_tids.size(); ++j) {
+        int const& inn_tid = inn_tids[j];
+        int const& mid_tid = mid_tids[j];
+        tmp.insert({mid_tid, data.at(inn_tid)});
+      }
+    }
+    data = tmp;
+  }
+
+  {
+    settings_t settings = settings_t::only_touch_settings();
+    kernel_manager_t ks;
+    execute(taskgraph, settings, ks, mpi, data);
+  }
+
+  map<int, buffer_t> tmp;
+  for(int i = 0; i != remap_gid.size(); ++i) {
+    auto const& gid  = std::get<1>(remap_gid[i]);
+    auto const& info = std::get<1>(remap[i]);
+    vector<int> const& out_tids = info.tids.get();
+    vector<int> const& mid_tids = gid_to_out.at(gid).get();
+    for(int j = 0; j != out_tids.size(); ++j) {
+      int const& out_tid = out_tids[j];
+      int const& mid_tid = mid_tids[j];
+      tmp.insert({out_tid, data.at(mid_tid)});
+    }
+  }
+  data = tmp;
+}
+
+builder_t::tinfo_t make_singleton_tinfo(builder_t::tinfo_t const& t, int id)
+{
+  auto shape = t.placement.total_shape();
+  vector<int> ones(shape.size(), 1);
+  return builder_t::tinfo_t {
+    .dtype = t.dtype,
+    .placement = placement_t(partition_t::singleton(shape)),
+    .tids = vtensor_t<int>(ones, {id})
+  };
+}
+
+// Note: this does not copies the data buffer
+dbuffer_t unpartition(
+  mpi_t* mpi,
+  builder_t::tinfo_t const& tinfo,
+  map<int, buffer_t> data)
+{
+  vector<tuple<builder_t::tinfo_t, builder_t::tinfo_t>> remap;
+  remap.emplace_back(tinfo, make_singleton_tinfo(tinfo, 0));
+  repartition_tinfos(mpi, remap, data);
+  return dbuffer_t(tinfo.dtype, data.at(0));
+}
+
 struct cluster_settings_t {
   int num_nodes;
   int num_threads_per_node;
@@ -364,7 +444,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
   };
 
   autoplace_settings_t autoplace_settings {
-    .num_steps = 100,
+    .num_steps = 10,
     .betas = {10000.0},
     .do_balanced = true,
     .do_singleloc = false
@@ -416,45 +496,62 @@ void main_(int argc, char** argv) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 0;
+  int niter = 1;
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
-
-  // need all weights, freqcis, embeddings, mask
-
-  map<int, buffer_t> data;
-  for(auto const& [name, tinfo]: builder.weights) {
-    buffer_t w = reader(name);
-    w = convert_f16_to_default(w);
-    repartition_into_map_single_loc(data, tinfo, w);
-  }
-
-  if(builder.mask) {
-    auto const& tinfo = builder.mask.value();
-    buffer_t mask = transformer_t::form_start_mask(seqlen).data;
-    repartition_into_map_single_loc(data, tinfo, mask);
-  }
-
-  // dies here?
-  {
-    auto const& tinfo = builder.freqs_cis;
-    buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
-    repartition_into_map_single_loc(data, tinfo, freqs_cis);
-  }
 
   dbuffer_t embedding_matrix(
     default_dtype(),
     convert_f16_to_default(reader("tok_embeddings.weight")));
 
-  {
-    buffer_t embeddings = lookup_embeddings(
-      args.vocab_size,
-      args.dim,
-      embedding_matrix,
-      init_tokens).data;
+  // need all weights, mask, freqcis, embeddings
 
-    auto const& tinfo = builder.embeddings;
-    repartition_into_map_single_loc(data, tinfo, embeddings);
+  using tinfo_t = builder_t::tinfo_t;
+  map<int, buffer_t> data;
+
+  {
+    int counter = 0;
+
+    auto get_id = [&counter]{ return counter++; };
+
+    vector<tuple<tinfo_t, tinfo_t>> init_remap;
+    auto insert_tinfo = [&](tinfo_t const& tinfo, buffer_t buffer) {
+      int id = get_id();
+      data.insert({ id, buffer });
+      init_remap.emplace_back(make_singleton_tinfo(tinfo, id), tinfo);
+    };
+
+    for(auto const& [name, tinfo]: builder.weights) {
+      buffer_t w = reader(name);
+      w = convert_f16_to_default(w);
+      insert_tinfo(tinfo, w);
+    }
+
+    if(builder.mask) {
+      auto const& tinfo = builder.mask.value();
+      buffer_t mask = transformer_t::form_start_mask(seqlen).data;
+      insert_tinfo(tinfo, mask);
+    }
+
+    {
+      auto const& tinfo = builder.freqs_cis;
+      buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
+      insert_tinfo(tinfo, freqs_cis);
+    }
+
+    {
+      buffer_t embeddings = lookup_embeddings(
+        args.vocab_size,
+        args.dim,
+        embedding_matrix,
+        init_tokens).data;
+
+      auto const& tinfo = builder.embeddings;
+      insert_tinfo(tinfo, embeddings);
+    }
+
+    // update data to contain the correct tids
+    repartition_tinfos(nullptr, init_remap, data);
   }
 
   kernel_manager_t kernel_manager;
@@ -485,7 +582,7 @@ void main_(int argc, char** argv) {
   //}
 
   {
-    dbuffer_t scores = unpartitioned_from_map_single_loc(data, builder.scores);
+    dbuffer_t scores = unpartition(nullptr, builder.scores, data);
 
     uint64_t top_n = 5;
     vtensor_t<int> top_choices = get_top_choices(
@@ -500,7 +597,9 @@ void main_(int argc, char** argv) {
 
     //builder.print_info();
 
-    builder.transform_from_prev(data);
+    auto remap = builder.remap.value();
+
+    repartition_tinfos(nullptr, remap, data);
 
     {
       buffer_t embeddings = lookup_embeddings(
@@ -510,7 +609,17 @@ void main_(int argc, char** argv) {
         token_maker.last_column()).data;
 
       auto const& tinfo = builder.embeddings;
-      repartition_into_map_single_loc(data, tinfo, embeddings);
+      vtensor_t<optional<buffer_t>> p_embeddings = repartition(
+        nullptr, tinfo.dtype, tinfo.placement, embeddings);
+      auto const& out_buffers = p_embeddings.get();
+      vector<int> const& tids = tinfo.tids.get();
+      for(int i = 0; i != out_buffers.size(); ++i) {
+        auto maybe = out_buffers[i];
+        if(maybe) {
+          int const& tid = tids[i];
+          data.insert({tid, maybe.value()});
+        }
+      }
     }
 
     for(auto const& node: builder.taskgraph.nodes) {
@@ -527,7 +636,7 @@ void main_(int argc, char** argv) {
     execute(builder.taskgraph, settings, kernel_manager, nullptr, data);
 
     {
-      dbuffer_t scores = unpartitioned_from_map_single_loc(data, builder.scores);
+      dbuffer_t scores = unpartition(nullptr, builder.scores, data);
 
       uint64_t top_n = 5;
       vtensor_t<int> top_choices = get_top_choices(

@@ -17,8 +17,6 @@ struct builder_t {
   bool is_first() const { return start_pos == 0; }
   bool is_last()  const { return !bool(next_kv); }
 
-  void transform_from_prev(map<int, buffer_t>& data) const;
-
   void print_info() const;
 
   struct tinfo_t {
@@ -49,9 +47,10 @@ struct builder_t {
   tinfo_t scores;
 
   // if not first
-  optional<map<int, int>> prev_tid_to_input_tids;
+  optional<vector<tuple<tinfo_t, tinfo_t>>> remap;
 
   std::function<vector<placement_t>(graph_t const&)> build_placements;
+
 private:
   static builder_t _make(
     model_args_t const& args,
@@ -60,17 +59,5 @@ private:
     std::function<vector<placement_t>(graph_t const&)> build_pls,
     bool make_last);
 
-  static void same_placement_convert(
-    map<int, int>& prev_to_new,
-    tinfo_t const& prev_info,
-    tinfo_t const& new_info);
 };
 
-void repartition_into_map_single_loc(
-  map<int, buffer_t>& tid_to_buffer,
-  builder_t::tinfo_t const& tinfo,
-  buffer_t inn_relation);
-
-dbuffer_t unpartitioned_from_map_single_loc(
-  map<int, buffer_t>& tid_to_buffer,
-  builder_t::tinfo_t const& tinfo);

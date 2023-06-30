@@ -134,7 +134,7 @@ builder_t::_make(
     .next_kv                = std::move(next_kv),
     .mask                   = std::move(mask),
     .scores                 = m.make_save(scores),
-    .prev_tid_to_input_tids = std::nullopt,
+    .remap                  = std::nullopt,
     .build_placements       = build_placements
   };
 }
@@ -172,8 +172,8 @@ builder_t::make_next_token(
 
   builder_t ret = _make(args, start_pos, seqlen, prev.build_placements, make_last);
 
-  ret.prev_tid_to_input_tids = map<int,int>();
-  map<int,int>& conversion = ret.prev_tid_to_input_tids.value();
+  ret.remap = vector<tuple<tinfo_t, tinfo_t>>();
+  auto& remap = ret.remap.value();
 
   // Copy the tids from prev into the new items:
   //   weights
@@ -181,10 +181,10 @@ builder_t::make_next_token(
   //   next_kv -> prev_kv
   for(auto const& [name, t_new]: ret.weights) {
     auto const& t_prev = prev.weights.at(name);
-    same_placement_convert(conversion, t_prev, t_new);
+    remap.emplace_back(t_prev, t_new);
   }
 
-  same_placement_convert(conversion, prev.freqs_cis, ret.freqs_cis);
+  remap.emplace_back(prev.freqs_cis, ret.freqs_cis);
 
   {
     auto const& prev_kv = prev.next_kv.value();
@@ -195,24 +195,12 @@ builder_t::make_next_token(
     for(int i = 0; i != args.n_layers; ++i) {
       auto const& [prev_k, prev_v] = prev_kv[i];
       auto const& [new_k,  new_v]  = next_kv[i];
-      same_placement_convert(conversion, prev_k, new_k);
-      same_placement_convert(conversion, prev_v, new_v);
+      remap.emplace_back(prev_k, new_k);
+      remap.emplace_back(prev_v, new_v);
     }
   }
 
   return ret;
-}
-
-void builder_t::transform_from_prev(map<int, buffer_t>& data) const
-{
-  map<int, buffer_t> ret;
-
-  auto const& to_new_tid = prev_tid_to_input_tids.value();
-  for(auto const& [p,n]: to_new_tid) {
-    ret.insert({n, data.at(p)});
-  }
-
-  data = ret;
 }
 
 void builder_t::print_info() const {
@@ -237,68 +225,3 @@ void builder_t::print_info() const {
   }
 }
 
-void builder_t::same_placement_convert(
-  map<int, int>& prev_to_new,
-  tinfo_t const& prev_info,
-  tinfo_t const& new_info)
-{
-  if(prev_info.dtype != new_info.dtype) {
-    throw std::runtime_error("same_placement_convert: must have same dtype");
-  }
-  if(prev_info.placement.partition != new_info.placement.partition) {
-    throw std::runtime_error("same_placement_convert: must have same partition");
-  }
-  if(!vector_equal(
-    prev_info.placement.locations.get(),
-    new_info.placement.locations.get()))
-  {
-    throw std::runtime_error("same_placement_convert: must have same placement");
-  }
-
-  auto const& ps = prev_info.tids.get();
-  auto const& ns = new_info.tids.get();
-
-  int n = ps.size();
-  if(n != ns.size()) {
-    throw std::runtime_error("very bad: mismatch in tid sizing even though same placements");
-  }
-  for(int i = 0; i != n; ++i) {
-    prev_to_new.insert({ps[i], ns[i]});
-  }
-}
-
-void repartition_into_map_single_loc(
-  map<int, buffer_t>& tid_to_buffer,
-  builder_t::tinfo_t const& tinfo,
-  buffer_t inn_relation)
-{
-  vtensor_t<buffer_t> bs = repartition(
-    tinfo.dtype, tinfo.placement.partition, inn_relation);
-
-  int nitems = tinfo.tids.get().size();
-  for(int i = 0; i != nitems; ++i) {
-    int const& tid = tinfo.tids.get()[i];
-    buffer_t b = bs.get()[i];
-    tid_to_buffer.insert({tid, b});
-  }
-}
-
-dbuffer_t unpartitioned_from_map_single_loc(
-  map<int, buffer_t>& tid_to_buffer,
-  builder_t::tinfo_t const& tinfo)
-{
-  vtensor_t<buffer_t> data(tinfo.placement.partition.block_shape());
-  int nitems = tinfo.tids.get().size();
-  for(int i = 0; i != nitems; ++i) {
-    int const& tid = tinfo.tids.get()[i];
-    data.get()[i] = tid_to_buffer.at(tid);
-  }
-
-  auto ret = repartition(
-    tinfo.dtype,
-    partition_t::singleton(tinfo.placement.total_shape()),
-    data,
-    tinfo.placement.partition);
-
-  return dbuffer_t(tinfo.dtype, ret.get()[0]);
-}
