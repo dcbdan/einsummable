@@ -24,4 +24,28 @@ int main() {
     DOUT(e);
     DOUT(e.merge_adjacent_dims());
   }
+  DOUT("--------------");
+  {
+    einsummable_t e = einsummable_t(
+        {5,6,4,8,3},
+        { {0, 2, 1, 4}, {0, 1, 3, 4} },
+        3,
+        scalarop_t::make_mul(),
+        castable_t::add);
+
+    DOUT(e);
+    DOUT(e.merge_adjacent_dims());
+  }
+  DOUT("--------------");
+  {
+    einsummable_t e = einsummable_t(
+        {5,6,4,8,3},
+        { {0, 1, 3, 4}, {0, 2, 1, 4} },
+        3,
+        scalarop_t::make_mul(),
+        castable_t::add);
+
+    DOUT(e);
+    DOUT(e.merge_adjacent_dims());
+  }
 }

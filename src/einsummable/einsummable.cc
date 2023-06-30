@@ -106,9 +106,22 @@ vector<tuple<int,int>> build_adjacents(
   m += 1;
 
   while(r != m) {
-    int score = update_count_adjacent(0, r, inns[0]);
-    for(int i = 1; i != inns.size(); ++i) {
-      score = update_count_adjacent(score, r, inns[i]);
+    // find the first place where r is in inns (so score > 0)
+    // then loop through all the others and update the score
+    // Example: r = mode d, inns = ae,abcde,abc
+    //          then score = 2 at i = 1,
+    //          then score stays two after i = 2
+    //          but at i = 0, score gets chopped to 1
+    //          since "de" can't be grouped together
+    int score = 0;
+    int i = 0;
+    for(; i != inns.size() && score == 0; ++i) {
+      score = update_count_adjacent(0, r, inns[i]);
+    }
+    // i is now one past the location that set score to be nonzero
+    for(int j = 0; j != inns.size()-1; ++j) {
+      int which = (i + j) % inns.size();
+      score = update_count_adjacent(score, r, inns[which]);
     }
 
     if(score <= 0) {
