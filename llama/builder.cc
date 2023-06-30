@@ -3,29 +3,27 @@
 #include "../src/execution/cpu/repartition.h"
 
 struct make_inn_save_transfer_t {
-  using tinfo_t = builder_t::tinfo_t;
-
-  tinfo_t make_inn(tensor_t t) const {
+  relation_t make_inn(tensor_t t) const {
     int gid = t.get_id();
     dtype_t dtype = t.get_dtype();
-    return tinfo_t {
+    return relation_t {
       .dtype = dtype,
       .placement = pls.at(gid),
       .tids = inns_g_to_t.at(gid)
     };
   }
 
-  tinfo_t make_save(tensor_t t) const {
+  relation_t make_save(tensor_t t) const {
     int gid = t.get_id();
     dtype_t dtype = t.get_dtype();
-    return tinfo_t {
+    return relation_t {
       .dtype = dtype,
       .placement = pls.at(gid),
       .tids = saves_g_to_t.at(gid)
     };
   }
 
-  tinfo_t make_innsave(tensor_t t) const {
+  relation_t make_innsave(tensor_t t) const {
     auto const& infoi = make_inn(t);
     auto const& infos = make_save(t);
     if(!vector_equal(infoi.tids.get(), infos.tids.get())) {
@@ -34,7 +32,7 @@ struct make_inn_save_transfer_t {
     return infoi;
   }
 
-  tinfo_t make_transfer(tensor_t t) const {
+  relation_t make_transfer(tensor_t t) const {
     if(is_last) {
       return make_inn(t);
     } else {
@@ -94,30 +92,30 @@ builder_t::_make(
 
   make_inn_save_transfer_t m { is_last, pls, inns_g_to_t, saves_g_to_t };
 
-  map<string, tinfo_t> weights;
+  map<string, relation_t> weights;
   for(auto const& [name,tensor]: model_weight_map) {
     weights.insert({name, m.make_transfer(tensor)});
   }
 
-  optional<vector<tuple<tinfo_t, tinfo_t>>> prev_kv;
+  optional<vector<tuple<relation_t, relation_t>>> prev_kv;
   if(!is_first) {
-    prev_kv = vector<tuple<tinfo_t, tinfo_t>>();
+    prev_kv = vector<tuple<relation_t, relation_t>>();
     auto& _prev_kv = prev_kv.value();
     for(auto const& [k,v]: model.get_prev_kvs()) {
       _prev_kv.emplace_back(m.make_inn(k), m.make_inn(v));
     }
   }
 
-  optional<vector<tuple<tinfo_t, tinfo_t>>> next_kv;
+  optional<vector<tuple<relation_t, relation_t>>> next_kv;
   if(!is_last) {
-    next_kv = vector<tuple<tinfo_t, tinfo_t>>();
+    next_kv = vector<tuple<relation_t, relation_t>>();
     auto& _next_kv = next_kv.value();
     for(auto const& [k,v]: model.get_new_kvs()) {
       _next_kv.emplace_back(m.make_save(k), m.make_save(v));
     }
   }
 
-  optional<tinfo_t> mask;
+  optional<relation_t> mask;
   if(model.mask) {
     mask = m.make_inn(model.mask.value());
   }
@@ -172,7 +170,7 @@ builder_t::make_next_token(
 
   builder_t ret = _make(args, start_pos, seqlen, prev.build_placements, make_last);
 
-  ret.remap = vector<tuple<tinfo_t, tinfo_t>>();
+  ret.remap = remap_relations_t();
   auto& remap = ret.remap.value();
 
   // Copy the tids from prev into the new items:
@@ -181,10 +179,10 @@ builder_t::make_next_token(
   //   next_kv -> prev_kv
   for(auto const& [name, t_new]: ret.weights) {
     auto const& t_prev = prev.weights.at(name);
-    remap.emplace_back(t_prev, t_new);
+    remap.insert(t_prev, t_new);
   }
 
-  remap.emplace_back(prev.freqs_cis, ret.freqs_cis);
+  remap.insert(prev.freqs_cis, ret.freqs_cis);
 
   {
     auto const& prev_kv = prev.next_kv.value();
@@ -195,8 +193,8 @@ builder_t::make_next_token(
     for(int i = 0; i != args.n_layers; ++i) {
       auto const& [prev_k, prev_v] = prev_kv[i];
       auto const& [new_k,  new_v]  = next_kv[i];
-      remap.emplace_back(prev_k, new_k);
-      remap.emplace_back(prev_v, new_v);
+      remap.insert(prev_k, new_k);
+      remap.insert(prev_v, new_v);
     }
   }
 

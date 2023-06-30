@@ -3,6 +3,7 @@
 
 #include "modules.h"
 #include "../src/einsummable/taskgraph.h"
+#include "../src/einsummable/relation.h"
 
 struct builder_t {
   static builder_t
@@ -19,35 +20,29 @@ struct builder_t {
 
   void print_info() const;
 
-  struct tinfo_t {
-    dtype_t dtype;
-    placement_t placement;
-    vtensor_t<int> tids;
-  };
-
   model_args_t args;
   graph_t graph;
   taskgraph_t taskgraph;
   uint64_t start_pos;
 
-  map<string, tinfo_t> weights;
-  tinfo_t freqs_cis;
+  map<string, relation_t> weights;
+  relation_t freqs_cis;
 
-  tinfo_t embeddings;
+  relation_t embeddings;
 
   // if not first
-  optional<vector<tuple<tinfo_t, tinfo_t>>> prev_kv;
+  optional<vector<tuple<relation_t, relation_t>>> prev_kv;
 
   // if not last
-  optional<vector<tuple<tinfo_t, tinfo_t>>> next_kv;
+  optional<vector<tuple<relation_t, relation_t>>> next_kv;
 
   // if first & seqlen > 1
-  optional<tinfo_t> mask;
+  optional<relation_t> mask;
 
-  tinfo_t scores;
+  relation_t scores;
 
   // if not first
-  optional<vector<tuple<tinfo_t, tinfo_t>>> remap;
+  optional<remap_relations_t> remap;
 
   std::function<vector<placement_t>(graph_t const&)> build_placements;
 

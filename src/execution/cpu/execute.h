@@ -46,6 +46,8 @@ struct settings_t {
 
 kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph);
 
+void update_kernel_manager(kernel_manager_t& km, taskgraph_t const& taskgraph);
+
 // Every input node in taskgraph should be in tensors.
 // After execution, only every save taskgraph node should be in tensors
 void execute(

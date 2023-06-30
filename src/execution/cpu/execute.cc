@@ -228,6 +228,8 @@ void execute(
   mpi_t* mpi,
   map<int, buffer_t>& tensors)
 {
+  //gremlin_t gremlin("execute time");
+
   cpu_exec_state_t state(
     mpi, taskgraph, kernel_manager, tensors,
     settings.num_apply_kernel_threads);
@@ -936,10 +938,16 @@ void sends_progress_t::notify_tensor_ready(int inn_id) {
   }
 }
 
-kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph)
-{
+kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
   kernel_manager_t ret;
+  update_kernel_manager(ret, taskgraph);
+  return ret;
+}
 
+void update_kernel_manager(
+  kernel_manager_t& ret,
+  taskgraph_t const& taskgraph)
+{
   for(auto const& node: taskgraph.nodes) {
     if(node.op.is_apply()) {
       auto const& e = node.op.get_apply().einsummable;
@@ -949,7 +957,5 @@ kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph)
       }
     }
   }
-
-  return ret;
 }
 
