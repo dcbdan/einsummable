@@ -243,6 +243,10 @@ placement_t mcmc_t::make_finer(placement_t const& pl) {
     }
   }
 
+  if(can_ds.size() == 0) {
+    return pl;
+  }
+
   int d = can_ds[runif(can_ds.size())];
   auto new_partdims = part.partdims;
   new_partdims[d] = partdim_t::split_each(new_partdims[d], 2);
@@ -273,6 +277,10 @@ placement_t mcmc_t::make_coarser(placement_t const& pl) {
     if(pd.num_parts() % 2 == 0) {
       can_ds.push_back(d);
     }
+  }
+
+  if(can_ds.size() == 0) {
+    return pl;
   }
 
   int d = can_ds[runif(can_ds.size())];

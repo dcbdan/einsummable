@@ -438,7 +438,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
 
   cluster_settings_t cluster_settings {
     .num_nodes = 1,
-    .num_threads_per_node = 24,
+    .num_threads_per_node = 16,
     .compute_per_thread = 5*giga,
     .bandwidth = 1*giga
   };
@@ -456,6 +456,8 @@ vector<placement_t> autoplace(graph_t const& graph) {
 }
 
 void main_(int argc, char** argv) {
+  set_seed(2);
+
   if(argc != 2) {
     throw std::runtime_error("usage: filename");
   }
@@ -496,7 +498,7 @@ void main_(int argc, char** argv) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 1;
+  int niter = 2;
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
 

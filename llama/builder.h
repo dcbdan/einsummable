@@ -58,6 +58,5 @@ private:
     uint64_t seqlen,
     std::function<vector<placement_t>(graph_t const&)> build_pls,
     bool make_last);
-
 };
 
