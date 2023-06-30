@@ -84,3 +84,26 @@ message TaskGraph {
   repeated TaskGraphNode nodes = 1;
 }
 
+message Partdim {
+  repeated uint64 spans = 1;
+}
+
+message Partition {
+  repeated Partdim partdims = 1;
+}
+
+message Placement {
+  required Partition partition = 1;
+  repeated int32 locations = 2;
+}
+
+message Relation {
+  required string dtype = 1;
+  required Placement placement = 2;
+  repeated int32 tids = 4;
+}
+
+message RemapRelations {
+  repeated Relation srcs = 1;
+  repeated Relation dsts = 2;
+}

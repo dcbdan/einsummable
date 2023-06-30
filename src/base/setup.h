@@ -842,3 +842,10 @@ vector<Iter> select_topn(Iter beg, Iter end, int topn) {
   return ret;
 }
 
+// make sure that istream has xs up next; throw an error if not
+void istream_expect(std::istream& inn, string const& xs);
+
+// find the longest parse of the options; throw an error if no parse
+int istream_expect_or(std::istream& inn, vector<string> const& options);
+
+

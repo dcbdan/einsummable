@@ -18,6 +18,9 @@ struct placement_t {
   static placement_t random(partition_t const& partition, int nloc);
   static placement_t random(vector<partdim_t> const& partdims, int nloc);
 
+  static placement_t from_wire(string const& str);
+  static placement_t from_proto(es_proto::Placement const& p);
+
   placement_t refine(partition_t const& refined_partition) const;
 
   placement_t subset(vector<tuple<int, int>> const& region) const;
@@ -52,6 +55,9 @@ struct placement_t {
   int num_parts() const {
     return partition.num_parts();
   }
+
+  string to_wire() const;
+  void to_proto(es_proto::Placement& p) const;
 
   partition_t partition;
   vtensor_t<int> locations;

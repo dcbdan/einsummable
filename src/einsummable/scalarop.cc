@@ -1,13 +1,5 @@
 #include "scalarop.h"
 
-void istream_expect(std::istream& inn, string const& xs) {
-  for(auto const& x: xs) {
-    if(x != inn.get()) {
-      throw std::runtime_error("expected " + xs);
-    }
-  }
-}
-
 compare_t compare_flip(compare_t c) {
   switch(c) {
     case compare_t::lt:

@@ -1,9 +1,13 @@
 #pragma once
 #include "setup.h"
 
+#include "einsummable.pb.h"
+
 struct partdim_t {
   static partdim_t from_spans(vector<uint64_t> const& spans);
   static partdim_t from_sizes(vector<uint64_t> const& sizes);
+  static partdim_t from_wire(string const& str);
+  static partdim_t from_proto(es_proto::Partdim const& p);
   static partdim_t repeat(int n_repeat, uint64_t sz);
   static partdim_t singleton(uint64_t sz);
   static partdim_t split(uint64_t total_size, int n_split);
@@ -30,6 +34,9 @@ struct partdim_t {
   tuple<int,int> exact_region(uint64_t beg, uint64_t end) const;
 
   partdim_t subset(uint64_t beg, uint64_t end) const;
+
+  string to_wire() const;
+  void to_proto(es_proto::Partdim& p) const;
 
   vector<uint64_t> spans;
 };

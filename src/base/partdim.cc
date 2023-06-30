@@ -14,6 +14,21 @@ partdim_t partdim_t::from_sizes(vector<uint64_t> const& sizes) {
   return partdim_t { .spans = spans };
 }
 
+partdim_t partdim_t::from_wire(string const& str) {
+  es_proto::Partdim p;
+  if(!p.ParseFromString(str)) {
+    throw std::runtime_error("could not parse partdim");
+  }
+  return from_proto(p);
+}
+
+partdim_t partdim_t::from_proto(es_proto::Partdim const& p) {
+  auto const& sp = p.spans();
+  return partdim_t {
+    .spans = vector<uint64_t>(sp.begin(), sp.end())
+  };
+}
+
 partdim_t partdim_t::repeat(int n_repeat, uint64_t sz) {
   return from_sizes(vector<uint64_t>(n_repeat, sz));
 }
@@ -202,6 +217,20 @@ partdim_t partdim_t::subset(uint64_t beg, uint64_t end) const {
   }
 
   return partdim_t::from_sizes(szs);
+}
+
+string partdim_t::to_wire() const {
+  es_proto::Partdim p;
+  to_proto(p);
+  string ret;
+  p.SerializeToString(&ret);
+  return ret;
+}
+
+void partdim_t::to_proto(es_proto::Partdim& p) const {
+  for(auto const& s: spans) {
+    p.add_spans(s);
+  }
 }
 
 bool operator==(partdim_t const& lhs, partdim_t const& rhs) {
