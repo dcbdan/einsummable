@@ -354,22 +354,22 @@ vector<placement_t> solve(
 }
 
 int num_threads_per_node = 12;
-int num_touch_threads = 4;
+int num_touch_threads = 12;
 
-vector<placement_t> autoplace(graph_t const& graph) {
+vector<placement_t> autoplace(int num_nodes, graph_t const& graph) {
   gremlin_t gremlin("autoplace");
 
   uint64_t giga = 1e9;
 
   cluster_settings_t cluster_settings {
-    .num_nodes = 1,
-    .num_threads_per_node = 2*num_threads_per_node,
-    .compute_per_thread = 1*giga,
-    .bandwidth = 10*giga
+    .num_nodes = num_nodes,
+    .num_threads_per_node = num_threads_per_node,
+    .compute_per_thread = 10*giga,
+    .bandwidth = 1*giga
   };
 
   autoplace_settings_t autoplace_settings {
-    .num_steps = 1,
+    .num_steps = 0,
     .betas = {10000.0},
     .do_balanced = true,
     .do_singleloc = false
@@ -425,7 +425,9 @@ void main_(loc_manager_t& manager, string filename) {
 
   int niter = 1; // 256-seqlen-1;
 
-  builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  int world_size = manager.mpi ? manager.mpi->world_size : 1;
+  builder_t builder = builder_t::make_first_token(args, seqlen,
+    [&](graph_t const& g) { return autoplace(world_size, g); });
 
   dbuffer_t embedding_matrix(
     default_dtype(),
@@ -534,8 +536,8 @@ int main(int argc, char** argv) {
   settings_t settings {
     .num_apply_runner = num_threads_per_node,
     .num_touch_runner = num_touch_threads,
-    .num_send_runner = 0,
-    .num_recv_runner = 0,
+    .num_send_runner = 2,
+    .num_recv_runner = 2,
     .num_apply_kernel_threads = 1
   };
 
@@ -544,12 +546,25 @@ int main(int argc, char** argv) {
   loc_manager_t manager(&mpi, settings);
   if(mpi.this_rank != 0) {
     manager.listen();
+#ifdef KERNEL_TIMER
+    auto ts = kernel_manager_t::get_times();
+    for(auto const& [k,t]: ts) {
+      DOUT(k << ": " << t);
+    }
+#endif
   } else {
     if(argc != 2) {
       throw std::runtime_error("usage: filename");
     }
     main_(manager, argv[1]);
+#ifdef KERNEL_TIMER
+    auto ts = kernel_manager_t::get_times();
+    for(auto const& [k,t]: ts) {
+      DOUT(k << ": " << t);
+    }
+#endif
     manager.shutdown();
   }
+
 
 }

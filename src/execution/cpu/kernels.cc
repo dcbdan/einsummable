@@ -246,6 +246,72 @@ vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
   return ret;
 }
 
+#ifdef KERNEL_TIMING
+
+#include <memory>
+#include <mutex>
+#include <atomic>
+
+struct total_timer_t {
+  total_timer_t(std::atomic_uint64_t& t):
+    total(t), start(clock_now())
+  {}
+
+  ~total_timer_t() {
+    auto end = clock_now();
+    using namespace std::chrono;
+    total += duration_cast<microseconds>(end - start).count();
+  }
+
+  std::atomic_uint64_t& total;
+  timestamp_t const start;
+};
+
+struct timer_totaler_t {
+  total_timer_t operator()(string key) {
+    std::unique_lock lk(m);
+
+    auto iter = totals.find(key);
+    if(iter == totals.end()) {
+      auto [_i, _] = totals.insert({key, std::make_unique<std::atomic_uint64_t>(0)});
+      iter = _i;
+    }
+    return total_timer_t(*(iter->second));
+  }
+
+  void reset() {
+    std::unique_lock lk(m);
+    for(auto const& [k,v_ptr]: totals) {
+      *v_ptr = 0;
+    }
+  }
+
+  std::mutex m;
+  map<string, std::unique_ptr<std::atomic_uint64_t>> totals;
+};
+
+timer_totaler_t kernel_timer_totaler;
+
+map<string, double> kernel_manager_t::get_times() {
+  map<string, double> ret;
+  for(auto const& [key, v_ptr]: kernel_timer_totaler.totals) {
+    using namespace std::chrono;
+    double time = (double) (v_ptr->load())
+                / (double) duration_cast<microseconds>(1s).count();
+    ret.insert({key, time});
+  }
+  return ret;
+}
+
+void kernel_manager_t::reset_times() {
+  kernel_timer_totaler.reset();
+}
+
+#define setup_gremlin(key) total_timer_t gremlin = kernel_timer_totaler(key);
+#else
+#define setup_gremlin(key)
+#endif
+
 void kernel_manager_t::operator()(
   touch_t const& touch,
   void* out,
@@ -254,6 +320,7 @@ void kernel_manager_t::operator()(
   // TODO: there is no reason to wrap the touch kernel in a lambda;
   //       create touch_kernel
   auto f = build_touch(touch);
+  setup_gremlin("touch");
   f(out, inn);
 }
 
@@ -285,6 +352,7 @@ void kernel_manager_t::call(
   if(holds_alternative<batch_matmul_t>(kernel)) {
     assert_num_inputs(2);
     auto const& b = get<batch_matmul_t>(kernel);
+    setup_gremlin("bmm");
     batch_matrix_multiply(
       b.dtype,
       b.nb,
@@ -295,6 +363,7 @@ void kernel_manager_t::call(
   } else if(holds_alternative<contraction_t>(kernel)) {
     assert_num_inputs(2);
     auto const& c = get<contraction_t>(kernel);
+    setup_gremlin("con");
     if(c.workspace_size == 0) {
       c(nullptr, out, inns[0], inns[1]);
     } else if(!maybe_workspace) {
@@ -309,25 +378,31 @@ void kernel_manager_t::call(
   } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [n,data,f] = get<unary_straight_ew_t>(kernel);
+    setup_gremlin("uew");
     f(data.data(), n, out, inns[0]);
   } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
     assert_num_inputs(2);
     auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
+    setup_gremlin("bew");
     f(data.data(), n, out, inns[0], inns[1]);
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     assert_num_inputs(2);
     auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
+    setup_gremlin("b212");
     f(data.data(), na, nb, out, inns[0], inns[1]);
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [dtype, inn_shape, out_perm] = get<tensor_permute_t>(kernel);
+    setup_gremlin("perm");
     permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
+    setup_gremlin("red");
     f(na,nb,out,inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     auto const& f = get<kernel_t>(kernel);
+    setup_gremlin("misc");
     f(out, inns);
   } else {
     throw std::runtime_error("workspace size: kernel unaccounted for");

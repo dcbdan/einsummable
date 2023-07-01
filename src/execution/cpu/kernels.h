@@ -9,6 +9,8 @@
 
 #include <thread>
 
+//#define KERNEL_TIMING
+
 struct kernel_manager_t {
 private:
   struct binfo_t {
@@ -120,6 +122,11 @@ private:
 
   optional<batch_matmul_t>
   make_batch_matmul(einsummable_t const& e);
+#ifdef KERNEL_TIMING
+public:
+  static map<string, double> get_times();
+  static void reset_times();
+#endif
 };
 
 // This is just a function to create a standalone kernel
