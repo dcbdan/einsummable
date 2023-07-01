@@ -10,7 +10,7 @@
 using std::thread;
 using std::queue;
 
-#define RLINEOUT(x) // if(mpi->this_rank == 0) { DLINEOUT(x); }
+#define RLINEOUT(x) if(mpi->this_rank == 0) { DLINEOUT(x); }
 
 struct applys_progress_t {
   queue<int> ready;
@@ -381,6 +381,8 @@ cpu_exec_state_t::cpu_exec_state_t(
 
 void cpu_exec_state_t::apply_runner(int runner_id)
 {
+  mkl_set_num_threads(num_apply_kernel_threads);
+
   int which;
   while(true)
   {
@@ -632,6 +634,7 @@ void cpu_exec_state_t::completed_touch(int inn, int unit_id)
 
   if(maybe_completed_partial_id) {
     auto const& partial_id = maybe_completed_partial_id.value();
+
     // the partial id has been touched the requisite number of times
     // and so this command is done and partial_id is a completed
     // tensor.

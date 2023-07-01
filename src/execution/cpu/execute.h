@@ -22,11 +22,11 @@ struct settings_t {
     int num_threads = std::max(1u, std::thread::hardware_concurrency());
 
     return settings_t {
-      .num_apply_runner = 1,
+      .num_apply_runner = num_threads,
       .num_touch_runner = std::max(1, num_threads / 2),
       .num_send_runner  = 2,
       .num_recv_runner  = 2,
-      .num_apply_kernel_threads = num_threads
+      .num_apply_kernel_threads = 1
     };
   }
   static settings_t only_touch_settings() {
