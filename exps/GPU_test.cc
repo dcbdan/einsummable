@@ -57,7 +57,8 @@ int main(int argc, char** argv) {
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
         compute_loc_to_cache,
-        {} );
+        {},
+        { allocator_strat_t::lowest_dependency, 4 }  );
     auto const& [_2, _3, memgraph] = _info1;
 
    
@@ -65,8 +66,8 @@ int main(int argc, char** argv) {
     std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
     std::ofstream f("mm3d_mem_lowest_dep.gv");
     memgraph.print_graphviz(f);
-    execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
-    // check_correctness(memgraph, false);
+    // execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
+    check_correctness(memgraph, false);
   }
 
   return 0;

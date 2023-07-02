@@ -130,8 +130,9 @@ vector<int> node_update(std::map<int, int>& dependency_count, const memgraph_t& 
         // at this point we know that the it's not the first time we see this touch's group id
         auto group_id = node.op.get_apply().group;
         // remove the group id from the executing list since we are done
-        std::cout << "Removing group id from executing list" << std::endl;
-        // TODO: removing could go wrong
+        if (group_id_executing.find(group_id) == group_id_executing.end()) {
+            throw std::runtime_error("Group id " + std::to_string(group_id) + " not found in executing list");
+        }
         group_id_executing.erase(group_id);
         // find if there are any other nodes in the same group that are waiting for this touch to finish
         if(groupID_to_nodeIDX[group_id].size() != 0) {
@@ -288,16 +289,17 @@ void gpu_execute_state_t::run() {
                 // CASE: TOUCH
                 if (node.op.is_touch()) {
                     // std::cout << "Got a touch node" << std::endl;
+                    // TODO: doing a lock; see where is the best place to put this lock
+                    std::unique_lock lk(m);
                     auto touch = node.op.get_touch();
                     auto group_id = node.op.get_apply().group;
                     // if we have found this group id in the list, we can't execute until the previous one is done
                     if (group_id_executing.count(group_id) != 0) {
-                        // std::cout << "Found a touch node " << node_idx << " with group id " << group_id 
-                        //     << " that is already executing." << std::endl;
                         // we can't execute this node since some other node is executing with the same group id
                         // add this node to the map 
                         groupID_to_nodeIDX[group_id].push(node_idx);
                         // skipping the callback since this node didn't execute
+                        lk.unlock();
                         continue;
                     }
                     else{
@@ -319,6 +321,7 @@ void gpu_execute_state_t::run() {
                         // add this group id to the executing set
                         group_id_executing.insert(group_id);
                         all_group_ids.insert(group_id);
+                        lk.unlock();
                         auto touch_kernel = build_touch(touch);
                         touch_kernel(stream, offset_increment(memory_base_ptr, memory_vector[0].offset), 
                         offset_increment(memory_base_ptr, memory_vector[1].offset));
