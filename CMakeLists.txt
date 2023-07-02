@@ -11,6 +11,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-sign-compare")
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # TODO: make sure protocol buffers are built in the correct order
@@ -54,11 +55,12 @@ add_base_application("base_test"        "exps" "base_test")
 add_base_application("einsummable_test" "exps" "einsummable_test")
 
 function(add_llama_application exec filename)
-add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc)
+add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc llama/builder.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-add_llama_application("llama_main" "main")
+add_llama_application("llama_main"  "main")
+add_llama_application("llama_exp01" "exp01")
 
 if(${CPU_EXECUTION_ENGINE})
   find_package(MPI REQUIRED)
