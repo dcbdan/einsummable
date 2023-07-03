@@ -1,11 +1,13 @@
 #include "execute.h"
 #include "kernels.h"
+#include "workspace.h"
 
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 
 #include <mkl.h> // for mkl_set_num_threads
+
 
 using std::thread;
 using std::queue;
@@ -169,16 +171,6 @@ struct cpu_exec_state_t {
   // misc
   bool check_complete() const;
 
-  tuple<
-    optional<tuple<void*, uint64_t>>,
-    optional<int>>
-  get_workspace(einsummable_t const&);
-
-  void release_workspace(int which);
-  void release_workspace(optional<int> w) {
-    if(w) { return release_workspace(w.value()); }
-  }
-
   // grab tensors (and allocate if necc) under mutex
   tuple<
     vector<buffer_t>,
@@ -193,6 +185,9 @@ struct cpu_exec_state_t {
   map<int, buffer_t>& tensors;
   int const num_apply_kernel_threads;
 
+  // this holds the kernel_manager and queries it
+  workspace_manager_t workspace_manager;
+
   // The total number of commands left to execute
   int num_remaining;
 
@@ -202,7 +197,6 @@ struct cpu_exec_state_t {
   map<int, int> num_usages_remaining;
 
   // Concurrency management
-  std::mutex m_workspace;
   std::mutex m_tensors;
   std::mutex m;
   std::condition_variable cv;
@@ -216,9 +210,6 @@ struct cpu_exec_state_t {
   // Work for send and recv runners
   sends_progress_t sends_progress;
   int num_recv_post_remaining;
-
-  // Workspace management
-  vector<tuple<bool,buffer_t>> workspace;
 };
 
 void execute(
@@ -277,6 +268,7 @@ cpu_exec_state_t::cpu_exec_state_t(
     taskgraph(tg),
     kernel_manager(km),
     tensors(ts),
+    workspace_manager(km),
     num_remaining(0),
     num_recv_post_remaining(0),
     num_apply_kernel_threads(n_ts)
@@ -406,7 +398,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
       auto const& node = taskgraph.nodes[which];
       auto const& [_0, inns, einsummable] = node.op.get_apply();
 
-      auto [workspace, which_workspace] = get_workspace(einsummable);
+      auto [workspace, which_workspace] = workspace_manager.get(einsummable);
 
       auto [_1, inputs] = get_buffers({}, inns);
 
@@ -435,7 +427,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
       }
 
       kernel_manager(einsummable, out_buffer->data, raw_inputs, workspace);
-      release_workspace(which_workspace);
+      workspace_manager.release(which_workspace);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
@@ -675,56 +667,6 @@ void cpu_exec_state_t::completed_apply(int apply_id)
 
 bool cpu_exec_state_t::check_complete() const {
   return num_remaining == 0;
-}
-
-tuple<
-  optional<tuple<void*, uint64_t>>,
-  optional<int>>
-cpu_exec_state_t::get_workspace(einsummable_t const& e)
-{
-  uint64_t size = kernel_manager.workspace_size(e);
-  if(size == 0) {
-    return {std::nullopt, std::nullopt};
-  }
-  std::unique_lock lk(m_workspace);
-  int ret = -1;
-  int smallest;
-  for(int i = 0; i != workspace.size(); ++i) {
-    auto const& [is_available, buffer] = workspace[i];
-    uint64_t const& sz = buffer->size;
-    if(is_available && size <= sz) {
-      if(ret == -1) {
-        ret = i;
-        smallest = sz;
-      } else {
-        if(sz < smallest) {
-          ret = i;
-          smallest = sz;
-        }
-      }
-    }
-  }
-  if(ret == -1) {
-    workspace.emplace_back(false, make_buffer(size));
-    ret = workspace.size()-1;
-  } else {
-    auto& [is_available, _] = workspace[ret];
-    is_available = false;
-  }
-
-  auto b = std::get<1>(workspace[ret]);
-  using t1 = optional<tuple<void*, uint64_t>>;
-  using t2 = optional<int>;
-  return tuple<t1,t2>{
-    t1({b->data, b->size}),
-    t2(ret)
-  };
-}
-
-void cpu_exec_state_t::release_workspace(int which) {
-  std::unique_lock lk(m_workspace);
-  auto& [is_available, _] = workspace[which];
-  is_available = true;
 }
 
 tuple<

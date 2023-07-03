@@ -135,6 +135,9 @@ public:
     tuple<int, uint64_t> src; // src loc, offset
     tuple<int, uint64_t> dst; // dst loc, offset
     uint64_t size;
+
+    int const& get_src_loc() const { return std::get<0>(src); }
+    int const& get_dst_loc() const { return std::get<0>(dst); }
   };
 
   // Note: every location has one cache, but a
@@ -210,6 +213,7 @@ public:
     memloc_t get_output_memloc() const;
     mem_t    get_output_mem() const;
 
+    bool is_local_to(int loc) const;
   private:
     _op_t op;
 

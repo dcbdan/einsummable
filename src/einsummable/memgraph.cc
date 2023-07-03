@@ -370,6 +370,27 @@ mem_t memgraph_t::op_t::get_output_mem() const {
   return get_output_memloc().as_mem();
 }
 
+bool memgraph_t::op_t::is_local_to(int loc) const {
+  if(is_input()) {
+    return loc == get_input().loc;
+  } else if(is_apply()) {
+    return loc == get_apply().loc;
+  } else if(is_move()) {
+    auto const& move = get_move();
+    return loc == move.get_src_loc() || loc == move.get_dst_loc();
+  } else if(is_evict()) {
+    return loc == get_evict().loc;
+  } else if(is_load()) {
+    return loc == get_load().loc;
+  } else if(is_partialize()) {
+    return loc == get_partialize().loc;
+  } else if(is_del()) {
+    return loc == get_del().loc;
+  } else {
+    throw std::runtime_error("is_local_to should not reach");
+  }
+}
+
 bool memgraph_t::apply_t::is_einsummable() const {
   return std::holds_alternative<einsummable_t>(op);
 }
