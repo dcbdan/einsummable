@@ -2,7 +2,7 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #define ROUT(x) if(mpi.this_rank == 0) { std::cout << "(in cpu exec) " << x << std::endl; }

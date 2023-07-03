@@ -2,7 +2,7 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #include <fstream>
