@@ -44,7 +44,7 @@ void ff(
   vector<int> ws    = ff_info.wsinn;
   vector<int> wsnew = ff_info.wsout;
 
-  auto settings = settings_t::default_settings();
+  auto settings = execute_taskgraph_settings_t::default_settings();
 
   vector<int> outs = wsnew;
   outs.push_back(sqdiff);

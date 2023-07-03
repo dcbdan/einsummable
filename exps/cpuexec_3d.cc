@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto settings = settings_t::default_settings();
+  auto settings = execute_taskgraph_settings_t::default_settings();
 
   mpi_t mpi(argc, argv);
 

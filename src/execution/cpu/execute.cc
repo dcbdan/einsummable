@@ -8,7 +8,6 @@
 
 #include <mkl.h> // for mkl_set_num_threads
 
-
 using std::thread;
 using std::queue;
 
@@ -214,7 +213,7 @@ struct cpu_exec_state_t {
 
 void execute(
   taskgraph_t const& taskgraph,
-  settings_t const& settings,
+  execute_taskgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,
   mpi_t* mpi,
   map<int, buffer_t>& tensors)

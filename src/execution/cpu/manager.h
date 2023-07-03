@@ -10,7 +10,7 @@
 // from a client node at rank zero. All the other nodes
 // cooperate to do the various updates.
 struct loc_manager_t {
-  loc_manager_t(mpi_t* mpi, settings_t const& settings);
+  loc_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings);
 
   // this should be called by all non-zero rank locations
   void listen();
@@ -40,7 +40,7 @@ struct loc_manager_t {
   map<int, buffer_t> data;
 
   mpi_t* mpi;
-  settings_t settings;
+  execute_taskgraph_settings_t settings;
   kernel_manager_t kernel_manager;
 
 private:

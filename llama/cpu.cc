@@ -353,7 +353,7 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 12;
+int num_threads_per_node = 1;
 int num_touch_threads = 4;
 
 vector<placement_t> autoplace(graph_t const& graph) {
@@ -531,7 +531,7 @@ void main_(loc_manager_t& manager, string filename) {
 }
 
 int main(int argc, char** argv) {
-  settings_t settings {
+  execute_taskgraph_settings_t settings {
     .num_apply_runner = num_threads_per_node,
     .num_touch_runner = num_touch_threads,
     .num_send_runner = 0,

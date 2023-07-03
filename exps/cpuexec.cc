@@ -176,7 +176,7 @@ int main(int argc, char** argv)
 
   int num_threads_per_node = 4;
 
-  settings_t execute_settings {
+  execute_taskgraph_settings_t execute_settings {
     .num_apply_runner = num_threads_per_node,
     .num_touch_runner = 2,
     .num_send_runner  = 1,

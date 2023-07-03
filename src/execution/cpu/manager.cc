@@ -2,7 +2,7 @@
 
 #include "repartition.h"
 
-loc_manager_t::loc_manager_t(mpi_t* mpi, settings_t const& settings)
+loc_manager_t::loc_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings)
   : mpi(mpi), settings(settings)
 {}
 
@@ -39,7 +39,7 @@ void loc_manager_t::listen() {
 
 void loc_manager_t::execute(taskgraph_t const& taskgraph)
 {
-  //gremlin_t gremlin("execute from manager");
+  gremlin_t gremlin("execute from manager");
   broadcast_cmd(cmd_t::execute);
   broadcast_str(taskgraph.to_wire());
   _execute(taskgraph);
