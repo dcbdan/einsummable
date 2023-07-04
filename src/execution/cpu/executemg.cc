@@ -23,11 +23,10 @@ struct cpu_mg_exec_state_t {
   void recv_runner(int runner_id);
 
   // these should be launched just once
-  void recv_move_notification_runner();
-  void send_move_notification_runner();
+  void send_can_recv_runner();
+  void recv_can_recv_runner();
 
   void completed(int node_id, int group_id = -1);
-  void completed_move_notification(int move_id);
 
   void run(int n_apply, int n_cache, int n_send, int n_recv);
 
@@ -59,10 +58,12 @@ struct cpu_mg_exec_state_t {
   // so it isn't strictly fifo.
   vector<int> apply_ready;
 
+  // these can be sent right away
   queue<int> send_ready;
 
-  // Tell the opposing side of the move that this side is ready
-  queue<int> move_notify_ready;
+  // the queue to tell the opposing send that
+  // the recv here can proceed
+  queue<int> can_recv_ready;
 
   queue<int> cache_ready;
 
@@ -70,15 +71,8 @@ struct cpu_mg_exec_state_t {
 
   map<int, int> num_deps_remaining;
 
-  // The move algorithm is as follows:
-  //   When your deps_remaining hits zero,
-  //   let the other side node by sending a move
-  //   notification.
-  //   When you have sent and recvd a notification,
-  //   add yourself to move_ready
-  map<int, int> move_notification_remaining;
-  int num_recv_move_notification_remaining;
   int num_recv_remaining;
+  int num_recv_can_recv_remaining;
 
   set<int> busy_groups;
 };
@@ -119,8 +113,8 @@ void cpu_mg_exec_state_t::run(int n_apply, int n_cache, int n_send, int n_recv)
   }
 
   if(n_send > 0 || n_recv > 0) {
-    runners.emplace_back([this](){ return this->recv_move_notification_runner(); });
-    runners.emplace_back([this](){ return this->send_move_notification_runner(); });
+    runners.emplace_back([this](){ return this->recv_can_recv_runner(); });
+    runners.emplace_back([this](){ return this->send_can_recv_runner(); });
   }
 
   for(auto& t: runners) {
@@ -146,8 +140,10 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
 
   this_rank = bool(mpi) ? mpi->this_rank : 0;
   num_remaining = 0;
-  num_recv_move_notification_remaining = 0;
   num_recv_remaining = 0;
+
+  num_recv_can_recv_remaining = 0;
+  int& num_sends = num_recv_can_recv_remaining;
 
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = memgraph.nodes[id];
@@ -157,36 +153,40 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
 
     num_remaining++;
 
-    int num_local_deps;
+    int num_deps;
     if(node.op.is_move()) {
       auto const& move = node.op.get_move();
 
-      num_local_deps = 0;
+      num_deps = 0;
       for(auto const& inn: node.inns) {
         auto const& inn_node = memgraph.nodes[inn];
         if(inn_node.op.is_local_to(this_rank)) {
-          num_local_deps++;
+          num_deps++;
         }
       }
-      num_recv_move_notification_remaining++;
-      move_notification_remaining.insert({id, 2});
 
-      if(move.get_dst_loc() == this_rank) {
+      bool is_send = (this_rank == move.get_src_loc());
+      if(is_send) {
+        num_deps++;
+        num_sends++;
+      } else {
         num_recv_remaining++;
       }
     } else {
       // It must be the case that all the inns are local
-      num_local_deps = node.inns.size();
+      num_deps = node.inns.size();
 
       // Note: if one of the inns is a recving move node, then the
       //       dependency is a bit weird. But it's being allowed
     }
 
-    num_deps_remaining.insert({id, num_local_deps});
+    // num_deps == the number of local dependencies unless
+    // the node is a send node, in which case num_deps == num_local_deps + 1
+    num_deps_remaining.insert({id, num_deps});
 
-    if(num_local_deps == 0) {
+    if(num_deps == 0) {
       if(node.op.is_move()) {
-        move_notify_ready.push(id);
+        can_recv_ready.push(id);
       } else {
         readys.push_back(id);
       }
@@ -243,7 +243,13 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
           if(node.op.is_apply()) {
             apply_ready.push_back(out);
           } else if(node.op.is_move()) {
-            move_notify_ready.push(out);
+            auto const& move = node.op.get_move();
+            bool is_send = (this_rank == move.get_src_loc());
+            if(is_send) {
+              send_ready.push(out);
+            } else {
+              can_recv_ready.push(out);
+            }
           } else if(node.op.is_evict() || node.op.is_load()) {
             cache_ready.push(out);
           } else if(node.op.is_input() || node.op.is_partialize() || node.op.is_del()) {
@@ -258,8 +264,7 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
         }
       }
     }
-    // the mutex can be released here
-  }
+  } // the mutex is released here
 
   cv.notify_all();
 }
@@ -385,52 +390,43 @@ void cpu_mg_exec_state_t::recv_runner(int runner_id) {
   }
 }
 
-void cpu_mg_exec_state_t::completed_move_notification(int move_id) {
-  bool should_notify = false;
-  {
-    std::unique_lock lk(m);
-    auto iter = move_notification_remaining.find(move_id);
-    if(iter == move_notification_remaining.end()) {
-      throw std::runtime_error("no where to move notify!");
-    }
-    int& cnt = iter->second;
-    cnt--;
-    if(cnt == 0) {
-      auto const& move = memgraph.nodes[move_id].op.get_move();
-      if(this_rank == move.get_src_loc()) {
-        should_notify = true;
-        send_ready.push(move_id);
-      }
-      move_notification_remaining.erase(iter);
-    }
-  }
-
-  if(should_notify) {
-    cv.notify_all();
-  }
-}
-
-void cpu_mg_exec_state_t::recv_move_notification_runner() {
-  int& n = num_recv_move_notification_remaining;
+void cpu_mg_exec_state_t::recv_can_recv_runner() {
+  int& n = num_recv_can_recv_remaining;
   for(; n != 0; n--) {
-    int move_id = mpi->recv_int_from_anywhere(mpi->max_tag);
-    completed_move_notification(move_id);
+    int send_id = mpi->recv_int_from_anywhere(mpi->max_tag);
+
+    bool should_notify = false;
+    {
+      std::unique_lock lk(m);
+      auto iter = num_deps_remaining.find(send_id);
+      int& cnt = iter->second;
+      cnt--;
+      if(cnt == 0) {
+        num_deps_remaining.erase(iter);
+        should_notify = true;
+        send_ready.push(send_id);
+      }
+    }
+
+    if(should_notify) {
+      cv.notify_all();
+    }
   }
 }
 
-void cpu_mg_exec_state_t::send_move_notification_runner() {
-  int move_id;
+void cpu_mg_exec_state_t::send_can_recv_runner() {
+  int recv_id;
   while(true)
   {
     {
       std::unique_lock lk(m);
-      cv.wait(lk, [&move_id, this](){
+      cv.wait(lk, [&recv_id, this](){
         if(num_remaining == 0) {
           return true;
         }
-        if(move_notify_ready.size() > 0) {
-          move_id = move_notify_ready.front();
-          move_notify_ready.pop();
+        if(can_recv_ready.size() > 0) {
+          recv_id = can_recv_ready.front();
+          can_recv_ready.pop();
           return true;
         }
         return false;
@@ -441,14 +437,9 @@ void cpu_mg_exec_state_t::send_move_notification_runner() {
       }
     }
 
-    auto const& move = memgraph.nodes[move_id].op.get_move();
+    auto const& move = memgraph.nodes[recv_id].op.get_move();
     int const& src = move.get_src_loc();
     int const& dst = move.get_dst_loc();
-    mpi->send_int(
-      move_id,
-      this_rank == src ? dst : src,
-      mpi->max_tag);
-
-    completed_move_notification(move_id);
+    mpi->send_int(recv_id, move.get_src_loc(), mpi->max_tag);
   }
 }

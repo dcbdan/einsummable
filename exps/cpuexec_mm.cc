@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
   }
 
   int num_threads_per_node = 1;
-  int num_send_and_recv_threads = 5;
+  int num_send_and_recv_threads = 1;
 
   kernel_manager_t kernel_manager = make_kernel_manager(taskgraph);
 
