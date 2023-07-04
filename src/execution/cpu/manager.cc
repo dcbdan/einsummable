@@ -121,7 +121,7 @@ loc_manager_t::cmd_t loc_manager_t::recv_cmd() {
 void loc_manager_t::_execute(taskgraph_t const& taskgraph)
 {
   update_kernel_manager(kernel_manager, taskgraph);
-  ::execute(taskgraph, settings, kernel_manager, mpi, data);
+  execute_taskgraph(taskgraph, settings, kernel_manager, mpi, data);
 }
 
 void loc_manager_t::copy_into_data(

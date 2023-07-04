@@ -49,7 +49,7 @@ void repartition(
   {
     auto settings = execute_taskgraph_settings_t::only_touch_settings();
     kernel_manager_t ks;
-    execute(taskgraph, settings, ks, mpi, data);
+    execute_taskgraph(taskgraph, settings, ks, mpi, data);
   }
 
   map<int, buffer_t> tmp;

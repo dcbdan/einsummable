@@ -50,7 +50,7 @@ void update_kernel_manager(kernel_manager_t& km, taskgraph_t const& taskgraph);
 
 // Every input node in taskgraph should be in tensors.
 // After execution, only every save taskgraph node should be in tensors
-void execute(
+void execute_taskgraph(
   taskgraph_t const& taskgraph,
   execute_taskgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,

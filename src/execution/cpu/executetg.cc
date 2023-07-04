@@ -211,7 +211,7 @@ struct cpu_exec_state_t {
   int num_recv_post_remaining;
 };
 
-void execute(
+void execute_taskgraph(
   taskgraph_t const& taskgraph,
   execute_taskgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,

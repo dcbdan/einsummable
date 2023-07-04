@@ -239,7 +239,7 @@ int main(int argc, char** argv)
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("cpuexec time");
-    execute(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
+    execute_taskgraph(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 }

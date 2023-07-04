@@ -475,8 +475,8 @@ bool in_range(int val, int beg, int end);
 using timestamp_t = decltype(clock_now());
 
 struct raii_print_time_elapsed_t {
-  raii_print_time_elapsed_t(string msg):
-    msg(msg), start(clock_now()), out(std::cout)
+  raii_print_time_elapsed_t(string msg, bool hide=false):
+    msg(msg), start(clock_now()), out(std::cout), hide(hide)
   {}
 
   raii_print_time_elapsed_t():
@@ -484,6 +484,9 @@ struct raii_print_time_elapsed_t {
   {}
 
   ~raii_print_time_elapsed_t() {
+    if(hide) {
+      return;
+    }
     auto end = clock_now();
     using namespace std::chrono;
     auto duration = (double) duration_cast<microseconds>(end - start).count()
@@ -498,6 +501,7 @@ struct raii_print_time_elapsed_t {
   string const msg;
   timestamp_t const start;
   std::ostream& out;
+  bool hide;
 };
 
 using gremlin_t = raii_print_time_elapsed_t;
