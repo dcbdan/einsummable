@@ -343,3 +343,10 @@ std::istream& operator>>(std::istream& inn, node_t& node);
 std::ostream& operator<<(std::ostream& out, scalarop_t const& op);
 std::istream& operator>>(std::istream& inn, scalarop_t& op);
 
+std::ostream& operator<<(std::ostream& out, castable_t const& c);
+std::istream& operator>>(std::istream& inn, castable_t& c);
+
+std::istream& operator>>(std::istream& inn, optional<castable_t> const& maybe_c);
+std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c);
+
+

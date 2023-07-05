@@ -55,7 +55,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       input_t const& input = op.get_input();
       string memloc = write_with_ss(
         memloc_t { input.offset, input.size, input.loc });
-      label = "input@" + memloc;
+      //label = "input@" + memloc;
+      label = "input " + write_with_ss(id);
       if(input.loc < colors.size()) {
         color = colors[input.loc];
       }
@@ -74,10 +75,11 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       } else {
         throw std::runtime_error("parint graphviz should not reach");
       }
-      label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
-      for(mem_t const& mem: apply.mems) {
-        label += "|" + write_with_ss(mem);
-      }
+      //label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
+      //for(mem_t const& mem: apply.mems) {
+      //  label += "|" + write_with_ss(mem);
+      //}
+      label = "apply " + write_with_ss(id);
       if(apply.loc < colors.size()) {
         color = colors[apply.loc];
       }
@@ -88,10 +90,11 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       auto const& [dst_loc, dst_offset] = move.dst;
       auto const& size = move.size;
 
-      label = "move@" +
-        write_with_ss(memloc_t { src_offset, size, src_loc }) +
-        "->" +
-        write_with_ss(memloc_t { dst_offset, size, dst_loc });
+      //label = "move@" +
+      //  write_with_ss(memloc_t { src_offset, size, src_loc }) +
+      //  "->" +
+      //  write_with_ss(memloc_t { dst_offset, size, dst_loc });
+      label = "move " + write_with_ss(id);
       color = "lightgray";
     } else if(op.is_evict()) {
       evict_t const& evict = op.get_evict();
@@ -115,7 +118,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       partialize_t const& par = op.get_partialize();
       string memloc = write_with_ss(
         memloc_t { par.offset, par.size, par.loc });
-      label = "partialize@" + memloc;
+      //label = "partialize@" + memloc;
+      label = "partialize " + write_with_ss(id);
       if(par.loc < colors.size()) {
         color = colors[par.loc];
       }
@@ -123,7 +127,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       del_t const& del = op.get_del();
       string memloc = write_with_ss(
         memloc_t { del.offset, del.size, del.loc });
-      label = "del@" + memloc;
+      //label = "del@" + memloc;
+      label = "del " + write_with_ss(id);
       if(del.loc < colors.size()) {
         color = colors[del.loc];
       }
@@ -161,6 +166,204 @@ vector<uint64_t> memgraph_t::mem_sizes() const {
       ret[memloc.loc] = std::max(ret[memloc.loc], memloc.offset + memloc.size);
     }
   }
+  return ret;
+}
+
+string memgraph_t::to_wire() const {
+  es_proto::MemGraph mg;
+
+  mg.set_num_compute_locs(num_compute_locs);
+  mg.set_num_cache_locs(num_cache_locs);
+  for(auto const& cl: cache_locs) {
+    mg.add_cache_locs(cl);
+  }
+
+  for(auto const& node: nodes) {
+    es_proto::MemGraphNode* n = mg.add_nodes();
+
+    if(node.op.is_input()) {
+      auto const& [loc,offset,size] = node.op.get_input();
+      es_proto::MGInput* i = n->mutable_input();
+      i->set_loc(loc);
+      i->set_offset(offset);
+      i->set_size(size);
+    } else if(node.op.is_apply()) {
+      auto const& apply = node.op.get_apply();
+      auto const& [loc, mems, _, group] = apply;
+
+      es_proto::MGApply* a = n->mutable_apply();
+
+      a->set_loc(loc);
+
+      for(auto const& [offset,size]: mems) {
+        a->add_mems_offset(offset);
+        a->add_mems_size(size);
+      }
+
+      if(apply.is_einsummable()) {
+        es_proto::Einsummable* e = a->mutable_einsummable();
+        apply.get_einsummable().to_proto(*e);
+      } else if(apply.is_touch()) {
+        es_proto::Touch* t = a->mutable_touch();
+        apply.get_touch().to_proto(*t);
+      } else {
+        throw std::runtime_error(
+          "should not reach: need to impl another apply type");
+      }
+
+      a->set_group(group);
+    } else if(node.op.is_move()) {
+      auto const& [src,dst,size] = node.op.get_move();
+      auto const& [src_loc, src_offset] = src;
+      auto const& [dst_loc, dst_offset] = dst;
+      es_proto::MGMove* m = n->mutable_move();
+      m->set_src_loc(src_loc);
+      m->set_src_offset(src_offset);
+      m->set_dst_loc(dst_loc);
+      m->set_dst_offset(dst_offset);
+      m->set_size(size);
+    } else if(node.op.is_evict()) {
+      auto const& [loc,cache_id,offset,size] = node.op.get_evict();
+      es_proto::MGEvict* e = n->mutable_evict();
+      e->set_loc(loc);
+      e->set_cache_id(cache_id);
+      e->set_offset(offset);
+      e->set_size(size);
+    } else if(node.op.is_load()) {
+      auto const& [cache_id,loc,offset,size] = node.op.get_load();
+      es_proto::MGLoad* l = n->mutable_load();
+      l->set_cache_id(cache_id);
+      l->set_loc(loc);
+      l->set_offset(offset);
+      l->set_size(size);
+    } else if(node.op.is_partialize()) {
+      auto const& [loc,offset,size] = node.op.get_partialize();
+      es_proto::MGPartialize* p = n->mutable_partialize();
+      p->set_loc(loc);
+      p->set_offset(offset);
+      p->set_size(size);
+    } else if(node.op.is_del()) {
+      auto const& [loc,offset,size] = node.op.get_del();
+      es_proto::MGDel* d = n->mutable_del();
+      d->set_loc(loc);
+      d->set_offset(offset);
+      d->set_size(size);
+    }
+
+    for(auto const& inn: node.inns) {
+      n->add_inns(inn);
+    }
+  }
+
+  string ret;
+  mg.SerializeToString(&ret);
+  return ret;
+}
+
+memgraph_t memgraph_t::from_wire(string const& str) {
+  es_proto::MemGraph mg;
+  if(!mg.ParseFromString(str)) {
+    throw std::runtime_error("could not parse memgraph!");
+  }
+
+  auto cls = mg.cache_locs();
+  vector<int> cache_locs(cls.begin(), cls.end());
+
+  memgraph_t ret(
+    mg.num_compute_locs(),
+    mg.num_cache_locs(),
+    cache_locs);
+
+  for(int id = 0; id != mg.nodes_size(); ++id) {
+    es_proto::MemGraphNode const& n = mg.nodes(id);
+
+    optional<op_t> op;
+    if(n.has_input()) {
+      auto const& i = n.input();
+      op = op_t(input_t {
+        .loc = i.loc(),
+        .offset = i.offset(),
+        .size = i.size() });
+    } else if(n.has_apply()) {
+      auto const& a = n.apply();
+
+      vector<mem_t> mems;
+      int nmem = a.mems_offset_size();
+      if(nmem != a.mems_size_size()) {
+        throw std::runtime_error("invalid apply_t: mems len must match");
+      }
+      for(int i = 0; i != nmem; ++i) {
+        mems.push_back(mem_t {
+          .offset = a.mems_offset(i),
+          .size = a.mems_size(i)
+        });
+      }
+
+      std::variant<einsummable_t, touch_t> aop = [&]()
+        -> std::variant<einsummable_t, touch_t>
+      {
+        if(a.has_einsummable()) {
+          return einsummable_t::from_proto(a.einsummable());
+        } else if(a.has_touch()) {
+          return touch_t::from_proto(a.touch());
+        } else {
+          throw std::runtime_error("apply op from proto: should not reach");
+        }
+      }();
+
+      op = op_t(apply_t {
+        .loc = a.loc(),
+        .mems = mems,
+        .op = aop,
+        .group = a.group()
+      });
+    } else if(n.has_move()) {
+      auto const& m = n.move();
+      op = op_t(move_t {
+        .src = { m.src_loc(), m.src_offset() },
+        .dst = { m.dst_loc(), m.dst_offset() },
+        .size = m.size()
+      });
+    } else if(n.has_evict()) {
+      auto const& e = n.evict();
+      op = op_t(evict_t {
+        .loc = e.loc(),
+        .cache_id = e.cache_id(),
+        .offset = e.offset(),
+        .size = e.size()
+      });
+    } else if(n.has_load()) {
+      auto const& l = n.load();
+      op = op_t(load_t {
+        .cache_id = l.cache_id(),
+        .loc = l.loc(),
+        .offset = l.offset(),
+        .size = l.size()
+      });
+    } else if(n.has_partialize()) {
+      auto const& p = n.partialize();
+      op = op_t(partialize_t {
+        .loc = p.loc(),
+        .offset = p.offset(),
+        .size = p.size()
+      });
+    } else if(n.has_del()) {
+      auto const& d = n.del();
+      op = op_t(del_t {
+        .loc = d.loc(),
+        .offset = d.offset(),
+        .size = d.size()
+      });
+    }
+
+    set<int> inns;
+    for(int i = 0; i != n.inns_size(); ++i) {
+      inns.insert(n.inns(i));
+    }
+
+    ret.insert(op.value(), inns);
+  }
+
   return ret;
 }
 

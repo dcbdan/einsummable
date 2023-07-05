@@ -76,6 +76,9 @@ struct memgraph_t {
     return ret;
   }
 
+  string to_wire() const;
+  static memgraph_t from_wire(string const& str);
+
   int const num_compute_locs;
   int const num_cache_locs;
 

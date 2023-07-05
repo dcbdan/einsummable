@@ -208,10 +208,6 @@ struct einsummable_t {
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
-std::ostream& operator<<(std::ostream& out, castable_t const& c);
-std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c);
-
-std::istream& operator>>(std::istream& inn, castable_t& c);
 
 template <> struct std::hash<einsummable_t> {
   inline std::size_t operator()(einsummable_t const& e) const

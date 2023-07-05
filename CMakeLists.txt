@@ -17,6 +17,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
 #       when make fails
+# Note: running make proto will build proto
 
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
@@ -53,6 +54,7 @@ add_base_application("gwriter"          "exps" "gwriter")
 add_base_application("deepff"           "exps" "deepff")
 add_base_application("base_test"        "exps" "base_test")
 add_base_application("einsummable_test" "exps" "einsummable_test")
+add_base_application("memgraph_test"    "exps" "memgraph_test")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc llama/builder.cc)

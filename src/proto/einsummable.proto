@@ -107,3 +107,74 @@ message RemapRelations {
   repeated Relation srcs = 1;
   repeated Relation dsts = 2;
 }
+
+message MGInput {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGApply {
+  required int32 loc = 1;
+  repeated uint64 mems_offset = 2;
+  repeated uint64 mems_size = 3;
+  oneof op {
+    Einsummable einsummable = 4;
+    Touch touch = 5;
+  }
+  required int32 group = 6;
+}
+
+message MGMove {
+  required int32 src_loc = 1;
+  required uint64 src_offset = 2;
+  required int32 dst_loc = 3;
+  required uint64 dst_offset = 4;
+  required uint64 size = 5;
+}
+
+message MGEvict {
+  required int32 loc = 1;
+  required int32 cache_id = 2;
+  required uint64 offset = 3;
+  required uint64 size = 4;
+}
+
+message MGLoad {
+  required int32 cache_id = 1;
+  required int32 loc = 2;
+  required uint64 offset = 3;
+  required uint64 size = 4;
+}
+
+message MGPartialize {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGDel {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MemGraphNode {
+  oneof node {
+    MGInput input = 1;
+    MGApply apply = 2;
+    MGMove move = 3;
+    MGEvict evict = 4;
+    MGLoad load = 5;
+    MGPartialize partialize = 6;
+    MGDel del = 7;
+  }
+  repeated int32 inns = 8;
+}
+
+message MemGraph {
+  required int32 num_compute_locs = 1;
+  required int32 num_cache_locs = 2;
+  repeated int32 cache_locs = 3;
+  repeated MemGraphNode nodes = 4;
+}

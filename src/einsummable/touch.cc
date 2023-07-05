@@ -30,6 +30,67 @@ touch_t touch_t::simplify() const {
   };
 }
 
+string touch_t::to_wire() const {
+  es_proto::Touch r;
+  to_proto(r);
+  string ret;
+  r.SerializeToString(&ret);
+  return ret;
+}
+
+void touch_t::to_proto(es_proto::Touch& r) const {
+  for(auto const& [d_inn,d_out,offset_inn,offset_out,size]: selection) {
+    es_proto::TouchDim* td = r.add_selection();
+
+    td->set_d_inn(d_inn);
+    td->set_d_out(d_out);
+    td->set_offset_inn(offset_inn);
+    td->set_offset_out(offset_out);
+    td->set_size(size);
+  }
+
+  if(castable) {
+    r.set_castable(write_with_ss(castable.value()));
+  }
+
+  r.set_dtype(write_with_ss(dtype));
+}
+
+touch_t touch_t::from_wire(string const& str) {
+  es_proto::Touch r;
+  if(!r.ParseFromString(str)) {
+    throw std::runtime_error("could not parse relation!");
+  }
+  return from_proto(r);
+}
+
+touch_t touch_t::from_proto(es_proto::Touch const& r) {
+  optional<castable_t> castable = std::nullopt;
+  if(r.has_castable()) {
+    castable = parse_with_ss<castable_t>(r.castable());
+  }
+
+  vector<touchdim_t> selection;
+  selection.reserve(r.selection_size());
+
+  for(int i = 0; i != r.selection_size(); ++i) {
+    auto const& td = r.selection(i);
+    selection.push_back(touchdim_t {
+      .d_inn = td.d_inn(),
+      .d_out = td.d_out(),
+      .offset_inn = td.offset_inn(),
+      .offset_out = td.offset_out(),
+      .size = td.size()
+    });
+  }
+
+  return touch_t {
+    .selection = selection,
+    .castable = castable,
+    .dtype = parse_with_ss<dtype_t>(r.dtype()),
+  };
+}
+
 vector<touchdim_t> make_touch_selection_from_full_small(
   vector<tuple<uint64_t, uint64_t>> const& full,
   vector<tuple<uint64_t, uint64_t>> const& small)

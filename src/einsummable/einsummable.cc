@@ -630,50 +630,6 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   return out;
 }
 
-std::ostream& operator<<(std::ostream& out, castable_t const& c) {
-  if(c == castable_t::add) {
-    out << "+";
-  } else if(c == castable_t::mul) {
-    out << "x";
-  } else if(c == castable_t::min) {
-    out << "v";
-  } else if(c == castable_t::max) {
-    out << "^";
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-
-  return out;
-}
-
-std::istream& operator>>(std::istream& inn, castable_t& castable) {
-  char c;
-  inn.read(&c, 1);
-
-  if(c == '+') {
-    castable = castable_t::add;
-  } else if(c == 'x') {
-    castable = castable_t::mul;
-  } else if(c == 'v') {
-    castable = castable_t::min;
-  } else if(c == '^') {
-    castable = castable_t::max;
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-
-  return inn;
-}
-
-std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c) {
-  if(maybe_c) {
-    out << maybe_c.value();
-  } else {
-    out << ":";
-  }
-  return out;
-}
-
 bool operator==(einsummable_t const& lhs, einsummable_t const& rhs) {
   if(!vector_equal(lhs.join_shape, rhs.join_shape)) {
     return false;
