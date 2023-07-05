@@ -353,8 +353,8 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 1;
-int num_touch_threads = 4;
+int num_threads_per_node = 12;
+int num_touch_threads = 12;
 
 vector<placement_t> autoplace(graph_t const& graph) {
   gremlin_t gremlin("autoplace");
