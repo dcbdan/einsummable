@@ -12,7 +12,7 @@
 #include <sys/types.h>
 
 // NOTE: Since the correctness test fills the entire buffer with random values without any consideration on the alignment
-// The test only works with no alignment > 1
+// The test only works with alignment = 1
 void check_correctness(memgraph_t memgraph, bool debug = false){
     if (debug) {
          // print the number of nodes in the graph

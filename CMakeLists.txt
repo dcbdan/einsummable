@@ -169,6 +169,6 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("test_alignment"  "exps" "test_alignment")
   add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
   
-  add_gpu_application("loopTest" "exps" "GPU_test")
-  add_gpu_application("ffTest" "exps" "GPU_ff_test")
+  add_gpu_application("basicTest" "exps" "GPU_test")
+  # add_gpu_application("ffTest" "exps" "GPU_ff_test")
 endif()

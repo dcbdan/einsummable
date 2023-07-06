@@ -30,15 +30,6 @@ using memgraph_t = memgraph_t;
 void test();
 
 
-// given a memgraph, traverse the graph and get all 
-// the dependencies of a node represented by node.inns()
-// return a map from the node to the number of its dependencies
-std::map<int, int> get_dependencies(memgraph_t const& memgraph);
-
-// check if the memgraph traversal is complete
-// (are the dependency count of all nodes going to 0?)
-bool is_complete(std::map<int, int>& dependency_count);
-
 // return a memory pointer that is allocated on the gpu
 // uses cudaMalloc
 float* gpu_allocate_memory(size_t size);
@@ -58,9 +49,10 @@ cudaStream_t cuda_create_stream();
 struct gpu_execute_state_t 
 {
     memgraph_t const& memgraph;
-    // buffer_t gpu_memory;
     // maintain a queue of tasks that are pending to be executed
     std::queue<int> pending_queue;
+    // maintain a queue of tasks that are finished
+    std::queue<int> finished_queue;
 
     // if we are not modifying the original memgraph, we can use a map 
     // to store the dependency count of each node
@@ -85,12 +77,10 @@ struct gpu_execute_state_t
 
     cutensorHandle_t* handle;
 
+    // pointer pointing to the start of the GPU memory
     float* memory_base_ptr;
 
     std::unordered_map<einsummable_t, cutensorContractionDescriptor_t> einsum_to_contraction;
-
-    // FOR DEBUGGING ALIGNMENT
-    std::unordered_map<einsummable_t, std::vector<cutensorTensorDescriptor_t>> contraction_alignment;
 
     // synchronization variables used by the callback function
     std::mutex m;
@@ -111,7 +101,7 @@ struct gpu_execute_state_t
         // TODO: hardcoded the 0 since we only have 1 gpu for now
         auto mem_size = memgraph.mem_sizes()[0];
 
-        dependency_count = get_dependencies(memgraph);
+        dependency_count = get_dependencies();
         // in the beginning num_nodes_remaining is the number of nodes in the memgraph
         num_nodes_remaining[0] = memgraph.nodes.size();
 
@@ -139,8 +129,7 @@ struct gpu_execute_state_t
                         cutensorContractionDescriptor_t desc;
                         // when building the contraction we already merge
                         // the adjacent dims so we don't need to do it here
-                        auto tensor_descriptors = build_contraction(&desc, handle, my_einsum_merged);
-                        contraction_alignment[my_einsum_merged] = tensor_descriptors;
+                        build_contraction(&desc, handle, my_einsum_merged);
                         // add the contraction to the map
                         einsum_to_contraction[my_einsum_merged] = desc;
                     }
@@ -152,6 +141,26 @@ struct gpu_execute_state_t
         memory_base_ptr = mem_ptr;
         // std::cout << "Beginning pending_queue size: " << pending_queue.size() << std::endl;
     }
+    // given a memgraph, traverse the graph and get all 
+    // the dependencies of a node represented by node.inns()
+    // return a map from the node to the number of its dependencies
+    std::map<int, int> get_dependencies();
+
+    // check if the memgraph traversal is complete
+    // (are the dependency count of all nodes going to 0?)
+    bool is_complete();
+
+    // update memgraph node when it is finished; modify the dependency counter of the node
+    // return a vector of ready nodes if there are any
+    vector<int> node_update(int node_idx);
+
+    // add a vector of nodes to the pending queue
+    void add_to_pending_queue(std::vector<int>& nodes);
+
+    void printContractionInfo(int node_idx, int num_elems);
+    void checkContractionOffset(int node_idx);
+
+    // execute the memgraph
     void run();    
 };
 

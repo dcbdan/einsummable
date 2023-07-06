@@ -157,7 +157,7 @@ build_einsummable(einsummable_t const& e_)
   throw std::runtime_error(err_msg);
 }
 
-std::vector<cutensorTensorDescriptor_t> build_contraction(
+void build_contraction(
   cutensorContractionDescriptor_t* desc,
   cutensorHandle_t const* handle,
   einsummable_t const& e_)
@@ -258,7 +258,7 @@ std::vector<cutensorTensorDescriptor_t> build_contraction(
       &descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
 
-  return {descC, descA, descB};
+  // return {descC, descA, descB};
 }
 
 void execute_contraction(
