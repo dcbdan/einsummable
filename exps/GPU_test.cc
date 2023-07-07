@@ -113,7 +113,8 @@ int main(int argc, char** argv) {
     std::ofstream f("mm3d_mem_lowest_dep.gv");
     memgraph.print_graphviz(f);
     // execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
-    check_correctness(memgraph, false);
+    // check_correctness(memgraph, false);
+    execute_test(memgraph);
   }
 
   return 0;

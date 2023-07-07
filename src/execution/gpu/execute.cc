@@ -18,6 +18,8 @@ using std::queue;
 cudaStream_t cuda_create_stream() {
   cudaStream_t ret;
   if(cudaStreamCreate(&ret) != cudaSuccess) {
+    // print error message and error code
+    printf("cudaStreamCreate failed with error code %d\n", cudaGetLastError());
     throw std::runtime_error("cuda_create_stream");
   }
   return ret;
@@ -76,7 +78,7 @@ void init_value(float* ptr, int count, float value) {
 vector<int> gpu_execute_state_t::node_update(int node_idx) {
     // TODO: hard coded index 0 since we only have 1 device
     // print a update message
-    // printf("Node %d finished execution\n", node_idx);
+    printf("Node %d finished execution\n", node_idx);
     num_nodes_remaining[0] -= 1;
     vector<int> ready_nodes;
     auto node = memgraph.nodes[node_idx];
@@ -262,7 +264,9 @@ void gpu_execute_state_t::run() {
             // execute the node
             if (node.op.is_input() || node.op.is_del() || node.op.is_partialize()) {
                 // do nothing but update the memgraph execution since that node is finished
+                std::unique_lock lk(m);
                 finished_queue.push(node_idx);
+                lk.unlock();
             }
             else if (node.op.is_apply()) {
                 // create a cuda stream since for apply we need to execute that on a cuda stream always
