@@ -55,8 +55,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       input_t const& input = op.get_input();
       string memloc = write_with_ss(
         memloc_t { input.offset, input.size, input.loc });
-      //label = "input@" + memloc;
-      label = "input " + write_with_ss(id);
+      label = "input@" + memloc;
+      //label = "input " + write_with_ss(id);
       if(input.loc < colors.size()) {
         color = colors[input.loc];
       }
@@ -75,11 +75,11 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       } else {
         throw std::runtime_error("parint graphviz should not reach");
       }
-      //label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
-      //for(mem_t const& mem: apply.mems) {
-      //  label += "|" + write_with_ss(mem);
-      //}
-      label = "apply " + write_with_ss(id);
+      label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
+      for(mem_t const& mem: apply.mems) {
+        label += "|" + write_with_ss(mem);
+      }
+      //label = "apply " + write_with_ss(id);
       if(apply.loc < colors.size()) {
         color = colors[apply.loc];
       }
@@ -90,15 +90,15 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       auto const& [dst_loc, dst_offset] = move.dst;
       auto const& size = move.size;
 
-      //label = "move@" +
-      //  write_with_ss(memloc_t { src_offset, size, src_loc }) +
-      //  "->" +
-      //  write_with_ss(memloc_t { dst_offset, size, dst_loc });
-      label = "move " + write_with_ss(id);
+      label = "move@" +
+        write_with_ss(memloc_t { src_offset, size, src_loc }) +
+        "->" +
+        write_with_ss(memloc_t { dst_offset, size, dst_loc });
+      //label = "move " + write_with_ss(id);
       color = "lightgray";
     } else if(op.is_evict()) {
       evict_t const& evict = op.get_evict();
-      label = "evict@" +
+      //label = "evict@" +
         write_with_ss(memloc_t { evict.offset, evict.size, evict.loc }) +
         "->cid" +
         write_with_ss(evict.cache_id);
@@ -118,8 +118,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       partialize_t const& par = op.get_partialize();
       string memloc = write_with_ss(
         memloc_t { par.offset, par.size, par.loc });
-      //label = "partialize@" + memloc;
-      label = "partialize " + write_with_ss(id);
+      label = "partialize@" + memloc;
+      //label = "partialize " + write_with_ss(id);
       if(par.loc < colors.size()) {
         color = colors[par.loc];
       }
@@ -127,14 +127,16 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       del_t const& del = op.get_del();
       string memloc = write_with_ss(
         memloc_t { del.offset, del.size, del.loc });
-      //label = "del@" + memloc;
-      label = "del " + write_with_ss(id);
+      label = "del@" + memloc;
+      //label = "del " + write_with_ss(id);
       if(del.loc < colors.size()) {
         color = colors[del.loc];
       }
     } else {
       throw std::runtime_error("memgraph print should not happen");
     }
+
+    label = write_with_ss(id) + " " + label;
 
     //auto memlocs = op.get_memlocs();
     //for(int i = 1; i != memlocs.size(); ++i) {
