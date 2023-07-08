@@ -54,9 +54,6 @@ void random_walk_through(
   forward_state_t state(cluster, graph);
   int nloc = cluster.devices.size();
 
-  using jid_t = forward_state_t::jid_t;
-  using rid_t = forward_state_t::rid_t;
-
   std::function<partition_t(int)> get_partition = [&](int gid)
   {
     return placements[gid].partition;
@@ -165,9 +162,6 @@ void main01() {
   }
 
   forward_state_t state(cluster, graph);
-
-  using jid_t = forward_state_t::jid_t;
-  using rid_t = forward_state_t::rid_t;
 
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
@@ -287,7 +281,7 @@ void main05() {
 
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 3, 1);
+  cluster_t cluster = make_cluster(nlocs, 30, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
   //  4,4,4,

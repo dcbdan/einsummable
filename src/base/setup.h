@@ -154,6 +154,22 @@ vector<T> vector_flatten(vector<vector<T>> const& vvs) {
 }
 
 template <typename T>
+T vector_min_element(vector<T> const& xs) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_min_element input empty");
+  }
+  return *std::min_element(xs.begin(), xs.end());
+}
+
+template <typename T>
+T vector_max_element(vector<T> const& xs) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_max_element input empty");
+  }
+  return *std::max_element(xs.begin(), xs.end());
+}
+
+template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());
@@ -348,6 +364,19 @@ tuple<vector<T1>, vector<T2>> vector_unzip(
   }
 
   return {lhs,rhs};
+}
+
+template <typename T, typename F>
+void set_erase_if_inplace(
+  set<T>& xs, F f)
+{
+  for(auto iter = xs.begin(); iter != xs.end(); ) {
+    if(f(*iter)) {
+      iter = xs.erase(iter);
+    } else {
+      ++iter;
+    }
+  }
 }
 
 template <typename RandomIter>

@@ -1,6 +1,4 @@
 #include "forwardsim.h"
-#include "../base/copyregion.h"
-#include "../einsummable/taskgraph.h"
 
 capacity_scheduler_t::capacity_scheduler_t(int c)
   : capacity(c)
@@ -525,88 +523,15 @@ bool forward_state_t::can_setup_refinement_partition(int gid) const {
   return true;
 }
 
-// Note: Almost a copy of union_partition_holders in src/taskgraph.cc
-partition_t union_partitions(vector<partition_t> const& ps)
-{
-  if(ps.size() == 0) {
-    throw std::runtime_error("union partitions: input is empty");
-    return ps[0];
-  }
-  if(ps.size() == 1) {
-    return ps[0];
-  }
-
-  vector<partdim_t> partdims;
-  int rank = ps[0].block_shape().size();
-  partdims.reserve(rank);
-  for(int i = 0; i != rank; ++i) {
-    vector<partdim_t> xs;
-    xs.reserve(ps.size());
-    for(auto const& p: ps) {
-      xs.push_back(p.partdims[i]);
-    }
-    partdims.push_back(partdim_t::unions(xs));
-  }
-  return partition_t(partdims);
-}
-
 void forward_state_t::setup_refinement_partition(int join_id) {
-  // Note that the refinement partition is with respect to the real dtype
-  auto const& join_node = graph.nodes[join_id];
-  dtype_t join_dtype = join_node.op.out_dtype();
-  bool join_is_complex = dtype_is_complex(join_dtype);
-
-  vector<partition_t> usage_partitions;
-  usage_partitions.reserve(2*join_node.outs.size());
-  auto insert_usage = [&](partition_t p) {
-    if(join_is_complex) {
-      double_last_dim_inplace(p);
-    }
-    usage_partitions.push_back(p);
+  std::function<partition_t const&(int)> get_partition =
+    [this](int gid) -> partition_t const&
+  {
+    return ginfos[gid].partition.value();
   };
 
-  for(auto const& out_id: join_node.outs) {
-    auto const& out_node = graph.nodes[out_id];
-    auto const& out_part = ginfos[out_id].partition.value();
-    if(out_node.op.is_formation()) {
-      insert_usage(out_part);
-    } else if(out_node.op.is_complexer()) {
-      if(join_is_complex) {
-        // complex -> real
-        usage_partitions.push_back(out_part);
-      } else {
-        // real -> complex
-        usage_partitions.push_back(double_last_dim(out_part));
-      }
-    } else if(out_node.op.is_einsummable()) {
-      // Note that an einsummable node can use an input multiple times
-      // and therefore there may be multiple usage partitions to collect
-      auto const& einsummable = out_node.op.get_einsummable();
-      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
-        if(out_node.inns[which_input] == join_id) {
-          insert_usage(partition_t(einsummable.get_input_from_join(
-            out_part.partdims,
-            which_input)));
-        }
-      }
-    } else if(out_node.op.is_concat()) {
-      auto const& concat = out_node.op.get_concat();
-      for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
-        if(out_node.inns[which_input] == join_id) {
-          insert_usage(concat_get_input_partition(
-            out_part, concat, which_input));
-        }
-      }
-    } else if(out_node.op.is_subset()) {
-      insert_usage(make_subset_input_partition(
-        out_node.op.get_subset(),
-        out_part));
-    } else {
-      throw std::runtime_error("setup refinement part: should not reach");
-    }
-  }
-
-  ginfos[join_id].refinement_partition = union_partitions(usage_partitions);
+  ginfos[join_id].refinement_partition = twolayer_construct_refinement_partition(
+    graph, join_id, get_partition);
 
   if(can_setup_refis(join_id)) {
     setup_refis(join_id);
@@ -629,94 +554,22 @@ bool forward_state_t::can_setup_refis(int gid) const {
 }
 
 void forward_state_t::setup_refis(int graph_id) {
+  // 1. construct refis
+  // 2. connect refis and joins
+  // 3. setup move status
+  // 4. ec_setup_refis
   auto const& node = graph.nodes[graph_id];
-
   auto& ginfo = ginfos[graph_id];
 
   partition_t        join_partition = ginfo.partition.value();
   partition_t const& refi_partition = ginfo.refinement_partition.value();
 
-  int join_rank = node.op.rank();
-  int out_rank  = node.op.out_rank();
-  int agg_rank  = join_rank - out_rank;
+  ginfo.refis = twolayer_construct_refis_and_connect_joins(
+    graph, graph_id, ginfo.joins.value(),
+    ginfo.partition.value(), ginfo.refinement_partition.value());
 
-  // fix join_partition and dtype_sz so that they are
-  // with respect to reals
-  dtype_t _dtype = node.op.out_dtype();
-  uint64_t dtype_sz = dtype_size(_dtype);
-  if(dtype_is_complex(_dtype)) {
-    partdim_t& pd = join_partition.partdims[out_rank-1];
-    pd = partdim_t::from_sizes(vector_double(pd.sizes()));
-
-    dtype_sz /= 2;
-  }
-
-  auto join_shape = join_partition.block_shape();
-  auto const& _join_partdims = join_partition.partdims;
-
-  partition_t out_partition(vector<partdim_t>(
-    _join_partdims.begin(),
-    _join_partdims.begin() + out_rank));
-
-  std::optional<vector<int>> maybe_agg_shape;
-  if(agg_rank > 0) {
-    partition_t agg_partition(vector<partdim_t>(
-      _join_partdims.begin() + out_rank,
-      _join_partdims.end()));
-
-    maybe_agg_shape = agg_partition.block_shape();
-  }
-
-  // set up the refinement nodes
-  auto refi_shape = refi_partition.block_shape();
-
-  ginfo.refis = vector<refinement_t>(product(refi_shape));
-  vector<refinement_t>& refis = ginfo.refis.value();
-
-  auto& joins = ginfo.joins.value();
-
-  vector<int> out_shape = out_partition.block_shape();
-  vector<int> out_index(out_shape.size(), 0);
-  do {
-    copyregion_t get_regions(refi_partition, out_partition, out_index);
-    do {
-      vector<int> refi_index = vector_from_each_member(
-        get_regions.info, int, idx);
-      vector<uint64_t> read_shape = vector_from_each_member(
-        get_regions.info, uint64_t, size);
-
-      auto& refi = refis[idxs_to_index(refi_shape, refi_index)];
-      refi.units.push_back(agg_unit_t {
-        .size = dtype_sz * product(read_shape),
-        .deps = {}
-      });
-
-      vector<int>& deps = refi.units.back().deps;
-      if(maybe_agg_shape) {
-        vector<int> agg_index(agg_rank, 0);
-        auto const& agg_shape = maybe_agg_shape.value();
-        deps.reserve(product(agg_shape));
-        do {
-          vector<int> join_index = vector_concatenate(out_index, agg_index);
-          int join_bid = idxs_to_index(join_shape, join_index);
-          deps.push_back(join_bid);
-        } while(increment_idxs(agg_shape, agg_index));
-      } else {
-        // the join index is the out index if there is no agg
-        // and there is only one input
-        auto const& join_index = out_index;
-        int join_bid = idxs_to_index(join_shape, join_index);
-        deps.push_back(join_bid);
-      }
-
-      // an agg unit has been added to refi, so let the input
-      // joins know they have an output here
-      int refi_bid = idxs_to_index(refi_shape, refi_index);
-      for(auto const& dep_join_bid: deps) {
-        joins[dep_join_bid].outs.insert(refi_bid);
-      }
-    } while(get_regions.increment());
-  } while(increment_idxs(out_shape, out_index));
+  auto& refis = ginfo.refis.value();
+  auto refi_shape = ginfo.refinement_partition.value().block_shape();
 
   // Now setup move_status where possible
   ginfo.move_status = vector<move_status_t>();
@@ -764,179 +617,22 @@ bool forward_state_t::can_setup_joins(int gid) const {
 
 // TODO: organize this method; too much code duplication
 void forward_state_t::setup_joins(int graph_id) {
-  //DOUT("setup_joins " << graph_id);
-  auto const& node = graph.nodes[graph_id];
   auto& ginfo = ginfos[graph_id];
 
-  dtype_t join_dtype = node.op.out_dtype();
-  bool join_is_complex = dtype_is_complex(join_dtype);
+  ginfo.joins = twolayer_construct_joins(graph, graph_id, ginfo.partition.value());
 
-  partition_t const& join_partition = ginfo.partition.value();
+  std::function<partition_t const&(int)> get_refinement_partition =
+    [this](int gid) -> partition_t const&
+  {
+    return ginfos[gid].refinement_partition.value();
+  };
 
-  auto join_block_shape = join_partition.block_shape();
+  twolayer_insert_join_deps(
+    graph,
+    graph_id, ginfo.joins.value(), ginfo.partition.value(),
+    get_refinement_partition);
 
-  ginfo.joins = vector<join_t>(product(join_block_shape));
-  vector<join_t>& join_infos = ginfo.joins.value();
-
-  vector<int> join_index(join_block_shape.size(), 0);
-
-  optional<einsummable_t> base_einsummable;
-  if(node.op.is_einsummable()) {
-    base_einsummable = node.op.get_einsummable();
-  }
-
-  do {
-    int join_bid = idxs_to_index(join_block_shape, join_index);
-    join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
-
-    // flops
-    //   input: 0
-    //   formation: 0
-    //   complexer: 0
-    //   concat: 0
-    //   subset: 0
-    //   einsummable: the tensor block size
-    // (the join_t stores an optional einsummable_t)
-    if(base_einsummable) {
-      join_info.einsummable = einsummable_t::with_new_shape(
-        base_einsummable.value(),
-        join_partition.tensor_shape_at(join_index));
-    } else {
-      join_info.einsummable = std::nullopt;
-    }
-
-    // deps
-    //   input nodes: {}
-    //   concat nodes: have to figure it out
-    //   subset nodes: have to figure it out
-    //   formation nodes: same as a straight einsummable op
-    //   complexer nodes: same as a straight einsummable op
-    //   einsummable nodes: reach into each input and grab it
-    if(node.op.is_input()) {
-      join_info.deps = {};
-    } else if(node.op.is_concat()) {
-      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
-      hrect_t join_hrect = join_partition.get_hrect(join_index);
-
-      auto const& concat = node.op.get_concat();
-      int n_inns = concat.num_inns();
-      for(int which_inn = 0; which_inn != n_inns; ++which_inn) {
-        hrect_t inn_hrect = concat.get_hrect(which_inn);
-        if(interval_intersect(join_hrect[concat.dim], inn_hrect[concat.dim])) {
-          // get the copy_hrect with respect to the input relation
-          hrect_t copy_hrect = hrect_center(
-            inn_hrect,
-            hrect_intersect(join_hrect, inn_hrect));
-
-          // If this concat is complex, then inn_ginfo.refinement_partitition
-          // is still real. So the corresponding copy_rect is actually doubled
-          if(join_is_complex) {
-            auto& [b,e] = copy_hrect.back();
-            b *= 2;
-            e *= 2;
-          }
-
-          int const& inn = node.inns[which_inn];
-          auto const& inn_ginfo = ginfos[inn];
-          partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
-
-          auto inn_region = inn_partition.get_region(copy_hrect);
-          auto inn_shape = inn_partition.block_shape();
-          auto inn_index = vector_mapfst(inn_region);
-          do {
-            int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-            rid_t dep_rid { inn, inn_refi_bid };
-            join_info.deps.insert(dep_rid);
-          } while(increment_idxs_region(inn_region, inn_index));
-        }
-      }
-    } else if(node.op.is_subset()) {
-      auto const& subset_ = node.op.get_subset();
-      vector<int> unsqueezed_join_index = subset_.unsqueeze_vec(join_index, 0);
-
-      int const& inn = node.inns[0];
-      auto const& inn_ginfo = ginfos[inn];
-      partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
-
-      auto [subset, out_partition] = unsqueeze_subset_partition(
-        subset_, join_partition);
-
-      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
-
-      hrect_t inn_hrect = subset.get_hrect();
-
-      // get the copy_hrect (with respect to the inn_hrect)
-      hrect_t copy_hrect = out_partition.get_hrect(unsqueezed_join_index);
-      for(int i = 0; i != inn_hrect.size(); ++i) {
-        auto&       [jb,je] = copy_hrect[i];
-        auto const& [ib,_ ] = inn_hrect[i];
-        jb += ib;
-        je += ib;
-      }
-
-      auto inn_region = inn_partition.get_region(copy_hrect);
-      auto inn_shape = inn_partition.block_shape();
-      auto inn_index = vector_mapfst(inn_region);
-      do {
-        int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-        rid_t dep_rid { inn, inn_refi_bid };
-        join_info.deps.insert(dep_rid);
-      } while(increment_idxs_region(inn_region, inn_index));
-    } else {
-      optional<einsummable_t> maybe_einsummable;
-      if(node.op.is_formation() || node.op.is_complexer()) {
-        auto op_shape = node.op.shape();
-        int rank = op_shape.size();
-
-        vector<vector<int>> inns(1);
-        inns[0] = vector<int>(rank);
-        std::iota(inns[0].begin(), inns[0].end(), 0);
-
-        maybe_einsummable = einsummable_t(
-          op_shape,
-          inns,
-          rank,
-          scalarop_t::make_identity(join_dtype));
-      } else {
-        maybe_einsummable = node.op.get_einsummable();
-      }
-
-      auto hrect = join_partition.get_hrect(join_index);
-
-      // for each input, get the inputs refinement ids that map
-      // onto the corresponding input hrect.
-      for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
-        int const& inn = node.inns[which_inn];
-
-        auto& inn_ginfo = ginfos[inn];
-
-        partition_t const& inn_partition = inn_ginfo.refinement_partition.value();
-
-        auto inn_shape = inn_partition.block_shape();
-
-        auto const& e = maybe_einsummable.value();
-        auto inn_hrect = e.get_input_from_join(hrect, which_inn);
-
-        // If the inn is complex, then the inn_partition is still
-        // wrt real on the last dimension, so double the complex
-        // last to get the real inn_hrect
-        if(dtype_is_complex(e.inn_dtype(which_inn))) {
-          auto& [bi,ei] = inn_hrect.back();
-          bi *= 2;
-          ei *= 2;
-        }
-
-        auto inn_region = inn_partition.get_region(inn_hrect);
-        vector<int> inn_index = vector_mapfst(inn_region);
-        do {
-          int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-          rid_t dep_rid { inn, inn_refi_bid };
-          join_info.deps.insert(dep_rid);
-        } while(increment_idxs_region(inn_region, inn_index));
-      }
-    }
-  } while(increment_idxs(join_block_shape, join_index));
-
+  // this will add the dependency from refi outs to these joins
   ec_setup_joins(graph_id);
 }
 
@@ -1235,7 +931,7 @@ void forward_state_t::schedule_move(rid_t rid, int uid, int src, int dst) {
   worker.add_to_pending({rid, uid});
 }
 
-worker_t<tuple<forward_state_t::rid_t, int>>&
+worker_t<tuple<rid_t, int>>&
 forward_state_t::get_move_worker(int src, int dst) {
   return move_workers[to_move_worker.at({src,dst})];
 }
@@ -1286,7 +982,7 @@ void forward_state_t::print_twolayer_graphviz(std::ostream& out) const {
 forward_state_t::random_settings_t
 forward_state_t::random_step_settings(
   std::function<partition_t(int)> get_part,
-  std::function<int(forward_state_t::jid_t)> get_loc)
+  std::function<int(jid_t)> get_loc)
 {
   return random_settings_t {
     .get_part = get_part,
@@ -1437,8 +1133,8 @@ forward_state_t::get_ginfo(int gid) const
 }
 
 uint64_t forward_state_t::count_elements_to(
-  std::function<int(forward_state_t::jid_t)> get_loc,
-  forward_state_t::jid_t jid,
+  std::function<int(jid_t)> get_loc,
+  jid_t jid,
   int dst) const
 {
   auto const& [join_gid, join_bid] = jid;
@@ -1474,32 +1170,3 @@ uint64_t forward_state_t::count_elements_to(
   return ret;
 }
 
-bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
-  return two_tuple_eq(lhs, rhs);
-}
-bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
-  return !(lhs == rhs);
-}
-bool operator< (forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs) {
-  return two_tuple_lt(lhs, rhs);
-}
-bool operator==(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
-  return two_tuple_eq(lhs, rhs);
-}
-bool operator!=(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
-  return !(lhs == rhs);
-}
-bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs) {
-  return two_tuple_lt(lhs, rhs);
-}
-
-std::ostream& operator<<(std::ostream& out, forward_state_t::jid_t const& jid) {
-  auto const& [gid,bid] = jid;
-  out << "jid{" << gid << "," << bid << "}";
-  return out;
-}
-std::ostream& operator<<(std::ostream& out, forward_state_t::rid_t const& rid) {
-  auto const& [gid,bid] = rid;
-  out << "rid{" << gid << "," << bid << "}";
-  return out;
-}

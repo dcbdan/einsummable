@@ -70,6 +70,19 @@ vector<uint64_t> partition_t::tensor_shape_at(vector<int> const& idxs) const
   return ret;
 }
 
+vtensor_t<uint64_t> partition_t::all_block_sizes() const {
+  vector<int> shape = block_shape();
+  vector<int> idx(shape.size(), 0);
+
+  vector<uint64_t> ret;
+  ret.reserve(product(shape));
+  do {
+    ret.push_back(product(tensor_shape_at(idx)));
+  } while(increment_idxs(shape, idx));
+
+  return vtensor_t(shape, ret);
+}
+
 partition_t partition_t::subset(
   vector<tuple<int, int>> const& region) const
 {
