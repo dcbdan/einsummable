@@ -9,10 +9,10 @@ void usage() {
   DOUT("pi pj pk di dj dk np");
 }
 
-int main(int argc, char** argv) {
+void main_mm(int argc, char** argv) {
   if(argc != 8) {
     usage();
-    return 1;
+    return;
   }
 
   int pi, pj, pk;
@@ -29,20 +29,23 @@ int main(int argc, char** argv) {
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
-    return 1;
+    return;
   }
 
   auto g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, np);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+  {
+    std::cout << "tg.gv" << std::endl;
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+  }
+
   // it could be the case that not all locs are actually used,
   // for example 1 1 2 100 100 100 88
   // Here only 2 locs will really be used, not all 88...
   np = taskgraph.num_locs();
-
-  // have everyone share the same cache
-  vector<int> compute_loc_to_cache(np, 0);
 
   tuple<
     map<int, mem_t>, // input -> mem
@@ -50,7 +53,6 @@ int main(int argc, char** argv) {
     memgraph_t>
     _info1 = memgraph_t::make_without_evict(
       taskgraph,
-      compute_loc_to_cache,
       {},
       { allocator_strat_t::lowest_dependency, 1 } );
   auto const& [_2, _3, m1] = _info1;
@@ -68,4 +70,37 @@ int main(int argc, char** argv) {
     std::ofstream f("m2.gv");
     m2.print_graphviz(f);
   }
+}
+
+void main01() {
+  graph_constructor_t g;
+  int inn = g.insert_input({20});
+  int aaa = g.insert_formation(
+    partition_t({ partdim_t::repeat(2, 10) }),
+    inn);
+  int bbb = g.insert_formation(
+    partition_t({ partdim_t::repeat(1, 20) }),
+    aaa);
+  int ccc = g.insert_formation(
+    partition_t({ partdim_t::repeat(2, 10) }),
+    bbb);
+
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+
+  auto np = taskgraph.num_locs();
+
+  auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
+    taskgraph, {},
+    { allocator_strat_t::first, 1 }
+  );
+
+  std::cout << "Printing to reblock_mg.gv" << std::endl;
+  std::ofstream f("reblock_mg.gv");
+  memgraph.print_graphviz(f);
+}
+
+int main(int argc, char** argv) {
+  main_mm(argc, argv);
+  main01();
 }

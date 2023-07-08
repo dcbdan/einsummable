@@ -84,6 +84,18 @@ void execute_memgraph(
   mpi_t* mpi,
   buffer_t memory)
 {
+  // TODO: For shared storage, the memgraph execution engine will need
+  // inform the load at dst that the evict at src has happened on the
+  // same shared storage location.
+  //
+  // For now, enforce no shared storage by having storage_loc[i] == i for all i.
+  auto const& storage_loc = memgraph.storage_locs;
+  for(int i = 0; i != storage_loc.size(); ++i) {
+    if(storage_loc[i] != i) {
+      throw std::runtime_error("storage locs must be 0,1,...");
+    }
+  }
+
   cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory);
 
   int world_size = bool(mpi) ? mpi->world_size : 1;
@@ -252,7 +264,10 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
             }
           } else if(node.op.is_evict() || node.op.is_load()) {
             cache_ready.push(out);
-          } else if(node.op.is_input() || node.op.is_partialize() || node.op.is_del()) {
+          } else if(node.op.is_inputmem() || node.op.is_inputsto()
+                 || node.op.is_partialize() || node.op.is_alloc()
+                 || node.op.is_del())
+          {
             // these nodes are dummy placeholders and don't actually have an associated
             // executed, so they are completed ... now.
             node_ids.push_back(out);

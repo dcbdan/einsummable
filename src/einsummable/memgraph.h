@@ -20,6 +20,26 @@ struct memloc_t {
   mem_t as_mem() const;
 };
 
+struct stoloc_t {
+  int loc; // this storage location
+  int id;  // with this id
+};
+
+struct memstoloc_t {
+  memstoloc_t() {}
+
+  memstoloc_t(memloc_t const& m): data(m) {}
+  memstoloc_t(stoloc_t const& s): data(s) {}
+
+  bool is_memloc() const { return std::holds_alternative<memloc_t>(data); }
+  bool is_stoloc() const { return std::holds_alternative<stoloc_t>(data); }
+
+  memloc_t const& get_memloc() const { return std::get<memloc_t>(data); }
+  stoloc_t const& get_stoloc() const { return std::get<stoloc_t>(data); }
+
+  std::variant<memloc_t, stoloc_t> data;
+};
+
 std::ostream& operator<<(std::ostream&, mem_t const&);
 std::ostream& operator<<(std::ostream&, memloc_t const&);
 
@@ -37,8 +57,8 @@ struct allocator_settings_t {
 struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
-    int num_cache_locs,
-    vector<int> const& cache_locs);
+    int num_storage_locs,
+    vector<int> const& storage_locs);
 
   // Create a memgraph without any memory-size constraints.
   // Return also mappings
@@ -59,9 +79,20 @@ struct memgraph_t {
     memgraph_t>
   make_without_evict(
     taskgraph_t const& graph,
-    vector<int> const& which_cache,
     vector<uint64_t> mem_sizes = {},
     allocator_settings_t settings = allocator_settings_t::default_settings());
+
+  static
+  tuple<
+    map<int, memstoloc_t>,
+    map<int, memstoloc_t>,
+    memgraph_t>
+  make(
+    taskgraph_t const& graph,
+    vector<int> const& which_storage,
+    vector<uint64_t> mem_sizes = {},
+    allocator_settings_t settings = allocator_settings_t::default_settings(),
+    bool use_storage = true);
 
   void print_graphviz(std::ostream& out) const;
 
@@ -80,18 +111,28 @@ struct memgraph_t {
   static memgraph_t from_wire(string const& str);
 
   int const num_compute_locs;
-  int const num_cache_locs;
+  int const num_storage_locs;
 
-  // Example: Four gpu node, with ram as the cache, then
-  //          cache_locs = {0,0,0,0} and compute locs are 0,1,2,3.
-  vector<int> const cache_locs;
+  // Example: Four gpu node, with ram as the storage, then
+  //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
+  vector<int> const storage_locs;
 
 public:
-  // at time zero, this input is here with this memory
-  struct input_t {
+  struct inputmem_t {
     int loc;
     uint64_t offset;
     uint64_t size;
+
+    memloc_t as_memloc() const { return memloc_t{offset, size, loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
+    static inputmem_t from_memloc(memloc_t const& m);
+  };
+
+  struct inputsto_t {
+    int loc;
+    int storage_loc;
+    int storage_id;
+    stoloc_t as_stoloc() const { return stoloc_t { storage_loc, storage_id }; }
   };
 
   // An apply needs these memories to do the computation
@@ -143,78 +184,107 @@ public:
     int const& get_dst_loc() const { return std::get<0>(dst); }
   };
 
-  // Note: every location has one cache, but a
-  //       cache may have multiple locations
+  // Note: every location has one storage, but a
+  //       storage may have multiple locations
 
   // Move this memory off of location loc and into
-  // the corresponding cache
+  // the corresponding storage; every evict should produce
+  // a new tensor in the storage and storage_id must be unique
+  // across all evicts.
   struct evict_t {
-    int loc;
-    int cache_id;
-    uint64_t offset;
-    uint64_t size;
-  };
+    memloc_t src;
+    stoloc_t dst;
+  }; // inside the graph, src.loc's storage location must be dst.loc
 
-  // Load from cache this id into loc
-  // with this offset and size
+  // Load from storage this id into loc with this offset and size;
+  // This deletes the tensor from the storage.
+  // TODO: perhaps it should be possible to
+  //       gpu1->storage->gpu2--v
+  //                    ->gpu1->delete_from_storage
+  //       Now it is only possible to
+  //       gpu1->storage->gpu2->delete_from_storage
   struct load_t {
-    int cache_id;
-    int loc;
-    uint64_t offset;
-    uint64_t size;
-  };
+    stoloc_t src;
+    memloc_t dst;
+  }; // inside the graph dst.loc's storage location must src.loc
 
   struct partialize_t {
     int loc;
     uint64_t offset;
     uint64_t size;
+
+    memloc_t as_memloc() const { return memloc_t{offset, size, loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
+    static partialize_t from_memloc(memloc_t const& m);
+  };
+
+  struct alloc_t {
+    int loc;
+    uint64_t offset;
+    uint64_t size;
+
+    memloc_t as_memloc() const { return memloc_t{offset, size, loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
+    static alloc_t from_memloc(memloc_t const& m);
   };
 
   struct del_t {
     int loc;
     uint64_t offset;
     uint64_t size;
+
+    memloc_t as_memloc() const { return memloc_t{offset, size, loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
+    static del_t from_memloc(memloc_t const& m);
   };
 
   struct op_t {
   private:
     using _op_t = std::variant<
-      input_t, apply_t, move_t,
-      evict_t, load_t,
-      partialize_t, del_t>;
+      inputmem_t, inputsto_t,
+      apply_t, move_t,
+      evict_t, load_t, partialize_t,
+      alloc_t, del_t>;
   public:
     op_t(_op_t op): op(op) { check_op(); }
 
-    op_t(input_t      x): op_t(_op_t(x)) {}
+    op_t(inputmem_t   x): op_t(_op_t(x)) {}
+    op_t(inputsto_t   x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
     op_t(evict_t      x): op_t(_op_t(x)) {}
     op_t(load_t       x): op_t(_op_t(x)) {}
     op_t(partialize_t x): op_t(_op_t(x)) {}
+    op_t(alloc_t      x): op_t(_op_t(x)) {}
     op_t(del_t        x): op_t(_op_t(x)) {}
 
-    bool is_input()      const { return std::holds_alternative<input_t>(op);      }
+    bool is_inputmem()   const { return std::holds_alternative<inputmem_t>(op);   }
+    bool is_inputsto()   const { return std::holds_alternative<inputsto_t>(op);   }
     bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
     bool is_move()       const { return std::holds_alternative<move_t>(op);       }
     bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
     bool is_load()       const { return std::holds_alternative<load_t>(op);       }
     bool is_partialize() const { return std::holds_alternative<partialize_t>(op); }
+    bool is_alloc()      const { return std::holds_alternative<alloc_t>(op);      }
     bool is_del()        const { return std::holds_alternative<del_t>(op);        }
 
-    input_t      const& get_input()      const { return std::get<input_t>(op);      }
+    inputmem_t   const& get_inputmem()   const { return std::get<inputmem_t>(op);   }
+    inputsto_t   const& get_inputsto()   const { return std::get<inputsto_t>(op);   }
     apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
     move_t       const& get_move()       const { return std::get<move_t>(op);       }
     evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
     load_t       const& get_load()       const { return std::get<load_t>(op);       }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
+    alloc_t      const& get_alloc()      const { return std::get<alloc_t>(op);      }
     del_t        const& get_del()        const { return std::get<del_t>(op);        }
 
     // get all the memlocs touched by
     // this operation
     vector<memloc_t> get_memlocs() const;
 
-    memloc_t get_output_memloc() const;
-    mem_t    get_output_mem() const;
+    memstoloc_t get_output_memstoloc() const;
+    memloc_t    get_output_memloc() const;
+    mem_t       get_output_mem() const;
 
     bool is_local_to(int loc) const;
   private:
@@ -222,12 +292,14 @@ public:
 
     void check_op()         const;
 
-    void check_input()      const;
+    void check_inputmem()   const;
+    void check_inputsto()   const;
     void check_apply()      const;
     void check_move()       const;
     void check_evict()      const;
     void check_load()       const;
     void check_partialize() const;
+    void check_alloc()      const;
     void check_del()        const;
   };
 
@@ -325,43 +397,49 @@ struct _which_touch_t {
   int touch_id;
 };
 
+bool operator==(_which_node_t const& lhs, _which_node_t const& rhs);
+bool operator< (_which_node_t const& lhs, _which_node_t const& rhs);
+
 bool operator==(_which_touch_t const& lhs, _which_touch_t const& rhs);
 bool operator< (_which_touch_t const& lhs, _which_touch_t const& rhs);
 
 struct memgraph_make_state_t {
   memgraph_make_state_t(
     taskgraph_t const& taskgraph,
-    vector<int> const& which_cache,
+    vector<int> const& which_storage,
     vector<allocator_t> const& as,
     int num_compute,
-    int num_cache);
+    int num_storage,
+    bool use_storage);
 
   using op_t         = memgraph_t::op_t;
-  using input_t      = memgraph_t::input_t;
+  using inputmem_t   = memgraph_t::inputmem_t;
+  using inputsto_t   = memgraph_t::inputsto_t;
   using apply_t      = memgraph_t::apply_t;
   using move_t       = memgraph_t::move_t;
   using partialize_t = memgraph_t::partialize_t;
+  using alloc_t      = memgraph_t::alloc_t;
   using del_t        = memgraph_t::del_t;
 
-  void allocate_inputs();
+  // Allocate all the inputs to memory and whenever an allocator fails,
+  // set the input as a storage location.
+  map<int, memstoloc_t> allocate_inputs();
 
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);
 
-  // This function will insert dummy partialize nodes
-  // if necessary.
-  int task_to_mem(int task_id);
-
   int get_group_at(int task_id, int unit_id);
 
-  void try_to_delete(int task_id);
+  // At the end of this call, these tensors should be in memory. If they can't
+  // all be in memory, then an error is thrown. If the tensor isn't yet created,
+  // a tensor of the correct size is allocated. It is up to the caller to make
+  // sure that newly created tensors make it into task_tensor_to_mem_node
+  vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
 
-  // Allocate the output memory if neccessary.
-  // For partials, the memory may have already been allocated.
-  // For some einsummables, an input tensor may get donated
-  uint64_t get_output_alloc_if_necc(
-    int task_id,
-    set<int>& deps);
+  // TODO: where should tensor donation occur?
+
+  // this tensor was used, see if you can free the memory
+  void register_usage(int task_id);
 
   taskgraph_t const& taskgraph;
 
@@ -369,19 +447,58 @@ struct memgraph_make_state_t {
 
   vector<allocator_t> allocators;
 
-  // taskgraph ids to offsets
-  map<int, uint64_t> current_tensors;
-
   int _group;
   map<tuple<int,int>, int> to_group;
 
-  map<int, int> task_node_to_mem;
-  map<_which_touch_t, int> task_touch_to_mem;
+  bool const use_storage;
+
+  // A mapping from partialize id to all apply memids doing a touch
+  map<int, vector<int>> partializes_in_progress;
+
+  // Mappings from the taskgraph tensor to the corresponding
+  // mem graph node. This gets updated as tensors get evicted,
+  // and fully computed.
+  map<int, int> task_tensor_to_mem_node;
+
+  // A mapping from (apply || move) taskgraph node to the corresponding
+  // apply or move
+  map<_which_node_t, int> task_node_to_mem_node;
+  // A mapping form a taskgraph touch to the corresponding apply
+  map<_which_touch_t, int> task_touch_to_mem_node;
 
   vector<int> remaining_usage_counts;
 
+  // This contains tensors who have been donated
+  // to another node
   set<int> donated;
 };
-
+// Some notes about nodes in the taskgraph vs nodes in the memgraph
+// and how that relates to tensors.
+//
+// Every node in the taskgraph produces a tensor:
+//   tg input:      produces an input tensor
+//   tg apply:      produces a tensor by an einsummable
+//   tg move:       produces a tensor by moving from another location
+//   tg partialize: have lots of touches that fill out an output tensor
+//
+// In the memgraph, every node
+// 1. is a barrier: this node happens when those nodes have finished
+// 2. says something about where a tensor is:
+//      this tensor now lives at this memory
+//      or at this storage (evict)
+//      or it now  to live at this memory (del)
+//
+// The computation components of the memgraph lives in the apply_t op.
+// Every
+//   tg apply maps to a single mg apply node and
+//   every touch in a tg partialize maps to single mg apply node.
+//
+// When some touches in a tg partialize occur, the tensor is
+// partially computed.
+//
+// In the taskgraph, a node is a computation _and_ a tensor.
+// So we use taskgraph ids to refer to the tensor produced
+// by the corresponding taskgraph node. However, in the memgraph,
+// every tensor can be moved (evicted, put into different memory, ect).
 
 
