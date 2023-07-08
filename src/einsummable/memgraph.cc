@@ -141,7 +141,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       label = "del@" + memloc;
       //label = "del " + write_with_ss(id);
       if(del.loc < colors.size()) {
-        color = "pink"; // colors[del.loc];
+        color = colors[del.loc];
       }
     } else {
       throw std::runtime_error("memgraph print should not happen");

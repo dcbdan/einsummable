@@ -95,10 +95,7 @@ int main(int argc, char** argv) {
   auto [_0, _1, _taskgraph] = taskgraph_t::make(graph, pls);
   taskgraph = _taskgraph;
 
-  vector<int> which_cache(nlocs);
-  std::iota(which_cache.begin(), which_cache.end(), 0);
-
-  auto [_2, _3, memgraph] = memgraph_t::make_without_evict(taskgraph, which_cache);
+  auto [_2, _3, memgraph] = memgraph_t::make_without_evict(taskgraph);
   // ^ note that memsizes and allocat_settings not being provided
 
   {
