@@ -225,6 +225,12 @@ partition_t twolayer_construct_refinement_partition(
 {
   // Note that the refinement partition is with respect to the real dtype
   auto const& join_node = graph.nodes[join_gid];
+
+  if(join_node.outs.size() == 0) {
+    throw std::runtime_error(
+      "this node has no outs so it can't have a refinement partition");
+  }
+
   dtype_t join_dtype = join_node.op.out_dtype();
   bool join_is_complex = dtype_is_complex(join_dtype);
 
@@ -285,7 +291,22 @@ vector<refinement_t> twolayer_construct_refis_and_connect_joins(
   graph_t const& graph,
   int gid,
   vector<join_t>& joins,
+  partition_t const& join_partition,
+  partition_t const& refi_partition)
+{
+  auto refi_shape = refi_partition.block_shape();
+  vector<refinement_t> refis(product(refi_shape));
+  twolayer_connect_join_to_refi(
+    graph, gid, joins, join_partition, refis, refi_partition);
+  return refis;
+}
+
+void twolayer_connect_join_to_refi(
+  graph_t const& graph,
+  int gid,
+  vector<join_t>& joins,
   partition_t const& join_partition_,
+  vector<refinement_t>& refis,
   partition_t const& refi_partition)
 {
   auto const& node = graph.nodes[gid];
@@ -323,10 +344,7 @@ vector<refinement_t> twolayer_construct_refis_and_connect_joins(
     maybe_agg_shape = agg_partition.block_shape();
   }
 
-  // set up the refinement nodes
   auto refi_shape = refi_partition.block_shape();
-
-  vector<refinement_t> refis(product(refi_shape));
 
   vector<int> out_shape = out_partition.block_shape();
   vector<int> out_index(out_shape.size(), 0);
@@ -370,8 +388,29 @@ vector<refinement_t> twolayer_construct_refis_and_connect_joins(
       }
     } while(get_regions.increment());
   } while(increment_idxs(out_shape, out_index));
+}
 
-  return refis;
+void twolayer_erase_refi_deps(vector<refinement_t>& refis)
+{
+  for(auto& refi: refis) {
+    for(auto& unit: refi.units) {
+      unit.deps = vector<int>();
+    }
+  }
+}
+
+void twolayer_erase_join_outs(vector<join_t>& joins)
+{
+  for(auto& join: joins) {
+    join.outs = set<int>();
+  }
+}
+
+void twolayer_erase_join_deps(vector<join_t>& joins)
+{
+  for(auto& join: joins) {
+    join.deps = set<rid_t>();
+  }
 }
 
 bool operator==(jid_t const& lhs, jid_t const& rhs) {

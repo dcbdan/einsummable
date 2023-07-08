@@ -17,6 +17,7 @@ struct agg_unit_t {
   uint64_t size;
   vector<int> deps; // these are the join bids of the graph node that
                     // this agg unit belongs to
+  // TODO: why is this not a set?
 };
 
 struct refinement_t {
@@ -71,6 +72,18 @@ vector<refinement_t> twolayer_construct_refis_and_connect_joins(
   vector<join_t>& joins,
   partition_t const& join_partition,
   partition_t const& refinement_partition);
+
+void twolayer_connect_join_to_refi(
+  graph_t const& graph,
+  int gid,
+  vector<join_t>& joins,
+  partition_t const& join_partition,
+  vector<refinement_t>& refis,
+  partition_t const& refinement_partition);
+
+void twolayer_erase_refi_deps(vector<refinement_t>& refis);
+void twolayer_erase_join_outs(vector<join_t>&       joins);
+void twolayer_erase_join_deps(vector<join_t>&       joins);
 
 bool operator==(jid_t const& lhs, jid_t const& rhs);
 bool operator!=(jid_t const& lhs, jid_t const& rhs);

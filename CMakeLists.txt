@@ -55,6 +55,7 @@ add_base_application("deepff"           "exps" "deepff")
 add_base_application("base_test"        "exps" "base_test")
 add_base_application("einsummable_test" "exps" "einsummable_test")
 add_base_application("memgraph_test"    "exps" "memgraph_test")
+add_base_application("gwise"            "exps" "gwise")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc llama/builder.cc)
