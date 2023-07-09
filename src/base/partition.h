@@ -60,3 +60,8 @@ bool operator!=(partition_t const& lhs, partition_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, partition_t const& p);
 
+// Putting inline methods of partition_t here
+// (for what appears to be marginal performance improvements)
+#include "partition_.h"
+
+
