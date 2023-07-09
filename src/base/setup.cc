@@ -100,3 +100,53 @@ vector<int> as_out_perm(
 
   return out_perm;
 }
+
+void istream_expect(std::istream& inn, string const& xs) {
+  for(auto const& x: xs) {
+    if(x != inn.get()) {
+      throw std::runtime_error("expected " + xs);
+    }
+  }
+}
+
+int istream_expect_or(std::istream& inn, vector<string> const& options) {
+  // One could only move the stream forward with peek and get,
+  // which would probably be faster. But this instead just checks each
+  // option one by one, which is good enough for the foreseeable use cases
+
+  int ret = -1;
+  int n = -1;
+
+  auto reset_pos = inn.tellg();
+
+  for(int which = 0; which != options.size(); ++which) {
+    auto const& xs = options[which];
+
+    inn.seekg(reset_pos);
+
+    bool match = true;
+    for(auto const& x: xs) {
+      if(x == inn.peek()) {
+        inn.get();
+      } else {
+        match = false;
+        break;
+      }
+    }
+
+    if(match) {
+      if(int(xs.size()) > n) {
+        ret = which;
+        n = xs.size();
+      }
+    }
+  }
+
+  if(ret == -1) {
+    throw std::runtime_error("could not find a match");
+  }
+
+  inn.seekg(reset_pos + decltype(reset_pos)(n));
+  return ret;
+}
+

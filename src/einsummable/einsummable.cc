@@ -106,9 +106,22 @@ vector<tuple<int,int>> build_adjacents(
   m += 1;
 
   while(r != m) {
-    int score = update_count_adjacent(0, r, inns[0]);
-    for(int i = 1; i != inns.size(); ++i) {
-      score = update_count_adjacent(score, r, inns[i]);
+    // find the first place where r is in inns (so score > 0)
+    // then loop through all the others and update the score
+    // Example: r = mode d, inns = ae,abcde,abc
+    //          then score = 2 at i = 1,
+    //          then score stays two after i = 2
+    //          but at i = 0, score gets chopped to 1
+    //          since "de" can't be grouped together
+    int score = 0;
+    int i = 0;
+    for(; i != inns.size() && score == 0; ++i) {
+      score = update_count_adjacent(0, r, inns[i]);
+    }
+    // i is now one past the location that set score to be nonzero
+    for(int j = 0; j != inns.size()-1; ++j) {
+      int which = (i + j) % inns.size();
+      score = update_count_adjacent(score, r, inns[which]);
     }
 
     if(score <= 0) {
@@ -614,50 +627,6 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
 
   out << e.str();
 
-  return out;
-}
-
-std::ostream& operator<<(std::ostream& out, castable_t const& c) {
-  if(c == castable_t::add) {
-    out << "+";
-  } else if(c == castable_t::mul) {
-    out << "x";
-  } else if(c == castable_t::min) {
-    out << "v";
-  } else if(c == castable_t::max) {
-    out << "^";
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-
-  return out;
-}
-
-std::istream& operator>>(std::istream& inn, castable_t& castable) {
-  char c;
-  inn.read(&c, 1);
-
-  if(c == '+') {
-    castable = castable_t::add;
-  } else if(c == 'x') {
-    castable = castable_t::mul;
-  } else if(c == 'v') {
-    castable = castable_t::min;
-  } else if(c == '^') {
-    castable = castable_t::max;
-  } else {
-    throw std::runtime_error("should not reach");
-  }
-
-  return inn;
-}
-
-std::ostream& operator<<(std::ostream& out, optional<castable_t> const& maybe_c) {
-  if(maybe_c) {
-    out << maybe_c.value();
-  } else {
-    out << ":";
-  }
   return out;
 }
 

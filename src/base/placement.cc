@@ -60,6 +60,26 @@ placement_t placement_t::random(vector<partdim_t> const& partdims, int nloc) {
   return random(partition_t(partdims), nloc);
 }
 
+placement_t placement_t::from_wire(string const& str) {
+  es_proto::Placement p;
+  if(!p.ParseFromString(str)) {
+    throw std::runtime_error("could not parse placement!");
+  }
+  return from_proto(p);
+}
+
+placement_t placement_t::from_proto(es_proto::Placement const& p) {
+  partition_t partition = partition_t::from_proto(p.partition());
+
+  vector<int> locs;
+  locs.reserve(p.locations_size());
+  for(int i = 0; i != p.locations_size(); ++i) {
+    locs.push_back(p.locations(i));
+  }
+
+  return placement_t(partition, vtensor_t<int>(partition.block_shape(), locs));
+}
+
 placement_t placement_t::refine(partition_t const& refined_partition) const {
   if(!refined_partition.refines(partition)) {
     throw std::runtime_error(
@@ -84,5 +104,22 @@ placement_t placement_t::subset(vector<tuple<int, int>> const& region) const {
   return placement_t(
     partition.subset(region),
     locations.subset(region));
+}
+
+string placement_t::to_wire() const {
+  es_proto::Placement p;
+  to_proto(p);
+  string ret;
+  p.SerializeToString(&ret);
+  return ret;
+}
+
+void placement_t::to_proto(es_proto::Placement& p) const {
+  es_proto::Partition* pa = p.mutable_partition();
+  partition.to_proto(*pa);
+
+  for(auto const& l: locations.get()) {
+    p.add_locations(l);
+  }
 }
 

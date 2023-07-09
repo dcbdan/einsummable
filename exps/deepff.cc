@@ -83,7 +83,7 @@ int main() {
   vector<int> compute_loc_to_cache(np, 0);
 
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
-    taskgraph, compute_loc_to_cache, { 1000000 });
+    taskgraph, { 1000000 });
 
   std::ofstream f("deepff.gv");
   memgraph.print_graphviz(f);

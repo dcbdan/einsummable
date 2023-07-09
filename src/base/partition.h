@@ -3,10 +3,15 @@
 
 #include "partdim.h"
 
+#include "einsummable.pb.h"
+
 struct partition_t {
   partition_t(vector<partdim_t> const& p);
 
   static partition_t singleton(vector<uint64_t> shape);
+
+  static partition_t from_wire(string const& str);
+  static partition_t from_proto(es_proto::Partition const& p);
 
   vector<uint64_t> total_shape() const;
 
@@ -40,6 +45,9 @@ struct partition_t {
   // throw an error
   vector<int> get_index_covering(
     vector<tuple<uint64_t,uint64_t>> const& hrect) const;
+
+  string to_wire() const;
+  void to_proto(es_proto::Partition& p) const;
 
   vector<partdim_t> partdims;
 };

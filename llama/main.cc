@@ -299,7 +299,7 @@ void test_ff() {
 int main() {
   set_default_dtype(dtype_t::f16);
 
-  auto args = model_args_t::make_default();
+  auto args = model_args_t::llama_7B();
 
   // TODO: set vocab_size
   args.vocab_size = 123;

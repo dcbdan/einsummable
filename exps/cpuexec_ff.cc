@@ -4,7 +4,7 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #include "../src/autoplace/autoplace.h"
@@ -44,7 +44,7 @@ void ff(
   vector<int> ws    = ff_info.wsinn;
   vector<int> wsnew = ff_info.wsout;
 
-  auto settings = settings_t::default_settings();
+  auto settings = execute_taskgraph_settings_t::default_settings();
 
   vector<int> outs = wsnew;
   outs.push_back(sqdiff);
@@ -109,7 +109,7 @@ void ff(
 
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
-    execute(taskgraph, settings, kernel_manager, &mpi, buffers);
+    execute_taskgraph(taskgraph, settings, kernel_manager, &mpi, buffers);
 
     if(i % 10 == 0) {
       scalar_t loss = dbuffer_t(dtype, buffers.at(sqdiff)).sum();

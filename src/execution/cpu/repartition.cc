@@ -1,135 +1,72 @@
 #include "repartition.h"
 
-#include "execute.h"
+#include "executetg.h"
 
 #include "../../einsummable/graph.h"
 #include "../../einsummable/taskgraph.h"
 
-vtensor_t<optional<buffer_t>>
-repartition(
+void repartition(
   mpi_t* mpi,
-  dtype_t dtype,
-  placement_t const& out_placement,
-  buffer_t data)
+  remap_relations_t const& _remap,
+  map<int, buffer_t>& data)
 {
-  placement_t inn_placement(partition_t::singleton(out_placement.total_shape()));
-  vtensor_t<optional<buffer_t>> inn_data(inn_placement.block_shape());
-  inn_data.get()[0] = data;
-  return repartition(mpi, dtype, out_placement, inn_data, inn_placement);
-}
+  auto const& remap = _remap.remap;
 
-// TODO: Calling execute may be overkill in some cases...
-//       Doing this for every weight matrix might be slow because of the
-//       overhead of launching and closing the execution engine over and over
-//       (Or maybe not)
-vtensor_t<optional<buffer_t>>
-repartition(
-  mpi_t* mpi,
-  dtype_t dtype,
-  placement_t const& out_placement,
-  vtensor_t<optional<buffer_t>> const& data,
-  placement_t const& inn_placement)
-{
-  auto [out_tids, inn_tids, taskgraph] =
-    make_repartition(dtype, out_placement, inn_placement);
-
-  int this_loc = bool(mpi) ? mpi->this_rank : 0;
-
-  map<int, buffer_t> tensors;
-  int n_blocks_inn = inn_placement.num_parts();
-  for(int i = 0; i != n_blocks_inn; ++i) {
-    int const& tid = inn_tids.get()[i];
-    if(taskgraph.out_loc(tid) == this_loc) {
-      buffer_t d = data.get()[i].value();
-      tensors.insert({tid, d});
-    }
-  }
-
-  settings_t settings = settings_t::only_touch_settings();
-  kernel_manager_t ks;
-  execute(taskgraph, settings, ks, mpi, tensors);
-
-  vtensor_t<optional<buffer_t>> ret(out_placement.block_shape());
-
-  int n_blocks_out = out_placement.num_parts();
-  for(int i = 0; i != n_blocks_out; ++i) {
-    int const& tid = out_tids.get()[i];
-    if(taskgraph.out_loc(tid) == this_loc) {
-      ret.get()[i] = tensors.at(tid);
-    }
-  }
-
-  return ret;
-}
-
-vtensor_t<buffer_t>
-repartition(
-  dtype_t dtype,
-  partition_t const& out_partition,
-  vtensor_t<buffer_t> const& inn_data,
-  partition_t const& inn_partition)
-{
-  if(out_partition == inn_partition) {
-    return inn_data;
-  }
-
-  vtensor_t<optional<buffer_t>> maybe_inn_data(inn_partition.block_shape());
-  std::copy(
-    inn_data.get().begin(), inn_data.get().end(),
-    maybe_inn_data.get().begin());
-  auto maybe_out_data = repartition(
-    nullptr,
-    dtype,
-    placement_t(out_partition),
-    maybe_inn_data,
-    placement_t(inn_partition));
-
-  vtensor_t<buffer_t> out_data(out_partition.block_shape());
-  std::transform(
-    maybe_out_data.get().begin(), maybe_out_data.get().end(),
-    out_data.get().begin(),
-    [](optional<buffer_t> const& maybe) { return maybe.value(); });
-
-  return out_data;
-}
-
-vtensor_t<buffer_t>
-repartition(
-  dtype_t dtype,
-  partition_t const& inn_partition,
-  buffer_t data)
-{
-  partition_t const& out_partition =
-    partition_t::singleton(inn_partition.total_shape());
-
-  vtensor_t<buffer_t> out_data(out_partition.block_shape(), {data});
-
-  return repartition(
-    dtype,
-    inn_partition,
-    out_data,
-    out_partition);
-}
-
-tuple<
-  vtensor_t<int>, // out
-  vtensor_t<int>, // inn
-  taskgraph_t>
-make_repartition(
-  dtype_t dtype,
-  placement_t const& out_placement,
-  placement_t const& inn_placement)
-{
   graph_constructor_t g;
 
-  int inn = g.insert_input(inn_placement, dtype);
-  int out = g.insert_formation(out_placement, inn, true);
+  vector<tuple<int,int>> remap_gid;
+  for(auto const& [src,dst]: remap) {
+    int gid_src = g.insert_input(src.placement, src.dtype);
+    int gid_dst = g.insert_formation(dst.placement, gid_src, true);
+    remap_gid.emplace_back(gid_src, gid_dst);
+  }
 
-  auto [inn_g_to_t, out_g_to_t, tg] = taskgraph_t::make(g.graph, g.get_placements());
+  auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
+    g.graph, g.get_placements());
 
-  return {
-    out_g_to_t.at(out),
-    inn_g_to_t.at(inn),
-    tg
-  };
+  {
+    map<int, buffer_t> tmp;
+    for(int i = 0; i != remap_gid.size(); ++i) {
+      auto const& gid  = std::get<0>(remap_gid[i]);
+      auto const& info = std::get<0>(remap[i]);
+      vector<int> const& locs = info.placement.locations.get();
+      vector<int> const& inn_tids = info.tids.get();
+      vector<int> const& mid_tids = gid_to_inn.at(gid).get();
+      if(inn_tids.size() != mid_tids.size()) {
+        throw std::runtime_error("!");
+      }
+      for(int j = 0; j != inn_tids.size(); ++j) {
+        if(mpi && locs[j] == mpi->this_rank) {
+          int const& inn_tid = inn_tids[j];
+          int const& mid_tid = mid_tids[j];
+          tmp.insert({mid_tid, data.at(inn_tid)});
+        }
+      }
+    }
+    data = tmp;
+  }
+
+  {
+    auto settings = execute_taskgraph_settings_t::only_touch_settings();
+    kernel_manager_t ks;
+    execute_taskgraph(taskgraph, settings, ks, mpi, data);
+  }
+
+  map<int, buffer_t> tmp;
+  for(int i = 0; i != remap_gid.size(); ++i) {
+    auto const& gid  = std::get<1>(remap_gid[i]);
+    auto const& info = std::get<1>(remap[i]);
+    vector<int> const& locs = info.placement.locations.get();
+    vector<int> const& out_tids = info.tids.get();
+    vector<int> const& mid_tids = gid_to_out.at(gid).get();
+    for(int j = 0; j != out_tids.size(); ++j) {
+      if(mpi && locs[j] == mpi->this_rank) {
+        int const& out_tid = out_tids[j];
+        int const& mid_tid = mid_tids[j];
+        tmp.insert({out_tid, data.at(mid_tid)});
+      }
+    }
+  }
+  data = tmp;
 }
+

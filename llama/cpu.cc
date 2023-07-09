@@ -5,316 +5,21 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
 
+#include "../src/execution/cpu/manager.h"
 #include "../src/execution/cpu/kernels.h"
 #include "../src/execution/cpu/permute.h"
 #include "../src/execution/cpu/contraction.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
+#include "../src/execution/cpu/repartition.h"
+
+#include "../src/autoplace/autoplace.h"
 
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
 
 #include <iomanip> // setprecision
-
-void time_contraction1() {
-  dtype_t dtype = dtype_t::f16;
-
-  // {8,256,4096,32,128}
-  // {0,3,1,4},{2,3,4}->{0,1,2}
-
-  {
-    einsummable_t e(
-      {8,256,4096,32,128},
-      { {0,1,3,4}, {2,3,4} },
-      3,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = build_einsummable(e.merge_adjacent_dims());
-    gremlin_t timer("batch matmul " + write_with_ss(e));
-    f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
-  }
-
-  {
-    // {8,256,4096,32,128}
-    einsummable_t e(
-      {8,256,4096,32,128},
-      { {0,3,1,4}, {2,3,4} },
-      3,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = contraction_t::make(
-      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
-    buffer_t workspace = make_buffer(f.workspace_size);
-    gremlin_t timer("contraction " + write_with_ss(e));
-    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
-  }
-}
-
-void time_contraction2() {
-  dtype_t dtype = dtype_t::f16;
-
-  // ({0,2,1,4}->{0,1,2,4}),({0,3,1,4}->{0,1,4,3})->{0,1,2,3}
-  // {8,32,256,256,128};
-
-  {
-    einsummable_t e(
-      {8,32,256,256,128},
-      { {0,1,2,4}, {0,1,4,3} },
-      4,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = build_einsummable(e.merge_adjacent_dims());
-    gremlin_t timer("batch matmul " + write_with_ss(e));
-    f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
-  }
-
-  {
-    einsummable_t e(
-      {8,32,256,256,128},
-      { {0,2,1,4}, {0,3,1,4} },
-      4,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = contraction_t::make(
-      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
-    buffer_t workspace = make_buffer(f.workspace_size);
-    gremlin_t timer("contraction " + write_with_ss(e));
-    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
-  }
-}
-
-void time_contraction3() {
-  dtype_t dtype = dtype_t::f16;
-
-  // [8,32,256,128,256]
-  // abce,aebd->abcd
-  // 0124 0413  0123
-  // bbij bjbk  bbik
-
-  {
-    einsummable_t e(
-      {8,32,256,128,256},
-      { {0,1,2,4}, {0,1,3,4} },
-      4,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = build_einsummable(e.merge_adjacent_dims());
-    gremlin_t timer("batch matmul " + write_with_ss(e));
-    f(out_buffer.f16(), { lhs_buffer.f16(), rhs_buffer.f16() });
-  }
-
-  {
-    einsummable_t e(
-      {8,32,256,128,256},
-      { {0,1,2,4}, {0,4,1,3} },
-      4,
-      scalarop_t::make_mul(dtype),
-      castable_t::add);
-
-    auto inn_shapes = e.inn_shapes();
-    dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-    dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-    dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-    lhs_buffer.random();
-    rhs_buffer.random();
-    auto f = contraction_t::make(
-      dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
-    buffer_t workspace = make_buffer(f.workspace_size);
-    gremlin_t timer("contraction " + write_with_ss(e));
-    f(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
-  }
-}
-
-void test_contraction1() {
-  dtype_t dtype = dtype_t::f64;
-
-  //einsummable_t e(
-  //  {8,7,4,9,10},
-  //  { {0,1,3,4}, {2,3,4} },
-  //  3,
-  //  scalarop_t::make_mul(dtype),
-  //  castable_t::add);
-  //einsummable_t e(
-  //  {8,3,6,5,10},
-  //  { {0,1,2,4}, {0,1,4,3} },
-  //  4,
-  //  scalarop_t::make_mul(dtype),
-  //  castable_t::add);
-  einsummable_t e(
-    {8,3,6,5,10},
-    { {0,4,2,1}, {0,1,4,3} },
-    4,
-    scalarop_t::make_mul(dtype),
-    castable_t::add);
-
-  auto inn_shapes = e.inn_shapes();
-  dbuffer_t lhs_buffer = make_dbuffer(dtype, product(inn_shapes[0]));
-  dbuffer_t rhs_buffer = make_dbuffer(dtype, product(inn_shapes[1]));
-
-  lhs_buffer.random();
-  rhs_buffer.random();
-
-  dbuffer_t out_buffer_true =
-    reference_einsummable(e, {lhs_buffer, rhs_buffer});
-
-  dbuffer_t out_buffer = make_dbuffer(dtype, e.out_nelem());
-
-  auto contraction = contraction_t::make(
-    dtype, e.join_shape, e.inns[0], e.inns[1], e.out_rank);
-  buffer_t workspace = make_buffer(contraction.workspace_size);
-
-  out_buffer.random();
-  contraction(workspace->raw(), out_buffer.raw(), lhs_buffer.raw(), rhs_buffer.raw());
-  if(is_close(out_buffer, out_buffer_true)) {
-    DOUT("yes, is close");
-  } else  {
-    DOUT("IS NOT CLOSE!");
-  }
-}
-
-void test_norm() {
-  vector<double> data{
-     0.104102411965,  1.75819599444 ,  0.241436410543, -0.923549600062,
-     2.098498404957, -0.01980048358 ,  0.719057520776,  1.582565440747,
-     0.011832471646,  0.583231115325,  1.735792867821, -1.075010469408,
-    -0.491300759802,  0.900173883415, -0.696549140976, -0.017318511128,
-     0.779691427962,  1.525656976835,  0.186386673303,  0.151327731509,
-     0.372845878592,  0.132723343527,  1.466696600695, -0.293139876364,
-    -0.575411014743, -0.661329473696, -0.112476311142, -0.681607609168,
-     2.271264890919, -0.055723774135,  0.792926540523,  1.330586035915,
-     0.014505599309,  1.072342068897,  0.502588730809, -0.034059581526,
-     0.53419634156 , -1.864580855143,  0.944462033663, -0.153446086103
-  };
-  uint64_t ni = 2;
-  uint64_t nj = 20;
-
-  dtype_t dtype = dtype_t::f64;
-
-  scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(dtype);
-  scalarop_t square       = scalarop_t::make_square(dtype);
-  scalarop_t identity     = scalarop_t::make_identity(dtype);
-
-  scalar_t _e(dtype, write_with_ss(1e-6));
-  scalar_t _a(dtype, write_with_ss(1.0/double(double(1.0)*nj)));
-  scalarop_t scale_then_add_eps = scalarop_t::combine(
-    scalarop_t::make_add(dtype),
-    {
-      scalarop_t::make_scale(_a),
-      scalarop_t::make_constant(_e)
-    });
-
-  // y = np.power(np.mean(np.square(x), axis=-1) + eps, -0.5)
-
-  einsummable_t e_square(
-    {ni, nj},
-    { {0,1} },
-    2,
-    square);
-  einsummable_t e_reduction(
-    {ni, nj},
-    { {0, 1} },
-    1,
-    identity,
-    castable_t::add);
-  einsummable_t e_scale_add(
-    {ni},
-    { {0} },
-    1,
-    scale_then_add_eps);
-  einsummable_t e_inverse_sqrt(
-    {ni},
-    { {0} },
-    1,
-    inverse_sqrt);
-
-  dbuffer_t y = make_dbuffer(dtype, ni*nj);
-
-  if(dtype == dtype_t::f16) {
-    std::copy(data.begin(), data.end(), y.f16());
-  } else if(dtype == dtype_t::f32) {
-    std::copy(data.begin(), data.end(), y.f32());
-  } else if(dtype == dtype_t::f64) {
-    std::copy(data.begin(), data.end(), y.f64());
-  }
-
-  auto execute_einsummable = [](einsummable_t const& e, dbuffer_t data) {
-    kernel_manager_t k;
-    k.build(e);
-    dbuffer_t out = make_dbuffer(e.out_dtype(), e.out_nelem());
-    k(e, out.raw(), { data.raw() });
-    return out;
-  };
-
-  //dbuffer_t y1 = reference_einsummable(e_square,       { y  });
-  //dbuffer_t y2 = reference_einsummable(e_reduction,    { y1 });
-  //dbuffer_t y3 = reference_einsummable(e_scale_add,    { y2 });
-  //dbuffer_t y4 = reference_einsummable(e_inverse_sqrt, { y3 });
-
-  dbuffer_t y1 = execute_einsummable(e_square,       y );
-  dbuffer_t y2 = execute_einsummable(e_reduction,    y1);
-  dbuffer_t y3 = execute_einsummable(e_scale_add,    y2);
-  dbuffer_t y4 = execute_einsummable(e_inverse_sqrt, y3);
-
-  auto print = [&dtype](string name, dbuffer_t y) {
-    DOUT(name);
-    if(y.dtype == dtype_t::f16) {
-      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f16()[i]); }
-    } else if(y.dtype == dtype_t::f32) {
-      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f32()[i]); }
-    } else if(y.dtype == dtype_t::f64) {
-      for(int i = 0; i != y.nelem(); ++i) { DOUT(std::setprecision(12) << y.f64()[i]); }
-    }
-    DOUT("");
-  };
-
-  print("y1", y1);
-  print("y2", y2);
-  print("y3", y3);
-  print("y4", y4);
-  print("y5", y4.copy(dtype_t::f32));
-}
 
 struct tensor_reader_t {
   tensor_reader_t(string filename) : file(filename, std::ios::binary) {
@@ -408,6 +113,71 @@ private:
   }
 };
 
+struct token_maker_t {
+  token_maker_t(vector<vector<int>> const ps):
+    prompts(ps)
+  {
+    int bsz = prompts.size();
+    if(bsz == 0) {
+      throw std::runtime_error("must give atleast one prompt");
+    }
+
+    int seqlen = prompts[0].size();
+    for(auto const& prompt: prompts) {
+      seqlen = std::min(std::size_t(seqlen), prompt.size());
+    }
+    if(seqlen == 0) {
+      throw std::runtime_error("cannot have empty prompt");
+    }
+
+    tokens = vtensor_t<int>({bsz, seqlen});
+    for(int i = 0; i != bsz;    ++i) {
+    for(int j = 0; j != seqlen; ++j) {
+      tokens.at({i,j}) = prompts[i][j];
+    }}
+  }
+
+  int batch_size() const {
+    return tokens.get_shape()[0];
+  }
+
+  vtensor_t<int> const& get_tokens() const {
+    return tokens;
+  }
+
+  vtensor_t<int> operator()(int start_pos, int end_pos) const {
+    auto shape = tokens.get_shape();
+    return tokens.subset({ {0, shape[0]}, {start_pos, end_pos} });
+  }
+
+  vtensor_t<int> last_column() const {
+    auto shape = tokens.get_shape();
+    return this->operator()(shape[1]-1, shape[1]);
+  }
+
+  void add_next_tokens(vtensor_t<int> const& next_tokens) {
+    int startpos = tokens.get_shape()[0];
+
+    tokens = vtensor_t<int>::concat(1, {tokens, next_tokens});
+
+    // now apply the mask
+    auto shape = tokens.get_shape();
+
+    int bsz    = shape[0];
+    int seqlen = shape[1] - startpos;
+
+    for(int i = 0; i != bsz; ++i) {
+      for(int j = startpos; j < prompts[i].size() && j < shape[1]; ++j) {
+        tokens.at({i,j}) = prompts[i][j];
+      }
+    }
+  }
+
+private:
+  vector<vector<int>> prompts;
+  vtensor_t<int> tokens;
+};
+
 dbuffer_t lookup_embeddings(
   int nvocab,
   int nembed,
@@ -477,14 +247,149 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
-void main_(int argc, char** argv) {
-  if(argc != 2) {
-    throw std::runtime_error("usage: filename");
+struct cluster_settings_t {
+  int num_nodes;
+  int num_threads_per_node;
+  uint64_t compute_per_thread;
+  uint64_t bandwidth;
+};
+
+struct autoplace_settings_t {
+  int num_steps;
+  vector<double> betas;
+  bool do_balanced;
+  bool do_singleloc;
+};
+
+cluster_t make_cluster(cluster_settings_t settings)
+{
+  int      const& num_nodes            = settings.num_nodes;
+  int      const& num_threads_per_node = settings.num_threads_per_node;
+  uint64_t const& compute_per_thread   = settings.compute_per_thread;
+  uint64_t const& bandwidth            = settings.bandwidth;
+
+  using device_t = cluster_t::device_t;
+  using connection_t = cluster_t::connection_t;
+
+  // all workers compute kernels single threaded
+  auto f_cost = [compute_per_thread](einsummable_t const& e) {
+    uint64_t flops = product(e.join_shape);
+    double time = (1.0 / compute_per_thread) * flops;
+    return tuple<int,double>{1, time};
+  };
+
+  vector<device_t> devices(num_nodes, device_t(
+    num_threads_per_node,
+    f_cost));
+
+  vector<connection_t> connections;
+  for(int i = 0; i != num_nodes; ++i) {
+  for(int j = 0; j != num_nodes; ++j) {
+    if(i != j) {
+      connections.push_back(connection_t {
+        .bandwidth = bandwidth,
+        .src = i,
+        .dst = j
+      });
+    }
+  }}
+
+  return cluster_t::make(devices, connections);
+}
+
+struct run_mcmc_t {
+  std::mutex m;
+  optional<tuple<double, vector<placement_t>>> best_option;
+
+  void operator()(mcmc_t && mcmc, int num_steps) {
+    for(int i = 0; i != num_steps; ++i) {
+      mcmc.step();
+    }
+
+    std::unique_lock lk(m);
+    if(!best_option) {
+      best_option = {mcmc.best_makespan, mcmc.best_placements};
+    } else {
+      auto const& [best_makespan, best_placements] = best_option.value();
+      if(mcmc.best_makespan < best_makespan) {
+        best_option = {mcmc.best_makespan, mcmc.best_placements};
+      }
+    }
+  }
+};
+
+vector<placement_t> solve(
+  graph_t const& graph,
+  cluster_settings_t cluster_settings,
+  autoplace_settings_t autoplace_settings)
+{
+  cluster_t cluster = make_cluster(cluster_settings);
+
+  run_mcmc_t runner;
+
+  vector<std::thread> threads;
+  for(auto const& beta: autoplace_settings.betas) {
+    if(autoplace_settings.do_balanced) {
+      threads.emplace_back([&]() {
+        runner(
+          mcmc_t::init_balanced(cluster, graph, beta),
+          autoplace_settings.num_steps);
+      });
+    }
+    if(autoplace_settings.do_singleloc) {
+      threads.emplace_back([&]() {
+        runner(
+          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          autoplace_settings.num_steps);
+      });
+    }
+  }
+
+  for(std::thread& thread: threads) {
+    thread.join();
+  }
+
+  auto const& [_0, pls] = runner.best_option.value();
+  return pls;
+}
+
+int num_threads_per_node = 12;
+int num_touch_threads = 12;
+
+vector<placement_t> autoplace(graph_t const& graph) {
+  gremlin_t gremlin("autoplace");
+
+  uint64_t giga = 1e9;
+
+  cluster_settings_t cluster_settings {
+    .num_nodes = 1,
+    .num_threads_per_node = 2*num_threads_per_node,
+    .compute_per_thread = 1*giga,
+    .bandwidth = 10*giga
+  };
+
+  autoplace_settings_t autoplace_settings {
+    .num_steps = 1,
+    .betas = {10000.0},
+    .do_balanced = true,
+    .do_singleloc = false
+  };
+
+  auto ret = solve(graph, cluster_settings, autoplace_settings);
+
+  return std::move(ret);
+}
+
+void main_(loc_manager_t& manager, string filename) {
+  {
+    int seed = runif(10000);
+    DOUT("Seed: " << seed);
+    set_seed(seed);
   }
 
   set_default_dtype(dtype_t::f16);
 
-  tensor_reader_t reader(argv[1]);
+  tensor_reader_t reader(filename);
 
   auto convert_f16_to_default = [](buffer_t buffer) {
     if(default_dtype() != dtype_t::f16) {
@@ -503,101 +408,148 @@ void main_(int argc, char** argv) {
   //      plush girafe => girafe peluche
   //      cheese =>"""
   // ]
-  vtensor_t<int> tokens(
-     {4,8},
-     {1,  306, 4658,  278, 6593,  310, 2834, 338,
-      1, 3439,17632, 1925,29892,  278, 6368, 310,
-      1,17166,  263, 4700,  508,  367, 2309, 297,
-      1, 4103, 9632, 4223,  304, 5176,29901,  13});
+  token_maker_t token_maker({
+    {1, 306, 4658, 278, 6593, 310, 2834, 338},
+    {1, 3439, 17632, 1925, 29892, 278, 6368, 310, 14215, 537, 5922, 393, 29871},
+    {1, 17166, 263, 4700, 508, 367, 2309, 297, 29871, 29896, 29900, 2560, 6576, 29901, 13},
+    {1, 4103, 9632, 4223, 304, 5176, 29901, 13, 268, 7205, 4932, 357, 1149, 301, 449, 276, 316, 2778, 13, 268, 715, 1878, 330, 3055, 1725, 1149, 330, 3055, 1725, 4639, 28754, 13, 268, 923, 968, 1149}
+  });
 
-  uint64_t bsz    = tokens.get_shape()[0];
-  uint64_t seqlen = tokens.get_shape()[1];
+  vtensor_t<int> init_tokens = token_maker.get_tokens();
+  DOUT(init_tokens.get());
+
+  uint64_t bsz    = init_tokens.get_shape()[0];
+  uint64_t seqlen = init_tokens.get_shape()[1];
 
   auto args = model_args_t::llama_7B(bsz);
 
-  builder_t build_first_token = builder_t::make_first_token(args, seqlen);
+  int niter = 1; // 256-seqlen-1;
 
-  // need all weights, freqcis, embeddings, mask
-
-  map<int, buffer_t> data;
-  for(auto const& [name, tinfo]: build_first_token.weights) {
-    buffer_t w = reader(name);
-    w = convert_f16_to_default(w);
-    repartition_into_map_single_loc(data, tinfo, w);
-  }
-
-  if(build_first_token.mask) {
-    auto const& tinfo = build_first_token.mask.value();
-    buffer_t mask = transformer_t::form_start_mask(seqlen).data;
-    repartition_into_map_single_loc(data, tinfo, mask);
-  }
-
-  {
-    auto const& tinfo = build_first_token.freqs_cis;
-    buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
-    repartition_into_map_single_loc(data, tinfo, freqs_cis);
-  }
+  builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
 
   dbuffer_t embedding_matrix(
     default_dtype(),
     convert_f16_to_default(reader("tok_embeddings.weight")));
 
-  {
-    buffer_t embeddings = lookup_embeddings(
-      args.vocab_size,
-      args.dim,
-      embedding_matrix,
-      tokens).data;
+  // need all weights, mask, freqcis, embeddings
 
-    auto const& tinfo = build_first_token.embeddings;
-    repartition_into_map_single_loc(data, tinfo, embeddings);
+  {
+    int counter = 0;
+
+    auto get_id = [&counter]{ return counter++; };
+
+    remap_relations_t init_remap;
+    auto insert_tinfo = [&](relation_t const& tinfo, buffer_t buffer) {
+      int id = get_id();
+      manager.data.insert({ id, buffer });
+      init_remap.insert(
+        tinfo.as_singleton(id),
+        tinfo);
+    };
+
+    for(auto const& [name, tinfo]: builder.weights) {
+      buffer_t w = reader(name);
+      w = convert_f16_to_default(w);
+      insert_tinfo(tinfo, w);
+    }
+
+    if(builder.mask) {
+      auto const& tinfo = builder.mask.value();
+      buffer_t mask = transformer_t::form_start_mask(seqlen).data;
+      insert_tinfo(tinfo, mask);
+    }
+
+    {
+      auto const& tinfo = builder.freqs_cis;
+      buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
+      insert_tinfo(tinfo, freqs_cis);
+    }
+
+    {
+      buffer_t embeddings = lookup_embeddings(
+        args.vocab_size,
+        args.dim,
+        embedding_matrix,
+        init_tokens).data;
+
+      auto const& tinfo = builder.embeddings;
+      insert_tinfo(tinfo, embeddings);
+    }
+
+    manager.remap_data(init_remap);
   }
 
-  kernel_manager_t kernel_manager;
+  DOUT("---");
+  manager.execute(builder.taskgraph);
 
-  for(auto const& node: build_first_token.taskgraph.nodes) {
-    if(node.op.is_apply()) {
-      auto const& e = node.op.get_apply().einsummable;
-      auto maybe = kernel_manager.build(e);
-      if(!maybe) {
-        throw std::runtime_error("could not build a kernel!");
-      }
+  {
+    dbuffer_t scores = manager.unpartition(builder.scores);
+
+    uint64_t top_n = 5;
+    vtensor_t<int> top_choices = get_top_choices(
+      scores, bsz, args.vocab_size, top_n);
+    //DOUT(top_choices.get());
+
+    token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
+    DOUT(token_maker.get_tokens().get());
+  }
+
+  for(int i = 0; i != niter; ++i) {
+    builder = builder_t::make_next_token(builder, (i + 1 == niter));
+
+    //builder.print_info();
+
+    manager.remap_data(builder.remap.value());
+
+    {
+      dbuffer_t embeddings = lookup_embeddings(
+        args.vocab_size,
+        args.dim,
+        embedding_matrix,
+        token_maker.last_column());
+
+      manager.partition_into_data(builder.embeddings, embeddings);
+    }
+
+    DOUT("---");
+    manager.execute(builder.taskgraph);
+
+    {
+      dbuffer_t scores = manager.unpartition(builder.scores);
+
+      uint64_t top_n = 5;
+      vtensor_t<int> top_choices = get_top_choices(
+        scores, bsz, args.vocab_size, top_n);
+      //DOUT(top_choices.get());
+
+      token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
+      DOUT(token_maker.get_tokens().get());
     }
   }
 
-  settings_t settings {
-    .num_apply_runner = 1,
-    .num_touch_runner = 1, // subsets use touch kernels
-    .num_send_runner = 0,
-    .num_recv_runner = 0,
-    .num_apply_kernel_threads = 12
-  };
-
-  execute(build_first_token.taskgraph, settings, kernel_manager, nullptr, data);
-
-  dbuffer_t scores = unpartitioned_from_map_single_loc(data, build_first_token.scores);
-
-  uint64_t top_n = 5;
-  vtensor_t<int> top_choices = get_top_choices(
-    scores, bsz, args.vocab_size, top_n);
-  DOUT(top_choices.get());
+  DOUT(token_maker.get_tokens().get());
 }
 
 int main(int argc, char** argv) {
-  //float16_t x = scalar_t::negative_inf(dtype_t::f16).f16();
-  //float16_t y(9.9);
+  execute_taskgraph_settings_t settings {
+    .num_apply_runner = num_threads_per_node,
+    .num_touch_runner = num_touch_threads,
+    .num_send_runner = 0,
+    .num_recv_runner = 0,
+    .num_apply_kernel_threads = 1
+  };
 
-  //DOUT(std::min(x,y));
-  //DOUT(std::max(x,y));
+  mpi_t mpi(argc, argv);
 
-  //DOUT(scalarop_t::make_min(dtype_t::f16).eval({scalar_t(x),scalar_t(y)}).f16());
-  //DOUT(scalarop_t::make_max(dtype_t::f16).eval({scalar_t(x),scalar_t(y)}).f16());
+  loc_manager_t manager(&mpi, settings);
+  if(mpi.this_rank != 0) {
+    manager.listen();
+  } else {
+    if(argc != 2) {
+      throw std::runtime_error("usage: filename");
+    }
+    main_(manager, argv[1]);
+    manager.shutdown();
+  }
 
-  main_(argc, argv);
-
-  //for(auto const& str: {"0.01", "0.1", "1.0", "10.0", "0.934"}) {
-  //  DOUT(str << " " << scalar_t(dtype_t::f16, str).convert(dtype_t::f32));
-  //}
-
-  //test_norm();
 }

@@ -2,6 +2,17 @@
 
 #include "../src/base/hrect.h"
 
+#define SAVE_TENSOR(t, x) \
+  [&] { \
+    auto ret = t.save(); \
+    DLINEOUT(x << " | tensor id " << ret.get_id()); \
+    return ret; \
+  }()
+#define NO_SAVE_TENSOR(t, x) \
+  [&] { \
+    return t; \
+  }()
+
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {
@@ -12,20 +23,6 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
   }
 }
 
-model_args_t model_args_t::make_default(uint64_t batch_size) {
-  return model_args_t {
-    .dim             = 512,
-    .n_layers        = 8,
-    .n_heads         = 8,
-    .multiple_of     = 256,
-    .norm_eps        = 1e-5,
-    .batch_size      = batch_size,
-    .max_seq_len     = 2048,
-    .vocab_size      = 0,
-    .world_size      = 1
-  };
-}
-
 model_args_t model_args_t::llama_7B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 4096,
@@ -34,9 +31,48 @@ model_args_t model_args_t::llama_7B(uint64_t batch_size) {
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,
-    .max_seq_len     = 256,
+    .max_seq_len     = 512,
     .vocab_size      = 32000,
-    .world_size      = 1
+  };
+}
+
+
+model_args_t model_args_t::llama_13B(uint64_t batch_size) {
+  return model_args_t {
+    .dim             = 5120,
+    .n_layers        = 40,
+    .n_heads         = 40,
+    .multiple_of     = 256,
+    .norm_eps        = 1e-6,
+    .batch_size      = batch_size,
+    .max_seq_len     = 512,
+    .vocab_size      = 32000,
+  };
+}
+
+model_args_t model_args_t::llama_30B(uint64_t batch_size) {
+  return model_args_t {
+    .dim             = 6656,
+    .n_layers        = 60,
+    .n_heads         = 54,
+    .multiple_of     = 256,
+    .norm_eps        = 1e-6,
+    .batch_size      = batch_size,
+    .max_seq_len     = 512,
+    .vocab_size      = 32000,
+  };
+}
+
+model_args_t model_args_t::llama_65B(uint64_t batch_size) {
+  return model_args_t {
+    .dim             = 8192,
+    .n_layers        = 80,
+    .n_heads         = 64,
+    .multiple_of     = 256,
+    .norm_eps        = 1e-5,
+    .batch_size      = batch_size,
+    .max_seq_len     = 512,
+    .vocab_size      = 32000,
   };
 }
 
@@ -138,7 +174,7 @@ attention_t::attention_t(
   uint64_t start_pos)
   : writer(w), args(args), name(name),
     batch_size(args.batch_size),
-    n_local_heads(args.n_local_heads()),
+    n_heads(args.n_heads),
     head_dim(args.head_dim())
 {
   //input tensors
@@ -154,7 +190,7 @@ attention_t::attention_t(
 
   if(start_pos != 0) {
     vector<uint64_t> prev_shape({
-      batch_size, start_pos, n_local_heads, head_dim });
+      batch_size, start_pos, n_heads, head_dim });
     prev_kv = tuple<tensor_t, tensor_t> {
       writer->input(prev_shape),
       writer->input(prev_shape)
@@ -212,7 +248,7 @@ tensor_t attention_t::forward(
   tensor_t xv = writer->matmul(x, wv.transpose(0,1));
 
   vector<uint64_t> full_xshape = {
-    batch_size, seqlen, n_local_heads, head_dim
+    batch_size, seqlen, n_heads, head_dim
   };
 
   xq = xq.view_full(full_xshape);
@@ -226,7 +262,7 @@ tensor_t attention_t::forward(
   set_next_keys_and_values(xk, xv);
   // copy the tensor objects so that we can transpose them here
   auto [keys, values] = next_kv.value();
-  // batch_size, start_pos + seqlen, n_local_heads, head_dim
+  // batch_size, start_pos + seqlen, n_heads, head_dim
 
   xq = xq.transpose(1, 2);
   keys = keys.transpose(1, 2);
@@ -264,7 +300,7 @@ tensor_t attention_t::forward(
   full_shape_t output_shape({
     full_dim_t::singleton(batch_size),
     full_dim_t::singleton(seqlen),
-    full_dim_t({n_local_heads, head_dim})
+    full_dim_t({n_heads, head_dim})
   });
   output = output.view(output_shape);
 

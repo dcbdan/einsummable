@@ -2,7 +2,7 @@
 
 #include "../src/autoplace/autoplace.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #include <thread>
@@ -176,7 +176,7 @@ int main(int argc, char** argv)
 
   int num_threads_per_node = 4;
 
-  settings_t execute_settings {
+  execute_taskgraph_settings_t execute_settings {
     .num_apply_runner = num_threads_per_node,
     .num_touch_runner = 2,
     .num_send_runner  = 1,
@@ -239,7 +239,7 @@ int main(int argc, char** argv)
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("cpuexec time");
-    execute(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
+    execute_taskgraph(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 }

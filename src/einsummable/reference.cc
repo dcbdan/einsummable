@@ -204,13 +204,17 @@ void reference_compute_memgraph(
     return dbuffer_t(dtype, make_buffer_at(loc, mem));
   };
 
-  vector<map<int, buffer_t>> caches(memgraph.num_cache_locs);
+  vector<map<int, buffer_t>> storages(memgraph.num_storage_locs);
   set<int> groups_touched;
 
   for(int const& id: memgraph.get_order()) {
     auto const& op = memgraph.nodes[id].op;
-    if(op.is_input()) {
+    if(op.is_inputmem()) {
       // nothing to do
+    } else if(op.is_inputsto()) {
+      throw std::runtime_error(
+        "not implemented: storage not given as input "
+        "to reference_compute_memgraph");
     } else if(op.is_apply()) {
       auto const& apply = op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -268,29 +272,34 @@ void reference_compute_memgraph(
 
       std::copy(src_buffer->data, src_buffer->data + size, dst_buffer->data);
     } else if(op.is_evict()) {
-      auto const& evict = op.get_evict();
-      auto const& [loc, cache_id, offset, size] = evict;
+      auto const& [src_memloc, dst_stoloc] = op.get_evict();
+      auto const& [offset, size, loc] = src_memloc;
+      auto const& [storage_loc, storage_id] = dst_stoloc;
 
-      buffer_t cache_buffer = make_buffer(size);
+      buffer_t storage_buffer = make_buffer(size);
+
       buffer_t loc_buffer = make_buffer_at(loc, mem_t { offset, size });
 
-      std::copy(loc_buffer->data, loc_buffer->data + size, cache_buffer->data);
+      std::copy(loc_buffer->data, loc_buffer->data + size, storage_buffer->data);
 
-      if(caches[loc].count(cache_id) > 0) {
-        throw std::runtime_error("duplicate cache id");
+      if(storages[storage_loc].count(storage_id) > 0) {
+        throw std::runtime_error("duplicate storage id");
       }
-      caches[loc].insert({cache_id, cache_buffer});
+      storages[storage_loc].insert({storage_id, storage_buffer});
     } else if(op.is_load()) {
-      auto const& load = op.get_load();
-      auto const& [cache_id, loc, offset, size] = load;
+      auto const& [src_stoloc, dst_memloc] = op.get_load();
+      auto const& [storage_loc, storage_id] = src_stoloc;
+      auto const& [offset, size, loc] = dst_memloc;
 
       buffer_t loc_buffer = make_buffer_at(loc, mem_t { offset, size });
-      buffer_t cache_buffer = caches[loc].at(cache_id);
+      buffer_t storage_buffer = storages[storage_loc].at(storage_id);
 
-      std::copy(cache_buffer->data, cache_buffer->data + size, loc_buffer->data);
+      std::copy(storage_buffer->data, storage_buffer->data + size, loc_buffer->data);
 
-      caches[loc].erase(cache_id);
+      storages[storage_loc].erase(storage_id);
     } else if(op.is_partialize()) {
+      // nothing to do
+    } else if(op.is_alloc()) {
       // nothing to do
     } else if(op.is_del()) {
       // nothing to do

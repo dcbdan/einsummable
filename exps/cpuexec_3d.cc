@@ -2,7 +2,7 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/reference.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #define ROUT(x) if(mpi.this_rank == 0) { std::cout << "(in cpu exec) " << x << std::endl; }
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto settings = settings_t::default_settings();
+  auto settings = execute_taskgraph_settings_t::default_settings();
 
   mpi_t mpi(argc, argv);
 
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("3D Matmul Time");
-    execute(taskgraph, settings, kernel_manager, &mpi, tensors);
+    execute_taskgraph(taskgraph, settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 

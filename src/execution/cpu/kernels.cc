@@ -51,6 +51,10 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
 {
   auto einsummable = e_.merge_adjacent_dims();
 
+  if(kernels.count(einsummable) > 0) {
+    return workspace_size(einsummable);
+  }
+
   if(einsummable.is_permutation()) {
     auto const& inn_modes = einsummable.inns[0];
 
@@ -1265,6 +1269,7 @@ void batch_matrix_multiply(
 {
   if(nb == 1) {
     matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
+    return;
   }
 
   uint8_t      * out = (uint8_t      *)_out;
