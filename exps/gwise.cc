@@ -1,4 +1,5 @@
 #include "../src/autoplace/gwise.h"
+#include "../src/base/copyregion.h"
 
 struct random_placement_t {
   placement_t operator()(vector<uint64_t> const& total_shape) {
@@ -129,7 +130,7 @@ void test01() {
 void test02() {
   set_seed(0);
 
-  int nlocs = 3;
+  int nlocs = 8;
 
   uint64_t ni = 10001;
   uint64_t nj = 10002;
@@ -159,7 +160,7 @@ void test02() {
   vector<placement_t> init_placements = g.get_placements();
 
   random_placement_t random_placement {
-    .part_size_rng = {2,4},
+    .part_size_rng = {2,8},
     .nloc = nlocs
   };
   auto make_random_placement = [&](int gid) {
@@ -175,7 +176,8 @@ void test02() {
   // test 1: change placement and back
   for(int iter = 0; iter != niter; ++iter) {
     int gid = runif(graph.nodes.size());
-    auto [compute_delta, move_delta] = gwise(gid, make_random_placement(gid));
+    auto pl = make_random_placement(gid);
+    auto [compute_delta, move_delta] = gwise(gid, pl);
     auto [new_compute_cost, new_move_cost] = gwise.total_cost();
     if(new_compute_cost != compute_cost + compute_delta ||
        new_move_cost != move_cost + move_delta)
@@ -294,8 +296,30 @@ void test03() {
   }
 }
 
+void test_copyregion_full() {
+  partition_t aa({
+    partdim_t::split(100, 2),
+    partdim_t::split(100, 3)
+  });
+
+  partition_t bb({
+    partdim_t::split(100, 3),
+    partdim_t::split(100, 3)
+  });
+
+  copyregion_full_t cr(aa, bb);
+
+  do {
+    DOUT(cr.idx_aa << " " << cr.idx_bb);
+    DOUT(cr.index_aa << " " << cr.index_bb);
+    DOUT(cr.offset_aa << " " << cr.offset_bb);
+    DOUT("");
+  } while(cr.increment());
+}
+
 int main() {
-  test01();
+  //test01();
   test02();
-  test03();
+  //test03();
+  //test_copyregion_full();
 }

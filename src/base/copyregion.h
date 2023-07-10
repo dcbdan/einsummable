@@ -84,4 +84,48 @@ private:
   void set_info();
 };
 
+// This is like copy region except doesn't take
+// an inn_index. It is also more efficient.
+//
+// Given two partitions, get the refinement of those two
+// partitions and iterate through all blocks in the refinement,
+// updating the idx / index / offsets.
+//
+// (Here, the offset is with respect to the refined block,
+//  not with respect to the full relation / partition aa or bb)
+struct copyregion_full_t {
+  copyregion_full_t(
+    partition_t const& aa,
+    partition_t const& bb);
 
+  bool increment();
+
+  int idx_aa;
+  vector<int> index_aa;
+  vector<uint64_t> offset_aa;
+
+  int idx_bb;
+  vector<int> index_bb;
+  vector<uint64_t> offset_bb;
+
+  vector<uint64_t> size;
+
+private:
+  int idx_rr;
+  vector<int> index_rr;
+  vector<int> block_shape_rr;
+
+  vector<int> strides_aa;
+  vector<vector<int>> breaks_aa;
+  vector<int> rem_idx_aa;
+  vector<int> rem_aa;
+
+  vector<int> strides_bb;
+  vector<vector<int>> breaks_bb;
+  vector<int> rem_idx_bb;
+  vector<int> rem_bb;
+
+  partition_t const& aa;
+  partition_t const& bb;
+  partition_t        rr;
+};

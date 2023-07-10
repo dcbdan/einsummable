@@ -49,6 +49,12 @@ void twolayer_insert_join_deps(
 
   vector<int> join_index(join_block_shape.size(), 0);
 
+  // TODO: This loop is quite slow. It should be sped up atleast for the
+  //       non-concat-or-subset cases
+  //       .. To do this, create something similar to copyregion but for
+  //          join and avoid explicit idx<->index conversions everywhere.
+  //
+  //       also give the concat and subset each their own loop
   do {
     int join_bid = idxs_to_index(join_block_shape, join_index);
     join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
@@ -344,50 +350,37 @@ void twolayer_connect_join_to_refi(
     maybe_agg_shape = agg_partition.block_shape();
   }
 
-  auto refi_shape = refi_partition.block_shape();
-
-  vector<int> out_shape = out_partition.block_shape();
-  vector<int> out_index(out_shape.size(), 0);
+  copyregion_full_t copyregion(refi_partition, out_partition);
   do {
-    copyregion_t get_regions(refi_partition, out_partition, out_index);
-    do {
-      vector<int> refi_index = vector_from_each_member(
-        get_regions.info, int, idx);
-      vector<uint64_t> read_shape = vector_from_each_member(
-        get_regions.info, uint64_t, size);
+    int const& refi_idx = copyregion.idx_aa;
 
-      auto& refi = refis[idxs_to_index(refi_shape, refi_index)];
-      refi.units.push_back(agg_unit_t {
-        .size = dtype_sz * product(read_shape),
-        .deps = {}
-      });
+    auto& refi = refis[refi_idx];
+    refi.units.push_back(agg_unit_t {
+      .size = dtype_sz * product(copyregion.size),
+      .deps = {}
+    });
 
-      vector<int>& deps = refi.units.back().deps;
-      if(maybe_agg_shape) {
-        vector<int> agg_index(agg_rank, 0);
-        auto const& agg_shape = maybe_agg_shape.value();
-        deps.reserve(product(agg_shape));
-        do {
-          vector<int> join_index = vector_concatenate(out_index, agg_index);
-          int join_bid = idxs_to_index(join_shape, join_index);
-          deps.push_back(join_bid);
-        } while(increment_idxs(agg_shape, agg_index));
-      } else {
-        // the join index is the out index if there is no agg
-        // and there is only one input
-        auto const& join_index = out_index;
+    vector<int>& deps = refi.units.back().deps;
+
+    if(maybe_agg_shape) {
+      vector<int> const& out_index = copyregion.index_bb;
+
+      vector<int> agg_index(agg_rank, 0);
+      auto const& agg_shape = maybe_agg_shape.value();
+      deps.reserve(product(agg_shape));
+      do {
+        vector<int> join_index = vector_concatenate(out_index, agg_index);
         int join_bid = idxs_to_index(join_shape, join_index);
         deps.push_back(join_bid);
-      }
-
-      // an agg unit has been added to refi, so let the input
-      // joins know they have an output here
-      int refi_bid = idxs_to_index(refi_shape, refi_index);
-      for(auto const& dep_join_bid: deps) {
-        joins[dep_join_bid].outs.insert(refi_bid);
-      }
-    } while(get_regions.increment());
-  } while(increment_idxs(out_shape, out_index));
+      } while(increment_idxs(agg_shape, agg_index));
+    } else {
+      // the join index is the out index if there is no agg
+      // and there is only one input
+      int const& out_bid = copyregion.idx_bb;
+      int const& join_bid = out_bid;
+      deps.push_back(join_bid);
+    }
+  } while(copyregion.increment());
 }
 
 void twolayer_erase_refi_deps(vector<refinement_t>& refis)
