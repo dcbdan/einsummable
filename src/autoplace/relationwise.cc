@@ -81,6 +81,11 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
   auto& join = ginfo.joins[bid];
   auto& join_loc = ginfo.locations[bid];
 
+  if(join_loc == loc) {
+    // nothing is being changed!
+    return {0, 0};
+  }
+
   int64_t join_cost = einsummable_cost(join.einsummable);
 
   // compute the change in the compute cost & update ginfo.compute_cost
@@ -186,10 +191,25 @@ relationwise_t::operator()(int gid, partition_t const& new_partition)
 tuple<int64_t, int64_t>
 relationwise_t::operator()(int gid, placement_t const& new_placement)
 {
-  // TODO: if the partition hasn't changed,
-  //       dispatch to operator()(jid_t, loc) for every block
-
   ginfo_t& ginfo = ginfos[gid];
+
+  if(new_placement.partition == ginfo.partition) {
+    // In this case, only locations are changing, so offload to the method
+    // that only changes a location as that should be faster
+    auto const& new_locs = new_placement.locations.get();
+
+    int64_t compute_delta = 0;
+    int64_t move_delta = 0;
+
+    for(int bid = 0; bid != ginfo.locations.size(); ++bid) {
+      auto [cd, md] = this->operator()(jid_t { gid, bid }, new_locs[bid]);
+      compute_delta += cd;
+      move_delta += md;
+    }
+
+    return {compute_delta, move_delta};
+  }
+
   set<int> inn_gids = graph.nodes[gid].get_inns_set();
 
   int64_t compute_cost_before = vector_max_element(ginfo.compute_cost);
