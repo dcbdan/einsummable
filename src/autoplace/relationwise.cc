@@ -1,4 +1,5 @@
 #include "relationwise.h"
+#include "../base/copyregion.h"
 
 int64_t einsummable_cost(einsummable_t const& e) {
   int64_t ret = 1;
@@ -150,6 +151,36 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
   int64_t move_delta = move_after - move_before;
 
   return {compute_delta, move_delta};
+}
+
+tuple<int64_t, int64_t>
+relationwise_t::operator()(int gid, partition_t const& new_partition)
+{
+  auto const& ginfo = ginfos[gid];
+
+  if(new_partition == ginfo.partition) {
+    return {0, 0};
+  }
+
+  // A location for each block in the partition must be chosen,
+  // then dispatch to the placement overload of this method
+  //
+  // To pick a location, just go with the first for each
+  auto new_block_shape = new_partition.block_shape();
+  vector<int> new_locations(product(new_block_shape), -1);
+  copyregion_full_t copyregion(ginfo.partition, new_partition);
+  do {
+    int const& idx_new = copyregion.idx_bb;
+    if(new_locations[idx_new] != -1) {
+      int const& idx_old = copyregion.idx_aa;
+      new_locations[idx_new] = ginfo.locations[idx_old];
+    }
+  } while(copyregion.increment());
+
+  return this->operator()(gid,
+    placement_t(
+      new_partition,
+      vtensor_t<int>(new_block_shape, new_locations)));
 }
 
 tuple<int64_t, int64_t>

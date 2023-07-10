@@ -31,7 +31,6 @@ struct relationwise_t {
 
   tuple<int64_t, int64_t> operator()(jid_t jid, int loc);
 
-  // TODO(maybe just create a placement with chosen locs and dispatch to new_placement)
   tuple<int64_t, int64_t> operator()(int gid, partition_t const& new_partition);
 
   tuple<int64_t, int64_t> operator()(int gid, placement_t const& new_placement);
