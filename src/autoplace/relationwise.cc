@@ -1,4 +1,4 @@
-#include "gwise.h"
+#include "relationwise.h"
 
 int64_t einsummable_cost(einsummable_t const& e) {
   int64_t ret = 1;
@@ -15,7 +15,7 @@ int64_t einsummable_cost(optional<einsummable_t> const& maybe) {
   return 0;
 }
 
-gwise_t::gwise_t(
+relationwise_t::relationwise_t(
   int nls,
   graph_t const& g,
   vector<placement_t> const& pls)
@@ -73,7 +73,7 @@ gwise_t::gwise_t(
   }
 }
 
-tuple<int64_t, int64_t> gwise_t::operator()(jid_t jid, int loc)
+tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
 {
   auto const& [gid, bid] = jid;
   auto& ginfo = ginfos[gid];
@@ -153,7 +153,7 @@ tuple<int64_t, int64_t> gwise_t::operator()(jid_t jid, int loc)
 }
 
 tuple<int64_t, int64_t>
-gwise_t::operator()(int gid, placement_t const& new_placement)
+relationwise_t::operator()(int gid, placement_t const& new_placement)
 {
   // TODO: if the partition hasn't changed,
   //       dispatch to operator()(jid_t, loc) for every block
@@ -241,7 +241,7 @@ gwise_t::operator()(int gid, placement_t const& new_placement)
   };
 }
 
-vector<placement_t> gwise_t::get_placements() const
+vector<placement_t> relationwise_t::get_placements() const
 {
   vector<placement_t> ret;
   ret.reserve(ginfos.size());
@@ -253,7 +253,7 @@ vector<placement_t> gwise_t::get_placements() const
   return ret;
 }
 
-vector<int64_t> gwise_t::move_cost_at(rid_t rid) const
+vector<int64_t> relationwise_t::move_cost_at(rid_t rid) const
 {
   auto const& [gid,bid] = rid;
   auto const& ginfo = ginfos[gid];
@@ -309,7 +309,7 @@ vector<int64_t> gwise_t::move_cost_at(rid_t rid) const
   return ret;
 }
 
-tuple<int64_t, int64_t> gwise_t::total_cost() const {
+tuple<int64_t, int64_t> relationwise_t::total_cost() const {
   int64_t compute = 0;
   int64_t move = 0;
   for(auto const& ginfo: ginfos) {
@@ -320,27 +320,27 @@ tuple<int64_t, int64_t> gwise_t::total_cost() const {
 }
 
 std::function<partition_t const&(int)>
-gwise_t::f_get_partition() const {
+relationwise_t::f_get_partition() const {
   return [this](int gid) -> partition_t const& {
     return ginfos.at(gid).partition;
   };
 }
 
 std::function<partition_t const&(int)>
-gwise_t::f_get_refinement_partition() const {
+relationwise_t::f_get_refinement_partition() const {
   return [this](int gid) -> partition_t const& {
     return ginfos.at(gid).refinement_partition.value();
   };
 }
 
 std::function<vector<refinement_t>&(int)>
-gwise_t::f_get_mutable_refis() {
+relationwise_t::f_get_mutable_refis() {
   return [this](int gid) -> vector<refinement_t>& {
     return ginfos.at(gid).refis.value();
   };
 }
 
-void gwise_t::reset_compute_cost(int gid) {
+void relationwise_t::reset_compute_cost(int gid) {
   ginfo_t& ginfo = ginfos[gid];
   ginfo.compute_cost = vector<int64_t>(nlocs, 0);
   for(int bid = 0; bid != ginfo.joins.size(); ++bid) {
@@ -350,7 +350,7 @@ void gwise_t::reset_compute_cost(int gid) {
   }
 }
 
-void gwise_t::reset_move_cost(int gid) {
+void relationwise_t::reset_move_cost(int gid) {
   ginfo_t& ginfo = ginfos[gid];
   if(ginfo.has_refinement()) {
     ginfo.move_cost = vector<int64_t>(nlocs, 0);

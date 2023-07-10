@@ -7,7 +7,7 @@
 // * compute cost is the same on all nodes
 // * move cost is the same across all pairs of nodes
 
-struct gwise_t {
+struct relationwise_t {
   struct ginfo_t {
     partition_t partition;
     vector<join_t> joins;
@@ -24,7 +24,7 @@ struct gwise_t {
   // Note: all partition and refinement partitions are with respect to
   //       real dtypes
 
-  gwise_t(
+  relationwise_t(
     int nlocs,
     graph_t const& graph,
     vector<placement_t> const& pls);
