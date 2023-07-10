@@ -1,5 +1,5 @@
 #include "../src/autoplace/forwardsim.h"
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 #include "../src/autoplace/autopart.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/base/timeplot.h"
@@ -365,8 +365,9 @@ void main05() {
 
   equal_items_t<int> eqs = {};
 
-  double base = simulate(cluster, graph, single_loc_placements(graph));
+  double base = simulate(cluster, graph, graph.make_singleton_placement());
 
+  using mcmc_t = forwardsim_mcmc_t;
   //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
   mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 

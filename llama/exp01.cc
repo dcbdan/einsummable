@@ -4,7 +4,7 @@
 
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 
 struct cluster_settings_t {
   int num_nodes;
@@ -57,7 +57,7 @@ vector<placement_t> solve(
 {
   cluster_t cluster = make_cluster(cluster_settings);
 
-  auto mcmc = mcmc_t::init_balanced(cluster, graph, beta);
+  auto mcmc = forwardsim_mcmc_t::init_balanced(cluster, graph, beta);
   for(int i = 0; i != num_steps; ++i) {
     mcmc.step();
   }

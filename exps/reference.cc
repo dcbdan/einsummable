@@ -1,9 +1,6 @@
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/memgraph.h"
 
-// for single_loc_placements
-#include "../src/autoplace/autoplace.h"
-
 #include <fstream>
 
 struct random_placement_t {
@@ -970,7 +967,7 @@ void test_with_complex_matmul() {
   graph_t const& graph = writer.get_graph();
 
   //{
-  //  vector<placement_t> placements = single_loc_placements(graph);
+  //  vector<placement_t> placements = graph.make_singleton_placement(graph);
   //  test_make_taskgraph(graph, placements, inns);
 
   //  placements = vector<placement_t>();

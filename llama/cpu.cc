@@ -13,7 +13,7 @@
 #include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/repartition.h"
 
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 
 #include <fstream>
 
@@ -301,7 +301,7 @@ struct run_mcmc_t {
   std::mutex m;
   optional<tuple<double, vector<placement_t>>> best_option;
 
-  void operator()(mcmc_t && mcmc, int num_steps) {
+  void operator()(forwardsim_mcmc_t && mcmc, int num_steps) {
     for(int i = 0; i != num_steps; ++i) {
       mcmc.step();
     }
@@ -332,14 +332,14 @@ vector<placement_t> solve(
     if(autoplace_settings.do_balanced) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_balanced(cluster, graph, beta),
+          forwardsim_mcmc_t::init_balanced(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
     if(autoplace_settings.do_singleloc) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          forwardsim_mcmc_t::init_with_single_loc(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
@@ -531,6 +531,14 @@ void main_(loc_manager_t& manager, string filename) {
 }
 
 int main(int argc, char** argv) {
+  //auto args = model_args_t::llama_30B();
+  //builder_t builder = builder_t::make_first_token(args, 256, autoplace);
+
+  //for(auto const& [name, rel]: builder.weights) {
+  //  DOUT(name);
+  //  DOUT(rel.placement.total_shape());
+  //  DOUT("");
+  //}
   execute_taskgraph_settings_t settings {
     .num_apply_runner = num_threads_per_node,
     .num_touch_runner = num_touch_threads,
@@ -551,5 +559,4 @@ int main(int argc, char** argv) {
     main_(manager, argv[1]);
     manager.shutdown();
   }
-
 }

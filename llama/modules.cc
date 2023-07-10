@@ -54,7 +54,7 @@ model_args_t model_args_t::llama_30B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 6656,
     .n_layers        = 60,
-    .n_heads         = 54,
+    .n_heads         = 52,
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,

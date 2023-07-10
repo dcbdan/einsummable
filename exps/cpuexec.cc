@@ -1,6 +1,6 @@
 #include "../src/einsummable/taskgraph.h"
 
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 
 #include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
@@ -114,7 +114,7 @@ struct run_mcmc_t {
   std::mutex m;
   optional<tuple<double, vector<placement_t>>> best_option;
 
-  void operator()(mcmc_t && mcmc, int num_steps) {
+  void operator()(forwardsim_mcmc_t && mcmc, int num_steps) {
     for(int i = 0; i != num_steps; ++i) {
       mcmc.step();
     }
@@ -145,14 +145,14 @@ taskgraph_t solve(
     if(autoplace_settings.do_balanced) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_balanced(cluster, graph, beta),
+          forwardsim_mcmc_t::init_balanced(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
     if(autoplace_settings.do_singleloc) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          forwardsim_mcmc_t::init_with_single_loc(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
