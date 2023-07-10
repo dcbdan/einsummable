@@ -95,6 +95,9 @@ bool operator< (rid_t const& lhs, rid_t const& rhs);
 std::ostream& operator<<(std::ostream&, jid_t const&);
 std::ostream& operator<<(std::ostream&, rid_t const&);
 
+std::ostream& operator<<(std::ostream&, join_t const&);
+std::ostream& operator<<(std::ostream&, refinement_t const&);
+
 // AGG UNIT--
 // An agg unit is something that will get summed.
 // So if Y = X1 + X2 + X3 + X4 at locations

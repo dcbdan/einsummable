@@ -391,9 +391,9 @@ void twolayer_connect_join_to_refi(
 
   copyregion_full_t copyregion(refi_partition, out_partition);
   do {
-    int const& refi_idx = copyregion.idx_aa;
+    int const& refi_bid = copyregion.idx_aa;
 
-    auto& refi = refis[refi_idx];
+    auto& refi = refis[refi_bid];
     refi.units.push_back(agg_unit_t {
       .size = dtype_sz * product(copyregion.size),
       .deps = {}
@@ -411,6 +411,7 @@ void twolayer_connect_join_to_refi(
         vector<int> join_index = vector_concatenate(out_index, agg_index);
         int join_bid = idxs_to_index(join_shape, join_index);
         deps.push_back(join_bid);
+        joins[join_bid].outs.insert(refi_bid);
       } while(increment_idxs(agg_shape, agg_index));
     } else {
       // the join index is the out index if there is no agg
@@ -418,6 +419,7 @@ void twolayer_connect_join_to_refi(
       int const& out_bid = copyregion.idx_bb;
       int const& join_bid = out_bid;
       deps.push_back(join_bid);
+      joins[join_bid].outs.insert(refi_bid);
     }
   } while(copyregion.increment());
 }
@@ -474,3 +476,23 @@ std::ostream& operator<<(std::ostream& out, rid_t const& rid) {
   out << "rid{" << gid << "," << bid << "}";
   return out;
 }
+
+std::ostream& operator<<(std::ostream& out, join_t const& join) {
+  out << "join[deps=" << vector<rid_t>(join.deps.begin(), join.deps.end())
+      << ",outs=" << vector<int>(join.outs.begin(), join.outs.end()) << "]";
+  return out;
+}
+
+std::ostream& operator<<(std::ostream& out, refinement_t const& refi) {
+  set<int> deps;
+  for(auto const& unit: refi.units) {
+    for(auto const& dep: unit.deps) {
+      deps.insert(dep);
+    }
+  }
+
+  out << "refi[deps=" << vector<int>(deps.begin(), deps.end())
+      << ",outs=" << vector<jid_t>(refi.outs.begin(), refi.outs.end()) << "]";
+  return out;
+}
+

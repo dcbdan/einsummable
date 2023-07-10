@@ -550,7 +550,7 @@ void forward_state_t::ec_setup_refis(int gid) {
 
 bool forward_state_t::can_setup_refis(int gid) const {
   auto const& ginfo = ginfos[gid];
-  return bool(ginfo.joins) && bool(ginfo.refinement_partition);
+  return bool(ginfo.joins) && bool(ginfo.refinement_partition) && !bool(ginfo.refis);
 }
 
 void forward_state_t::setup_refis(int graph_id) {

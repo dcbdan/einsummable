@@ -37,6 +37,8 @@ struct relationwise_t {
 
   vector<placement_t> get_placements() const;
 
+  placement_t get_placement_at(int gid) const;
+
   vector<int64_t> move_cost_at(rid_t rid) const;
 
   tuple<int64_t, int64_t> total_cost() const;

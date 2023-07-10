@@ -5,6 +5,7 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
 #include "../src/autoplace/fsmcmc.h"
+#include "../src/autoplace/rwmcmc.h"
 
 struct cluster_settings_t {
   int num_nodes;
@@ -49,7 +50,7 @@ cluster_t make_cluster(cluster_settings_t settings)
   return cluster_t::make(devices, connections);
 }
 
-vector<placement_t> solve(
+vector<placement_t> solve_forwardsim(
   graph_t const& graph,
   cluster_settings_t cluster_settings,
   int num_steps,
@@ -65,6 +66,28 @@ vector<placement_t> solve(
   return mcmc.best_placements;
 }
 
+vector<placement_t> solve_relationwise(
+  graph_t const& graph,
+  int nlocs,
+  int max_blocks,
+  double scale_compute,
+  double scale_move,
+  int num_steps,
+  double beta)
+{
+  relationwise_mcmc_t mcmc(
+    graph,
+    nlocs, max_blocks,
+    scale_compute, scale_move,
+    equal_items_t<int>());
+
+  for(int i = 0; i != num_steps; ++i) {
+    mcmc.step(beta);
+  }
+
+  return mcmc.get_best_placements();
+}
+
 int main() {
   set_default_dtype(dtype_t::f16);
 
@@ -73,21 +96,30 @@ int main() {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int num_nodes = 4;
-  int num_threads_per_node = 64;
-  int num_steps = 3;
+  int num_nodes = 8;
+  int num_threads_per_node = 12;
+  int num_steps = 30000;
+
+  double beta = 1.0;
 
   auto autoplace = [&](graph_t const& graph) {
-    uint64_t giga = 1e9;
+    //uint64_t giga = 1e9;
+    //cluster_settings_t cluster_settings {
+    //  .num_nodes = num_nodes,
+    //  .num_threads_per_node = num_threads_per_node,
+    //  .compute_per_thread = 1*giga,
+    //  .bandwidth = 10*giga
+    //};
+    //return solve_forwardsim(graph, cluster_settings, num_steps, beta);
 
-    cluster_settings_t cluster_settings {
-      .num_nodes = num_nodes,
-      .num_threads_per_node = num_threads_per_node,
-      .compute_per_thread = 1*giga,
-      .bandwidth = 10*giga
-    };
-
-    return solve(graph, cluster_settings, num_steps, 10000.0);
+    int max_blocks = 2 * num_nodes * num_threads_per_node;
+    double scale_compute = 1.0e-8;
+    double scale_move    = 0; // 1.0e-6;
+    return solve_relationwise(
+      graph, num_nodes, max_blocks,
+      scale_compute, scale_move,
+      num_steps,
+      beta);
   };
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);

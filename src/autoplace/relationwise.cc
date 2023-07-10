@@ -176,7 +176,7 @@ relationwise_t::operator()(int gid, partition_t const& new_partition)
   copyregion_full_t copyregion(ginfo.partition, new_partition);
   do {
     int const& idx_new = copyregion.idx_bb;
-    if(new_locations[idx_new] != -1) {
+    if(new_locations[idx_new] == -1) {
       int const& idx_old = copyregion.idx_aa;
       new_locations[idx_new] = ginfo.locations[idx_old];
     }
@@ -302,6 +302,14 @@ vector<placement_t> relationwise_t::get_placements() const
       vtensor_t<int>(ginfo.partition.block_shape(), ginfo.locations));
   }
   return ret;
+}
+
+placement_t relationwise_t::get_placement_at(int gid) const
+{
+  ginfo_t const& ginfo = ginfos[gid];
+  return placement_t(
+    ginfo.partition,
+    vtensor_t<int>(ginfo.partition.block_shape(), ginfo.locations));
 }
 
 vector<int64_t> relationwise_t::move_cost_at(rid_t rid) const
