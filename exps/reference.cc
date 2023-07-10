@@ -297,14 +297,11 @@ void test_make_memgraph_without_evict(
 
   int num_locs = taskgraph.num_locs();
 
-  // have everyone share the same cache
-  vector<int> compute_loc_to_cache(num_locs, 0);
-
   tuple<
     map<int, mem_t>, // input -> mem
     map<int, mem_t>, // save -> mem
     memgraph_t>
-    _info1 = memgraph_t::make_without_evict(taskgraph, compute_loc_to_cache);
+    _info1 = memgraph_t::make_without_evict(taskgraph);
   auto const& [task_inn_to_mem, task_out_to_mem, memgraph] = _info1;
 
   // allocate a blob of memory at each compute location

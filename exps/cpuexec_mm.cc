@@ -161,10 +161,7 @@ int main(int argc, char** argv) {
       .num_recv_runner = num_send_and_recv_threads
     };
 
-    vector<int> which_cache(mpi.world_size);
-    std::iota(which_cache.begin(), which_cache.end(), 0);
-
-    auto [inn_to_mem, _2, memgraph] = memgraph_t::make_without_evict(taskgraph, which_cache);
+    auto [inn_to_mem, _2, memgraph] = memgraph_t::make_without_evict(taskgraph);
 
     if(mpi.this_rank == 0) {
       std::ofstream f("mg.gv");

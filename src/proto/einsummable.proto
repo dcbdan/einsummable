@@ -108,10 +108,16 @@ message RemapRelations {
   repeated Relation dsts = 2;
 }
 
-message MGInput {
+message MGInputMem {
   required int32 loc = 1;
   required uint64 offset = 2;
   required uint64 size = 3;
+}
+
+message MGInputSto {
+  required int32 loc = 1;
+  required int32 storage_loc = 2;
+  required int32 storage_id = 3;
 }
 
 message MGApply {
@@ -134,20 +140,28 @@ message MGMove {
 }
 
 message MGEvict {
-  required int32 loc = 1;
-  required int32 cache_id = 2;
-  required uint64 offset = 3;
-  required uint64 size = 4;
+  required int32 storage_loc = 1;
+  required int32 storage_id = 2;
+  required int32 loc = 3;
+  required uint64 offset = 4;
+  required uint64 size = 5;
 }
 
 message MGLoad {
-  required int32 cache_id = 1;
-  required int32 loc = 2;
-  required uint64 offset = 3;
-  required uint64 size = 4;
+  required int32 storage_loc = 1;
+  required int32 storage_id = 2;
+  required int32 loc = 3;
+  required uint64 offset = 4;
+  required uint64 size = 5;
 }
 
 message MGPartialize {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGAlloc {
   required int32 loc = 1;
   required uint64 offset = 2;
   required uint64 size = 3;
@@ -161,20 +175,22 @@ message MGDel {
 
 message MemGraphNode {
   oneof node {
-    MGInput input = 1;
-    MGApply apply = 2;
-    MGMove move = 3;
-    MGEvict evict = 4;
-    MGLoad load = 5;
-    MGPartialize partialize = 6;
-    MGDel del = 7;
+    MGInputMem inputmem = 1;
+    MGInputSto inputsto = 2;
+    MGApply apply = 3;
+    MGMove move = 4;
+    MGEvict evict = 5;
+    MGLoad load = 6;
+    MGPartialize partialize = 7;
+    MGAlloc alloc = 8;
+    MGDel del = 9;
   }
-  repeated int32 inns = 8;
+  repeated int32 inns = 10;
 }
 
 message MemGraph {
   required int32 num_compute_locs = 1;
-  required int32 num_cache_locs = 2;
-  repeated int32 cache_locs = 3;
+  required int32 num_storage_locs = 2;
+  repeated int32 storage_locs = 3;
   repeated MemGraphNode nodes = 4;
 }
