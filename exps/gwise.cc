@@ -317,9 +317,30 @@ void test_copyregion_full() {
   } while(cr.increment());
 }
 
+void test_copyregion_join_inn()
+{
+  partition_t pjoin({
+    partdim_t::split(100, 3),
+    partdim_t::split(100, 1)
+  });
+
+  partition_t pinn({
+    partdim_t::split(100, 5),
+  });
+
+  vector<int> inn = {1};
+
+  copyregion_join_inn_t cr(pjoin, pinn, inn);
+  do {
+    DOUT(cr.idx_join() << " " << cr.idx_inn());
+  } while(cr.increment());
+
+}
+
 int main() {
   //test01();
   test02();
   //test03();
   //test_copyregion_full();
+  //test_copyregion_join_inn();
 }

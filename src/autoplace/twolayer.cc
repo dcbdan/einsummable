@@ -28,6 +28,13 @@ vector<join_t> twolayer_construct_joins(
   return join_infos;
 }
 
+partition_t _double_dim(partition_t const& p, int idx) {
+  partition_t ret = p;
+  partdim_t& pd = ret.partdims[idx];
+  pd = partdim_t::from_sizes(vector_double(pd.sizes()));
+  return ret;
+}
+
 void twolayer_insert_join_deps(
   graph_t const& graph,
   int gid,
@@ -37,35 +44,18 @@ void twolayer_insert_join_deps(
 {
   auto const& node = graph.nodes[gid];
 
-  // input joins don't have deps, so stop here
-  if(node.op.is_input()) {
-    return;
-  }
-
   dtype_t join_dtype = node.op.out_dtype();
   bool join_is_complex = dtype_is_complex(join_dtype);
 
-  auto join_block_shape = join_partition.block_shape();
+  if(node.op.is_input()) {
+    // input joins don't have deps, so nothing to do
+  } else if(node.op.is_concat()) {
+    auto join_block_shape = join_partition.block_shape();
+    vector<int> join_index(join_block_shape.size(), 0);
+    do {
+      int join_bid = idxs_to_index(join_block_shape, join_index);
+      join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
 
-  vector<int> join_index(join_block_shape.size(), 0);
-
-  // TODO: This loop is quite slow. It should be sped up atleast for the
-  //       non-concat-or-subset cases
-  //       .. To do this, create something similar to copyregion but for
-  //          join and avoid explicit idx<->index conversions everywhere.
-  //
-  //       also give the concat and subset each their own loop
-  do {
-    int join_bid = idxs_to_index(join_block_shape, join_index);
-    join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
-
-    // deps
-    //   concat nodes: have to figure it out
-    //   subset nodes: have to figure it out
-    //   formation nodes: same as a straight einsummable op
-    //   complexer nodes: same as a straight einsummable op
-    //   einsummable nodes: reach into each input and grab it
-    if(node.op.is_concat()) {
       using hrect_t = vector<tuple<uint64_t, uint64_t>>;
       hrect_t join_hrect = join_partition.get_hrect(join_index);
 
@@ -100,7 +90,13 @@ void twolayer_insert_join_deps(
           } while(increment_idxs_region(inn_region, inn_index));
         }
       }
-    } else if(node.op.is_subset()) {
+    } while(increment_idxs(join_block_shape, join_index));
+  } else if(node.op.is_subset()) {
+    auto join_block_shape = join_partition.block_shape();
+    vector<int> join_index(join_block_shape.size(), 0);
+    do {
+      int join_bid = idxs_to_index(join_block_shape, join_index);
+      join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
       auto const& subset_ = node.op.get_subset();
       vector<int> unsqueezed_join_index = subset_.unsqueeze_vec(join_index, 0);
 
@@ -123,6 +119,14 @@ void twolayer_insert_join_deps(
         je += ib;
       }
 
+      // If this subset is complex, then the refinement_partitition
+      // is still real. So the corresponding copy_rect is actually doubled
+      if(join_is_complex) {
+        auto& [b,e] = copy_hrect.back();
+        b *= 2;
+        e *= 2;
+      }
+
       auto inn_region = inn_partition.get_region(copy_hrect);
       auto inn_shape = inn_partition.block_shape();
       auto inn_index = vector_mapfst(inn_region);
@@ -131,57 +135,92 @@ void twolayer_insert_join_deps(
         rid_t dep_rid { inn, inn_refi_bid };
         join_info.deps.insert(dep_rid);
       } while(increment_idxs_region(inn_region, inn_index));
-    } else {
-      optional<einsummable_t> maybe_einsummable;
-      if(node.op.is_formation() || node.op.is_complexer()) {
-        auto op_shape = node.op.shape();
-        int rank = op_shape.size();
+    } while(increment_idxs(join_block_shape, join_index));
+  } else if(node.op.is_formation()) {
+    int const& inn = node.inns[0];
+    partition_t const& inn_partition = get_refinement_partition(inn);
 
-        vector<vector<int>> inns(1);
-        inns[0] = vector<int>(rank);
-        std::iota(inns[0].begin(), inns[0].end(), 0);
+    vector<int> inn_idxs(inn_partition.partdims.size());
+    std::iota(inn_idxs.begin(), inn_idxs.end(), 0);
 
-        maybe_einsummable = einsummable_t(
-          op_shape,
-          inns,
-          rank,
-          scalarop_t::make_identity(join_dtype));
-      } else {
-        maybe_einsummable = node.op.get_einsummable();
-      }
+    // If this formation is complex, double the last dim of the
+    // join partition so that it is with respect to real, like
+    // the inn_partition (which is a refinement and therefore wrt real)
+    partition_t join_partition_real =
+      join_is_complex                 ?
+      double_last_dim(join_partition) :
+      join_partition                  ;
 
-      auto hrect = join_partition.get_hrect(join_index);
+    copyregion_join_inn_t cr(
+      join_partition_real,
+      inn_partition,
+      inn_idxs);
 
-      // for each input, get the inputs refinement ids that map
-      // onto the corresponding input hrect.
-      for(int which_inn = 0; which_inn != node.inns.size(); ++which_inn) {
-        int const& inn = node.inns[which_inn];
-        partition_t const& inn_partition = get_refinement_partition(inn);
+    do {
+      join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
+    } while(cr.increment());
+  } else if(node.op.is_complexer()) {
+    int const& inn = node.inns[0];
+    partition_t const& inn_partition = get_refinement_partition(inn);
 
-        auto inn_shape = inn_partition.block_shape();
+    vector<int> inn_idxs(inn_partition.partdims.size());
+    std::iota(inn_idxs.begin(), inn_idxs.end(), 0);
 
-        auto const& e = maybe_einsummable.value();
-        auto inn_hrect = e.get_input_from_join(hrect, which_inn);
+    // if(join_is_complex) {
+    //   then this is real -> complex
+    // } else {
+    //   then this is complex -> real
+    // }
+    // But the inn partition is already with respect to real
+    partition_t join_partition_real =
+      join_is_complex                 ?
+      double_last_dim(join_partition) :
+      join_partition                  ;
 
-        // If the inn is complex, then the inn_partition is still
-        // wrt real on the last dimension, so double the complex
-        // last to get the real inn_hrect
-        if(dtype_is_complex(e.inn_dtype(which_inn))) {
-          auto& [bi,ei] = inn_hrect.back();
-          bi *= 2;
-          ei *= 2;
-        }
+    copyregion_join_inn_t cr(
+      join_partition_real,
+      inn_partition,
+      inn_idxs);
 
-        auto inn_region = inn_partition.get_region(inn_hrect);
-        vector<int> inn_index = vector_mapfst(inn_region);
-        do {
-          int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-          rid_t dep_rid { inn, inn_refi_bid };
-          join_info.deps.insert(dep_rid);
-        } while(increment_idxs_region(inn_region, inn_index));
-      }
+    do {
+      join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
+    } while(cr.increment());
+  } else if(node.op.is_einsummable()) {
+    auto const& einsummable = node.op.get_einsummable();
+    for(int which_inn = 0; which_inn != einsummable.inns.size(); ++which_inn) {
+      int const& inn = node.inns[which_inn];
+      partition_t const& inn_partition = get_refinement_partition(inn);
+
+      vector<int> const& inn_idxs = einsummable.inns[which_inn];
+
+      // The inn -> out can be
+      //    complex -> real
+      //    real    -> complex
+      //    real    -> real
+      //    complex -> complex
+      // However, the inn partition is always with respect to real,
+      // which means if the inn dtype is complex, the last dimension
+      // ___on the input___ is actually doubled. The correction for
+      // when the input is complex is thus to double the corresponding
+      // join dimension regardless of whether or not the join results
+      // in a complex or real value.
+      dtype_t inn_dtype = einsummable.inn_dtype(which_inn);
+      partition_t join_partition_fix =
+        dtype_is_complex(inn_dtype)                  ?
+        _double_dim(join_partition, inn_idxs.back()) :
+        join_partition                               ;
+
+      copyregion_join_inn_t cr(
+        join_partition_fix,
+        inn_partition,
+        inn_idxs);
+      do {
+        join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
+      } while(cr.increment());
     }
-  } while(increment_idxs(join_block_shape, join_index));
+  } else {
+    throw std::runtime_error("should not reach: twolayer");
+  }
 }
 
 void twolayer_insert_refi_outs_from_join_deps(

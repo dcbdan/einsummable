@@ -110,6 +110,9 @@ struct copyregion_full_t {
 
   vector<uint64_t> size;
 
+  void reset_strides_bb(vector<int> const& new_strides_bb) {
+    strides_bb = new_strides_bb;
+  }
 private:
   int idx_rr;
   vector<int> index_rr;
@@ -129,3 +132,33 @@ private:
   partition_t const& bb;
   partition_t        rr;
 };
+
+// This is similar to copyregion_full_t,
+// but the two partitions may not have the same total shape
+// and instead inn partition may index into a permutation of the join
+// partition. Example: ki->ijk.
+// What happens is the union of the two partitions
+//   join: ijk
+//   inn : i_k
+// is taken, and the increment walks over the union
+// updating the idx_join and idx_inn.
+// (TODO: not sure how much performance would be gained if
+//        instead this didn't dispatch to copyregion_full_t)
+struct copyregion_join_inn_t {
+  copyregion_join_inn_t(
+    partition_t const& partition_join,
+    partition_t const& partition_inn,
+    vector<int> const& inns);
+
+  int idx_join() const { return cr->idx_aa; }
+  int idx_inn()  const { return cr->idx_bb; }
+
+  bool increment() {
+    return cr->increment();
+  }
+private:
+  partition_t partition_inn;
+
+  std::shared_ptr<copyregion_full_t> cr;
+};
+

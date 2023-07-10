@@ -163,3 +163,42 @@ bool copyregion_full_t::increment() {
   return could_increment;
 }
 
+partition_t
+broadcast_inn_partition(
+  partition_t const& join_partition,
+  partition_t const& inn_partition,
+  vector<int> const& inns)
+{
+  vector<partdim_t> pds;
+  pds.reserve(join_partition.partdims.size());
+  for(auto const& pd: join_partition.partdims){
+    pds.push_back(partdim_t::singleton(pd.total()));
+  }
+  for(int w = 0; w != inns.size(); ++w) {
+    int const& i = inns[w];
+    pds[i] = partdim_t::unions({pds[i], inn_partition.partdims[w]});
+  }
+  return partition_t(pds);
+}
+
+copyregion_join_inn_t::copyregion_join_inn_t(
+  partition_t const& partition_join,
+  partition_t const& partition_inn_orig,
+  vector<int> const& inns):
+    partition_inn(broadcast_inn_partition(partition_join, partition_inn_orig, inns))
+{
+  cr = std::make_shared<copyregion_full_t>(partition_join, partition_inn);
+
+  // now we change the strides of the inn component.
+  int rank = partition_join.partdims.size();
+  int inn_rank = partition_inn_orig.partdims.size();
+  vector<int> strides_inn(rank, 0);
+  int sinn = 1;
+  for(int i = inn_rank-1; i >= 0; --i) {
+    int const& w = inns[i];
+    strides_inn[w] = sinn;
+    sinn *= partition_inn_orig.partdims[i].spans.size();
+  }
+  cr->reset_strides_bb(strides_inn);
+}
+
