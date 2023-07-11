@@ -195,14 +195,16 @@ void build_contraction(
   cutensorHandle_t const* handle,
   einsummable_t const& e_)
 {
-  printf("here\n");
-  einsummable_t e = e_.merge_adjacent_dims();
+  //printf("hererin\n");
+  //einsummable_t e = e_.merge_adjacent_dims();
+
+  einsummable_t e = e_;
 
   if(!e.is_contraction()) {
     throw std::runtime_error("build_contraction must be given a contraction");
   }
 
-  printf("here\n");
+  //printf("here\n");
 
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeB = e.inns[1];
@@ -218,13 +220,14 @@ void build_contraction(
   std::reverse(modeA.begin(), modeA.end());
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
-  printf("here\n");
+  //printf("here\n");
   // CUDA types
   dtype_t type = e.inn_dtype(0);
   cudaDataType_t typeTensor = dtype_to_cudatype(type);
 
   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
-  printf("here\n");
+  
+  //printf("here\n");
   // extent = size of each dimension
   vector<int64_t> extent_A;
   for(auto const& mode: modeA) {
@@ -239,7 +242,7 @@ void build_contraction(
   for(auto const& mode: modeC) {
     extent_C.push_back(e.join_shape[mode]);
   }
-  printf("here\n");
+  //printf("here\n");
 
   //int64_t one = 1;
 
@@ -332,8 +335,10 @@ void execute_contraction(
   std::complex<float> alpha4(1.0f, 0.0f);
 
   if(type == dtype_t::f16){
-    alpha1 = float16_t(1.0f);
-    ptr = static_cast<void*>(&alpha1);
+    //alpha1 = float16_t(1.0f);
+    //ptr = static_cast<void*>(&alpha1);
+    alpha2 = 1.0f;
+    ptr = static_cast<void*>(&alpha2);
   }
   else if(type == dtype_t::f32){
     alpha2 = 1.0f;
@@ -351,7 +356,7 @@ void execute_contraction(
 
   size_t worksize = 0;
   handle_cutensor_error( cutensorContractionGetWorkspaceSize(handle,
-              desc,
+             desc,
               &find,
               CUTENSOR_WORKSPACE_RECOMMENDED, &worksize ) );
 
@@ -360,12 +365,13 @@ void execute_contraction(
   if(worksize > 0)
   {
       if( cudaSuccess != cudaMalloc(&work, worksize) ) // This is optional!
-      {
+     {
           work = nullptr;
           worksize = 0;
       }
   }
-
+  //std::cout << worksize << std::endl;
+  //printf("herej\n");
   cutensorContractionPlan_t plan;
   handle_cutensor_error(
     cutensorInitContractionPlan(
@@ -373,14 +379,15 @@ void execute_contraction(
       &plan,
       desc,
       &find,
-      0) );
+      worksize) );
 
+  //printf("herek\n");
   cutensorStatus_t err;
 
   handle_cutensor_error(
     cutensorContraction(handle, &plan, alpha, lhs,
                         rhs, alpha, out, out,
-                        nullptr, 0, stream) );
+                        work, worksize, stream) );
 
 
 }
@@ -502,10 +509,14 @@ build_cutensor_reduction(
     std::complex<float> beta4(0.0f, 0.0f);
 
     if(type == dtype_t::f16){
-      alpha1 = float16_t(1.0f);
-      ptr1 = static_cast<void*>(&alpha1);
-      beta1 = float16_t(0.0f);
-      ptr2 = static_cast<void*>(&beta1);
+      //alpha1 = float16_t(1.0f);
+      //ptr1 = static_cast<void*>(&alpha1);
+      //beta1 = float16_t(0.0f);
+      //ptr2 = static_cast<void*>(&beta1);
+      alpha2 = 1.0f;
+      ptr1 = static_cast<void*>(&alpha2);
+      beta2 = 0.0f;
+      ptr2 = static_cast<void*>(&beta2);
     }
     else if(type == dtype_t::f32){
       alpha2 = 1.0f;
@@ -655,18 +666,18 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
     dtype_t type = binary.lhs.scale.dtype;
 
 
-    std::cout << modeA[0] << std::endl;
-    std::cout << modeA[1] << std::endl;
-    std::cout << modeC[0] << std::endl;
-    std::cout << modeC[1] << std::endl;
+    //std::cout << modeA[0] << std::endl;
+    //std::cout << modeA[1] << std::endl;
+    //std::cout << modeC[0] << std::endl;
+    //std::cout << modeC[1] << std::endl;
 
-    std::cout << extent_A[0] << std::endl;
-    std::cout << extent_A[1] << std::endl;
-    std::cout << extent_C[0] << std::endl;
-    std::cout << extent_C[1] << std::endl;
+    //std::cout << extent_A[0] << std::endl;
+    //std::cout << extent_A[1] << std::endl;
+    //std::cout << extent_C[0] << std::endl;
+    //std::cout << extent_C[1] << std::endl;
 
-    std::cout << nmodeA << std::endl;
-    std::cout << nmodeC << std::endl;
+    //std::cout << nmodeA << std::endl;
+    //std::cout << nmodeC << std::endl;
 
     
      
@@ -685,6 +696,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
         ptr1 = static_cast<void*>(&alpha1);
         beta1 = binary.rhs.scale.f16();
         ptr2 = static_cast<void*>(&beta1);
+        //printf("why is it here\n");
       }
       else if(type == dtype_t::f32){
         alpha2 = binary.lhs.scale.f32();
@@ -712,7 +724,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
       
       if(typeA==CUDA_R_32F&&typeC==CUDA_R_32F&&typeCompute==CUDA_R_32F&&binary.op==CUTENSOR_OP_ADD&&type==dtype_t::f32
       &&binary.lhs.op==CUTENSOR_OP_IDENTITY&&binary.rhs.op==CUTENSOR_OP_IDENTITY){
-        printf("HERE\n");
+        //printf("HERE\n");
       }
 
       cutensorTensorDescriptor_t descA;
@@ -734,7 +746,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
                   typeC, binary.rhs.op));
       float alphayi = 1.0f;
       float betayi = 1.0f;
-      printf("HERERIN\n");
+      //printf("HERERIN\n");
       handle_cutensor_error(cutensorElementwiseBinary(handle,
                 alpha, inns[0], &descA, modeA.data(),
                 beta, inns[1], &descC, modeC.data(),
@@ -909,6 +921,21 @@ cutensorOperator_t convert_op(cutensor_scalarop_t::cop_t op){
   return new_op;
 }
 
+bool isVectorSequential(const std::vector<int>& vec, int n) {
+    if (vec.size() != n) {
+        return false;  
+    }
+
+    for (int i = 0; i < n; ++i) {
+        if (vec[i] != i) {
+            return false;  
+        }
+    }
+
+    return true;  
+}
+
+
 optional<cutensor_elementwise_op_t>
 make_cutensor_elementwise_op(
   einsummable_t const& e)
@@ -939,6 +966,12 @@ make_cutensor_elementwise_op(
 
     cutensor_elementwise_op_t::arg_t a0 = convert_arg(binary.lhs, e.inns[0]);
     cutensor_elementwise_op_t::arg_t a1 = convert_arg(binary.rhs, e.inns[1]);
+    
+    //if a0 is the same as output shape, that swap a0 to the a1 spot
+    if(isVectorSequential(e.inns[0],e.out_rank)){
+      std::swap(a0, a1);
+    }
+    
     cutensorOperator_t op_0_1 = convert_op(binary.op);
 
     cutensor_elementwise_op_t::binary_t bi_op{

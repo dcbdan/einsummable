@@ -40,9 +40,9 @@ void test_mm(dtype_t dtype) {
   build_contraction(&desc,handle,matmul);
 
 
-  size_t sizeA = sizeof(float) * i*j;
-  size_t sizeB = sizeof(float) * j*k;
-  size_t sizeC = sizeof(float) * i*k;
+  size_t sizeA = lhs.size();
+  size_t sizeB = rhs.size();
+  size_t sizeC = out.size();
   
   void *lh, *rh, *ou;
   cudaMalloc((void**)&lh, sizeA);
@@ -55,9 +55,9 @@ void test_mm(dtype_t dtype) {
 
   float* C = (float*)out.ptr();
 
-  cudaMemcpy(ou, C, sizeC, cudaMemcpyHostToDevice);
-  cudaMemcpy(lh, A, sizeA, cudaMemcpyHostToDevice);
-  cudaMemcpy(rh, B, sizeB, cudaMemcpyHostToDevice);
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+  cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
 
   
 
@@ -96,6 +96,8 @@ void test_mm(dtype_t dtype) {
   DOUT(out);
 }
 
+
+  
 void test_contraction(dtype_t dtype) {
   // bij,jk->bik
   // 013 32  012
@@ -104,11 +106,11 @@ void test_contraction(dtype_t dtype) {
   //uint64_t j = 6;
   //uint64_t k = 7;
 
-  uint64_t a = 5;
-  uint64_t b = 6;
-  uint64_t c = 4;
-  uint64_t d = 8;
-  uint64_t e = 3;
+  uint64_t a = 256;
+  uint64_t b = 64;
+  uint64_t c = 32;
+  uint64_t d = 28;
+  uint64_t e = 28;
 
 
 
@@ -122,7 +124,7 @@ void test_contraction(dtype_t dtype) {
   einsummable_t matmul = einsummable_t(
     {a,b,c,d,e},
     { {0, 2, 1, 4}, {0, 1, 3, 4} },
-    3,
+    4,
     scalarop_t::make_mul(dtype),
     castable_t::add);
 
@@ -135,11 +137,13 @@ void test_contraction(dtype_t dtype) {
   lhs.random();
   rhs.random();
 
-  dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
+  //dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
 
   //dbuffer_t out = make_dbuffer(dtype, b*i*k);
   dbuffer_t out = make_dbuffer(dtype, a*b*c*d);
   out.zeros();
+
+  //matmul.merge_adjacent_dims();
 
   printf("here\n");
 
@@ -147,7 +151,200 @@ void test_contraction(dtype_t dtype) {
 
   cutensorHandle_t* handle;
   cutensorCreate(&handle);
+
+  auto startTime1 = std::chrono::high_resolution_clock::now();
+
+
+
+
+    
   build_contraction(&desc,handle,matmul);
+
+  auto endTime1 = std::chrono::high_resolution_clock::now();
+  auto duration1 = std::chrono::duration_cast<std::chrono::microseconds>(endTime1 - startTime1).count();
+  std::cout << "Execution time for build_contraction: " << duration1 << " microseconds" << std::endl;
+
+
+  printf("here\n");
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+  
+  //NEW
+
+
+
+  size_t sizeA = lhs.size();
+  size_t sizeB = rhs.size();
+  size_t sizeC = out.size();
+
+  //std::cout << sizeC << std::endl;
+  //std::cout << out.size() << std::endl;
+  
+  void *lh, *rh, *ou;
+  cudaMalloc((void**)&lh, sizeA);
+  cudaMalloc((void**)&rh, sizeB);
+  cudaMalloc((void**)&ou, sizeC);
+
+  float* A = (float*)lhs.ptr();
+
+  float* B = (float*)rhs.ptr();
+
+  float* C = (float*)out.ptr();
+
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+  cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
+
+  if(dtype==dtype_t::f16){
+    std::vector<int> modeA = matmul.inns[0];
+    std::vector<int> modeB = matmul.inns[1];
+    std::vector<int> modeC;
+    for (int i = 0; i < matmul.out_rank; i++) {
+      modeC.push_back(i);
+    }
+
+    int nmodeA = matmul.inns[0].size();
+    int nmodeB = matmul.inns[1].size();
+    int nmodeC = matmul.out_rank;
+    cudaDataType_t typeTensor = CUDA_R_16F;
+    cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_16F;
+
+    vector<int64_t> extent_A;
+    for(auto const& mode: modeA) {
+      extent_A.push_back(matmul.join_shape[mode]);
+
+    }
+    vector<int64_t> extent_B;
+    for(auto const& mode: modeB) {
+      extent_B.push_back(matmul.join_shape[mode]);
+    }
+
+    vector<int64_t> extent_C;
+    for(auto const& mode: modeC) {
+      extent_C.push_back(matmul.join_shape[mode]);
+    }
+
+    cutensorTensorDescriptor_t descA;
+ 
+    cutensorInitTensorDescriptor(
+      handle,
+      &descA,
+      nmodeA,
+      extent_A.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) ;
+
+    
+  cutensorTensorDescriptor_t descB;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(
+      handle,
+      &descB,
+      nmodeB,
+      extent_B.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
+
+
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(
+      handle,
+      &descC,
+      nmodeC,
+      extent_C.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
+    
+    uint32_t alignmentRequirementA;
+    cutensorGetAlignmentRequirement(handle,
+                  ou,
+                  &descA,
+                  &alignmentRequirementA);
+    std::cout << alignmentRequirementA << std::endl;
+
+    uint32_t alignmentRequirementB;
+    cutensorGetAlignmentRequirement(handle,
+                  ou,
+                  &descB,
+                  &alignmentRequirementB);
+    std::cout << alignmentRequirementB << std::endl;
+
+    uint32_t alignmentRequirementC;
+    cutensorGetAlignmentRequirement(handle,
+                  ou,
+                  &descC,
+                  &alignmentRequirementC);
+    std::cout << alignmentRequirementC << std::endl;
+  }
+}
+
+void test_contraction_speed(dtype_t dtype) {
+  // bij,jk->bik
+  // 013 32  012
+  //uint64_t b = 3;
+  //uint64_t i = 5;
+  //uint64_t j = 6;
+  //uint64_t k = 7;
+
+  uint64_t a = 4;
+  uint64_t b = 8;
+  uint64_t c = 1024;
+  uint64_t d = 32;
+  uint64_t e = 32;
+
+
+
+  //einsummable_t matmul = einsummable_t(
+  //  {b, i, k, j},
+  //  { {0, 1, 3}, {3, 2} },
+  //  3,
+  //  scalarop_t::make_mul(dtype),
+  //  castable_t::add);
+
+  einsummable_t matmul = einsummable_t(
+    {a,b,c,d,e},
+    { {0, 2, 1, 4}, {0, 1, 3, 4} },
+    4,
+    scalarop_t::make_mul(dtype),
+    castable_t::add);
+
+  //dbuffer_t lhs = make_dbuffer(dtype, b*i*j);
+  //dbuffer_t rhs = make_dbuffer(dtype, j*k);
+
+  dbuffer_t lhs = make_dbuffer(dtype, a*c*b*e);
+  dbuffer_t rhs = make_dbuffer(dtype, a*d*b*e);
+
+  lhs.random();
+  rhs.random();
+
+  //dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
+
+  //dbuffer_t out = make_dbuffer(dtype, b*i*k);
+  dbuffer_t out = make_dbuffer(dtype, a*b*c*d);
+  out.zeros();
+
+  //matmul.merge_adjacent_dims();
+
+  printf("here\n");
+
+  cutensorContractionDescriptor_t desc;
+
+  cutensorHandle_t* handle;
+  cutensorCreate(&handle);
+
+  auto startTime1 = std::chrono::high_resolution_clock::now();
+
+
+
+
+    
+  build_contraction(&desc,handle,matmul);
+
+  auto endTime1 = std::chrono::high_resolution_clock::now();
+  auto duration1 = std::chrono::duration_cast<std::chrono::microseconds>(endTime1 - startTime1).count();
+  std::cout << "Execution time for build_contraction: " << duration1 << " microseconds" << std::endl;
+
 
   printf("here\n");
   cudaStream_t stream;
@@ -180,9 +377,15 @@ void test_contraction(dtype_t dtype) {
   cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
 
   //NEW
-
+  auto startTime2 = std::chrono::high_resolution_clock::now();
 
   execute_contraction(stream,handle,&desc,ou,lh,rh,dtype);
+
+  auto endTime2 = std::chrono::high_resolution_clock::now();
+  auto duration2 = std::chrono::duration_cast<std::chrono::microseconds>(endTime2 - startTime2).count();
+  std::cout << "Execution time for execute_contraction: " << duration2 << " microseconds" << std::endl;
+
+
 
   cudaStreamSynchronize(stream);
 
@@ -194,14 +397,14 @@ void test_contraction(dtype_t dtype) {
 
   cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
 
-  if(!is_close(out_ref, out)) {
-    DOUT(dtype);
-    //DOUT(out_ref);
-    //DOUT(out);
-    throw std::runtime_error("CONTRACTION ARE NOT CLOSE!");
-  }else{
-     std::cout << "Contraction operation successful for dtype "<<dtype << std::endl;
-  }
+  //if(!is_close(out_ref, out)) {
+  //  DOUT(dtype);
+  //  DOUT(out_ref);
+  //  DOUT(out);
+  //  throw std::runtime_error("CONTRACTION ARE NOT CLOSE!");
+  //}else{
+  //   std::cout << "Contraction operation successful for dtype "<<dtype << std::endl;
+  //}
 
   //DOUT(out_ref);
   //DOUT(out);
@@ -568,7 +771,7 @@ void test_reduction(dtype_t dtype){
     DOUT(out);
     throw std::runtime_error("CONTRACTION ARE NOT CLOSE!");
   }else{
-     std::cout << "Contraction operation successful for dtype "<<dtype << std::endl;
+     std::cout << "Reduction operation successful for dtype "<<dtype << std::endl;
   }
 }
 
@@ -740,11 +943,163 @@ void dumbTest7(dtype_t dtype){
 }
 
 
+cudaDataType_t dtype_to_cudatypet(dtype_t type){
+  if(type == dtype_t::f16){
+    return CUDA_R_16F;
+  }
+  else if(type == dtype_t::f32){
+    return CUDA_R_32F;
+  }
+  else if(type == dtype_t::f64){
+    return CUDA_R_64F;
+  }
+  else if(type == dtype_t::c64){
+    return CUDA_C_32F;
+  }
+  return CUDA_R_32F;
+}
+
+
+cudaDataType_t dtypes_to_scalartype(dtype_t src, dtype_t dst){
+  if(src == dtype_t::f64||dst == dtype_t::f64){
+    return CUDA_R_64F;
+  }
+  else if(src == dtype_t::c64){
+    return CUDA_C_32F;
+  }
+  return CUDA_R_32F;
+}
+
+
+void dumbTest8(dtype_t src, dtype_t dst){
+
+  //a->a
+  uint64_t a = 8192;
+
+  einsummable_t convert = einsummable_t(
+    {a},
+    { {0}},
+    1,
+    scalarop_t::make_convert_dtype(src, dst),
+    castable_t::add);
+
+  dbuffer_t lhs = make_dbuffer(src, a);
+
+
+  lhs.random();
+
+
+  dbuffer_t out_ref = reference_einsummable(convert, {lhs});
+
+  
+  //dbuffer_t out = make_dbuffer(dtype, b*i*k);
+  dbuffer_t out = make_dbuffer(dst, a);
+  out.zeros();
+
+  std::vector<int> modeA = convert.inns[0];
+  std::vector<int> modeC = modeA;
+
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(convert.join_shape[mode]);
+  }
+
+  int nmodeA = modeA.size();
+  int nmodeC = modeC.size();
+
+  vector<int64_t> extent_C = extent_A;
+
+  cudaDataType_t typeA = dtype_to_cudatypet(src);
+  cudaDataType_t typeC = dtype_to_cudatypet(dst);
+  cudaDataType_t typeCompute = dtypes_to_scalartype(src,dst);
+
+  cutensorHandle_t* handle;
+  cutensorCreate(&handle);
+
+  cutensorTensorDescriptor_t descA;
+  cutensorInitTensorDescriptor(handle,
+            &descA,
+            nmodeA,
+            extent_A.data(),
+            NULL /* stride */,
+            typeA, CUTENSOR_OP_IDENTITY);
+
+  cutensorTensorDescriptor_t descC;
+  cutensorInitTensorDescriptor(handle,
+            &descC,
+            nmodeA,
+            extent_A.data(),
+            NULL /* stride */,
+            typeC, CUTENSOR_OP_IDENTITY);
+
+  void* ptr;
+  float alpha2;
+  double alpha3;
+
+  if(typeCompute == CUDA_R_32F){
+    alpha2 = 1.0f;
+    ptr = static_cast<void*>(&alpha2);
+  }
+  else if(typeCompute == CUDA_R_64F){
+    alpha3 = 1.0;
+    ptr = static_cast<void*>(&alpha3);
+  }
+
+  void const* alpha = ptr;
+
+  
+
+  //printf("here\n");
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+  
+  //NEW
+
+
+
+  size_t sizeA = lhs.size();
+  size_t sizeC = out.size();
+
+  //std::cout << sizeC << std::endl;
+  //std::cout << out.size() << std::endl;
+  
+  void *lh, *rh, *ou;
+  cudaMalloc((void**)&lh, sizeA);
+  cudaMalloc((void**)&ou, sizeC);
+
+
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+
+  cutensorPermutation(handle,
+                alpha, lh, &descA, modeA.data(),
+                ou, &descC, modeA.data(),
+                typeCompute, stream);
+
+  cudaStreamSynchronize(stream);
+
+  cudaStreamDestroy(stream);
+
+  cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
+
+  if(!is_close(out_ref, out)) {
+    printf("KERNEL FAIL\n");
+  }else{
+    printf("Sucessfuly conversion!\n");
+  }
+  
+
+
+
+}
+
 
 int main() {
   //test_mm(dtype_t::f32);
+  //test_mm(dtype_t::f16);
   //test_contraction(dtype_t::f16);
-  test_contraction(dtype_t::f32);
+  //test_contraction(dtype_t::f32);
+  //test_contraction(dtype_t::f32);
   //test_contraction(dtype_t::f64);
   //test_contraction(dtype_t::c64);
   //dumbTest(dtype_t::f32);
@@ -756,7 +1111,8 @@ int main() {
   //test_reduction(dtype_t::f32);
   //test_reduction(dtype_t::f64);
   //test_reduction(dtype_t::c64);
-
+  //test_contraction_speed(dtype_t::f32);
   //dumbTest6(dtype_t::f32);
-  //dumbTest7(dtype_t::f32);
+  //dumbTest7(dtype_t::f16);
+  dumbTest8(dtype_t::f32, dtype_t::f16);
 }
