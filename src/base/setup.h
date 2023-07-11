@@ -169,6 +169,28 @@ T vector_max_element(vector<T> const& xs) {
   return *std::max_element(xs.begin(), xs.end());
 }
 
+template <typename X, typename F>
+auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_max_transform: empty input");
+  }
+
+  using T = decltype(f(xs[0]));
+
+  T vmax = f(xs[0]);
+  T vtest;
+  for(int i = 1; i != xs.size(); ++i) {
+    vtest = f(xs[i]);
+    if(vmax < vtest) {
+      vmax = vtest;
+    }
+  }
+  return vmax;
+}
+
+#define vector_max_method(xs, f) \
+  vector_max_transform(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f))
+
 template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;

@@ -69,6 +69,7 @@ vector<placement_t> solve_forwardsim(
 vector<placement_t> solve_relationwise(
   graph_t const& graph,
   int nlocs,
+  int n_threads_per_node,
   int max_blocks,
   double scale_compute,
   double scale_move,
@@ -77,14 +78,18 @@ vector<placement_t> solve_relationwise(
 {
   relationwise_mcmc_t mcmc(
     graph,
-    nlocs, max_blocks,
+    nlocs, n_threads_per_node, max_blocks,
     scale_compute, scale_move,
     equal_items_t<int>());
 
   for(int i = 0; i != num_steps; ++i) {
+    if(i % 10000 == 0) {
+      DOUT( i << " / " << num_steps << "    " << mcmc.get_best_cost() );
+    }
     mcmc.step(beta);
   }
 
+  DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
   return mcmc.get_best_placements();
 }
 
@@ -96,11 +101,11 @@ int main() {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int num_nodes = 8;
-  int num_threads_per_node = 12;
-  int num_steps = 30000;
+  int num_nodes = 2;
+  int num_threads_per_node = 2;
+  int num_steps = 200000;
 
-  double beta = 1.0;
+  double beta = 10000.0;
 
   auto autoplace = [&](graph_t const& graph) {
     //uint64_t giga = 1e9;
@@ -114,9 +119,9 @@ int main() {
 
     int max_blocks = 2 * num_nodes * num_threads_per_node;
     double scale_compute = 1.0e-8;
-    double scale_move    = 0; // 1.0e-6;
+    double scale_move    = 1.0e-7;
     return solve_relationwise(
-      graph, num_nodes, max_blocks,
+      graph, num_nodes, num_threads_per_node, max_blocks,
       scale_compute, scale_move,
       num_steps,
       beta);

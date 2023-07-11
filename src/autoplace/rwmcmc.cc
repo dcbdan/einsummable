@@ -3,11 +3,12 @@
 relationwise_mcmc_t::relationwise_mcmc_t(
   graph_t const& graph,
   int nlocs,
+  int n_threads_per_loc,
   int max_blocks,
   double scale_compute,
   double scale_move,
   equal_items_t<int> equal_gids)
-  : gwise(nlocs, graph, graph.make_singleton_placement()),
+  : gwise(nlocs, n_threads_per_loc, graph, graph.make_singleton_placement()),
     max_blocks(max_blocks), scale_compute(scale_compute), scale_move(scale_move),
     equal_gids(equal_gids)
 {
@@ -16,7 +17,7 @@ relationwise_mcmc_t::relationwise_mcmc_t(
   current_move = move_cost;
 
   best_cost = cost();
-  //DOUT("init cost " << best_cost);
+  DOUT("init cost " << best_cost);
 
   best_placements = gwise.get_placements();
 }
@@ -102,7 +103,7 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
 relationwise_mcmc_t::op_t
 relationwise_mcmc_t::random_op() const
 {
-  int prob_change_partition = 90;
+  int prob_change_partition = 50;
   int gid = runif(gwise.ginfos.size());
   if(runif(100) < prob_change_partition) {
     auto const& partition = gwise.ginfos[gid].partition;

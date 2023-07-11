@@ -16,11 +16,32 @@ int64_t einsummable_cost(optional<einsummable_t> const& maybe) {
   return 0;
 }
 
+threads_costs_t::threads_costs_t(int n_threads)
+  : max_cost(0), cnt(0), n_threads(n_threads)
+{}
+
+void threads_costs_t::add(int64_t cost) {
+  cnt++;
+  max_cost = std::max(cost, max_cost);
+}
+
+void threads_costs_t::pop(int64_t cost) {
+  if(cost > max_cost) {
+    throw std::runtime_error("invalid cost to pop");
+  }
+  cnt--;
+}
+
+int64_t threads_costs_t::cost() const {
+  return ((cnt + n_threads - 1) / n_threads) * max_cost;
+}
+
 relationwise_t::relationwise_t(
   int nls,
+  int ntp,
   graph_t const& g,
   vector<placement_t> const& pls)
-  : nlocs(nls), graph(g)
+  : nlocs(nls), n_threads_per_loc(ntp), graph(g)
 {
   std::function<partition_t const&(int)> get_partition =
     [&pls](int gid) -> partition_t const&
@@ -91,10 +112,10 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
   // compute the change in the compute cost & update ginfo.compute_cost
   int64_t compute_delta;
   {
-    int64_t compute_before = vector_max_element(ginfo.compute_cost);
-    ginfo.compute_cost[join_loc] -= join_cost;
-    ginfo.compute_cost[loc]      += join_cost;
-    int64_t compute_after = vector_max_element(ginfo.compute_cost);
+    int64_t compute_before = vector_max_method(ginfo.compute_cost, cost);
+    ginfo.compute_cost[join_loc].pop(join_cost);
+    ginfo.compute_cost[loc].add(join_cost);
+    int64_t compute_after = vector_max_method(ginfo.compute_cost, cost);
     compute_delta = compute_after - compute_before;
   }
 
@@ -212,7 +233,7 @@ relationwise_t::operator()(int gid, placement_t const& new_placement)
 
   set<int> inn_gids = graph.nodes[gid].get_inns_set();
 
-  int64_t compute_cost_before = vector_max_element(ginfo.compute_cost);
+  int64_t compute_cost_before = vector_max_method(ginfo.compute_cost, cost);
   int64_t move_cost_before = vector_max_element(ginfo.move_cost);
   for(auto const& inn_gid: inn_gids) {
     move_cost_before += vector_max_element(ginfos[inn_gid].move_cost);
@@ -280,7 +301,7 @@ relationwise_t::operator()(int gid, placement_t const& new_placement)
 
   //////////
 
-  int64_t compute_cost_after = vector_max_element(ginfo.compute_cost);
+  int64_t compute_cost_after = vector_max_method(ginfo.compute_cost, cost);
   int64_t move_cost_after = vector_max_element(ginfo.move_cost);
   for(auto const& inn_gid: inn_gids) {
     move_cost_after += vector_max_element(ginfos[inn_gid].move_cost);
@@ -372,7 +393,7 @@ tuple<int64_t, int64_t> relationwise_t::total_cost() const {
   int64_t compute = 0;
   int64_t move = 0;
   for(auto const& ginfo: ginfos) {
-    compute += vector_max_element(ginfo.compute_cost);
+    compute += vector_max_method(ginfo.compute_cost, cost);
     move += vector_max_element(ginfo.move_cost);
   }
   return {compute, move};
@@ -401,11 +422,11 @@ relationwise_t::f_get_mutable_refis() {
 
 void relationwise_t::reset_compute_cost(int gid) {
   ginfo_t& ginfo = ginfos[gid];
-  ginfo.compute_cost = vector<int64_t>(nlocs, 0);
+  ginfo.compute_cost = vector<threads_costs_t>(nlocs, threads_costs_t(n_threads_per_loc));
   for(int bid = 0; bid != ginfo.joins.size(); ++bid) {
     int const& loc = ginfo.locations[bid];
     int64_t join_cost = einsummable_cost(ginfo.joins[bid].einsummable);
-    ginfo.compute_cost[loc] += join_cost;
+    ginfo.compute_cost[loc].add(join_cost);
   }
 }
 

@@ -7,6 +7,7 @@ struct relationwise_mcmc_t {
   relationwise_mcmc_t(
     graph_t const& graph,
     int nlocs,
+    int n_threads_per_loc,
     int max_blocks,
     double scale_compute,
     double scale_move,
@@ -20,6 +21,10 @@ struct relationwise_mcmc_t {
 
   vector<placement_t> const& get_best_placements() const {
     return best_placements;
+  }
+
+  double const& get_best_cost() const {
+    return best_cost;
   }
 
 private:
