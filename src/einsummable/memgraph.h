@@ -297,12 +297,13 @@ public:
     bool is_contraction() const { return is_einsummable() && get_einsummable().is_contraction(); }
 
     void print_type() {
-      if (is_input())      std::cout << "input";
+      if (is_inputmem() || is_inputsto())      std::cout << "input";
       if (is_move())       std::cout << "move";
       if (is_evict())      std::cout << "evict";
       if (is_load())       std::cout << "load";
       if (is_partialize()) std::cout << "partialize";
       if (is_del())        std::cout << "del";
+      if (is_alloc())      std::cout << "alloc";
 
       if (is_einsummable()) {
         if (is_contraction()) std::cout << "contraction";

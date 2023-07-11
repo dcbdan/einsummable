@@ -6,6 +6,7 @@
 #include "../src/einsummable/reference.h"
 #include "GPU_correctness.cc"
 
+#include <cstdint>
 #include <fstream>
 #include <memory>
 
@@ -60,7 +61,7 @@ void usage() {
 }
 
 // testing 3d matmul on a single GPU
-int main(int argc, char** argv) {
+int main_matmul(int argc, char** argv) {
   if(argc != 8) {
     usage();
     return 1;
@@ -102,7 +103,6 @@ int main(int argc, char** argv) {
       memgraph_t>
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
-        compute_loc_to_cache,
         {},
         { allocator_strat_t::lowest_dependency, 1 }  );
     auto const& [_2, _3, memgraph] = _info1;
@@ -121,20 +121,20 @@ int main(int argc, char** argv) {
 }
 
 // testing on how contraction works
-int main2(){
+int main_contraction(){
   contractionTest(5, 5, 10);
   return 0;
 }
 
 // testing the allocator gives alignment and create no error
-int main3(){
+int main_alignment(){
   alignmentTest(5, 7, 14);
   return 0;
 }
 
 // testing if the GPU can run a layer of deep ff network
 // Note: cannot check correctness because the CPU reference is very slow
-int mainff() {
+int main_ff() {
   using id_t = graph_writer_t::tensor_t;
 
   graph_writer_t writer;
@@ -172,12 +172,12 @@ int mainff() {
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, placements);
 
   int np = taskgraph.num_locs();
-  vector<int> compute_loc_to_cache(np, 0);
+  vector<uint64_t> compute_loc_to_cache(np, 0);
 
   std::cout << "Generating memgraph now" << std::endl;
 
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
-    taskgraph, compute_loc_to_cache, { 1000000 });
+    taskgraph, { 10000000 });
 
   // print the number of nodes in the graph
   std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
@@ -201,6 +201,12 @@ int mainff() {
     
   execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
     // check_correctness(memgraph, false);
+  return 0;
+}
+
+int main(int argc, char** argv){
+  // main_ff();
+  main_matmul(argc, argv);
   return 0;
 }
 
