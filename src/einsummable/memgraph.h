@@ -336,14 +336,27 @@ struct allocator_t {
     uint64_t memsize_t,
     allocator_settings_t settings = allocator_settings_t::default_settings());
 
-  // Allocate this much memory if possible and return
-  // the offset and all dependents. If there is not
-  // free memory of this size, none is returned.
+  Allocate this much memory if possible and return
+  the offset and all dependents. If there is not
+  free memory of this size, none is returned.
+  /**
+   * Allocate this much memory if possible and return the offset and all dependents. 
+   * If there is not free memory of this size, none is returned.
+   * is_input: this bool specifies if we are trying to allocate for a input node. 
+   *    If is_input, then we need to make sure that the return deps is empty. Otherwise we consider it as allocate unsuccessful.
+  */
   optional< tuple<uint64_t, vector<int>> >
-  try_to_allocate(uint64_t size);
+  try_to_allocate(uint64_t size, bool is_input);
 
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
+
+  /**
+   * This function is specifically for allocating an input. It will try to allocate a block without any deps.
+   * If no block with no deps is available, then return non.
+  */
+  optional<tuple<uint64_t, vector<int>>>
+  allocate_input(uint64_t size);
 
   void set_strategy(allocator_strat_t s) { strat = s; };
   allocator_strat_t get_strategy() const { return strat; }

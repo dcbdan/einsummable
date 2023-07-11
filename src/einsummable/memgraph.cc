@@ -867,6 +867,7 @@ memgraph_make_state_t::memgraph_make_state_t(
     _group(0),
     use_storage(use_storage)
 {
+  _sto_id = 0;
   remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
 
   // We may have an einsummable y = x + x. In this case,
@@ -915,10 +916,10 @@ map<int, memstoloc_t> memgraph_make_state_t::allocate_inputs() {
       }
       int loc = node.op.out_loc();
       uint64_t sz = node.op.out_size();
-      auto maybe = allocators[loc].try_to_allocate(sz);
+      auto maybe = allocators[loc].try_to_allocate(sz, false);
       optional<op_t> op;
       if(maybe) {
-        auto [offset, deps] = allocators[loc].allocate(sz);
+        auto const& [offset, deps] = maybe.value();
         if(deps.size() != 0) {
           throw std::runtime_error("The alligator is broken");
         }
@@ -959,6 +960,28 @@ void memgraph_make_state_t::add_to_memgraph(
   }
 
   auto const& node = taskgraph.nodes[id];
+
+  //TODO: loop through all inns so we make sure all inns are ready for this node before starting
+  for (int const& inn: node.op.inputs()){
+    auto iter = task_tensor_to_mem_node.find(inn);
+    if (iter == task_tensor_to_mem_node.end()) { 
+      /* if inn is not available in task_tensor_to_mem mapping, 
+        then we need to some how allocate it either on memory or on storage */
+      int loc = node.op.out_loc();
+      uint64_t size = node.op.out_size();
+      auto maybe = allocators[loc].allocate_input(size);
+      if (maybe) {
+        /* If we are able to allocate without deps on memory, then we insert inputmem_t */
+        auto const& [offset, deps] = maybe.value();
+        op_t input_op = op_t(inputmem_t {.loc = loc, .offset = offset, .size = size });
+      } else {
+        /* If we are not able to allocate on memory, then we insert an inputsto_t */
+        op_t input_op = op_t(inputsto_t {.loc = loc, .storage_loc = memgraph.storage_locs[loc], .storage_id = _sto_id++});
+      }
+      int memid = memgraph.insert(input_op, {});
+      task_tensor_to_mem_node.insert_or_assign(inn, memid);
+    } 
+  }
 
   set<int> used_task_tensors;
   set<int> deps;
@@ -1124,7 +1147,7 @@ memgraph_make_state_t::get_tensors_in_memory(
       auto const& node = taskgraph.nodes[tid];
       int loc = node.op.out_loc();
       auto size = node.op.out_size();
-      auto maybe = allocators[loc].try_to_allocate(size);
+      auto maybe = allocators[loc].try_to_allocate(size, false);
       if(maybe) {
         auto const& [offset, vector_deps] = maybe.value();
         alloc_t alloc {
@@ -1372,7 +1395,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
 }
 
 optional< tuple<uint64_t, vector<int>> >
-allocator_t::try_to_allocate(uint64_t size_without_rem)
+allocator_t::try_to_allocate(uint64_t size_without_rem, bool is_input)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
@@ -1404,6 +1427,13 @@ allocator_t::try_to_allocate(uint64_t size_without_rem)
       }
     }
 
+    //TODO: if there are any dependencies, then return empty if is_input is true.
+    if (is_input) {
+      if (deps.size() > 0) {
+        return optional<return_t>();
+      }
+    }
+
     // fix blocks
     block_t last_block_copy = *(end-1);
 
@@ -1429,11 +1459,18 @@ allocator_t::try_to_allocate(uint64_t size_without_rem)
 tuple<uint64_t, vector<int>>
 allocator_t::allocate(uint64_t size)
 {
-  auto maybe_succ = try_to_allocate(size);
+  auto maybe_succ = try_to_allocate(size, false);
   if(maybe_succ) {
     return maybe_succ.value();
   }
   throw std::runtime_error("allocator_t: could not allocate");
+}
+
+optional<tuple<uint64_t, vector<int>>> 
+allocator_t::allocate_input(uint64_t size)
+{
+  auto maybe = try_to_allocate(size, true);
+  return maybe;
 }
 
 void allocator_t::free(uint64_t offset, int del) {
