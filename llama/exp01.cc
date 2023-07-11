@@ -6,6 +6,8 @@
 #include "../src/einsummable/reference.h"
 #include "../src/autoplace/fsmcmc.h"
 #include "../src/autoplace/rwmcmc.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/autopart.h"
 
 struct cluster_settings_t {
   int num_nodes;
@@ -82,6 +84,21 @@ vector<placement_t> solve_relationwise(
     scale_compute, scale_move,
     equal_items_t<int>());
 
+  DOUT("single thread cost " << mcmc.cost());
+
+  {
+    uint64_t min_sizing = 1;
+    vector<partition_t> parts = autopartition(
+      graph, min_sizing, nlocs * n_threads_per_node, mcmc.get_equal_gids());
+
+    // this ignores the equal gids
+    vector<placement_t> pls = load_balanced_placement(graph, parts, nlocs, false);
+
+    mcmc.set_placements(pls);
+  }
+
+  DOUT("balanced cost " << mcmc.cost());
+
   for(int i = 0; i != num_steps; ++i) {
     if(i % 10000 == 0) {
       DOUT( i << " / " << num_steps << "    " << mcmc.get_best_cost() );
@@ -101,9 +118,9 @@ int main() {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int num_nodes = 2;
-  int num_threads_per_node = 2;
-  int num_steps = 200000;
+  int num_nodes = 8;
+  int num_threads_per_node = 12;
+  int num_steps = 30000;
 
   double beta = 10000.0;
 
@@ -119,7 +136,7 @@ int main() {
 
     int max_blocks = 2 * num_nodes * num_threads_per_node;
     double scale_compute = 1.0e-8;
-    double scale_move    = 1.0e-7;
+    double scale_move    = 1.0e-9;
     return solve_relationwise(
       graph, num_nodes, num_threads_per_node, max_blocks,
       scale_compute, scale_move,

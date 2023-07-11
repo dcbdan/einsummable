@@ -55,7 +55,7 @@ void test01() {
   graph_t const& graph = g.graph;
   vector<placement_t> init_placements = g.get_placements();
 
-  relationwise_t gwise(nlocs, graph, init_placements);
+  relationwise_t gwise(nlocs, 1, graph, init_placements);
 
   auto [compute_cost, move_cost] = gwise.total_cost();
 
@@ -167,7 +167,7 @@ void test02() {
     return random_placement(init_placements[gid].total_shape());
   };
 
-  relationwise_t gwise(nlocs, graph, init_placements);
+  relationwise_t gwise(nlocs, 1, graph, init_placements);
 
   auto [compute_cost, move_cost] = gwise.total_cost();
 
@@ -280,7 +280,7 @@ void test03() {
     return random_placement(graph.nodes[gid].op.shape());
   };
 
-  relationwise_t gwise(nlocs, graph, graph.make_singleton_placement());
+  relationwise_t gwise(nlocs, 1, graph, graph.make_singleton_placement());
   auto [compute_cost, move_cost] = gwise.total_cost();
   for(int iter = 0; iter != niter; ++iter) {
     int gid = runif(graph.nodes.size());

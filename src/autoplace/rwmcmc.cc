@@ -17,7 +17,7 @@ relationwise_mcmc_t::relationwise_mcmc_t(
   current_move = move_cost;
 
   best_cost = cost();
-  DOUT("init cost " << best_cost);
+  //DOUT("init cost " << best_cost);
 
   best_placements = gwise.get_placements();
 }
@@ -45,6 +45,29 @@ bool relationwise_mcmc_t::step(double beta) {
       change(undo);
       return false;
     }
+  }
+}
+
+void relationwise_mcmc_t::set_placements(vector<placement_t> const& pls)
+{
+  if(pls.size() != gwise.graph.nodes.size()) {
+    throw std::runtime_error("must specify every placement");
+  }
+
+  int64_t cd = 0;
+  int64_t cm = 0;
+  for(int gid = 0; gid != pls.size(); ++gid) {
+    auto [cd_, cm_] = gwise(gid, pls[gid]);
+    cd += cd_;
+    cm += cm_;
+  }
+  update_cost(cd, cm);
+
+  double current_cost = cost();
+  //DOUT("set cost " << current_cost);
+  if(current_cost < best_cost) {
+    best_cost = current_cost;
+    best_placements = pls;
   }
 }
 
@@ -103,7 +126,7 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
 relationwise_mcmc_t::op_t
 relationwise_mcmc_t::random_op() const
 {
-  int prob_change_partition = 50;
+  int prob_change_partition = 90;
   int gid = runif(gwise.ginfos.size());
   if(runif(100) < prob_change_partition) {
     auto const& partition = gwise.ginfos[gid].partition;

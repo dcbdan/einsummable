@@ -27,6 +27,12 @@ struct relationwise_mcmc_t {
     return best_cost;
   }
 
+  void set_placements(vector<placement_t> const& pls);
+
+  equal_items_t<int> get_equal_gids() const { return equal_gids; }
+
+  double cost() const { return cost_from_scores(current_compute, current_move); }
+
 private:
   struct op_t {
     struct greedy_t {
@@ -70,7 +76,6 @@ private:
   void update_cost(tuple<int64_t, int64_t> delta);
 
   double cost_from_scores(int64_t compute, int64_t move) const;
-  double cost() const { return cost_from_scores(current_compute, current_move); }
 
   partition_t crement_partition(op_t::crement_t const& crement) const;
 

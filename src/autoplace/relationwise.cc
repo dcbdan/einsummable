@@ -335,6 +335,9 @@ placement_t relationwise_t::get_placement_at(int gid) const
 
 vector<int64_t> relationwise_t::move_cost_at(rid_t rid) const
 {
+  // TODO: This code is a hot spot. It may be faster to cache
+  //       src_locs, dst_locs or both instead of recomputing
+  //       them each time.
   auto const& [gid,bid] = rid;
   auto const& ginfo = ginfos[gid];
   auto const& refi = ginfos[gid].refis.value()[bid];
@@ -365,26 +368,26 @@ vector<int64_t> relationwise_t::move_cost_at(rid_t rid) const
 
   // Here is another, most likely slower implementation
   //
-  //  set<int> dst_locs;
-  //  for(auto const& [out_gid, out_bid]: refi.outs) {
-  //    dst_locs.insert(ginfos[out_gid].locations[out_bid]);
+  //set<int> dst_locs;
+  //for(auto const& [out_gid, out_bid]: refi.outs) {
+  //  dst_locs.insert(ginfos[out_gid].locations[out_bid]);
+  //}
+
+  //vector<int64_t> ret(nlocs, 0);
+  //for(auto const& [sz, deps]: refi.units) {
+  //  set<int> src_locs;
+  //  for(auto const& inn_bid: deps) {
+  //    src_locs.insert(ginfo.locations[inn_bid]);
   //  }
-  //
-  //  vector<int64_t> ret(nlocs, 0);
-  //  for(auto const& [sz, deps]: refi.units) {
-  //    set<int> src_locs;
-  //    for(auto const& inn_bid: deps) {
-  //      src_locs.insert(ginfo.locations[inn_bid]);
-  //    }
-  //
-  //    for(int const& src: src_locs) {
-  //      for(int const& dst: dst_locs) {
-  //        if(src != dst) {
-  //          ret[dst] += sz;
-  //        }
+
+  //  for(int const& src: src_locs) {
+  //    for(int const& dst: dst_locs) {
+  //      if(src != dst) {
+  //        ret[dst] += sz;
   //      }
   //    }
   //  }
+  //}
 
   return ret;
 }
