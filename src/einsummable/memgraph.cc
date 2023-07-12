@@ -1144,7 +1144,9 @@ memgraph_make_state_t::get_tensors_in_memory(
         throw std::runtime_error("not implemented: loading from storage");
       }
     } else {
+      //TODO: assert that input tid is not an input node
       auto const& node = taskgraph.nodes[tid];
+      assert(!node.op.is_input() && "Input SHOULD be in task_tensor_to_mem_node!"); 
       int loc = node.op.out_loc();
       auto size = node.op.out_size();
       auto maybe = allocators[loc].try_to_allocate(size, false);
