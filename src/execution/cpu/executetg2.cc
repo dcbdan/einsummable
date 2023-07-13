@@ -7,8 +7,6 @@
 #include <mutex>
 #include <condition_variable>
 
-#include <fstream> // TODO
-
 using std::thread;
 using std::queue;
 using std::unordered_map;
@@ -155,10 +153,6 @@ struct state_t {
   //   num_did_remaining
   //   here_nodes
   //   here_touches
-
-  mutex m_print; // TODO
-  std::ofstream fff;
-  void print(int n) { unique_lock lk(m_print); fff << n << ","; fff.flush(); }
 };
 
 state_t::state_t(
@@ -171,8 +165,7 @@ state_t::state_t(
     num_apply_remaining(0),
     num_send_remaining(0),
     num_recv_post_remaining(0),
-    num_did_remaining(0),
-    fff("fff.nodes")
+    num_did_remaining(0)
 {
   this_rank = bool(mpi) ? mpi->this_rank : 0;
 
@@ -241,9 +234,11 @@ void state_t::apply_runner(int runner_id)
   int which_apply;
   which_touch_t which_touch;
   bool doing_touch;
+
   while(true) {
     {
       unique_lock lk(m_apply);
+
       cv_apply.wait(lk, [&, this] {
         if(num_apply_remaining == 0) {
           return true;
@@ -262,6 +257,7 @@ void state_t::apply_runner(int runner_id)
         }
         return false;
       });
+
       if(num_apply_remaining == 0) {
         //DLINEOUT("exiting apply runner");
         return;
@@ -331,13 +327,17 @@ void state_t::apply_runner(int runner_id)
       }
     }
 
-    cv_notify.notify_all();
+    cv_notify.notify_one();
 
+    bool fini;
     {
       unique_lock lk(m_apply);
       num_apply_remaining--;
+      fini = num_apply_remaining == 0;
     }
-    cv_apply.notify_all();
+    if(fini) {
+      cv_apply.notify_all();
+    }
   }
 }
 
@@ -376,13 +376,17 @@ void state_t::send_runner(int runner_id) {
       unique_lock lk(m_notify);
       did_nodes.push(send_id);
     }
-    cv_notify.notify_all();
+    cv_notify.notify_one();
 
+    bool fini;
     {
       unique_lock lk(m_send);
       num_send_remaining--;
+      fini = (num_send_remaining == 0);
     }
-    cv_send.notify_all();
+    if(fini) {
+      cv_send.notify_all();
+    }
   }
 }
 
@@ -415,7 +419,7 @@ void state_t::recv_runner(int runner_id) {
       unique_lock lk(m_notify);
       did_nodes.push(recv_id);
     }
-    cv_notify.notify_all();
+    cv_notify.notify_one();
   }
 }
 
@@ -550,7 +554,7 @@ void state_t::event_loop_did_touch(which_touch_t const& info)
         unique_lock lk(m_apply);
         pending_touches.push(which_touch_t { partialize_id, unit_id, next_touch_id });
       }
-      cv_apply.notify_all();
+      cv_apply.notify_one();
     } else {
       unit_state.busy = false;
     }
@@ -564,13 +568,13 @@ void state_t::event_loop_launch(int id) {
       unique_lock lk(m_apply);
       pending_applys.push(id);
     }
-    cv_apply.notify_all();
+    cv_apply.notify_one();
   } else if(node.op.is_move()) {
     {
       unique_lock lk(m_send);
       pending_sends.push(id);
     }
-    cv_send.notify_all();
+    cv_send.notify_one();
   } else {
     throw std::runtime_error("event loop launch only for apply and send");
   }
@@ -588,7 +592,7 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
           unique_lock lk(m_apply);
           pending_touches.push(which_touch_t { partialize_id, unit_id, 0 });
         }
-        cv_apply.notify_all();
+        cv_apply.notify_one();
       }
     } else {
       touch_unit_t touch_unit { partialize_id, unit_id };
@@ -607,7 +611,7 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
               unique_lock lk(m_apply);
               pending_touches.push(which_touch_t { partialize_id, unit_id, touch_id });
             }
-            cv_apply.notify_all();
+            cv_apply.notify_one();
             unit_state.busy = true;
           }
         }
