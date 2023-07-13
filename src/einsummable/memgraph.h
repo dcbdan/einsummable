@@ -395,7 +395,7 @@ private:
   find_lowest_dependency_available(uint64_t size);
 
   optional< tuple<uint64_t, vector<int>> >
-  try_to_allocate_impl(uint64_t size, bool no_deps);
+  try_to_allocate_impl(uint64_t size_without_rem, bool no_deps);
 
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_first_available(uint64_t size);
@@ -438,9 +438,9 @@ struct memgraph_make_state_t {
   // set the input as a storage location.
   map<int, memstoloc_t> allocate_inputs();
 
-  void memgraph_make_state_t::initialize_input(int inn);
+  void initialize_input(int inn);
 
-  bool memgraph_make_state_t::input_has_been_initialized(int inn);
+  bool input_has_been_initialized(int inn);
 
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);

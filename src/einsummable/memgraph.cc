@@ -957,25 +957,23 @@ void memgraph_make_state_t::initialize_input(int inn){
   auto maybe = allocators[loc].try_to_allocate_without_deps(size);
   if (maybe) {
     /* If we are able to allocate without deps on memory, then we insert inputmem_t */
-    auto const& [offset, deps] = maybe.value();
+    auto const& offset = maybe.value();
     inputmem_t input_mem = {.loc = loc, .offset = offset, .size = size };
     input_tid_to_data[inn] = memstoloc_t(input_mem.as_memloc());
     op_t input_op = op_t(input_mem);
+    int memid = memgraph.insert(input_op, {});
+    task_tensor_to_mem_node.insert_or_assign(inn, memid);
   } else {
     /* If we are not able to allocate on memory, then we insert an inputsto_t */
     inputsto_t input_sto = {.loc = loc, .storage_loc = memgraph.storage_locs[loc], .storage_id = _sto_id++};
     input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
     op_t input_op = op_t(input_sto);
+    int memid = memgraph.insert(input_op, {});
+    task_tensor_to_mem_node.insert_or_assign(inn, memid);
   }
-  int memid = memgraph.insert(input_op, {});
-  task_tensor_to_mem_node.insert_or_assign(inn, memid);
 }
 
 bool memgraph_make_state_t::input_has_been_initialized(int inn){
-  auto const& node = taskgraph.nodes[inn];
-  if (!node.op.is_input()) {
-    return??;
-  }
   auto const& iter = input_tid_to_data.find(inn);
   if (iter == input_tid_to_data.end()) {
     return false;
@@ -1357,9 +1355,9 @@ allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
 
 optional<uint64_t>
 allocator_t::try_to_allocate_without_deps(uint64_t size) {
-  auto const& maybe = try_to_allocate_without_deps(size, true);
+  auto const& maybe = try_to_allocate_impl(size, true);
   if (maybe) {
-    auto const& [offset, _] = maybe;
+    auto const& [offset, d] = maybe.value();
     return offset;
   } else {
     return optional<uint64_t>();
@@ -1431,7 +1429,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
 }
 
 optional<tuple<uint64_t, vector<int>>> 
-allocator_t::try_to_allocate_impl(uint64_t size, bool no_deps)
+allocator_t::try_to_allocate_impl(uint64_t size_without_rem, bool no_deps)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
