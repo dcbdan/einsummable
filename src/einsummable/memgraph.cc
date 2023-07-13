@@ -830,7 +830,9 @@ memgraph_t::make(
     n_compute_locs, n_storage_locs,
     use_storage);
 
-  map<int, memstoloc_t> inn_to_data = state.allocate_inputs();
+  if (use_storage) {
+    state.allocate_inputs();
+  }
 
   for(auto which_op: order_taskgraph(taskgraph))
   {
@@ -848,7 +850,7 @@ memgraph_t::make(
   }
 
   return {
-    inn_to_data,
+    state.input_tid_to_data,
     save_to_data,
     state.memgraph
   };
@@ -902,7 +904,6 @@ memgraph_make_state_t::memgraph_make_state_t(
 }
 
 map<int, memstoloc_t> memgraph_make_state_t::allocate_inputs() {
-  map<int, memstoloc_t> ret;
   // Allocate all the input nodes
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
     auto const& node = taskgraph.nodes[id];
@@ -916,7 +917,7 @@ map<int, memstoloc_t> memgraph_make_state_t::allocate_inputs() {
       }
       int loc = node.op.out_loc();
       uint64_t sz = node.op.out_size();
-      auto maybe = allocators[loc].try_to_allocate(sz, false);
+      auto maybe = allocators[loc].try_to_allocate(sz);
       optional<op_t> op;
       if(maybe) {
         auto const& [offset, deps] = maybe.value();
@@ -932,7 +933,7 @@ map<int, memstoloc_t> memgraph_make_state_t::allocate_inputs() {
             "Allow using storage");
         }
         int const& storage_loc = memgraph.storage_locs[loc];
-        int storage_id = memgraph.nodes.size();
+        int storage_id = _sto_id++;
         op = op_t(inputsto_t {
           .loc = loc,
           .storage_loc = storage_loc,
@@ -943,10 +944,44 @@ map<int, memstoloc_t> memgraph_make_state_t::allocate_inputs() {
 
       task_tensor_to_mem_node.insert({id, memgraph_id});
 
-      ret.insert({id, op.value().get_output_memstoloc()});
+      input_tid_to_data.insert({id, op.value().get_output_memstoloc()});
     }
   }
-  return ret;
+  return input_tid_to_data;
+}
+
+void memgraph_make_state_t::initialize_input(int inn){
+  auto const& node = taskgraph.nodes[inn];
+  int loc = node.op.out_loc();
+  uint64_t size = node.op.out_size();
+  auto maybe = allocators[loc].try_to_allocate_without_deps(size);
+  if (maybe) {
+    /* If we are able to allocate without deps on memory, then we insert inputmem_t */
+    auto const& [offset, deps] = maybe.value();
+    inputmem_t input_mem = {.loc = loc, .offset = offset, .size = size };
+    input_tid_to_data[inn] = memstoloc_t(input_mem.as_memloc());
+    op_t input_op = op_t(input_mem);
+  } else {
+    /* If we are not able to allocate on memory, then we insert an inputsto_t */
+    inputsto_t input_sto = {.loc = loc, .storage_loc = memgraph.storage_locs[loc], .storage_id = _sto_id++};
+    input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
+    op_t input_op = op_t(input_sto);
+  }
+  int memid = memgraph.insert(input_op, {});
+  task_tensor_to_mem_node.insert_or_assign(inn, memid);
+}
+
+bool memgraph_make_state_t::input_has_been_initialized(int inn){
+  auto const& node = taskgraph.nodes[inn];
+  if (!node.op.is_input()) {
+    return??;
+  }
+  auto const& iter = input_tid_to_data.find(inn);
+  if (iter == input_tid_to_data.end()) {
+    return false;
+  } else {
+    return true;
+  }
 }
 
 void memgraph_make_state_t::add_to_memgraph(
@@ -963,24 +998,10 @@ void memgraph_make_state_t::add_to_memgraph(
 
   //TODO: loop through all inns so we make sure all inns are ready for this node before starting
   for (int const& inn: node.op.inputs()){
-    auto iter = task_tensor_to_mem_node.find(inn);
-    if (iter == task_tensor_to_mem_node.end()) { 
-      /* if inn is not available in task_tensor_to_mem mapping, 
-        then we need to some how allocate it either on memory or on storage */
-      int loc = node.op.out_loc();
-      uint64_t size = node.op.out_size();
-      auto maybe = allocators[loc].allocate_input(size);
-      if (maybe) {
-        /* If we are able to allocate without deps on memory, then we insert inputmem_t */
-        auto const& [offset, deps] = maybe.value();
-        op_t input_op = op_t(inputmem_t {.loc = loc, .offset = offset, .size = size });
-      } else {
-        /* If we are not able to allocate on memory, then we insert an inputsto_t */
-        op_t input_op = op_t(inputsto_t {.loc = loc, .storage_loc = memgraph.storage_locs[loc], .storage_id = _sto_id++});
-      }
-      int memid = memgraph.insert(input_op, {});
-      task_tensor_to_mem_node.insert_or_assign(inn, memid);
-    } 
+    auto const& inn_node = taskgraph.nodes[inn];
+    if(inn_node.op.is_input() && !input_has_been_initialized(inn)) {
+      initialize_input(inn);
+    }
   }
 
   set<int> used_task_tensors;
@@ -1146,10 +1167,12 @@ memgraph_make_state_t::get_tensors_in_memory(
     } else {
       //TODO: assert that input tid is not an input node
       auto const& node = taskgraph.nodes[tid];
-      assert(!node.op.is_input() && "Input SHOULD be in task_tensor_to_mem_node!"); 
+      if (!node.op.is_input()) {
+        throw std::runtime_error("The input node SHOULD BE in task_tensor_to_mem!");
+      } 
       int loc = node.op.out_loc();
       auto size = node.op.out_size();
-      auto maybe = allocators[loc].try_to_allocate(size, false);
+      auto maybe = allocators[loc].try_to_allocate(size);
       if(maybe) {
         auto const& [offset, vector_deps] = maybe.value();
         alloc_t alloc {
@@ -1332,6 +1355,17 @@ allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
   });
 }
 
+optional<uint64_t>
+allocator_t::try_to_allocate_without_deps(uint64_t size) {
+  auto const& maybe = try_to_allocate_without_deps(size, true);
+  if (maybe) {
+    auto const& [offset, _] = maybe;
+    return offset;
+  } else {
+    return optional<uint64_t>();
+  }
+}
+
 void allocator_t::block_t::free(int d) {
   if(!occupied()) {
     throw std::runtime_error("cannot free unoccupied memory block");
@@ -1396,18 +1430,22 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
   return return_block;
 }
 
-optional< tuple<uint64_t, vector<int>> >
-allocator_t::try_to_allocate(uint64_t size_without_rem, bool is_input)
+optional<tuple<uint64_t, vector<int>>> 
+allocator_t::try_to_allocate_impl(uint64_t size, bool no_deps)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
   optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
-  if(strat == allocator_strat_t::lowest_dependency) {
+  if (no_deps) {
     maybe_info = find_lowest_dependency_available(size_without_rem);
-  } else if(strat == allocator_strat_t::first) {
-    maybe_info = find_first_available(size_without_rem);
   } else {
-    throw std::runtime_error("should not reach");
+    if(strat == allocator_strat_t::lowest_dependency) {
+      maybe_info = find_lowest_dependency_available(size_without_rem);
+    } else if(strat == allocator_strat_t::first) {
+      maybe_info = find_first_available(size_without_rem);
+    } else {
+      throw std::runtime_error("should not reach");
+    }
   }
   if(maybe_info) {
     auto const& [beg,end,sz] = maybe_info.value();
@@ -1430,7 +1468,7 @@ allocator_t::try_to_allocate(uint64_t size_without_rem, bool is_input)
     }
 
     //TODO: if there are any dependencies, then return empty if is_input is true.
-    if (is_input) {
+    if (no_deps) {
       if (deps.size() > 0) {
         return optional<return_t>();
       }
@@ -1458,22 +1496,22 @@ allocator_t::try_to_allocate(uint64_t size_without_rem, bool is_input)
   }
 }
 
+optional< tuple<uint64_t, vector<int>> >
+allocator_t::try_to_allocate(uint64_t size_without_rem)
+{
+ return try_to_allocate_impl(size_without_rem, false); 
+}
+
 tuple<uint64_t, vector<int>>
 allocator_t::allocate(uint64_t size)
 {
-  auto maybe_succ = try_to_allocate(size, false);
+  auto maybe_succ = try_to_allocate(size);
   if(maybe_succ) {
     return maybe_succ.value();
   }
   throw std::runtime_error("allocator_t: could not allocate");
 }
 
-optional<tuple<uint64_t, vector<int>>> 
-allocator_t::allocate_input(uint64_t size)
-{
-  auto maybe = try_to_allocate(size, true);
-  return maybe;
-}
 
 void allocator_t::free(uint64_t offset, int del) {
   auto iter = binary_search_find(blocks.begin(), blocks.end(),
