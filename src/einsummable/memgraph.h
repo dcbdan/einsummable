@@ -336,22 +336,16 @@ struct allocator_t {
     uint64_t memsize_t,
     allocator_settings_t settings = allocator_settings_t::default_settings());
 
-  /**
-   * Allocate this much memory if possible and return the offset and all dependents. 
-   * If there is not free memory of this size, none is returned.
-   * is_input: this bool specifies if we are trying to allocate for a input node. 
-   *    If is_input, then we need to make sure that the return deps is empty. Otherwise we consider it as allocate unsuccessful.
-  */
+  // Allocate this much memory if possible and return the offset and all dependents.
+  // If there is not free memory of this size, none is returned.
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate(uint64_t size);
 
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
 
-  /**
-   * This function is specifically for allocating an input. It will try to allocate a block without any deps.
-   * If no block with no deps is available, then return non.
-  */
+  // This function is specifically for allocating without any dependencies.
+  // It will try to allocate a block without any deps and on failure returns none.
   optional<uint64_t>
   try_to_allocate_without_deps(uint64_t size);
 
@@ -434,10 +428,6 @@ struct memgraph_make_state_t {
   using alloc_t      = memgraph_t::alloc_t;
   using del_t        = memgraph_t::del_t;
 
-  // Allocate all the inputs to memory and whenever an allocator fails,
-  // set the input as a storage location.
-  map<int, memstoloc_t> allocate_inputs();
-
   void initialize_input(int inn);
 
   bool input_has_been_initialized(int inn);
@@ -491,7 +481,7 @@ struct memgraph_make_state_t {
 
   int _sto_id;
 
-  /* A mapping from input tid to where it's stored initially */
+  // A mapping from input tid to where it's stored initially
   map<int, memstoloc_t> input_tid_to_data;
 };
 // Some notes about nodes in the taskgraph vs nodes in the memgraph
