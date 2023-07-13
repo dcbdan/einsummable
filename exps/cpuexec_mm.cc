@@ -128,10 +128,8 @@ int main(int argc, char** argv) {
   if(with_taskgraph) {
     execute_taskgraph_settings_t execute_settings {
       .num_apply_runner = num_threads_per_node,
-      .num_touch_runner = num_threads_per_node,
       .num_send_runner  = num_send_and_recv_threads,
-      .num_recv_runner  = num_send_and_recv_threads,
-      .num_apply_kernel_threads = 1
+      .num_recv_runner  = num_send_and_recv_threads
     };
 
     map<int, buffer_t> tensors;

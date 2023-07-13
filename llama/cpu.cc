@@ -539,13 +539,8 @@ int main(int argc, char** argv) {
   //  DOUT(rel.placement.total_shape());
   //  DOUT("");
   //}
-  execute_taskgraph_settings_t settings {
-    .num_apply_runner = num_threads_per_node,
-    .num_touch_runner = num_touch_threads,
-    .num_send_runner = 0,
-    .num_recv_runner = 0,
-    .num_apply_kernel_threads = 1
-  };
+  auto settings = execute_taskgraph_settings_t::default_settings();
+  settings.num_apply_runner = num_threads_per_node;
 
   mpi_t mpi(argc, argv);
 

@@ -178,10 +178,8 @@ int main(int argc, char** argv)
 
   execute_taskgraph_settings_t execute_settings {
     .num_apply_runner = num_threads_per_node,
-    .num_touch_runner = 2,
     .num_send_runner  = 1,
-    .num_recv_runner  = 1,
-    .num_apply_kernel_threads = 1
+    .num_recv_runner  = 1
   };
 
   taskgraph_t taskgraph;
