@@ -2,21 +2,17 @@
 
 relationwise_mcmc_t::relationwise_mcmc_t(
   graph_t const& graph,
+  kernel_coster_t const& kernel_coster,
   int nlocs,
   int n_threads_per_loc,
   int max_blocks,
-  double scale_compute,
-  double scale_move,
   equal_items_t<int> equal_gids)
-  : gwise(nlocs, n_threads_per_loc, graph, graph.make_singleton_placement()),
-    max_blocks(max_blocks), scale_compute(scale_compute), scale_move(scale_move),
-    equal_gids(equal_gids)
+  : gwise(nlocs, n_threads_per_loc, graph, kernel_coster, graph.make_singleton_placement()),
+    max_blocks(max_blocks), equal_gids(equal_gids)
 {
-  auto [compute_cost, move_cost] = gwise.total_cost();
-  current_compute = compute_cost;
-  current_move = move_cost;
+  current_cost = gwise.total_cost();
+  best_cost = current_cost;
 
-  best_cost = cost();
   //DOUT("init cost " << best_cost);
 
   best_placements = gwise.get_placements();
@@ -27,7 +23,7 @@ bool relationwise_mcmc_t::step(double beta) {
   op_t undo = reverse(op);
   double prev_cost = cost();
   change(op);
-  double current_cost = cost();
+  current_cost = cost();
   if(current_cost <= prev_cost) {
     if(current_cost < best_cost) {
       best_cost = current_cost;
@@ -54,16 +50,10 @@ void relationwise_mcmc_t::set_placements(vector<placement_t> const& pls)
     throw std::runtime_error("must specify every placement");
   }
 
-  int64_t cd = 0;
-  int64_t cm = 0;
   for(int gid = 0; gid != pls.size(); ++gid) {
-    auto [cd_, cm_] = gwise(gid, pls[gid]);
-    cd += cd_;
-    cm += cm_;
+    current_cost += gwise(gid, pls[gid]);
   }
-  update_cost(cd, cm);
 
-  double current_cost = cost();
   //DOUT("set cost " << current_cost);
   if(current_cost < best_cost) {
     best_cost = current_cost;
@@ -108,16 +98,13 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
       }
     }
     partition_t pp = crement_partition(c);
-    update_cost(gwise(c.gid, pp));
+    current_cost += gwise(c.gid, pp);
   } else if(op.is_set_directly()) {
     int64_t cd = 0;
     int64_t md = 0;
     for(auto const& [gid, pl]: op.get_set_directly().items) {
-      auto [cd_, md_] = gwise(gid, pl);
-      cd += cd_;
-      md += md_;
+      current_cost += gwise(gid, pl);
     }
-    update_cost(cd, md);
   } else {
     throw std::runtime_error("rwmcmc: missing case in change");
   }
@@ -183,7 +170,7 @@ void relationwise_mcmc_t::greedy_solve(int gid) {
     int best_loc = orig_loc;
     for(int loc = 0; loc != gwise.nlocs; ++loc) {
       if(loc != orig_loc) {
-        update_cost(gwise(jid, loc));
+        current_cost += gwise(jid, loc);
         double current_cost = cost();
         if(current_cost < best) {
           best = current_cost;
@@ -191,25 +178,8 @@ void relationwise_mcmc_t::greedy_solve(int gid) {
         }
       }
     }
-    update_cost(gwise(jid, best_loc));
+    current_cost += gwise(jid, best_loc);
   }
-}
-
-void relationwise_mcmc_t::update_cost(
-  int64_t compute_delta, int64_t move_delta)
-{
-  current_compute += compute_delta;
-  current_move += move_delta;
-}
-
-void relationwise_mcmc_t::update_cost(tuple<int64_t, int64_t> delta)
-{
-  return update_cost(std::get<0>(delta), std::get<1>(delta));
-}
-double relationwise_mcmc_t::cost_from_scores(
-  int64_t compute_cost, int64_t move_cost) const
-{
-  return compute_cost * scale_compute + move_cost * scale_move;
 }
 
 partition_t

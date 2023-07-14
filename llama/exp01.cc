@@ -73,15 +73,14 @@ vector<placement_t> solve_relationwise(
   int nlocs,
   int n_threads_per_node,
   int max_blocks,
-  double scale_compute,
-  double scale_move,
   int num_steps,
   double beta)
 {
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+
   relationwise_mcmc_t mcmc(
-    graph,
+    graph, kernel_coster,
     nlocs, n_threads_per_node, max_blocks,
-    scale_compute, scale_move,
     equal_items_t<int>());
 
   DOUT("single thread cost " << mcmc.cost());
@@ -135,11 +134,8 @@ int main() {
     //return solve_forwardsim(graph, cluster_settings, num_steps, beta);
 
     int max_blocks = 2 * num_nodes * num_threads_per_node;
-    double scale_compute = 1.0e-8;
-    double scale_move    = 1.0e-9;
     return solve_relationwise(
       graph, num_nodes, num_threads_per_node, max_blocks,
-      scale_compute, scale_move,
       num_steps,
       beta);
   };

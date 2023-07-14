@@ -1,47 +1,72 @@
 #include "relationwise.h"
 #include "../base/copyregion.h"
 
-int64_t einsummable_cost(einsummable_t const& e) {
-  int64_t ret = 1;
-  for(uint64_t const& n: e.join_shape) {
-    ret *= int64_t(n);
-  }
-  return ret;
+kernel_coster_t
+kernel_coster_t::for_cpu_cluster(int nlocs)
+{
+  // 100 Mbps
+  double bw = 1e8;
+
+  double fl = 1e10;
+
+  double startup = 5e-3; // this many seconds to start doing anything
+
+  return kernel_coster_t {
+    .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
+    .flops = fl,
+    .compute_start = startup,
+    .touch_start = startup,
+    .move_start = startup
+  };
 }
 
-int64_t einsummable_cost(optional<einsummable_t> const& maybe) {
-  if(maybe) {
-    return einsummable_cost(maybe.value());
-  }
-  return 0;
+double kernel_coster_t::compute(einsummable_t const& e) const {
+  return compute_start + double(product(e.join_shape)) / flops;
+}
+
+double kernel_coster_t::move(uint64_t n, int src, int dst) const {
+  return move_start + double(n) / bandwidths[src][dst];
+}
+
+double kernel_coster_t::touch(uint64_t n) const {
+  return compute_start + double(n) / flops;
 }
 
 threads_costs_t::threads_costs_t(int n_threads)
   : max_cost(0), cnt(0), n_threads(n_threads)
 {}
 
-void threads_costs_t::add(int64_t cost) {
+void threads_costs_t::add(double cost) {
   cnt++;
   max_cost = std::max(cost, max_cost);
 }
 
-void threads_costs_t::pop(int64_t cost) {
+void threads_costs_t::pop(double cost) {
   if(cost > max_cost) {
     throw std::runtime_error("invalid cost to pop");
   }
   cnt--;
+  if(cnt == 0) {
+    max_cost = 0.0;
+  }
 }
 
-int64_t threads_costs_t::cost() const {
+double threads_costs_t::cost() const {
   return ((cnt + n_threads - 1) / n_threads) * max_cost;
+}
+
+void threads_costs_t::clear() {
+  max_cost = 0.0;
+  cnt = 0;
 }
 
 relationwise_t::relationwise_t(
   int nls,
   int ntp,
   graph_t const& g,
+  kernel_coster_t const& kc,
   vector<placement_t> const& pls)
-  : nlocs(nls), n_threads_per_loc(ntp), graph(g)
+  : nlocs(nls), n_threads_per_loc(ntp), kernel_coster(kc), graph(g)
 {
   std::function<partition_t const&(int)> get_partition =
     [&pls](int gid) -> partition_t const&
@@ -69,8 +94,10 @@ relationwise_t::relationwise_t(
           twolayer_construct_refinement_partition(graph, gid, get_partition)) :
         std::nullopt                                                          ,
       .refis = std::nullopt,
-      .compute_cost = {},
-      .move_cost = {}
+      .join_cost      = vector<threads_costs_t>(nlocs, threads_costs_t(n_threads_per_loc)),
+      .touch_src_cost = vector<threads_costs_t>(nlocs, threads_costs_t(n_threads_per_loc)),
+      .move_cost      = vector<double>(nlocs, 0.0),
+      .touch_dst_cost = vector<threads_costs_t>(nlocs, threads_costs_t(n_threads_per_loc))
     });
 
     ginfo_t& ginfo = ginfos.back();
@@ -89,13 +116,26 @@ relationwise_t::relationwise_t(
 
   // add all the join and move costs
   // add all the move costs
+  reset_cost();
+}
+
+void relationwise_t::reset_cost() {
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    reset_compute_cost(gid);
-    reset_move_cost(gid);
+    reset_join_cost(gid);
+    reset_refi_cost(gid);
   }
 }
 
-tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
+double relationwise_t::ginfo_t::total_join_cost() const {
+  return vector_max_method(join_cost, cost);
+}
+double relationwise_t::ginfo_t::total_refi_cost() const {
+  return vector_max_method(touch_src_cost, cost) +
+         vector_max_element(move_cost) +
+         vector_max_method(touch_dst_cost, cost);
+}
+
+double relationwise_t::operator()(jid_t jid, int loc)
 {
   auto const& [gid, bid] = jid;
   auto& ginfo = ginfos[gid];
@@ -104,34 +144,32 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
 
   if(join_loc == loc) {
     // nothing is being changed!
-    return {0, 0};
+    return 0.0;
   }
 
-  int64_t join_cost = einsummable_cost(join.einsummable);
-
-  // compute the change in the compute cost & update ginfo.compute_cost
-  int64_t compute_delta;
-  {
-    int64_t compute_before = vector_max_method(ginfo.compute_cost, cost);
-    ginfo.compute_cost[join_loc].pop(join_cost);
-    ginfo.compute_cost[loc].add(join_cost);
-    int64_t compute_after = vector_max_method(ginfo.compute_cost, cost);
-    compute_delta = compute_after - compute_before;
+  // compute the change in the compute cost & update ginfo.join_cost
+  double join_delta = 0.0;
+  if(join.einsummable) { // bool(join.einsummable) iff gid node is einsummable iff
+                         //                            has_join_cost(gid)
+    double j_cost = kernel_coster.compute(join.einsummable.value());
+    double join_before = ginfo.total_join_cost();
+    ginfo.join_cost[join_loc].pop(j_cost);
+    ginfo.join_cost[loc].add(j_cost);
+    double join_after = ginfo.total_join_cost();
+    join_delta = join_after - join_before;
   }
 
-  // the corresponding ginfos that may have different move costs:
+  // the corresponding ginfos that may have different refi costs:
   //   this node, the gids that have an agg that use this join bid
 
-  // compute the move cost before & subtract from all the corresponding
-  // ginfos move_cost
+  // compute the refi cost before & subtract from all the corresponding
+  // ginfos refi cost terms
 
-  int64_t move_before = 0;
+  double refi_before = 0.0;
 
-  move_before += vector_max_element(ginfo.move_cost);
+  refi_before += ginfo.total_refi_cost();
   for(auto const& refi_bid: join.outs) {
-    vector_sub_into(
-      ginfo.move_cost,
-      move_cost_at({gid, refi_bid}));
+    sub_refi_cost_at({gid, refi_bid});
   }
 
   map<int, set<int>> inn_gid_to_refi_bids;
@@ -141,11 +179,9 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
 
   for(auto const& [inn_gid, inn_refis]: inn_gid_to_refi_bids) {
     auto& inn_ginfo = ginfos[inn_gid];
-    move_before += vector_max_element(inn_ginfo.move_cost);
+    refi_before += inn_ginfo.total_refi_cost();
     for(auto const& inn_refi_bid: inn_refis) {
-      vector_sub_into(
-        inn_ginfo.move_cost,
-        move_cost_at({inn_gid, inn_refi_bid}));
+      sub_refi_cost_at({inn_gid, inn_refi_bid});
     }
   }
 
@@ -153,39 +189,35 @@ tuple<int64_t, int64_t> relationwise_t::operator()(jid_t jid, int loc)
   join_loc = loc;
 
   // now that the join loc has been updated, add to all the corresponding
-  // ginfos move cost
+  // ginfos refis costs
 
-  int64_t move_after = 0;
+  double refi_after = 0;
 
   for(auto const& refi_bid: join.outs) {
-    vector_add_into(
-      ginfo.move_cost,
-      move_cost_at({gid, refi_bid}));
+    add_refi_cost_at({gid, refi_bid});
   }
-  move_after += vector_max_element(ginfo.move_cost);
+  refi_after += ginfo.total_refi_cost();
 
   for(auto const& [inn_gid, inn_refis]: inn_gid_to_refi_bids) {
     auto& inn_ginfo = ginfos[inn_gid];
     for(auto const& inn_refi_bid: inn_refis) {
-      vector_add_into(
-        inn_ginfo.move_cost,
-        move_cost_at({inn_gid, inn_refi_bid}));
+      add_refi_cost_at({inn_gid, inn_refi_bid});
     }
-    move_after += vector_max_element(inn_ginfo.move_cost);
+    refi_after += inn_ginfo.total_refi_cost();
   }
 
-  int64_t move_delta = move_after - move_before;
+  double refi_delta = refi_after - refi_before;
 
-  return {compute_delta, move_delta};
+  return join_delta + refi_delta;
 }
 
-tuple<int64_t, int64_t>
+double
 relationwise_t::operator()(int gid, partition_t const& new_partition)
 {
   auto const& ginfo = ginfos[gid];
 
   if(new_partition == ginfo.partition) {
-    return {0, 0};
+    return 0.0;
   }
 
   // A location for each block in the partition must be chosen,
@@ -209,7 +241,7 @@ relationwise_t::operator()(int gid, partition_t const& new_partition)
       vtensor_t<int>(new_block_shape, new_locations)));
 }
 
-tuple<int64_t, int64_t>
+double
 relationwise_t::operator()(int gid, placement_t const& new_placement)
 {
   ginfo_t& ginfo = ginfos[gid];
@@ -219,24 +251,21 @@ relationwise_t::operator()(int gid, placement_t const& new_placement)
     // that only changes a location as that should be faster
     auto const& new_locs = new_placement.locations.get();
 
-    int64_t compute_delta = 0;
-    int64_t move_delta = 0;
+    double delta = 0.0;
 
     for(int bid = 0; bid != ginfo.locations.size(); ++bid) {
-      auto [cd, md] = this->operator()(jid_t { gid, bid }, new_locs[bid]);
-      compute_delta += cd;
-      move_delta += md;
+      delta += this->operator()(jid_t { gid, bid }, new_locs[bid]);
     }
 
-    return {compute_delta, move_delta};
+    return delta;
   }
 
   set<int> inn_gids = graph.nodes[gid].get_inns_set();
 
-  int64_t compute_cost_before = vector_max_method(ginfo.compute_cost, cost);
-  int64_t move_cost_before = vector_max_element(ginfo.move_cost);
+  double join_cost_before = ginfo.total_join_cost();
+  double refi_cost_before = ginfo.total_refi_cost();
   for(auto const& inn_gid: inn_gids) {
-    move_cost_before += vector_max_element(ginfos[inn_gid].move_cost);
+    refi_cost_before += ginfos[inn_gid].total_refi_cost();
   }
 
   //////////
@@ -291,26 +320,24 @@ relationwise_t::operator()(int gid, placement_t const& new_placement)
   }
 
   // the compute cost here
-  reset_compute_cost(gid);
+  reset_join_cost(gid);
 
-  // all the new move costs
-  reset_move_cost(gid);
+  // all the new refi costs
+  reset_refi_cost(gid);
   for(int const& inn_gid: inn_gids) {
-    reset_move_cost(inn_gid);
+    reset_refi_cost(inn_gid);
   }
 
   //////////
 
-  int64_t compute_cost_after = vector_max_method(ginfo.compute_cost, cost);
-  int64_t move_cost_after = vector_max_element(ginfo.move_cost);
+  double join_cost_after = ginfo.total_join_cost();
+  double refi_cost_after = ginfo.total_refi_cost();;
   for(auto const& inn_gid: inn_gids) {
-    move_cost_after += vector_max_element(ginfos[inn_gid].move_cost);
+    refi_cost_after += ginfos[inn_gid].total_refi_cost();
   }
 
-  return {
-    compute_cost_after - compute_cost_before,
-    move_cost_after - move_cost_before
-  };
+  return (join_cost_after - join_cost_before) +
+         (refi_cost_after - refi_cost_before) ;
 }
 
 vector<placement_t> relationwise_t::get_placements() const
@@ -333,73 +360,12 @@ placement_t relationwise_t::get_placement_at(int gid) const
     vtensor_t<int>(ginfo.partition.block_shape(), ginfo.locations));
 }
 
-vector<int64_t> relationwise_t::move_cost_at(rid_t rid) const
-{
-  // TODO: This code is a hot spot. It may be faster to cache
-  //       src_locs, dst_locs or both instead of recomputing
-  //       them each time.
-  auto const& [gid,bid] = rid;
-  auto const& ginfo = ginfos[gid];
-  auto const& refi = ginfos[gid].refis.value()[bid];
-
-  vector<char> dst_locs(nlocs, 0);
-  for(auto const& [out_gid, out_bid]: refi.outs) {
-    dst_locs[ginfos[out_gid].locations[out_bid]] = 1;
-  }
-
-  vector<int64_t> ret(nlocs, 0);
-  vector<char> src_locs(nlocs);
-  for(auto const& [sz, deps]: refi.units) {
-    std::fill(src_locs.begin(), src_locs.end(), 0);
-    for(auto const& inn_bid: deps) {
-      src_locs[ginfo.locations[inn_bid]] = 1;
-    }
-
-    for(int src = 0; src != nlocs; ++src) {
-      if(src_locs[src]) {
-        for(int dst = 0; dst != nlocs; ++dst) {
-          if(dst_locs[dst] && src != dst) {
-            ret[dst] += sz;
-          }
-        }
-      }
-    }
-  }
-
-  // Here is another, most likely slower implementation
-  //
-  //set<int> dst_locs;
-  //for(auto const& [out_gid, out_bid]: refi.outs) {
-  //  dst_locs.insert(ginfos[out_gid].locations[out_bid]);
-  //}
-
-  //vector<int64_t> ret(nlocs, 0);
-  //for(auto const& [sz, deps]: refi.units) {
-  //  set<int> src_locs;
-  //  for(auto const& inn_bid: deps) {
-  //    src_locs.insert(ginfo.locations[inn_bid]);
-  //  }
-
-  //  for(int const& src: src_locs) {
-  //    for(int const& dst: dst_locs) {
-  //      if(src != dst) {
-  //        ret[dst] += sz;
-  //      }
-  //    }
-  //  }
-  //}
-
-  return ret;
-}
-
-tuple<int64_t, int64_t> relationwise_t::total_cost() const {
-  int64_t compute = 0;
-  int64_t move = 0;
+double relationwise_t::total_cost() const {
+  double ret;
   for(auto const& ginfo: ginfos) {
-    compute += vector_max_method(ginfo.compute_cost, cost);
-    move += vector_max_element(ginfo.move_cost);
+    ret += ginfo.total_cost();
   }
-  return {compute, move};
+  return ret;
 }
 
 std::function<partition_t const&(int)>
@@ -423,30 +389,117 @@ relationwise_t::f_get_mutable_refis() {
   };
 }
 
-void relationwise_t::reset_compute_cost(int gid) {
+void relationwise_t::reset_join_cost(int gid) {
+  if(!has_join_cost(gid)) {
+    return;
+  }
   ginfo_t& ginfo = ginfos[gid];
-  ginfo.compute_cost = vector<threads_costs_t>(nlocs, threads_costs_t(n_threads_per_loc));
+  vector_domethod(ginfo.join_cost, clear);
   for(int bid = 0; bid != ginfo.joins.size(); ++bid) {
     int const& loc = ginfo.locations[bid];
-    int64_t join_cost = einsummable_cost(ginfo.joins[bid].einsummable);
-    ginfo.compute_cost[loc].add(join_cost);
+    double join_cost = kernel_coster.compute(ginfo.joins[bid].einsummable.value());
+    ginfo.join_cost[loc].add(join_cost);
   }
 }
 
-void relationwise_t::reset_move_cost(int gid) {
+void relationwise_t::reset_refi_cost(int gid) {
   ginfo_t& ginfo = ginfos[gid];
+
   if(ginfo.has_refinement()) {
-    ginfo.move_cost = vector<int64_t>(nlocs, 0);
+    vector_domethod(ginfo.touch_src_cost, clear);
+    std::fill(ginfo.move_cost.begin(), ginfo.move_cost.end(), 0.0);
+    vector_domethod(ginfo.touch_dst_cost, clear);
+
     int nbids = ginfo.refis.value().size();
     for(int bid = 0; bid != nbids; ++bid) {
-      vector_add_into(
-        ginfo.move_cost,
-        move_cost_at(rid_t { gid, bid }));
+      add_refi_cost_at(rid_t { gid, bid });
     }
   } else {
-    ginfo.move_cost = vector<int64_t>(nlocs, 0);
+    // the costs should have been zero before and they should
+    // still be zero
   }
 }
 
+void relationwise_t::_change_refi_cost_at(rid_t rid, bool add)
+{
+  // TODO: This code is a hot spot. It may be faster to cache
+  //       src_locs, dst_locs or both instead of recomputing
+  //       them each time. Or maybe the whole thing doesn't need
+  //       to be computed.
+  auto const& [gid,bid] = rid;
+  auto&       ginfo = ginfos[gid];
+  auto const& refi = ginfos[gid].refis.value()[bid];
+
+  auto& touch_src_cost = ginfo.touch_src_cost;
+  auto& move_cost = ginfo.move_cost;
+  auto& touch_dst_cost = ginfo.touch_src_cost;
+
+  auto update_touch = [&add](threads_costs_t& t, double c) {
+    if(add) {
+      t.add(c);
+    } else {
+      t.pop(c);
+    }
+  };
+  auto update_move = [&add](double& t, double c) {
+    if(add) {
+      t += c;
+    } else {
+      t -= c;
+    }
+  };
+
+  vector<char> dst_locs(nlocs, 0);
+  for(auto const& [out_gid, out_bid]: refi.outs) {
+    dst_locs[ginfos[out_gid].locations[out_bid]] = 1;
+  }
+
+  vector<char> src_locs(nlocs);
+  for(auto const& [sz, deps]: refi.units) {
+    double t_cost = kernel_coster.touch(sz);
+    std::fill(src_locs.begin(), src_locs.end(), 0);
+    for(auto const& inn_bid: deps) {
+      src_locs[ginfo.locations[inn_bid]] = 1;
+    }
+
+    for(int src = 0; src != nlocs; ++src) {
+      if(src_locs[src]) {
+        update_touch(touch_src_cost[src], t_cost);
+        for(int dst = 0; dst != nlocs; ++dst) {
+          if(dst_locs[dst] && src != dst) {
+            update_move(move_cost[dst], kernel_coster.move(sz, src, dst));
+            update_touch(touch_src_cost[dst], t_cost);
+          }
+        }
+      }
+    }
+  }
+
+  // Here is another, most likely slower implementation
+  //
+  //set<int> dst_locs;
+  //for(auto const& [out_gid, out_bid]: refi.outs) {
+  //  dst_locs.insert(ginfos[out_gid].locations[out_bid]);
+  //}
+
+  //for(auto const& [sz, deps]: refi.units) {
+  //  double t_cost = kernel_coster.touch(sz);
+
+  //  set<int> src_locs;
+  //  for(auto const& inn_bid: deps) {
+  //    src_locs.insert(ginfo.locations[inn_bid]);
+  //  }
+
+  //  for(int const& src: src_locs) {
+  //    update_touch(touch_src_cost[src], t_cost);
+  //    for(int const& dst: dst_locs) {
+  //      if(src != dst) {
+  //        update_move(move_cost[dst], kernel_coster.move(sz, src, dst));
+  //        update_touch(touch_src_cost[dst], t_cost);
+  //      }
+  //    }
+  //  }
+  //}
+}
 
 

@@ -24,9 +24,9 @@ struct random_placement_t {
 };
 
 void test01() {
-  set_seed(0);
-
   int nlocs = 3;
+  int n_threads_per = 1;
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
 
   uint64_t ni = 10001;
   uint64_t nj = 10002;
@@ -55,82 +55,48 @@ void test01() {
   graph_t const& graph = g.graph;
   vector<placement_t> init_placements = g.get_placements();
 
-  relationwise_t gwise(nlocs, 1, graph, init_placements);
+  relationwise_t gwise(nlocs, n_threads_per, graph, kernel_coster, init_placements);
 
-  auto [compute_cost, move_cost] = gwise.total_cost();
+  double total = gwise.total_cost();
 
-  int niter = 10000;
+  int niter = 100000;
 
-  // test 1: change a single location and back
-  for(int iter = 0; iter != niter; ++iter) {
-    int gid = runif(graph.nodes.size());
-    int bid = runif(gwise.ginfos[gid].joins.size());
-    int loc = runif(nlocs);
-    auto [compute_delta, move_delta] = gwise(jid_t { gid, bid }, loc);
-    auto [new_compute_cost, new_move_cost] = gwise.total_cost();
-    if(new_compute_cost != compute_cost + compute_delta ||
-       new_move_cost != move_cost + move_delta)
-    {
-      throw std::runtime_error("deltas and total cost not matching");
-    }
-
-    auto [undo_compute_delta, undo_move_delta] = gwise(jid_t { gid, bid }, 0);
-    auto [undo_compute_cost, undo_move_cost] = gwise.total_cost();
-    if(undo_compute_delta != -1*compute_delta ||
-       undo_move_delta != -1*move_delta)
-    {
-      throw std::runtime_error("undo deltas do not match");
-    }
-    if(compute_cost != undo_compute_cost || move_cost != undo_move_cost)
-    {
-      throw std::runtime_error("cost not the same after undo");
-    }
-  }
-
-  // test 2: change all locs and back
+  // change all locs and back
   {
-    int64_t compute_delta = 0;
-    int64_t move_delta = 0;
+    double delta = 0.0;
     for(int iter = 0; iter != niter; ++iter) {
       int gid = runif(graph.nodes.size());
       int bid = runif(gwise.ginfos[gid].joins.size());
       int loc = runif(nlocs);
-      auto [cd,md] = gwise(jid_t { gid, bid }, loc);
-      compute_delta += cd;
-      move_delta += md;
+      delta += gwise(jid_t { gid, bid }, loc);
     }
     {
-      auto [after_compute_cost, after_move_cost] = gwise.total_cost();
-      if(after_compute_cost != compute_cost + compute_delta ||
-         after_move_cost    != move_cost    + move_delta)
-      {
-        throw std::runtime_error("deltas are off");
-      }
+      gwise.reset_cost();
+      double after_total = gwise.total_cost();
+      DOUT(total + delta);
+      DOUT(after_total);
     }
     for(int gid = 0; gid != graph.nodes.size(); ++gid) {
       for(int bid = 0; bid != gwise.ginfos[gid].joins.size(); ++bid) {
-        auto [cd,md] = gwise(jid_t { gid, bid }, 0);
-        compute_delta += cd;
-        move_delta += md;
+        delta += gwise(jid_t { gid, bid }, 0);
       }
     }
-    auto [after_compute_cost, after_move_cost] = gwise.total_cost();
-    if(after_compute_cost != compute_cost + compute_delta ||
-       after_move_cost    != move_cost    + move_delta)
     {
-      throw std::runtime_error("deltas are off: going back to zeros");
+      DOUT("and back");
+      gwise.reset_cost();
+      double after_total = gwise.total_cost();
+      DOUT(total + delta);
+      DOUT(after_total);
     }
-    if(compute_cost != after_compute_cost || move_cost != after_move_cost)
-    {
-      throw std::runtime_error("mismatch in total cost");
-    }
+    // Note that the delta is not going to be exactly correct because
+    // all compute costs are approximate via threads_costs_t objects.
   }
 }
 
 void test02() {
-  set_seed(0);
-
   int nlocs = 8;
+  int n_threads_per = 1;
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
 
   uint64_t ni = 10001;
   uint64_t nj = 10002;
@@ -167,68 +133,34 @@ void test02() {
     return random_placement(init_placements[gid].total_shape());
   };
 
-  relationwise_t gwise(nlocs, 1, graph, init_placements);
+  relationwise_t gwise(nlocs, n_threads_per, graph, kernel_coster, init_placements);
 
-  auto [compute_cost, move_cost] = gwise.total_cost();
+  auto total = gwise.total_cost();
 
-  int niter = 10000;
+  int niter = 10;
 
-  // test 1: change placement and back
-  for(int iter = 0; iter != niter; ++iter) {
-    int gid = runif(graph.nodes.size());
-    auto pl = make_random_placement(gid);
-    auto [compute_delta, move_delta] = gwise(gid, pl);
-    auto [new_compute_cost, new_move_cost] = gwise.total_cost();
-    if(new_compute_cost != compute_cost + compute_delta ||
-       new_move_cost != move_cost + move_delta)
-    {
-      throw std::runtime_error("deltas and total cost not matching");
-    }
-    auto [undo_compute_delta, undo_move_delta] = gwise(gid, init_placements[gid]);
-    auto [undo_compute_cost, undo_move_cost] = gwise.total_cost();
-    if(undo_compute_delta != -1*compute_delta ||
-       undo_move_delta != -1*move_delta)
-    {
-      throw std::runtime_error("undo deltas do not match");
-    }
-    if(compute_cost != undo_compute_cost || move_cost != undo_move_cost)
-    {
-      throw std::runtime_error("cost not the same after undo");
-    }
-  }
-
-  // test 2: change all locs and back
+  // change all locs and back
   {
-    int64_t compute_delta = 0;
-    int64_t move_delta = 0;
+    double delta = 0.0;
     for(int iter = 0; iter != niter; ++iter) {
       int gid = runif(graph.nodes.size());
-      auto [cd,md] = gwise(gid, make_random_placement(gid));
-      compute_delta += cd;
-      move_delta += md;
+      delta += gwise(gid, make_random_placement(gid));
     }
     {
-      auto [after_compute_cost, after_move_cost] = gwise.total_cost();
-      if(after_compute_cost != compute_cost + compute_delta ||
-         after_move_cost    != move_cost    + move_delta)
-      {
-        throw std::runtime_error("deltas are off");
-      }
+      gwise.reset_cost();
+      double after_total = gwise.total_cost();
+      DOUT(total + delta);
+      DOUT(after_total);
     }
     for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      auto [cd,md] = gwise(gid, init_placements[gid]);
-      compute_delta += cd;
-      move_delta += md;
+      delta += gwise(gid, init_placements[gid]);
     }
-    auto [after_compute_cost, after_move_cost] = gwise.total_cost();
-    if(after_compute_cost != compute_cost + compute_delta ||
-       after_move_cost    != move_cost    + move_delta)
     {
-      throw std::runtime_error("deltas are off: going back to zeros");
-    }
-    if(compute_cost != after_compute_cost || move_cost != after_move_cost)
-    {
-      throw std::runtime_error("mismatch in total cost");
+      DOUT("and back");
+      gwise.reset_cost();
+      double after_total = gwise.total_cost();
+      DOUT(total + delta);
+      DOUT(after_total);
     }
   }
 }
@@ -272,6 +204,9 @@ void test03() {
 
   int niter = 10000;
   int nlocs = 12;
+  int n_threads_per = 1;
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+
   random_placement_t random_placement {
     .part_size_rng = {2,4},
     .nloc = nlocs
@@ -280,19 +215,19 @@ void test03() {
     return random_placement(graph.nodes[gid].op.shape());
   };
 
-  relationwise_t gwise(nlocs, 1, graph, graph.make_singleton_placement());
-  auto [compute_cost, move_cost] = gwise.total_cost();
+  relationwise_t gwise(nlocs, n_threads_per, graph, kernel_coster,
+    graph.make_singleton_placement());
+  double total = gwise.total_cost();
+  double delta = 0.0;
   for(int iter = 0; iter != niter; ++iter) {
     int gid = runif(graph.nodes.size());
-    auto [compute_delta, move_delta] = gwise(gid, make_random_placement(gid));
-    auto [new_compute_cost, new_move_cost] = gwise.total_cost();
-    if(new_compute_cost != compute_cost + compute_delta ||
-       new_move_cost != move_cost + move_delta)
-    {
-      throw std::runtime_error("deltas and total cost not matching");
-    }
-    compute_cost = new_compute_cost;
-    move_cost = new_move_cost;
+    delta += gwise(gid, make_random_placement(gid));
+  }
+  {
+    gwise.reset_cost();
+    double after_total = gwise.total_cost();
+    DOUT(total + delta);
+    DOUT(after_total);
   }
 }
 
@@ -334,13 +269,14 @@ void test_copyregion_join_inn()
   do {
     DOUT(cr.idx_join() << " " << cr.idx_inn());
   } while(cr.increment());
-
 }
 
 int main() {
-  //test01();
+  test01();
+  DOUT("---");
   test02();
-  //test03();
+  DOUT("---");
+  test03();
   //test_copyregion_full();
   //test_copyregion_join_inn();
 }

@@ -169,6 +169,19 @@ T vector_max_element(vector<T> const& xs) {
   return *std::max_element(xs.begin(), xs.end());
 }
 
+template <typename T, typename F>
+void vector_doeach(vector<T>& xs, F f) {
+  for(T& x: xs) { f(x); }
+}
+
+template <typename T, typename F>
+void vector_doeach(vector<T> const& xs, F f) {
+  for(T const& x: xs) { f(x); }
+}
+
+#define vector_domethod(xs, f) \
+  vector_doeach(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f));
+
 template <typename X, typename F>
 auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
   if(xs.size() == 0) {

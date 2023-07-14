@@ -6,11 +6,10 @@
 struct relationwise_mcmc_t {
   relationwise_mcmc_t(
     graph_t const& graph,
+    kernel_coster_t const& kernel_coster,
     int nlocs,
     int n_threads_per_loc,
     int max_blocks,
-    double scale_compute,
-    double scale_move,
     equal_items_t<int> equal_gids);
   // TODO: incorporate equal_gids
   // TODO: make sure that obvious elementwise ops are added to equal_gids
@@ -31,7 +30,7 @@ struct relationwise_mcmc_t {
 
   equal_items_t<int> get_equal_gids() const { return equal_gids; }
 
-  double cost() const { return cost_from_scores(current_compute, current_move); }
+  double const& cost() const { return current_cost; }
 
 private:
   struct op_t {
@@ -72,21 +71,13 @@ private:
   //   find the location with the best cost and choose that
   void greedy_solve(int gid);
 
-  void update_cost(int64_t compute_delta, int64_t move_delta);
-  void update_cost(tuple<int64_t, int64_t> delta);
-
-  double cost_from_scores(int64_t compute, int64_t move) const;
-
   partition_t crement_partition(op_t::crement_t const& crement) const;
 
   relationwise_t gwise;
 
   int max_blocks;
-  double scale_compute;
-  double scale_move;
 
-  int64_t current_compute;
-  int64_t current_move;
+  double current_cost;
 
   equal_items_t<int> equal_gids;
 

@@ -3,6 +3,23 @@
 
 #include "twolayer.h"
 
+struct kernel_coster_t {
+  static kernel_coster_t for_cpu_cluster(int nlocs);
+
+  double compute(einsummable_t const& e) const;
+  double move(uint64_t n_bytes, int src, int dst) const;
+  double touch(uint64_t n_bytes) const;
+
+  vector<vector<double>> bandwidths; // bytes per second
+
+  double flops; // floating points per second
+
+  double compute_start;
+  double touch_start;
+  double move_start;
+};
+// TODO: maybe put kernel_coster in it's own file
+
 // Inside relationwise_t, each compute node is given some number
 // of threads that do computation. Whenever a compute location is
 // changed, work is removed from the previous location
@@ -31,19 +48,16 @@
 struct threads_costs_t {
   threads_costs_t(int n_threads);
 
-  void add(int64_t cost);
-  void pop(int64_t cost);
-  int64_t cost() const;
+  void add(double cost);
+  void pop(double cost);
+  double cost() const;
+  void clear();
 
 private:
-  int64_t max_cost;
+  double max_cost;
   int cnt;
   int const n_threads;
 };
-
-// Some assumptions:
-// * compute cost is the same on all nodes
-// * move cost is the same across all pairs of nodes
 
 struct relationwise_t {
   struct ginfo_t {
@@ -54,10 +68,21 @@ struct relationwise_t {
     optional<partition_t> refinement_partition;
     optional<vector<refinement_t>> refis;
 
-    vector<threads_costs_t> compute_cost;
-    vector<int64_t> move_cost;
+    // The computation of a single node proceeds as follows:
+    //   1. do the computation           <- compute    cost
+    //   2. compute the refinement       <- touch src  cost
+    //   3. broadcast the data           <- move       cost
+    //   4. materialize the next inputs  <- touch dst  cost
+
+    vector<threads_costs_t> join_cost;
+    vector<threads_costs_t> touch_src_cost;
+    vector<double> move_cost;
+    vector<threads_costs_t> touch_dst_cost;
 
     bool has_refinement() const { return bool(refinement_partition); }
+    double total_join_cost() const;
+    double total_refi_cost() const;
+    double total_cost() const { return total_join_cost() + total_refi_cost(); }
   };
   // Note: all partition and refinement partitions are with respect to
   //       real dtypes
@@ -66,31 +91,38 @@ struct relationwise_t {
     int nlocs,
     int n_threads_per_loc,
     graph_t const& graph,
+    kernel_coster_t const& kernel_coster,
     vector<placement_t> const& pls);
 
-  tuple<int64_t, int64_t> operator()(jid_t jid, int loc);
-
-  tuple<int64_t, int64_t> operator()(int gid, partition_t const& new_partition);
-
-  tuple<int64_t, int64_t> operator()(int gid, placement_t const& new_placement);
+  // NOTE: These return the _approximate_ change in total cost.
+  double operator()(jid_t jid, int loc);
+  double operator()(int gid, partition_t const& new_partition);
+  double operator()(int gid, placement_t const& new_placement);
 
   vector<placement_t> get_placements() const;
 
   placement_t get_placement_at(int gid) const;
 
-  vector<int64_t> move_cost_at(rid_t rid) const;
-
-  tuple<int64_t, int64_t> total_cost() const;
+  // NOTE: to get a better costing, call reset_cost first
+  double total_cost() const;
 
   std::function<partition_t const&(int)> f_get_partition() const;
   std::function<partition_t const&(int)> f_get_refinement_partition() const;
   std::function<vector<refinement_t>&(int)> f_get_mutable_refis();
 
-  void reset_compute_cost(int gid);
-  void reset_move_cost(int gid);
+  void reset_cost();
+  void reset_join_cost(int gid);
+  void reset_refi_cost(int gid);
+
+  void add_refi_cost_at(rid_t rid) { _change_refi_cost_at(rid, true ); }
+  void sub_refi_cost_at(rid_t rid) { _change_refi_cost_at(rid, false); }
+  void _change_refi_cost_at(rid_t rid, bool add);
+
+  bool has_join_cost(int gid) const { return graph.nodes[gid].op.is_einsummable(); }
 
   int const nlocs;
   int const n_threads_per_loc;
   graph_t const& graph;
+  kernel_coster_t const kernel_coster;
   vector<ginfo_t> ginfos;
 };
