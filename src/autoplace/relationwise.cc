@@ -29,7 +29,7 @@ double kernel_coster_t::move(uint64_t n, int src, int dst) const {
 }
 
 double kernel_coster_t::touch(uint64_t n) const {
-  return compute_start + double(n) / flops;
+  return touch_start + double(n) / flops;
 }
 
 threads_costs_t::threads_costs_t(int n_threads)
