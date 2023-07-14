@@ -13,8 +13,16 @@ using touch_kernel_t = std::function<
     void(cudaStream_t, float*, float const*)
   >;
 using cutensor_kernel_t = std::function<
-    void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>)
+    void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>, void*)
   >;
+
+using cutensor_elementwise_kernel_t = std::function<
+  void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>)
+>;
+
+using cuda_kernel_t = std::function<
+  void(cudaStream_t, float*, float const*)
+>;
 
 //using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
 
@@ -41,9 +49,9 @@ void execute_contraction(
   void* out,
   void const* lhs,
   void const* rhs,
-  dtype_t type);
+  dtype_t type, void* work, uint64_t worksize);
 
-cutensor_kernel_t
+tuple<uint64_t, cutensor_kernel_t>
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape,
@@ -86,7 +94,7 @@ struct cutensor_elementwise_op_t {
   std::variant<unary_t, binary_t, ternary_t> op;
 };
 
-cutensor_kernel_t
+cutensor_elementwise_kernel_t
 build_cutensor_elementwise(cutensor_elementwise_op_t op);
 
 // Attempt to construct a cutensor elementwise op
@@ -106,3 +114,6 @@ build_straight_elementwise(
   uint64_t size);
 
 void handle_cutensor_error(cutensorStatus_t const& err);
+
+cutensor_elementwise_kernel_t
+build_cutensor_type_conversion(einsummable_t const& e);

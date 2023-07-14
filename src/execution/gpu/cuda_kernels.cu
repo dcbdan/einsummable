@@ -407,3 +407,20 @@ void touch4_dispatch(
       FunctorMax());
   }
 }
+
+__global__ void power(const float* in, float* out, uint64_t size, double pow) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < size) {
+    out[idx] = powf(in[idx], pow);
+  }
+}
+
+void elementwise_power(float* out, const float* in,
+cudaStream_t stream, double pow, uint64_t size){
+  int blockSize = 256;
+  int numBlocks = (size + blockSize - 1) / blockSize;
+  powerKernel<<<numBlocks, blockSize>>>(in, out, size, pow);
+
+}
+
