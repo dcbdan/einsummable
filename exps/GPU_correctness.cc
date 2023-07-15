@@ -24,7 +24,22 @@ void execute_test(memgraph_t memgraph){
     // auto cpu_ptr = b->data;
     // auto size = b->size;
 
+     // print the number of nodes in the graph
     std::cout << "Number of nodes in the graph: " << memgraph.nodes.size() << std::endl;
+    // print the input and output of every node
+    for(int i = 0; i < memgraph.nodes.size(); ++i) {
+    std::cout << "Node " << i << " has input: ";
+    for(auto in: memgraph.nodes[i].inns) {
+        std::cout << in << " ";
+    }
+    std::cout << "and output: ";
+    for(auto out: memgraph.nodes[i].outs) {
+        std::cout << out << " ";
+    }
+    std::cout << "Node type: ";
+    memgraph.nodes[i].op.print_type();
+    std::cout << std::endl;
+    }
 
     // allocate a buffer on GPU
     auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0]);

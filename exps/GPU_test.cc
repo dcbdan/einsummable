@@ -104,7 +104,7 @@ int main_matmul(int argc, char** argv) {
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
         {},
-        { allocator_strat_t::lowest_dependency, 1 }  );
+        { allocator_strat_t::lowest_dependency, 4 }  );
     auto const& [_2, _3, memgraph] = _info1;
 
    

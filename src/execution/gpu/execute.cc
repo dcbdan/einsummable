@@ -249,7 +249,7 @@ gpu_execute_state_t::gpu_execute_state_t(memgraph_t const &input_memgraph,
     }
   }
 
-  int num_streams = 10;
+  int num_streams = 5;
   // create a pool of streams
   for (int i = 0; i < num_streams; i++) {
     stream_pool.push(cuda_create_stream());
@@ -277,6 +277,7 @@ struct callback_data_t {
     {
       std::unique_lock lk(m);
       // update the queues since this node is finished
+      printf("Callback: Node %d finished execution.\n", node_idx);
       my_state->finished_queue.push(node_idx);
       my_state->finished_streams.push(stream);
     }
@@ -300,24 +301,63 @@ void gpu_execute_state_t::run() {
       break;
     }
 
-    // locking the mutex until the queue has new things to execute
-    {
-      std::unique_lock lk(m);
-      cv.wait(lk, [&] {
-        // wake up if there are possible updates or new nodes to run
-        return finished_queue.size() > 0 || pending_queue.size() > 0 ||
-               finished_streams.size() > 0;
-      });
+    std::unique_lock lk(m);
+
+    while (finished_queue.size() != 0) {
+      // get the node index
+      int node_idx = finished_queue.front();
+      // pop the node index
+      finished_queue.pop();
+      // update the queue since this node is finished
+      auto new_nodes = node_update(node_idx);
+      // print node_idx and new_nodes
+      printf("Node %d finished execution. New nodes added: ", node_idx);
+      for (auto n : new_nodes) {
+        printf("%d ", n);
+      }
+      printf("\n");
+      add_to_pending_queue(new_nodes);
     }
 
+    // int num_added = finished_streams.size();
+
+    while (true) {
+      if (node_idx_waiting_for_stream.size() == 0) {
+        break;
+      }
+      int node_idx = node_idx_waiting_for_stream.front();
+      node_idx_waiting_for_stream.pop();
+      pending_queue.push(node_idx);
+    }
+
+    while (finished_streams.size() != 0) {
+      cudaStream_t stream = finished_streams.front();
+      finished_streams.pop();
+      stream_pool.push(stream);
+    }
+		lk.unlock();
+
     // execute things that are in the apply_queue until the queue is empty
-    while (pending_queue.size() != 0) {
-      // print out the pending queue
+    while (true) {
+      std::unique_lock lk(m);
+      if (pending_queue.size() == 0) {
+        lk.unlock();
+        break;
+      }
+      // print all node indices from the pending queue
+      std::cout << "Pending queue: ";
+      std::queue<int> temp_queue = pending_queue;
+      while (temp_queue.size() != 0) {
+        std::cout << temp_queue.front() << " ";
+        temp_queue.pop();
+      }
       // get the first element in the queue
       auto node_idx = pending_queue.front();
       auto node = memgraph.nodes[node_idx];
       // remove the first element from the queue
       pending_queue.pop();
+      std::cout << std::endl;
+      lk.unlock();
       // std::cout << "Executing node: " << node_idx << std::endl;
       // execute the node
       if (node.op.is_inputmem() || node.op.is_inputsto() || node.op.is_del() ||
@@ -329,19 +369,23 @@ void gpu_execute_state_t::run() {
         lk.unlock();
       } else if (node.op.is_apply()) {
         // getting stream from the pool instead of creating a new one
+        std::unique_lock lk(m);
         if (stream_pool.size() == 0) {
           // we can't do anything since we don't have any streams
           // available
           // add this node to the pending queue and wait for a
           // stream to be available
-          // std::cout << "No streams available. Waiting for a
-          // stream to be available." << std::endl;
+          std::cout << "No streams available. Waiting for a stream to be available." 
+						<< std::endl;
           node_idx_waiting_for_stream.push(node_idx);
+          lk.unlock();
           continue;
         }
         cudaStream_t stream = stream_pool.front();
-        // std::cout << "Node " << node_idx << " got a stream from
-        // the pool" << std::endl; stream_pool.pop();
+        std::cout << "Node " << node_idx 
+				<< " got a stream from the pool" << std::endl; 
+				stream_pool.pop();
+        lk.unlock();
         // get the memory offsets
         auto memory_vector = node.op.get_apply().mems;
         // CASE: TOUCH
@@ -358,8 +402,10 @@ void gpu_execute_state_t::run() {
             // is executing with the same group id
             // add this node to the map
             groupID_to_nodeIDX[group_id].push(node_idx);
-            // skipping the callback since this node didn't
-            // execute
+            // give the stream back to the pool since don't need it
+            stream_pool.push(stream);
+            // print a message
+            std::cout << "Node " << node_idx << " returned stream to pool" << std::endl;
             continue;
           } else {
             // else we are free to run this
@@ -448,35 +494,16 @@ void gpu_execute_state_t::run() {
       }
     }
 
-		std::unique_lock lk(m);
-
-    while (finished_queue.size() != 0) {
-      // get the node index
-      int node_idx = finished_queue.front();
-      // pop the node index
-      finished_queue.pop();
-      // update the queue since this node is finished
-      auto new_nodes = node_update(node_idx);
-      add_to_pending_queue(new_nodes);
+		// locking the mutex until the queue has new things to execute
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [&] {
+        // wake up if there are possible updates or new nodes to run
+        return finished_queue.size() > 0 || pending_queue.size() > 0
+        || finished_streams.size() > 0 || stream_pool.size() > 0;
+      });
     }
 
-    int num_added = finished_streams.size();
-
-    while (num_added > 0) {
-      if (node_idx_waiting_for_stream.size() == 0) {
-        break;
-      }
-      int node_idx = node_idx_waiting_for_stream.front();
-      node_idx_waiting_for_stream.pop();
-      pending_queue.push(node_idx);
-    }
-
-    while (finished_streams.size() != 0) {
-      cudaStream_t stream = finished_streams.front();
-      finished_streams.pop();
-      stream_pool.push(stream);
-    }
-		lk.unlock();
   }
 }
 
