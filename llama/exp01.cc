@@ -77,6 +77,9 @@ vector<placement_t> solve_relationwise(
   double beta)
 {
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+  kernel_coster.compute_start = 0.0;
+  kernel_coster.touch_start = 0.0;
+  kernel_coster.move_start = 0.0;
 
   relationwise_mcmc_t mcmc(
     graph, kernel_coster,
@@ -99,14 +102,24 @@ vector<placement_t> solve_relationwise(
   DOUT("balanced cost " << mcmc.cost());
 
   for(int i = 0; i != num_steps; ++i) {
-    if(i % 10000 == 0) {
-      DOUT( i << " / " << num_steps << "    " << mcmc.get_best_cost() );
+    if(i % 5000 == 0) {
+      DOUT( i << " / " << num_steps << "    " << mcmc.cost() << " " << mcmc.get_best_cost() );
     }
     mcmc.step(beta);
   }
 
   DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
-  return mcmc.get_best_placements();
+
+  auto ret = mcmc.get_best_placements();
+  int i = 0;
+  for(auto const& pl: ret) {
+    set<int> locs(pl.locations.get().begin(), pl.locations.get().end());
+    DOUT(i++ << ": " << pl.num_parts() << " blocks in " << locs.size() << " locations");
+  }
+
+  return ret;
+
+  //return mcmc.get_best_placements();
 }
 
 int main() {
@@ -119,9 +132,9 @@ int main() {
 
   int num_nodes = 8;
   int num_threads_per_node = 12;
-  int num_steps = 30000;
+  int num_steps = 20000;
 
-  double beta = 10000.0;
+  double beta = 100000.0;
 
   auto autoplace = [&](graph_t const& graph) {
     //uint64_t giga = 1e9;

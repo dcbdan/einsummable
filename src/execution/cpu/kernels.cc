@@ -5,6 +5,8 @@
 
 #include "permute.h"
 
+#include "../../einsummable/dbuffer.h"
+
 kernel_manager_t::kernel_manager_t()
 {
   auto fix = einsummable_t::normalize_str;
@@ -13,37 +15,37 @@ kernel_manager_t::kernel_manager_t()
    { fix("ij,jk->ik"), { false,false, false,false,false } },
    { fix("ij,kj->ik"), { false, true, false,false,false } },
    { fix("ji,jk->ik"), {  true,false, false,false,false } },
-   { fix("ji,kj->ik"), {  true,false, false,false,false } },
+   { fix("ji,kj->ik"), {  true, true, false,false,false } },
 
    { fix("bij,jk->ik"), { false,false, true,false,false } },
    { fix("bij,kj->ik"), { false, true, true,false,false } },
    { fix("bji,jk->ik"), {  true,false, true,false,false } },
-   { fix("bji,kj->ik"), {  true,false, true,false,false } },
+   { fix("bji,kj->ik"), {  true, true, true,false,false } },
 
    { fix("ij,bjk->ik"), { false,false, false,true,false } },
    { fix("ij,bkj->ik"), { false, true, false,true,false } },
    { fix("ji,bjk->ik"), {  true,false, false,true,false } },
-   { fix("ji,bkj->ik"), {  true,false, false,true,false } },
+   { fix("ji,bkj->ik"), {  true, true, false,true,false } },
 
    { fix("bij,bjk->ik"), { false,false, true,true,false } },
    { fix("bij,bkj->ik"), { false, true, true,true,false } },
    { fix("bji,bjk->ik"), {  true,false, true,true,false } },
-   { fix("bji,bkj->ik"), {  true,false, true,true,false } },
+   { fix("bji,bkj->ik"), {  true, true, true,true,false } },
 
    { fix("bij,jk->bik"), { false,false, true,false,true } },
    { fix("bij,kj->bik"), { false, true, true,false,true } },
    { fix("bji,jk->bik"), {  true,false, true,false,true } },
-   { fix("bji,kj->bik"), {  true,false, true,false,true } },
+   { fix("bji,kj->bik"), {  true, true, true,false,true } },
 
    { fix("ij,bjk->bik"), { false,false, false,true,true } },
    { fix("ij,bkj->bik"), { false, true, false,true,true } },
    { fix("ji,bjk->bik"), {  true,false, false,true,true } },
-   { fix("ji,bkj->bik"), {  true,false, false,true,true } },
+   { fix("ji,bkj->bik"), {  true, true, false,true,true } },
 
    { fix("bij,bjk->bik"), { false,false, true,true,true } },
    { fix("bij,bkj->bik"), { false, true, true,true,true } },
    { fix("bji,bjk->bik"), {  true,false, true,true,true } },
-   { fix("bji,bkj->bik"), {  true,false, true,true,true } }
+   { fix("bji,bkj->bik"), {  true, true, true,true,true } }
   };
 }
 
@@ -246,15 +248,104 @@ vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
   return ret;
 }
 
+#ifdef KERNEL_TIMING
+
+#include <memory>
+#include <mutex>
+#include <atomic>
+
+struct total_timer_t {
+  total_timer_t(std::atomic_uint64_t& t):
+    total(t), start(clock_now())
+  {}
+
+  ~total_timer_t() {
+    auto end = clock_now();
+    using namespace std::chrono;
+    total += duration_cast<microseconds>(end - start).count();
+  }
+
+  std::atomic_uint64_t& total;
+  timestamp_t const start;
+};
+
+struct timer_totaler_t {
+  total_timer_t operator()(string key) {
+    std::unique_lock lk(m);
+
+    auto iter = totals.find(key);
+    if(iter == totals.end()) {
+      auto [_i, _] = totals.insert({key, std::make_unique<std::atomic_uint64_t>(0)});
+      iter = _i;
+    }
+    return total_timer_t(*(iter->second));
+  }
+
+  void reset() {
+    std::unique_lock lk(m);
+    for(auto const& [k,v_ptr]: totals) {
+      *v_ptr = 0;
+    }
+  }
+
+  std::mutex m;
+  map<string, std::unique_ptr<std::atomic_uint64_t>> totals;
+};
+
+timer_totaler_t kernel_timer_totaler;
+
+map<string, double> kernel_manager_t::get_times() {
+  map<string, double> ret;
+  for(auto const& [key, v_ptr]: kernel_timer_totaler.totals) {
+    using namespace std::chrono;
+    double time = (double) (v_ptr->load())
+                / (double) duration_cast<microseconds>(1s).count();
+    ret.insert({key, time});
+  }
+  return ret;
+}
+
+void kernel_manager_t::reset_times() {
+  kernel_timer_totaler.reset();
+}
+
+#define setup_gremlin(key) total_timer_t gremlin = kernel_timer_totaler(key);
+#else
+#define setup_gremlin(key)
+#endif
+
+std::unordered_map<touch_t, touch_time_info_t>&
+_get_touch_times() {
+  static std::unordered_map<touch_t, touch_time_info_t> ret;
+  return ret;
+}
+
+std::unordered_map<touch_t, touch_time_info_t>&
+kernel_manager_t::get_touch_times() {
+  return _get_touch_times();
+}
+
 void kernel_manager_t::operator()(
-  touch_t const& touch,
+  touch_t const& touch__,
   void* out,
   void const* inn) const
 {
   // TODO: there is no reason to wrap the touch kernel in a lambda;
   //       create touch_kernel
-  auto f = build_touch(touch);
+  //touch_t touch = touch__.simplify();
+  auto f = build_touch(touch__);
+  setup_gremlin("touch");
+  //auto beg = clock_now();
   f(out, inn);
+  //auto end = clock_now();
+  //using namespace std::chrono;
+  //auto duration = std::chrono::duration<double>(end-beg).count() /
+  //                std::chrono::duration<double>(1s     ).count();
+  //double ops = dtype_size(touch.dtype);
+  //for(auto const& td: touch.selection) {
+  //  ops *= td.size;
+  //}
+  //_get_touch_times()[touch](ops, duration);
 }
 
 void kernel_manager_t::operator()(
@@ -285,6 +376,7 @@ void kernel_manager_t::call(
   if(holds_alternative<batch_matmul_t>(kernel)) {
     assert_num_inputs(2);
     auto const& b = get<batch_matmul_t>(kernel);
+    setup_gremlin("bmm");
     batch_matrix_multiply(
       b.dtype,
       b.nb,
@@ -295,6 +387,7 @@ void kernel_manager_t::call(
   } else if(holds_alternative<contraction_t>(kernel)) {
     assert_num_inputs(2);
     auto const& c = get<contraction_t>(kernel);
+    setup_gremlin("contraction");
     if(c.workspace_size == 0) {
       c(nullptr, out, inns[0], inns[1]);
     } else if(!maybe_workspace) {
@@ -309,25 +402,31 @@ void kernel_manager_t::call(
   } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [n,data,f] = get<unary_straight_ew_t>(kernel);
+    setup_gremlin("uew");
     f(data.data(), n, out, inns[0]);
   } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
     assert_num_inputs(2);
     auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
+    setup_gremlin("bew");
     f(data.data(), n, out, inns[0], inns[1]);
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     assert_num_inputs(2);
     auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
+    setup_gremlin("binary212");
     f(data.data(), na, nb, out, inns[0], inns[1]);
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [dtype, inn_shape, out_perm] = get<tensor_permute_t>(kernel);
+    setup_gremlin("permute");
     permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
+    setup_gremlin("reduction");
     f(na,nb,out,inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     auto const& f = get<kernel_t>(kernel);
+    setup_gremlin("misc");
     f(out, inns);
   } else {
     throw std::runtime_error("workspace size: kernel unaccounted for");
@@ -425,6 +524,95 @@ kernel_manager_t::make_batch_matmul(einsummable_t const& e)
     .nj = nj,
     .nk = nk
   };
+}
+
+dbuffer_t
+_generate_data(dtype_t dtype, uint64_t nelem)
+{
+  dbuffer_t ret = make_dbuffer(dtype, nelem);
+  ret.random("-0.003", "0.003");
+
+  return ret;
+}
+
+tuple<dbuffer_t, vector<dbuffer_t>>
+_generate_data(einsummable_t const& e)
+{
+  dbuffer_t out = _generate_data(e.out_dtype(), e.out_nelem());
+
+  auto inn_dtypes = e.inn_dtypes();
+  auto inn_shapes = e.inn_shapes();
+
+  int ninn = inn_dtypes.size();
+
+  vector<dbuffer_t> inns;
+  inns.reserve(ninn);
+  for(int i = 0; i != ninn; ++i) {
+    inns.push_back(_generate_data(inn_dtypes[i], product(inn_shapes[i])));
+  }
+
+  return {out, inns};
+}
+
+void kernel_manager_t::make_dataset(std::ostream& out) const
+{
+  using std::holds_alternative;
+
+  string sep = "|";
+  int niter = 2;
+
+  for(auto const& [einsummable, kernel]: kernels) {
+    out << einsummable.str() << sep << einsummable.join_shape << sep;
+
+    if(holds_alternative<batch_matmul_t>(kernel)) {
+      out << "bmm";
+    } else if(holds_alternative<contraction_t>(kernel)) {
+      out << "con";
+    } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
+      out << "uew";
+    } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
+      out << "bew";
+    } else if(holds_alternative<binary_212_ew_t>(kernel)) {
+      out << "212";
+    } else if(holds_alternative<tensor_permute_t>(kernel)) {
+      out << "per";
+    } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
+      out << "red";
+    } else if(holds_alternative<kernel_t>(kernel)) {
+      out << "mis";
+    } else {
+      throw std::runtime_error("make dataset: kernel unaccounted for");
+    }
+
+    auto [out_dbuffer, inn_dbuffers] = _generate_data(einsummable);
+
+    uint64_t wsz = workspace_size(einsummable);
+    optional<tuple<void*, uint64_t>> workspace;
+    buffer_t workspace_buffer;
+    if(wsz > 0) {
+      workspace_buffer = make_buffer(wsz);
+      workspace = {workspace_buffer->raw(), wsz};
+    }
+
+    for(int i = 0; i != niter; ++i) {
+      auto beg = clock_now();
+      this->operator()(
+        einsummable,
+        out_dbuffer.raw(),
+        vector_from_each_method(inn_dbuffers, void const*, raw),
+        workspace );
+      auto end = clock_now();
+      using namespace std::chrono;
+      auto duration = std::chrono::duration<double>(end-beg).count() /
+                      std::chrono::duration<double>(1ms    ).count();
+      double ff = 1.0;
+      for(auto const& s: einsummable.join_shape) {
+        ff *= s;
+      }
+      out << sep << (ff / (1e6 * duration));
+    }
+    out << std::endl;
+  }
 }
 
 std::function<void(void*, vector<void const*>)>
@@ -947,19 +1135,177 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     } \
   }
 
-_touch1(touch1_none, out[i] =  inn[i]                  );
+// Note: does not call _mm_sfence
+inline void streamcpy(void* dst_, void const* src_, uint64_t size) {
+  int osrc = 32 - (intptr_t(src_) & 31);
+  int odst = 32 - (intptr_t(dst_) & 31);
+
+  uint8_t*       dst = reinterpret_cast<uint8_t*      >(dst_);
+  uint8_t const* src = reinterpret_cast<uint8_t const*>(src_);
+
+  if(odst != 32)
+  {
+    int m = size < 32 ? std::min(odst, int(size)) : odst;
+    size -= m;
+    for(; m != 0; m--) {
+      *dst++ = *src++;
+    }
+
+    if(size == 0) { return; }
+
+    odst = 0;
+
+    osrc = 32 - intptr_t(src) & 31;
+    if(osrc == 32) { osrc = 0; }
+
+    int aa_osrc = 32 - (intptr_t(src) & 31);
+    int aa_odst = 32 - (intptr_t(dst) & 31);
+  }
+
+  if(osrc == odst) {
+    // they are both aligned with each other
+    __m256i*       pdst = reinterpret_cast<__m256i*      >(dst);
+    __m256i const* psrc = reinterpret_cast<__m256i const*>(src);
+
+    int64_t nline = size / sizeof(__m256i);
+    {
+      int64_t incr = nline * sizeof(__m256i);
+      size -= incr;
+      dst += incr;
+      src += incr;
+    }
+
+    for(; nline > 0; nline--, psrc++, pdst++) {
+      __m256i const loaded = _mm256_stream_load_si256(psrc);
+      _mm256_stream_si256(pdst, loaded);
+    }
+  } else {
+    __m256i x0, x1;
+    __m256i* lp0 = &x0;
+    __m256i* lp1 = &x1;
+
+    int& rem = osrc;
+    if(osrc < 0) {
+      rem = 32 + osrc;
+    }
+
+    uint8_t* l = reinterpret_cast<uint8_t*>(lp0);
+    l += (32 - rem);
+
+    int i;
+    for(i = 0; i != rem; ++i) {
+      l[i] = src[i];
+    }
+
+    __m256i*       pdst = reinterpret_cast<__m256i*>(dst);
+    __m256i const* psrc = reinterpret_cast<__m256i const*>(src + rem);
+
+
+    int64_t nline = size / sizeof(__m256i);
+    {
+      int64_t incr = nline * sizeof(__m256i);
+      size -= incr;
+      dst += incr;
+      src += incr;
+    }
+
+    for(; nline > 0; nline--, psrc++, pdst++) {
+      __m256i& l0 = *lp0;
+      __m256i& l1 = *lp1;
+      l1 = _mm256_stream_load_si256(psrc);
+
+      __m256i loaded; // TODO: compute this for every possible offset
+      {
+        uint8_t* loaded_ = reinterpret_cast<uint8_t*>(&loaded);
+        uint8_t const* l0_ = reinterpret_cast<uint8_t const*>(&l0);
+        uint8_t const* l1_ = reinterpret_cast<uint8_t const*>(&l1);
+
+        int j = 0;
+        for(int i = 32-rem; i != 32; ++i) {
+          loaded_[j++] = l0_[i];
+        }
+        for(int i = 0; i != 32-rem; ++i) {
+          loaded_[j++] = l1_[i];
+        }
+      }
+      _mm256_stream_si256(pdst, loaded);
+
+      std::swap(lp0, lp1);
+    }
+  }
+
+  for(; size != 0; size--) {
+    *dst++ = *src++;
+  }
+}
+
+template <typename T>
+void touch1_none(touchdim_t const& t0, T* out, T const* inn) {
+  out += t0.offset_out;
+  inn += t0.offset_inn;
+  //streamcpy(
+  //  reinterpret_cast<void*>(out),
+  //  reinterpret_cast<void const*>(inn),
+  //  sizeof(T)*t0.size);
+  std::copy(inn, inn  + t0.size, out);
+  //_mm_sfence();
+}
+
+template <typename T>
+void touch2_none(
+  touchdim_t const& t0, touchdim_t const& t1,
+  T* out, T const* inn)
+{
+  out += t0.offset_out*t1.d_out + t1.offset_out;
+  inn += t0.offset_inn*t1.d_inn + t1.offset_inn;
+  for(uint64_t i0 = 0; i0 != t0.size; ++i0) {
+    //streamcpy(
+    //  reinterpret_cast<void*>(out),
+    //  reinterpret_cast<void const*>(inn),
+    //  sizeof(T)*t1.size);
+    std::copy(inn, inn + t1.size, out);
+    out += t1.d_out;
+    inn += t1.d_inn;
+  }
+  //_mm_sfence();
+}
+
+template <typename T>
+void touch3_none(
+  touchdim_t const& t0, touchdim_t const& t1, touchdim_t const& t2,
+  T* out, T const* inn)
+{
+  out += t0.offset_out*t1.d_out*t2.d_out + t1.offset_out*t2.d_out + t2.offset_out;
+  inn += t0.offset_inn*t1.d_inn*t2.d_inn + t1.offset_inn*t2.d_inn + t2.offset_inn;
+  for(uint64_t i0 = 0; i0 != t0.size; ++i0) {
+    for(uint64_t i1 = 0; i1 != t1.size; ++i1) {
+      //streamcpy(
+      //  reinterpret_cast<void*>(out),
+      //  reinterpret_cast<void const*>(inn),
+      //  sizeof(T)*t2.size);
+      std::copy(inn, inn + t2.size, out);
+      out += t2.d_out;
+      inn += t2.d_inn;
+    }
+    out += t2.d_out * (t1.d_out - t1.size);
+    inn += t2.d_inn * (t1.d_inn - t1.size);
+  }
+  //_mm_sfence();
+}
+
+//_touch1(touch1_none, out[i] =  inn[i]                  );
 _touch1(touch1_add,  out[i] += inn[i]                  );
 _touch1(touch1_mul,  out[i] *= inn[i]                  );
 _touch1(touch1_min,  out[i] =  std::min(out[i], inn[i]));
 _touch1(touch1_max,  out[i] =  std::max(out[i], inn[i]));
 
-_touch2(touch2_none, out[i] =  inn[i]                  );
+//_touch2(touch2_none, out[i] =  inn[i]                  );
 _touch2(touch2_add,  out[i] += inn[i]                  );
 _touch2(touch2_mul,  out[i] *= inn[i]                  );
 _touch2(touch2_min,  out[i] =  std::min(out[i], inn[i]));
 _touch2(touch2_max,  out[i] =  std::max(out[i], inn[i]));
 
-_touch3(touch3_none, out[i] =  inn[i]                  );
+//_touch3(touch3_none, out[i] =  inn[i]                  );
 _touch3(touch3_add,  out[i] += inn[i]                  );
 _touch3(touch3_mul,  out[i] *= inn[i]                  );
 _touch3(touch3_min,  out[i] =  std::min(out[i], inn[i]));

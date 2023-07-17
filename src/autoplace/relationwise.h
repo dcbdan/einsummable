@@ -12,11 +12,14 @@ struct kernel_coster_t {
 
   vector<vector<double>> bandwidths; // bytes per second
 
-  double flops; // floating points per second
+  double flops_fast; // floating points per second
+  double flops_slow;
 
   double compute_start;
   double touch_start;
   double move_start;
+
+  optional<std::function<double(einsummable_t const& e)>> maybe_compute;
 };
 // TODO: maybe put kernel_coster in it's own file
 

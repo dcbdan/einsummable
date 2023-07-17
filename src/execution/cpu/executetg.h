@@ -27,7 +27,7 @@ struct execute_taskgraph_settings_t {
     // TODO: When the number of send and recv threads are really large,
     //       it scales poorly.
     return execute_taskgraph_settings_t {
-      .num_apply_runner = num_threads,
+      .num_apply_runner = 4, //num_threads,
       .num_send_runner  = 4,
       .num_recv_runner  = 4
     };

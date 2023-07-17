@@ -7,20 +7,102 @@ kernel_coster_t::for_cpu_cluster(int nlocs)
   // 100 Mbps
   double bw = 1e8;
 
-  double fl = 1e10;
+  double fl_slw = 1e9;
+  double fl_fst = 60e9;
 
-  double startup = 5e-3; // this many seconds to start doing anything
+  double startup = 1e-3; // this many seconds to start doing anything
 
   return kernel_coster_t {
     .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
-    .flops = fl,
+    .flops_fast = fl_fst,
+    .flops_slow = fl_slw,
     .compute_start = startup,
     .touch_start = startup,
-    .move_start = startup
+    .move_start = startup,
+    .maybe_compute = std::nullopt
   };
 }
 
+struct _bmm_info_t {
+  uint64_t nb;
+  uint64_t nmin;
+};
+
+optional<_bmm_info_t> make_bmm(einsummable_t const& e) {
+  if(!e.is_contraction()) {
+    return std::nullopt;
+  }
+
+  auto fix = einsummable_t::normalize_str;
+
+  string s = e.str();
+  auto inn_shapes = e.inn_shapes();
+  auto const& js = e.join_shape;
+  auto const& l = inn_shapes[0];
+  auto const& r = inn_shapes[1];
+
+  if(s == fix("ij,jk->ik") ||
+     s == fix("ij,kj->ik") ||
+     s == fix("ji,jk->ik") ||
+     s == fix("ji,kj->ik"))
+  {
+    return _bmm_info_t { 1, vector_min_element(js) };
+  }
+
+  if(s == fix("bij,jk->ik") || s == fix("bij,jk->bik") ||
+     s == fix("bij,kj->ik") || s == fix("bij,kj->bik") ||
+     s == fix("bji,jk->ik") || s == fix("bji,jk->bik") ||
+     s == fix("bji,kj->ik") || s == fix("bji,kj->bik"))
+  {
+    return _bmm_info_t {
+      l[0],
+      std::min(std::min(l[1], l[2]), std::min(r[0], r[1]))
+    };
+  }
+
+  if(s == fix("ij,bjk->ik") || s == fix("ij,bjk->bik") ||
+     s == fix("ij,bkj->ik") || s == fix("ij,bkj->bik") ||
+     s == fix("ji,bjk->ik") || s == fix("ji,bjk->bik") ||
+     s == fix("ji,bkj->ik") || s == fix("ji,bkj->bik") )
+  {
+    return _bmm_info_t {
+      r[0],
+      std::min(std::min(l[0], l[1]), std::min(r[1], r[2]))
+    };
+  }
+
+  if(s == fix("bij,bjk->ik") || s == fix("bij,bjk->bik") ||
+     s == fix("bij,bkj->ik") || s == fix("bij,bkj->bik") ||
+     s == fix("bji,bjk->ik") || s == fix("bji,bjk->bik") ||
+     s == fix("bji,bkj->ik") || s == fix("bji,bkj->bik"))
+  {
+    return _bmm_info_t {
+      r[0],
+      std::min(std::min(l[1], l[2]), std::min(r[1], r[2]))
+    };
+  }
+
+  return std::nullopt;
+}
+
 double kernel_coster_t::compute(einsummable_t const& e) const {
+  if(maybe_compute) {
+    return maybe_compute.value()(e);
+  }
+  double flops = flops_slow;
+  auto maybe = make_bmm(e.merge_adjacent_dims());
+  if(maybe) {
+    auto const& [_,nmin] = maybe.value();
+    double flops;
+    if(nmin <= 1) {
+      flops = flops_slow;
+    } else if(nmin >= 256) {
+      flops = flops_fast;
+    } else {
+      double fraction_fast = (double(nmin) - 1.0) / (256.0 - 1.0);
+      flops = flops_slow * (1.0 - fraction_fast) + flops_fast * fraction_fast;
+    }
+  }
   return compute_start + double(product(e.join_shape)) / flops;
 }
 
@@ -29,7 +111,7 @@ double kernel_coster_t::move(uint64_t n, int src, int dst) const {
 }
 
 double kernel_coster_t::touch(uint64_t n) const {
-  return touch_start + double(n) / flops;
+  return touch_start + double(n) / flops_slow;
 }
 
 threads_costs_t::threads_costs_t(int n_threads)

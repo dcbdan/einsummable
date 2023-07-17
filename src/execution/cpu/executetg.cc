@@ -1,5 +1,7 @@
 #include "executetg.h"
 
+#include <sched.h>
+
 kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
   kernel_manager_t ret;
   update_kernel_manager(ret, taskgraph);
@@ -132,6 +134,15 @@ state_t::state_t(
 
 void state_t::apply_runner(int runner_id)
 {
+  //{
+  //  int which_cpu = 1 + 2*runner_id;
+  //  cpu_set_t cpu_set;
+  //  CPU_SET(which_cpu, &cpu_set);
+  //  if(sched_setaffinity(0, sizeof(cpu_set_t), &cpu_set) != 0) {
+  //    throw std::runtime_error("could not set affinitiy to " + write_with_ss(which_cpu));
+  //  }
+  //}
+
   int which_apply;
   which_touch_t which_touch;
   bool doing_touch;

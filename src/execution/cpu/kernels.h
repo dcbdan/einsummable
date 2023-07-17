@@ -9,6 +9,34 @@
 
 #include <thread>
 
+#define KERNEL_TIMING
+
+struct touch_time_info_t {
+  touch_time_info_t()
+    : total(0.0), cnt(0)
+  {}
+
+  void operator()(uint64_t ops_, double t) {
+    if(cnt == 0) {
+      ops = ops_;
+      total = t;
+      min_t = t;
+      max_t = t;
+    } else {
+      total += t;
+      min_t = std::min(min_t, t);
+      max_t = std::max(max_t, t);
+    }
+    cnt++;
+  }
+
+  uint64_t ops;
+  double total;
+  double min_t;
+  double max_t;
+  int cnt;
+};
+
 struct kernel_manager_t {
 private:
   struct binfo_t {
@@ -110,6 +138,9 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt);
 
+  // Run all kernels in kernels with fake data and time it.
+  // Print all results in a big csv format to out
+  void make_dataset(std::ostream& out) const;
 private:
 
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
@@ -120,6 +151,12 @@ private:
 
   optional<batch_matmul_t>
   make_batch_matmul(einsummable_t const& e);
+#ifdef KERNEL_TIMING
+public:
+  static map<string, double> get_times();
+  static void reset_times();
+  static std::unordered_map<touch_t, touch_time_info_t>& get_touch_times();
+#endif
 };
 
 // This is just a function to create a standalone kernel
