@@ -1,5 +1,6 @@
 #include "executemg.h"
 #include "workspace.h"
+#include "storage.h"
 
 #include <thread>
 #include <mutex>
@@ -47,6 +48,9 @@ struct cpu_mg_exec_state_t {
 
   // this holds the kernel_manager and queries it
   workspace_manager_t workspace_manager;
+
+  // Encapsulates the logic of disk IO operations
+  storage_manager_t storage_manager;
 
   int this_rank;
 
@@ -143,10 +147,11 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
     memgraph(mg),
     kernel_manager(km),
     buffer(b),
-    workspace_manager(km)
+    workspace_manager(km),
+    storage_manager("tensors.dat")
 {
   // set num_remaining, num_deps_remaining and the move notification setup variables
-  vector<int> readys;
+  vector<int> readys; 
 
   int num_nodes = memgraph.nodes.size();
 
@@ -340,7 +345,37 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
 }
 
 void cpu_mg_exec_state_t::cache_runner(int runner_id) {
-  throw std::runtime_error("cache_runner not implemented");
+  int node_id;
+  while(true)
+  {
+    std::unique_lock lk(m);
+    cv.wait(lk, [&node_id, this]() {
+      if (num_remaining == 0) return true;
+
+      if (cache_ready.empty()) return false;
+
+      int node_id = cache_ready.front();
+      cache_ready.pop();
+      return true;
+    })
+  }
+
+  if (num_remaining == 0) return;
+
+  auto const& node = memgraph.nodes[node_id];
+
+  if (node.op.is_evict())
+  {
+    storage_manager.evict(node.op.get_evict(), buffer);
+  } 
+  else if (node.op.is_load())
+  {
+    storage_manager.load(node.op.get_load(), buffer);
+  } 
+  else 
+  {
+    throw std::runtime_error("Error in cache_runner method. Node not recognized.");
+  }
 }
 
 void cpu_mg_exec_state_t::send_runner(int runner_id) {
