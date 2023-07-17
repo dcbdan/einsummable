@@ -358,24 +358,28 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
       cache_ready.pop();
       return true;
     })
+
+    if (num_remaining == 0) return;
+
+    auto const& node = memgraph.nodes[node_id];
+
+    if (node.op.is_evict())
+    {
+      storage_manager.evict(node.op.get_evict(), buffer);
+    } 
+    else if (node.op.is_load())
+    {
+      storage_manager.load(node.op.get_load(), buffer);
+    } 
+    else 
+    {
+      throw std::runtime_error("Error in cache_runner method. Node not recognized.");
+    }
+
+    completed(node_id);
   }
 
-  if (num_remaining == 0) return;
-
-  auto const& node = memgraph.nodes[node_id];
-
-  if (node.op.is_evict())
-  {
-    storage_manager.evict(node.op.get_evict(), buffer);
-  } 
-  else if (node.op.is_load())
-  {
-    storage_manager.load(node.op.get_load(), buffer);
-  } 
-  else 
-  {
-    throw std::runtime_error("Error in cache_runner method. Node not recognized.");
-  }
+  
 }
 
 void cpu_mg_exec_state_t::send_runner(int runner_id) {
