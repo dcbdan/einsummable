@@ -14,12 +14,17 @@
 #include "../src/execution/cpu/repartition.h"
 
 #include "../src/autoplace/fsmcmc.h"
+#include "../src/autoplace/rwmcmc.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/autopart.h"
 
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
 
 #include <iomanip> // setprecision
+
+#include <fstream>
 
 struct tensor_reader_t {
   tensor_reader_t(string filename) : file(filename, std::ios::binary) {
@@ -353,36 +358,154 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 12;
+dbuffer_t
+__generate_data(dtype_t dtype, uint64_t nelem)
+{
+  dbuffer_t ret = make_dbuffer(dtype, nelem);
+  ret.random("-0.003", "0.003");
+
+  return ret;
+}
+
+tuple<dbuffer_t, vector<dbuffer_t>>
+__generate_data(einsummable_t const& e)
+{
+  dbuffer_t out = __generate_data(e.out_dtype(), e.out_nelem());
+
+  auto inn_dtypes = e.inn_dtypes();
+  auto inn_shapes = e.inn_shapes();
+
+  int ninn = inn_dtypes.size();
+
+  vector<dbuffer_t> inns;
+  inns.reserve(ninn);
+  for(int i = 0; i != ninn; ++i) {
+    inns.push_back(__generate_data(inn_dtypes[i], product(inn_shapes[i])));
+  }
+
+  return {out, inns};
+}
+
+double actually_time_einsummable(einsummable_t const& e_) {
+  einsummable_t e = e_.merge_adjacent_dims();
+
+  static kernel_manager_t kernel_manager;
+  static std::unordered_map<einsummable_t, double> costs;
+
+  auto iter = costs.find(e);
+  if(iter != costs.end()) {
+    return iter->second;
+  }
+
+  auto [out_dbuffer, inn_dbuffers] = __generate_data(e);
+
+  uint64_t wsz = kernel_manager.build(e).value();
+  optional<tuple<void*, uint64_t>> workspace;
+  buffer_t workspace_buffer;
+  if(wsz > 0) {
+    workspace_buffer = make_buffer(wsz);
+    workspace = {workspace_buffer->raw(), wsz};
+  }
+
+  // "warmup"
+  kernel_manager(
+    e,
+    out_dbuffer.raw(),
+    vector_from_each_method(inn_dbuffers, void const*, raw),
+    workspace);
+
+  auto beg = clock_now();
+  kernel_manager(
+    e,
+    out_dbuffer.raw(),
+    vector_from_each_method(inn_dbuffers, void const*, raw),
+    workspace);
+  auto end = clock_now();
+  using namespace std::chrono;
+  auto duration = std::chrono::duration<double>(end-beg).count() /
+                  std::chrono::duration<double>(1s     ).count();
+  costs.insert({e, duration});
+  return duration;
+}
+
+int num_threads_per_node = 8;
+int num_real_threads_per_node = 4;
 int num_touch_threads = 12;
+int num_steps = 80000;
+int nlocs = 1;
+double beta = 10000.0;
+//double startup = 1e-4;
 
 vector<placement_t> autoplace(graph_t const& graph) {
-  gremlin_t gremlin("autoplace");
+  DOUT("num threads per node " << num_threads_per_node)
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
 
-  uint64_t giga = 1e9;
+  kernel_coster.maybe_compute = actually_time_einsummable;
 
-  cluster_settings_t cluster_settings {
-    .num_nodes = 1,
-    .num_threads_per_node = 2*num_threads_per_node,
-    .compute_per_thread = 1*giga,
-    .bandwidth = 10*giga
-  };
+  //kernel_coster.compute_start = startup;
+  //kernel_coster.touch_start   = startup;
+  //kernel_coster.move_start    = startup;
 
-  autoplace_settings_t autoplace_settings {
-    .num_steps = 1,
-    .betas = {10000.0},
-    .do_balanced = true,
-    .do_singleloc = false
-  };
+  int max_blocks = num_threads_per_node * nlocs * 2;
 
-  auto ret = solve(graph, cluster_settings, autoplace_settings);
+  relationwise_mcmc_t mcmc(
+    graph, kernel_coster,
+    nlocs, num_threads_per_node, max_blocks,
+    equal_items_t<int>());
 
-  return std::move(ret);
+  DOUT("single thread cost " << mcmc.cost());
+
+  {
+    uint64_t min_sizing = 1;
+    vector<partition_t> parts = autopartition(
+      graph, min_sizing, nlocs * num_threads_per_node, mcmc.get_equal_gids());
+
+    // this ignores the equal gids
+    vector<placement_t> pls = load_balanced_placement(graph, parts, nlocs, false);
+
+    mcmc.set_placements(pls);
+  }
+
+  DOUT("balanced cost " << mcmc.cost());
+
+  for(int i = 0; i != num_steps; ++i) {
+    if(i % 5000 == 0) {
+      DOUT( i << " / " << num_steps << "    " << mcmc.cost() << " " << mcmc.get_best_cost() );
+    }
+    mcmc.step(beta);
+  }
+
+  DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
+  return mcmc.get_best_placements();
 }
+
+//vector<placement_t> autoplace(graph_t const& graph) {
+//  gremlin_t gremlin("autoplace");
+//
+//  uint64_t giga = 1e9;
+//
+//  cluster_settings_t cluster_settings {
+//    .num_nodes = 1,
+//    .num_threads_per_node = 2*num_threads_per_node,
+//    .compute_per_thread = 1*giga,
+//    .bandwidth = 10*giga
+//  };
+//
+//  autoplace_settings_t autoplace_settings {
+//    .num_steps = 1,
+//    .betas = {10000.0},
+//    .do_balanced = true,
+//    .do_singleloc = false
+//  };
+//
+//  auto ret = solve(graph, cluster_settings, autoplace_settings);
+//
+//  return std::move(ret);
+//}
 
 void main_(loc_manager_t& manager, string filename) {
   {
-    int seed = runif(10000);
+    int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
     set_seed(seed);
   }
@@ -423,9 +546,23 @@ void main_(loc_manager_t& manager, string filename) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 1; // 256-seqlen-1;
+  int niter = 0; // 256-seqlen-1;
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  uint64_t total = 0;
+  for(auto const& node: builder.taskgraph.nodes) {
+    if(node.op.is_partialize()) {
+      for(auto const& [_, touch]: node.op.get_partialize().as_touches_from_flat()) {
+        auto szs = vector_from_each_member(touch.selection, uint64_t, size);
+        total += dtype_size(touch.dtype) * product(szs);
+      }
+    }
+  }
+  DOUT("total touch bytes: " << total);
+
+  //update_kernel_manager(manager.kernel_manager, builder.taskgraph);
+  //std::ofstream ff("kernel.csv");
+  //manager.kernel_manager.make_dataset(ff);
 
   dbuffer_t embedding_matrix(
     default_dtype(),
@@ -479,8 +616,32 @@ void main_(loc_manager_t& manager, string filename) {
     manager.remap_data(init_remap);
   }
 
+  double total_es = 0.0;
+  int nnn = 0;
+  for(auto const& node: builder.taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      total_es += actually_time_einsummable(node.op.get_apply().einsummable);
+      nnn++;
+    }
+  }
+  DOUT("Total time in einsummable estimate of " << total_es << " across " << nnn << " calls.");
+
+  manager.kernel_manager.reset_times();
   DOUT("---");
   manager.execute(builder.taskgraph);
+  for(auto const& [s,t]: manager.kernel_manager.get_times()) {
+    DOUT(s << ": " << t);
+  }
+  for(auto const& [touch, info]: manager.kernel_manager.get_touch_times()) {
+    double ops = double(info.ops) * 1e-9;
+    double dur = double(info.total);
+    double avg = dur / double(info.cnt); // in seconds
+    double bandwidth = ops / avg;
+    DOUT(touch);
+    DOUT("total:         " << info.total);
+    DOUT("count:         " << info.cnt);
+    DOUT("average flops: " << bandwidth);
+  }
 
   {
     dbuffer_t scores = manager.unpartition(builder.scores);
@@ -540,7 +701,7 @@ int main(int argc, char** argv) {
   //  DOUT("");
   //}
   auto settings = execute_taskgraph_settings_t::default_settings();
-  settings.num_apply_runner = num_threads_per_node;
+  settings.num_apply_runner = num_real_threads_per_node;
 
   mpi_t mpi(argc, argv);
 
