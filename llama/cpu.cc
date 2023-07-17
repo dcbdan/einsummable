@@ -358,93 +358,15 @@ vector<placement_t> solve(
   return pls;
 }
 
-dbuffer_t
-__generate_data(dtype_t dtype, uint64_t nelem)
-{
-  dbuffer_t ret = make_dbuffer(dtype, nelem);
-  ret.random("-0.003", "0.003");
-
-  return ret;
-}
-
-tuple<dbuffer_t, vector<dbuffer_t>>
-__generate_data(einsummable_t const& e)
-{
-  dbuffer_t out = __generate_data(e.out_dtype(), e.out_nelem());
-
-  auto inn_dtypes = e.inn_dtypes();
-  auto inn_shapes = e.inn_shapes();
-
-  int ninn = inn_dtypes.size();
-
-  vector<dbuffer_t> inns;
-  inns.reserve(ninn);
-  for(int i = 0; i != ninn; ++i) {
-    inns.push_back(__generate_data(inn_dtypes[i], product(inn_shapes[i])));
-  }
-
-  return {out, inns};
-}
-
-double actually_time_einsummable(einsummable_t const& e_) {
-  einsummable_t e = e_.merge_adjacent_dims();
-
-  static kernel_manager_t kernel_manager;
-  static std::unordered_map<einsummable_t, double> costs;
-
-  auto iter = costs.find(e);
-  if(iter != costs.end()) {
-    return iter->second;
-  }
-
-  auto [out_dbuffer, inn_dbuffers] = __generate_data(e);
-
-  uint64_t wsz = kernel_manager.build(e).value();
-  optional<tuple<void*, uint64_t>> workspace;
-  buffer_t workspace_buffer;
-  if(wsz > 0) {
-    workspace_buffer = make_buffer(wsz);
-    workspace = {workspace_buffer->raw(), wsz};
-  }
-
-  // "warmup"
-  kernel_manager(
-    e,
-    out_dbuffer.raw(),
-    vector_from_each_method(inn_dbuffers, void const*, raw),
-    workspace);
-
-  auto beg = clock_now();
-  kernel_manager(
-    e,
-    out_dbuffer.raw(),
-    vector_from_each_method(inn_dbuffers, void const*, raw),
-    workspace);
-  auto end = clock_now();
-  using namespace std::chrono;
-  auto duration = std::chrono::duration<double>(end-beg).count() /
-                  std::chrono::duration<double>(1s     ).count();
-  costs.insert({e, duration});
-  return duration;
-}
-
 int num_threads_per_node = 8;
 int num_real_threads_per_node = 4;
-int num_touch_threads = 12;
-int num_steps = 80000;
+int num_steps = 0;
 int nlocs = 1;
 double beta = 10000.0;
-//double startup = 1e-4;
 
 vector<placement_t> autoplace(graph_t const& graph) {
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-
-  kernel_coster.maybe_compute = actually_time_einsummable;
-
-  //kernel_coster.compute_start = startup;
-  //kernel_coster.touch_start   = startup;
-  //kernel_coster.move_start    = startup;
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -616,32 +538,8 @@ void main_(loc_manager_t& manager, string filename) {
     manager.remap_data(init_remap);
   }
 
-  double total_es = 0.0;
-  int nnn = 0;
-  for(auto const& node: builder.taskgraph.nodes) {
-    if(node.op.is_apply()) {
-      total_es += actually_time_einsummable(node.op.get_apply().einsummable);
-      nnn++;
-    }
-  }
-  DOUT("Total time in einsummable estimate of " << total_es << " across " << nnn << " calls.");
-
-  manager.kernel_manager.reset_times();
   DOUT("---");
   manager.execute(builder.taskgraph);
-  for(auto const& [s,t]: manager.kernel_manager.get_times()) {
-    DOUT(s << ": " << t);
-  }
-  for(auto const& [touch, info]: manager.kernel_manager.get_touch_times()) {
-    double ops = double(info.ops) * 1e-9;
-    double dur = double(info.total);
-    double avg = dur / double(info.cnt); // in seconds
-    double bandwidth = ops / avg;
-    DOUT(touch);
-    DOUT("total:         " << info.total);
-    DOUT("count:         " << info.cnt);
-    DOUT("average flops: " << bandwidth);
-  }
 
   {
     dbuffer_t scores = manager.unpartition(builder.scores);
