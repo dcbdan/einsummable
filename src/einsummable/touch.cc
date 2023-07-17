@@ -91,6 +91,28 @@ touch_t touch_t::from_proto(es_proto::Touch const& r) {
   };
 }
 
+std::size_t touch_t::hash() const {
+  std::hash<int>      h_int;
+  std::hash<uint64_t> h_uint;
+
+  std::size_t ret = h_int(int(dtype));
+  if(castable) {
+    hash_combine_impl(ret, h_int(int(castable.value())));
+  } else {
+    hash_combine_impl(ret, h_int(-1));
+  }
+
+  for(auto const& [a,b,c,d,e]: selection) {
+    hash_combine_impl(ret, a);
+    hash_combine_impl(ret, b);
+    hash_combine_impl(ret, c);
+    hash_combine_impl(ret, d);
+    hash_combine_impl(ret, e);
+  }
+
+  return ret;
+}
+
 vector<touchdim_t> make_touch_selection_from_full_small(
   vector<tuple<uint64_t, uint64_t>> const& full,
   vector<tuple<uint64_t, uint64_t>> const& small)
@@ -256,3 +278,34 @@ touch_compose(touch_t const& a, touch_t const& b)
   });
 }
 
+bool operator==(touchdim_t const& lhs, touchdim_t const& rhs) {
+  auto const& [q,w,e,r,t] = lhs;
+  auto const& [a,s,d,f,g] = rhs;
+  return q == a && w == s && e == d && r == f && t == g;
+}
+
+bool operator!=(touchdim_t const& lhs, touchdim_t const& rhs) {
+  return !(lhs == rhs);
+}
+
+bool operator==(touch_t const& lhs, touch_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    return false;
+  }
+
+  if(lhs.castable && rhs.castable) {
+    if(lhs.castable.value() != rhs.castable.value()) {
+      return false;
+    }
+  } else if(!lhs.castable && !rhs.castable) {
+    // good
+  } else {
+    return false;
+  }
+
+  return vector_equal(lhs.selection, rhs.selection);
+}
+
+bool operator!=(touch_t const& lhs, touch_t const& rhs) {
+  return !(lhs == rhs);
+}
