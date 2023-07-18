@@ -168,7 +168,7 @@ int main(int argc, char** argv) {
     }
 
     buffer_t buffer = make_buffer(memgraph.mem_sizes()[mpi.this_rank]);
-    storage_manager_t storage_manager("tensors.dat");
+    storage_t storage_manager("tensors.dat");
 
     for(auto const& [inn,mem]: inn_to_mem) {
       if(taskgraph.out_loc(inn) == mpi.this_rank) {

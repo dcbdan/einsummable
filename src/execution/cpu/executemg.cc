@@ -17,7 +17,7 @@ struct cpu_mg_exec_state_t {
     memgraph_t const& memgraph,
     kernel_manager_t const& kernel_manager,
     buffer_t& buffer,
-    storage_manager& storage_manager);
+    storage_t& storage);
 
   void apply_runner(int runner_id);
   void cache_runner(int runner_id);
@@ -51,7 +51,7 @@ struct cpu_mg_exec_state_t {
   workspace_manager_t workspace_manager;
 
   // Encapsulates the logic of disk IO operations
-  storage_manager_t storage_manager;
+  storage_t storage;
 
   int this_rank;
 
@@ -88,7 +88,7 @@ void execute_memgraph(
   kernel_manager_t const& kernel_manager,
   mpi_t* mpi,
   buffer_t memory,
-  storage_manager_t storage_manager)
+  storage_t& storage)
 {
   // TODO: For shared storage, the memgraph execution engine will need
   // inform the load at dst that the evict at src has happened on the
@@ -102,7 +102,7 @@ void execute_memgraph(
     }
   }
 
-  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory, storage_manager);
+  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory, storage);
 
   int world_size = bool(mpi) ? mpi->world_size : 1;
 
@@ -145,13 +145,13 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
   memgraph_t const& mg,
   kernel_manager_t const& km,
   buffer_t& b,
-  storage_manager_t& sm)
+  storage_t& sm)
   : mpi(mpi),
     memgraph(mg),
     kernel_manager(km),
     buffer(b),
     workspace_manager(km),
-    storage_manager(sm)
+    storage(sm)
 {
   // set num_remaining, num_deps_remaining and the move notification setup variables
   vector<int> readys; 
@@ -368,11 +368,11 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
 
     if (node.op.is_evict())
     {
-      storage_manager.evict(node.op.get_evict(), buffer);
+      storage.evict(node.op.get_evict(), buffer);
     } 
     else if (node.op.is_load())
     {
-      storage_manager.load(node.op.get_load(), buffer);
+      storage.load(node.op.get_load(), buffer);
     } 
     else 
     {
