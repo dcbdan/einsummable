@@ -360,7 +360,7 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
       int node_id = cache_ready.front();
       cache_ready.pop();
       return true;
-    })
+    });
 
     if (num_remaining == 0) return;
 
@@ -368,11 +368,15 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
 
     if (node.op.is_evict())
     {
-      storage.evict(node.op.get_evict(), buffer);
+      buffer_t data = get_buffer_reference(node.op.get_evict().src.as_mem());
+      int tensor_id = node.op.get_evict().dst.id;
+      storage.write(data, tensor_id);
     } 
     else if (node.op.is_load())
     {
-      storage.load(node.op.get_load(), buffer);
+      buffer_t data = get_buffer_reference(node.op.get_load().dst.as_mem());
+      int tensor_id = node.op.get_load().src.id;
+      storage.read(data, tensor_id);
     } 
     else 
     {

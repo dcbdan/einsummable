@@ -5,14 +5,6 @@ storage_t::storage_t(string filename) : file_name(filename)
 	open_file();
 }
 
-storage_t::~storage_t() 
-{
-	if (file.is_open())
-	{
-		file.close();
-	}
-}
-
 void storage_t::open_file()
 {
 	file.open(file_name, std::ios::binary | std::ios::out | std::ios::in);
@@ -22,14 +14,14 @@ void storage_t::open_file()
 	}
 }
 
-void storage_t::write_to_disk(const buffer_t& buffer, const memloc_t& src, const stoloc_t& dst)
+void storage_t::write(const buffer_t& buffer, int id)
 {
-	auto const& block = find_first_available(src.size);
+	auto const& block = find_first_available(buffer->size);
 	uint64_t position;
 	if (block == blocks.end())
 	{
 		file.seekp(0, std::ios::end);
-		allocate_block(block, src.size);
+		allocate_block(block, buffer->size);
 	} 
 	else
 	{
@@ -38,29 +30,38 @@ void storage_t::write_to_disk(const buffer_t& buffer, const memloc_t& src, const
 
 	position = file.tellp();
 
-	file.write((char*)buffer->raw() + src.offset, src.size);
+	file.write((char*)buffer->raw(), buffer->size);
 	if (file.fail())
  	{
 		throw std::runtime_error("Evicting data to disk unsuccessful.");
 	} 
-	tensors[dst.id] = position;
+
+	tensors[id] = block_t(position, position + buffer->size);
 }
 
-void storage_t::read_from_disk(const buffer_t& buffer, const stoloc_t& src, const memloc_t& dst)
+void storage_t::read(const buffer_t& buffer, int id)
 {
-  uint64_t position = tensors[src.id];
-  file.seekg(position, std::ios::beg);
+  block_t tensor = tensors[id];
+  file.seekg(tensor.beg, std::ios::beg);
 
-  file.read((char*)buffer->raw() + dst.offset, dst.size);
+  file.read((char*)buffer->raw(), buffer->size);
   if (file.fail()) 
 	{
 		throw std::runtime_error("Loading data from disk unsuccessful.");
 	}
-  tensors.erase(src.id);
-  create_free_space(position, dst.size);
+
+  tensors.erase(id);
+  create_free_space(tensor.beg, buffer->size);
 }
 
-vector<block_t>::iterator storage_t::find_first_available(uint64_t size)
+void storage_t::remove(int id)
+{
+	block_t tensor = tensors[id];
+	tensors.erase(id);
+	create_free_space(tensor.beg, tensor.size());
+}
+
+vector<storage_t::block_t>::iterator storage_t::find_first_available(uint64_t size)
 {
   iter_t ret = blocks.end(); // just to make sure it has initial value
 
@@ -99,24 +100,4 @@ void storage_t::allocate_block(vector<block_t>::iterator block, uint64_t size)
 	}
 
 	block->beg += size;
-}
-
-void storage_t::evict(const evict_t& op, const buffer_t& buffer)
-{
-  write_to_disk(buffer, op.src, op.dst); 
-}
-
-void storage_t::load(const load_t& op, const buffer_t& buffer)
-{
-  read_from_disk(buffer, op.src, op.dst);
-}
-
-void storage_t::save(const memloc_t src, const stoloc_t dst, buffer_t& buffer)
-{
-	write_to_disk(buffer, src, dst);
-}
-
-void storage_t::load(const stoloc_t src, const memloc_t dst, buffer_t& buffer)
-{
-	read_from_disk(buffer, src, dst);
 }

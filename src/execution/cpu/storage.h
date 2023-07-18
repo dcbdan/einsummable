@@ -7,24 +7,14 @@
 
 struct storage_t 
 {
-	// Method that encapsulates logic of writing to file inside of storage manager
-	void evict(const evict_t& op, const buffer_t& buffer);
-	// Method that encapsulates logic of reading from file inside of storage manager
-	void load(const load_t& op, const buffer_t& buffer);
-
-	void save(const memloc_t src, const stoloc_t dst, const buffer_t& buffer);
-
-	void load(const stoloc_t src, const memloc_t dst, const buffer_t& buffer);
+	void write(const buffer_t& buffer, int id);
+	void read (const buffer_t& buffer, int id);
+	void remove(int id);
 
 	storage_t(const string filename): file_name(filename){}
+	storage_t(const storage_t& other): file_name(other.file_name){}
 private: 
-	std::unordered_map<int, uint64_t> tensors;
-	std::fstream file;
-	string file_name;
-
-	void write_to_disk(const buffer_t& buffer, const memloc_t& src, const stoloc_t& dst);
-	void read_from_disk(const buffer_t& buffer, const stoloc_t& src, const memloc_t& dst);
-	// Method for safe opening of a file 
+	
 	void open_file();
 
 	struct block_t {
@@ -32,7 +22,12 @@ private:
 		uint64_t end;
 
 		uint64_t size() const { return end - beg; }
+		block_t(uint64_t begin, uint64_t end) : beg(begin), end(end) {}
 	};
+
+	std::unordered_map<int, block_t> tensors;
+	std::fstream file;
+	string file_name;
 
 	vector<block_t> blocks;
 	using iter_t = vector<block_t>::iterator;
