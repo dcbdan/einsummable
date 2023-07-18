@@ -60,16 +60,6 @@ void storage_t::read_from_disk(const buffer_t& buffer, const stoloc_t& src, cons
   create_free_space(position, dst.size);
 }
 
-void storage_t::evict(const evict_t& op, const buffer_t& buffer)
-{
-  write_to_disk(buffer, op.src, op.dst); 
-}
-
-void storage_t::load(const load_t& op, const buffer_t& buffer)
-{
-  read_from_disk(buffer, op.src, op.dst);
-}
-
 vector<block_t>::iterator storage_t::find_first_available(uint64_t size)
 {
   iter_t ret = blocks.end(); // just to make sure it has initial value
@@ -109,4 +99,24 @@ void storage_t::allocate_block(vector<block_t>::iterator block, uint64_t size)
 	}
 
 	block->beg += size;
+}
+
+void storage_t::evict(const evict_t& op, const buffer_t& buffer)
+{
+  write_to_disk(buffer, op.src, op.dst); 
+}
+
+void storage_t::load(const load_t& op, const buffer_t& buffer)
+{
+  read_from_disk(buffer, op.src, op.dst);
+}
+
+void storage_t::save(const memloc_t src, const stoloc_t dst, buffer_t& buffer)
+{
+	write_to_disk(buffer, src, dst);
+}
+
+void storage_t::load(const stoloc_t src, const memloc_t dst, buffer_t& buffer)
+{
+	read_from_disk(buffer, src, dst);
 }

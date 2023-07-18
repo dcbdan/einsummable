@@ -10,7 +10,11 @@ struct storage_t
 	// Method that encapsulates logic of writing to file inside of storage manager
 	void evict(const evict_t& op, const buffer_t& buffer);
 	// Method that encapsulates logic of reading from file inside of storage manager
-	void load(const load_t&op, const buffer_t& buffer);
+	void load(const load_t& op, const buffer_t& buffer);
+
+	void save(const memloc_t src, const stoloc_t dst, const buffer_t& buffer);
+
+	void load(const stoloc_t src, const memloc_t dst, const buffer_t& buffer);
 
 	storage_t(const string filename): file_name(filename){}
 private: 
