@@ -20,5 +20,6 @@ void execute_memgraph(
   execute_memgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,
   mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
-  buffer_t memory);
+  buffer_t memory,
+  storage_manager_t storage_manager);
 

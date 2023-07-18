@@ -16,7 +16,8 @@ struct cpu_mg_exec_state_t {
     mpi_t* mpi,
     memgraph_t const& memgraph,
     kernel_manager_t const& kernel_manager,
-    buffer_t& buffer);
+    buffer_t& buffer,
+    storage_manager& storage_manager);
 
   void apply_runner(int runner_id);
   void cache_runner(int runner_id);
@@ -86,7 +87,8 @@ void execute_memgraph(
   execute_memgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,
   mpi_t* mpi,
-  buffer_t memory)
+  buffer_t memory,
+  storage_manager_t storage_manager)
 {
   // TODO: For shared storage, the memgraph execution engine will need
   // inform the load at dst that the evict at src has happened on the
@@ -100,7 +102,7 @@ void execute_memgraph(
     }
   }
 
-  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory);
+  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory, storage_manager);
 
   int world_size = bool(mpi) ? mpi->world_size : 1;
 
@@ -142,13 +144,14 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
   mpi_t* mpi,
   memgraph_t const& mg,
   kernel_manager_t const& km,
-  buffer_t& b)
+  buffer_t& b,
+  storage_manager_t& sm)
   : mpi(mpi),
     memgraph(mg),
     kernel_manager(km),
     buffer(b),
     workspace_manager(km),
-    storage_manager("tensors.dat")
+    storage_manager(sm)
 {
   // set num_remaining, num_deps_remaining and the move notification setup variables
   vector<int> readys; 
@@ -378,8 +381,6 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
 
     completed(node_id);
   }
-
-  
 }
 
 void cpu_mg_exec_state_t::send_runner(int runner_id) {
