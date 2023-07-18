@@ -1,215 +1,25 @@
 #include "executetg.h"
-#include "kernels.h"
-#include "workspace.h"
 
-#include <thread>
-#include <mutex>
-#include <condition_variable>
+kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
+  kernel_manager_t ret;
+  update_kernel_manager(ret, taskgraph);
+  return ret;
+}
 
-#include <mkl.h> // for mkl_set_num_threads
-
-using std::thread;
-using std::queue;
-
-#define RLINEOUT(x) if(mpi->this_rank == 0) { DLINEOUT(x); }
-
-struct applys_progress_t {
-  queue<int> ready;
-
-  // once num_remaining[idx] is zero,
-  // apply node taskgraph.nodes[idx] can be executed
-  map<int, int> num_remaining;
-
-  map<int, vector<int>> input_to_applys;
-
-  // The goal is for
-  //   1. relu(matmul(A,B)) to reuse the matmul(A,B) buffer in the relu
-  //   2. C=A+B where A is not used again to become C(:A) += B.
-  // In general, any tensor that (1) not a save tensor, (2) is only used once
-  // by an elementwise op should be "donatable"..
-  // If a tensor is donatable, it's buffer may be consumed by the subsequent
-  // elementwise op.
-  //
-  // This assumes elementwise kernels support donation in all arguments.
-  set<int> is_donatable;
-
-  // Note that tensor_usage_cnts is passed in
-  // by reference.
-  void insert(
-    int apply_id,
-    bool can_donate,
-    set<int> const& inns,
-    map<int, int>& tensor_usage_cnts);
-
-  void notify_tensor_ready(int tensor_id);
-};
-
-struct touches_progress_t {
-  struct touch_info_t {
-    int unit;
-    int inn;
-    touch_t touch;
-  };
-
-  struct unit_t {
-    unit_t(
-      int unit_id,
-      int partialize_id,
-      vector<tuple<int, touch_t>> const& ops);
-
-    int const unit_id;
-    int const partialize_id;
-    vector<tuple<int, touch_t>> const ops;
-
-    bool init;
-    bool busy;
-    vector<int> ready;
-    vector<int> waiting;
-
-    // if there is nothing left to compute for this unit
-    bool done() const;
-
-    // let this know the tensor id is ready
-    optional<touch_info_t> notify_tensor_ready(int tensor_id);
-
-    // Tell the unit it did something so it is no longer be busy.
-    // In return, the unit either stays busy returning work to do,
-    // or returns nothing and is not busy.
-    //
-    // If the result is:
-    //   none:      the unit MAY be done
-    //   something: the unit needs this something to be computed
-    //              before it can be done
-    optional<touch_info_t> completed();
-
-    // return any op that is ready, if not busy
-    optional<touch_info_t> try_to_pop();
-  };
-
-  // the touches that can be done
-  queue<touch_info_t> ready;
-  // Every unit may only have up to one op in the
-  // touch_ready queue. If it has an op in the queue
-  // or being computed, the busy flag should be set
-  // to true
-
-  vector<unit_t> units;
-
-  // input id to unit ids
-  map<int, set<int>> input_to_units;
-
-  // partialize id to number of units left to complete
-  map<int, int> num_remaining;
-
-  // For initliazation: insert a new partialize op
-  //
-  // Note that tensor_usage_cnts is passed in by reference.
-  // Since each partializes touches are being traversed,
-  // increment tensor_usage_cnts each time it is (will be)
-  // used by a unit
-  void insert_partialize(
-    int partialize_id,
-    vector<vector<tuple<int, touch_t>>> const& touches,
-    map<int, int>& tensor_usage_cnts);
-
-  // notify that this tensor is ready to be used
-  void notify_tensor_ready(int input_id);
-
-  // This unit just finished an op. Return
-  // the corresponding partial if the partial just
-  // completed.
-  optional<int> completed(int unit_id);
-};
-
-struct sends_progress_t {
-  // move ids that are pending
-  queue<int> ready;
-
-  // inn id to moves id
-  map<int, vector<int>> waiting;
-
-  void insert(int move_id, int inn_id);
-  void notify_tensor_ready(int inn_id);
-};
-
-struct cpu_exec_state_t {
-  // collect all the meta data and get this mpi rank ready for execution
-  cpu_exec_state_t(
-    mpi_t* mpi,
-    taskgraph_t const& taskgraph,
-    kernel_manager_t const& kernel_manager,
-    map<int, buffer_t>& tensors,
-    int num_apply_kernel_threads);
-
-  // launch the threads and wait for the threads to finish
-  void run(int n_apply, int n_touch, int n_send, int n_recv);
-
-  // the threads
-  void apply_runner(int runner_id);
-  void touch_runner(int runner_id);
-  void send_runner(int runner_id);
-  void recv_runner(int runner_id);
-
-  // update state helper methods
-  // must start with lk holding a lock on mutex m and
-  // finish with mutex m unlocked
-  void _completed(
-    std::unique_lock<std::mutex>&& lk, // this must hold mutex m!
-    bool command_finished,
-    vector<int> const& used_as_input,
-    optional<int> created_tensor);
-  void completed_send(int move_id);
-  void completed_recv(int move_id);
-  void completed_touch(int inn, int unit_id);
-  void completed_apply(int apply_id);
-
-  // update the state now that this tensor is
-  // available
-  void notify_tensor_ready(int tensor_id);
-
-  // misc
-  bool check_complete() const;
-
-  // grab tensors (and allocate if necc) under mutex
-  tuple<
-    vector<buffer_t>,
-    vector<buffer_t> >
-  get_buffers(
-    vector<tuple<uint64_t, int>> const& which_allocate,
-    vector<int> const& which_get);
-
-  mpi_t* mpi;
-  taskgraph_t const& taskgraph;
-  kernel_manager_t const& kernel_manager;
-  map<int, buffer_t>& tensors;
-  int const num_apply_kernel_threads;
-
-  // this holds the kernel_manager and queries it
-  workspace_manager_t workspace_manager;
-
-  // The total number of commands left to execute
-  int num_remaining;
-
-  // once num_usages_remaining[idx] is zero,
-  // tensors[idx] can be deleted if idx is
-  // not a save node
-  map<int, int> num_usages_remaining;
-
-  // Concurrency management
-  std::mutex m_tensors;
-  std::mutex m;
-  std::condition_variable cv;
-
-  // Work for apply runners
-  applys_progress_t applys_progress;
-
-  // Work for touch runners
-  touches_progress_t touches_progress;
-
-  // Work for send and recv runners
-  sends_progress_t sends_progress;
-  int num_recv_post_remaining;
-};
+void update_kernel_manager(
+  kernel_manager_t& ret,
+  taskgraph_t const& taskgraph)
+{
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& e = node.op.get_apply().einsummable;
+      if(!ret.build(e)) {
+        throw std::runtime_error(
+          "could not build a kernel for " + write_with_ss(e));
+      }
+    }
+  }
+}
 
 void execute_taskgraph(
   taskgraph_t const& taskgraph,
@@ -218,183 +28,165 @@ void execute_taskgraph(
   mpi_t* mpi,
   map<int, buffer_t>& tensors)
 {
-  cpu_exec_state_t state(
-    mpi, taskgraph, kernel_manager, tensors,
-    settings.num_apply_kernel_threads);
+  executetg_ns::state_t state(mpi, taskgraph, kernel_manager, tensors);
 
-  int world_size = bool(mpi) ? mpi->world_size : 1;
+  vector<std::thread> runners;
+  {
+    int const& n_apply = settings.num_apply_runner;
+    int const& n_send = settings.num_send_runner;
+    int const& n_recv = settings.num_recv_runner;
+    runners.reserve(n_apply + n_send + n_recv);
+    for(int i = 0; i != n_apply; ++i) {
+      runners.emplace_back([&state, i](){ return state.apply_runner(i); });
+    }
+    for(int i = 0; i != n_send; ++i) {
+      runners.emplace_back([&state, i](){ return state.send_runner(i); });
+    }
+    for(int i = 0; i != n_recv; ++i) {
+      runners.emplace_back([&state, i](){ return state.recv_runner(i); });
+    }
+  }
 
-  state.run(
-    settings.num_apply_runner,
-    settings.num_touch_runner,
-    world_size > 1 ? settings.num_send_runner : 0,
-    world_size > 1 ? settings.num_recv_runner : 0);
-
-  if(!state.check_complete()) {
-    throw std::runtime_error("execute did not finish all the tasks");
-  }
-}
-
-void cpu_exec_state_t::run(int n_apply, int n_touch, int n_send, int n_recv)
-{
-  vector<thread> runners;
-  runners.reserve(n_apply + n_touch + n_send + n_recv);
-  for(int i = 0; i != n_apply; ++i) {
-    runners.emplace_back([this, i](){ return this->apply_runner(i); });
-  }
-  for(int i = 0; i != n_touch; ++i) {
-    runners.emplace_back([this, i](){ return this->touch_runner(i); });
-  }
-  for(int i = 0; i != n_send; ++i) {
-    runners.emplace_back([this, i](){ return this->send_runner(i); });
-  }
-  for(int i = 0; i != n_recv; ++i) {
-    runners.emplace_back([this, i](){ return this->recv_runner(i); });
-  }
+  state.event_loop();
 
   for(auto& t: runners) {
     t.join();
   }
 }
 
-cpu_exec_state_t::cpu_exec_state_t(
-  mpi_t* mpi,
-  taskgraph_t const& tg,
-  kernel_manager_t const& km,
-  map<int, buffer_t>& ts,
-  int n_ts)
-  : mpi(mpi),
-    taskgraph(tg),
-    kernel_manager(km),
-    tensors(ts),
-    workspace_manager(km),
-    num_remaining(0),
+namespace executetg_ns {
+
+state_t::state_t(
+  mpi_t* mpi_,
+  taskgraph_t const& taskgraph_,
+  kernel_manager_t const& kernel_manager_,
+  map<int, buffer_t>& tensors_)
+  : mpi(mpi_), taskgraph(taskgraph_), kernel_manager(kernel_manager_),
+    tensors(tensors_), workspace_manager(kernel_manager_),
+    num_apply_remaining(0),
+    num_send_remaining(0),
     num_recv_post_remaining(0),
-    num_apply_kernel_threads(n_ts)
+    num_did_remaining(0)
 {
-  // .. tell mkl how many threads to use
-  // 0. set num_remaining
-  // 1. Set num_usages_remaining
-  // 2. register every apply node at this location with applys_progress
-  // 3. register every partialize node at this location with touches_progress
-  // 4. register every send from here
-  // 5. register every recv to   here
-
-  mkl_set_num_threads(num_apply_kernel_threads);
-
-  vector<int> input_ids;
+  this_rank = bool(mpi) ? mpi->this_rank : 0;
 
   int num_nodes = taskgraph.nodes.size();
-  int this_rank = bool(mpi) ? mpi->this_rank : 0;
-
   for(int id = 0; id != num_nodes; ++id) {
     auto const& node = taskgraph.nodes[id];
-    if(node.op.is_move()) {
-      if(!mpi) {
-        throw std::runtime_error("mpi object must be provided to do moves!");
-      }
-
-      auto const& [src,dst,inn,_] = node.op.get_move();
-
-      if(src == dst) {
-        throw std::runtime_error("Moves to self are not allowed");
-      }
-
-      if(src == this_rank) {
-        // This is a send
-        num_remaining += 1;
-        num_usages_remaining[inn] += 1;
-        sends_progress.insert(id, inn);
-      } else if(dst == this_rank) {
-        // This is a recv
-        num_remaining += 1;
-        num_recv_post_remaining += 1;
-      }
-    } else {
-      // Only do stuff on this location!
+    if(node.op.is_input()) {
       if(node.op.out_loc() != this_rank) {
         continue;
       }
-
-      if(node.op.is_input()) {
-        input_ids.push_back(id);
-      } else if(node.op.is_apply()) {
-        num_remaining += 1;
-
-        // Can this be marked as donated?
-        // 1. not a save node
-        // 2. used only once
-        // 3. the kernel manager says the usage node is fine
-        //    with donating this input
-        bool can_donate = false;
-        if(!node.is_save && node.outs.size() == 1) {
-          int const& node_out_id = *node.outs.begin();
-          auto const& node_out = taskgraph.nodes[node_out_id];
-          if(node_out.op.is_apply()) {
-            auto const& out_apply = node_out.op.get_apply();
-            auto donatables = kernel_manager.donatables(out_apply.einsummable);
-            for(auto const& which_inn: donatables) {
-              if(out_apply.inns[which_inn] == id) {
-                can_donate = true;
-                break;
-              }
-            }
-          }
-        }
-
-        applys_progress.insert(
-          id,
-          can_donate,
-          node.op.inputs(),
-          num_usages_remaining
-        );
-      } else if(node.op.is_partialize()) {
-        num_remaining += 1;
-
-        // pass in num_usages_remaining by reference
-        touches_progress.insert_partialize(
-          id,
-          node.op.get_touches(),
-          num_usages_remaining
-        );
-      } else {
-        throw std::runtime_error("should not reach");
+      num_did_remaining++;
+      here_nodes.push(id);
+    } else if(node.op.is_apply()) {
+      if(node.op.out_loc() != this_rank) {
+        continue;
       }
-    }
-  }
+      num_did_remaining++;
+      num_apply_remaining++;
+      auto const& inns = node.op.inputs();
+      num_remaining[id] = inns.size();
+      for(int const& inn: inns) {
+        num_usage_remaining[inn]++;
+      }
+    } else if(node.op.is_move()) {
+      auto const& move = node.op.get_move();
+      if(move.src == this_rank) {
+        num_did_remaining++;
+        num_send_remaining++;
+        num_remaining[id] = 1;
+        num_usage_remaining[move.inn]++;
+      } else if(move.dst == this_rank) {
+        num_did_remaining++;
+        num_recv_post_remaining++;
+      }
+    } else if(node.op.is_partialize()) {
+      if(node.op.out_loc() != this_rank) {
+        continue;
+      }
+      auto const& partialize = node.op.get_partialize();
 
-  // now that everything is setup, state
-  // what input tensors are ready initially
-  for(auto const& input_id: input_ids) {
-    notify_tensor_ready(input_id);
+      touches.insert({id, partialize.as_touches_from()});
+      auto const& ts = touches[id];
+
+      int& n_touches = num_remaining[id];
+      n_touches = 0;
+      for(vector<tuple<int, touch_t>> const& m: ts) {
+        n_touches += m.size();
+        for(auto const& [inn,_]: m) {
+          num_usage_remaining[inn]++;
+        }
+      }
+
+      // plus one for the partialize
+      // and plus one for each touch
+      num_did_remaining += (n_touches + 1);
+
+      num_apply_remaining += n_touches;
+    } else {
+      throw std::runtime_error("missing tg node type in execute taskgraph state init");
+    }
   }
 }
 
-void cpu_exec_state_t::apply_runner(int runner_id)
+void state_t::apply_runner(int runner_id)
 {
-  mkl_set_num_threads(num_apply_kernel_threads);
+  int which_apply;
+  which_touch_t which_touch;
+  bool doing_touch;
 
-  int which;
-  while(true)
-  {
-    // Get a command that needs to be executed, or return
+  while(true) {
     {
-      std::unique_lock lk(m);
-      cv.wait(lk, [this](){
-        return applys_progress.num_remaining.size() == 0 ||
-               applys_progress.ready.size() > 0;
+      unique_lock lk(m_apply);
+
+      cv_apply.wait(lk, [&, this] {
+        if(num_apply_remaining == 0) {
+          return true;
+        }
+        if(pending_touches.size() > 0) {
+          doing_touch = true;
+          which_touch = pending_touches.front();
+          pending_touches.pop();
+          return true;
+        }
+        if(pending_applys.size() > 0) {
+          doing_touch = false;
+          which_apply = pending_applys.front();
+          pending_applys.pop();
+          return true;
+        }
+        return false;
       });
-      if(applys_progress.ready.size() > 0) {
-        which = applys_progress.ready.front();
-        applys_progress.ready.pop();
-      } else {
+
+      if(num_apply_remaining == 0) {
+        //DLINEOUT("exiting apply runner");
         return;
       }
     }
 
-    // Do the command execution of which
-    {
-      auto const& node = taskgraph.nodes[which];
+    if(doing_touch) {
+      auto const& [inn_id, touch_op] = get_touch_info(which_touch);
+
+      int const& partialize_id = which_touch.partialize_id;
+      uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
+
+      auto [_ps, _is] = get_buffers(
+        { {partialize_size, partialize_id} },
+        { inn_id });
+
+      buffer_t& out_buffer = _ps[0];
+      buffer_t& inn_buffer = _is[0];
+
+      //DOUT("TOUCH " << which_touch);
+      kernel_manager(touch_op, out_buffer->data, inn_buffer->data);
+
+      {
+        unique_lock lk(m_notify);
+        did_touches.push(which_touch);
+      }
+    } else {
+      auto const& node = taskgraph.nodes[which_apply];
       auto const& [_0, inns, einsummable] = node.op.get_apply();
 
       auto [workspace, which_workspace] = workspace_manager.get(einsummable);
@@ -405,14 +197,7 @@ void cpu_exec_state_t::apply_runner(int runner_id)
 
       // Can we donate one of the input buffers to
       // this computation?
-      for(int i = 0; i != inns.size(); ++i) {
-        int const& inn = inns[i];
-        buffer_t& input = inputs[i];
-        if(applys_progress.is_donatable.count(inn)) {
-          out_buffer = input;
-          break;
-        }
-      }
+      // TODO
 
       // If not, allocate.
       if(!out_buffer) {
@@ -425,75 +210,55 @@ void cpu_exec_state_t::apply_runner(int runner_id)
         raw_inputs.push_back(buffer->data);
       }
 
+      //DOUT("EINSUMMABLE " << which_apply);
       kernel_manager(einsummable, out_buffer->data, raw_inputs, workspace);
       workspace_manager.release(which_workspace);
 
       // Note: Even if out_buffer was donated, this is fine. When
       //       the donated input gets removed from tensors, the
       //       buffer won't get deleted since its a shared pointer.
-      std::unique_lock lk(m_tensors);
-      tensors.insert_or_assign(which, out_buffer);
-    }
+      {
+        std::unique_lock lk(m_tensors);
+        tensors.insert_or_assign(which_apply, out_buffer);
+      }
 
-    this->completed_apply(which);
-  }
-}
-
-void cpu_exec_state_t::touch_runner(int runner_id)
-{
-  using touch_info_t = touches_progress_t::touch_info_t;
-  touch_info_t which;
-  while(true) {
-    {
-      std::unique_lock lk(m);
-      cv.wait(lk, [this](){
-        return touches_progress.num_remaining.size() == 0 ||
-               touches_progress.ready.size() > 0;
-      });
-      if(touches_progress.ready.size() > 0) {
-        which = touches_progress.ready.front();
-        touches_progress.ready.pop();
-      } else {
-        return;
+      {
+        unique_lock lk(m_notify);
+        did_nodes.push(which_apply);
       }
     }
 
-    // Do the touch of this operation
-    auto const& [unit_id, inn_tensor, touch] = which;
+    cv_notify.notify_one();
 
+    bool fini;
     {
-      int partialize_id = touches_progress.units[unit_id].partialize_id;
-      uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
-      auto [_ps, _is] = get_buffers(
-        { {partialize_size, partialize_id} },
-        { inn_tensor });
-
-      buffer_t& out_buffer = _ps[0];
-      buffer_t& inn_buffer = _is[0];
-
-      kernel_manager(touch, out_buffer->data, inn_buffer->data);
+      unique_lock lk(m_apply);
+      num_apply_remaining--;
+      fini = num_apply_remaining == 0;
     }
-
-    this->completed_touch(inn_tensor, unit_id);
+    if(fini) {
+      cv_apply.notify_all();
+    }
   }
 }
 
-void cpu_exec_state_t::send_runner(int runner_id)
-{
+void state_t::send_runner(int runner_id) {
   int send_id;
-
-  while(true)
-  {
+  while(true) {
     {
-      std::unique_lock lk(m);
-      cv.wait(lk, [this](){
-        return sends_progress.waiting.size() == 0 ||
-               sends_progress.ready.size() > 0;
+      unique_lock lk(m_send);
+      cv_send.wait(lk, [&, this] {
+        if(num_send_remaining == 0) {
+          return true;
+        }
+        if(pending_sends.size() > 0) {
+          send_id = pending_sends.front();
+          pending_sends.pop();
+          return true;
+        }
+        return false;
       });
-      if(sends_progress.ready.size() > 0) {
-        send_id = sends_progress.ready.front();
-        sends_progress.ready.pop();
-      } else {
+      if(num_send_remaining == 0) {
         return;
       }
     }
@@ -508,16 +273,29 @@ void cpu_exec_state_t::send_runner(int runner_id)
 
     mpi->send(buffer, dst, send_id);
 
-    completed_send(send_id);
+    {
+      unique_lock lk(m_notify);
+      did_nodes.push(send_id);
+    }
+    cv_notify.notify_one();
+
+    bool fini;
+    {
+      unique_lock lk(m_send);
+      num_send_remaining--;
+      fini = (num_send_remaining == 0);
+    }
+    if(fini) {
+      cv_send.notify_all();
+    }
   }
 }
 
-void cpu_exec_state_t::recv_runner(int runner_id)
-{
+void state_t::recv_runner(int runner_id) {
   while(true)
   {
     {
-      std::unique_lock lk(m);
+      unique_lock lk(m_recv);
 
       if(num_recv_post_remaining == 0) {
         return;
@@ -538,140 +316,248 @@ void cpu_exec_state_t::recv_runner(int runner_id)
 
     mpi->recv(recv_buffer, src, recv_id);
 
-    completed_recv(recv_id);
+    {
+      unique_lock lk(m_notify);
+      did_nodes.push(recv_id);
+    }
+    cv_notify.notify_one();
   }
 }
 
-void cpu_exec_state_t::notify_tensor_ready(int tensor_id)
+void state_t::event_loop()
 {
-  applys_progress.notify_tensor_ready(tensor_id);
-  touches_progress.notify_tensor_ready(tensor_id);
-  sends_progress.notify_tensor_ready(tensor_id);
+  while(true) {
+    while(here_nodes.size() > 0 || here_touches.size() > 0) {
+      if(here_nodes.size() > 0) {
+        int id = here_nodes.front();
+        here_nodes.pop();
+        //DOUT("event loop did node " << id);
+        event_loop_did_node(id);
+        num_did_remaining--;
+      }
+      if(here_touches.size() > 0) {
+        auto info = here_touches.front();
+        here_touches.pop();
+        //DOUT("event loop did touch " << info);
+        event_loop_did_touch(info);
+        num_did_remaining--;
+      }
+    }
+    if(num_did_remaining == 0) {
+      return;
+    }
+    unique_lock lk(m_notify);
+    cv_notify.wait(lk, [this] {
+      if(did_nodes.size() > 0) {
+        here_nodes = did_nodes;
+        did_nodes = queue<int>();
+      }
+      if(did_touches.size() > 0) {
+        here_touches = did_touches;
+        did_touches = queue<which_touch_t>();
+      }
+      return here_nodes.size() > 0 || here_touches.size() > 0;
+    });
+  }
 }
 
-void cpu_exec_state_t::_completed(
-  std::unique_lock<std::mutex>&& lk, // this must hold mutex m!
-  bool command_finished,
-  vector<int> const& used_as_input,
-  optional<int> created_tensor)
+void state_t::event_loop_did_node(int id)
 {
-  if(command_finished) {
-    num_remaining -= 1;
+  auto const& node = taskgraph.nodes[id];
+
+  // register the usage for each tensor used
+  bool is_send = false;
+  if(node.op.is_input()) {
+    // there are no inputs to input nodes
+  } else if(node.op.is_apply()) {
+    for(auto const& inn: node.op.inputs()) {
+      event_loop_register_usage(inn);
+    }
+  } else if(node.op.is_move()) {
+    auto const& move = node.op.get_move();
+    if(move.src == this_rank) {
+      event_loop_register_usage(move.inn);
+      is_send = true;
+    }
+  } else if(node.op.is_partialize()) {
+    // usage is registered after touches for partialize nodes,
+    // not here
+
+    // however, units_in_progress needs to be cleaned up
+    auto const& ts = touches.at(id);
+    for(int unit_id = 0; unit_id != ts.size(); ++unit_id) {
+      int num_touches_in_unit = ts[unit_id].size();
+      if(num_touches_in_unit > 1) {
+        units_in_progress.erase(touch_unit_t { id, unit_id });
+      }
+    }
+  } else {
+    throw std::runtime_error("missing node type: event loop did node");
   }
 
-  vector<int> will_erase;
-  for(auto const& inn: used_as_input) {
-    int& cnt = num_usages_remaining.at(inn);
-    cnt -= 1;
-    if(cnt == 0) {
-      num_usages_remaining.erase(inn);
-      auto const& inn_node = taskgraph.nodes[inn];
-      if(!inn_node.is_save) {
-        will_erase.push_back(inn);
+  // register the outputs and possibly launch them
+  if(!is_send) {
+    for(auto const& out: node.outs) {
+      auto const& out_node = taskgraph.nodes[out];
+      if(out_node.op.is_partialize()) {
+        //DOUT("event_loop_launch_touch " << id << " " << out);
+        event_loop_launch_touch(id, out);
+      } else {
+        int& cnt = num_remaining.at(out);
+        cnt--;
+        if(cnt == 0) {
+          event_loop_launch(out);
+          num_remaining.erase(out);
+        } else if(cnt < 0) {
+          throw std::runtime_error("cnt should not be negative!");
+        }
       }
     }
   }
+}
 
-  if(created_tensor) {
-    int const& id = created_tensor.value();
-    notify_tensor_ready(id);
+void state_t::event_loop_did_touch(which_touch_t const& info)
+{
+  //DLINEOUT("did touch                         " << info);
+  auto const& [partialize_id, unit_id, touch_id] = info;
+
+  int const& inn_id = get_inn_from_which_touch(info);
+  event_loop_register_usage(inn_id);
+
+  {
+    int& cnt = num_remaining.at(partialize_id);
+    cnt--;
+
+    if(cnt == 0) {
+      // all the partializes have been done, mark this tensor
+      // as computed so it can be processed here in the event
+      // loop as part of here_nodes
+      here_nodes.push(partialize_id);
+      num_remaining.erase(partialize_id);
+    } else if(cnt < 0) {
+      throw std::runtime_error("cnt should not be  negative!");
+    }
   }
 
-  // we don't need this lock to delete from tenors,
-  // so free it up
-  lk.unlock();
-
-  if(will_erase.size() > 0) {
-    // but we do need a lock over tensors
-    std::unique_lock lk_tensors(m_tensors);
-    for(auto const& inn: will_erase) {
-      tensors.erase(inn);
+  // No touch in a unit can happen at the same time. If more touches
+  // from this unit are available, add them to pending touches and
+  // notify the workers.
+  auto iter = units_in_progress.find(info.as_touch_unit());
+  if(iter != units_in_progress.end()) {
+    touch_unit_state_t& unit_state = iter->second;
+    queue<int>& next_touch_ids = unit_state.waiting;
+    if(next_touch_ids.size() > 0) {
+      int next_touch_id = next_touch_ids.front();
+      next_touch_ids.pop();
+      //DLINEOUT("inserting from unit state         "
+      //  << (which_touch_t { partialize_id, unit_id, next_touch_id }));
+      {
+        unique_lock lk(m_apply);
+        pending_touches.push(which_touch_t { partialize_id, unit_id, next_touch_id });
+      }
+      cv_apply.notify_one();
+    } else {
+      unit_state.busy = false;
     }
   }
 }
 
-void cpu_exec_state_t::completed_send(int move_id)
-{
-  auto const& node = taskgraph.nodes[move_id];
-
-  _completed(
-    std::unique_lock(m),
-    true,
-    {node.op.get_move().inn},
-    optional<int>()
-  );
-
-  cv.notify_all();
-}
-
-void cpu_exec_state_t::completed_recv(int move_id)
-{
-  _completed(
-    std::unique_lock(m),
-    true,
-    {},
-    optional<int>(move_id)
-  );
-
-  cv.notify_all();
-}
-
-void cpu_exec_state_t::completed_touch(int inn, int unit_id)
-{
-  std::unique_lock lk(m);
-
-  optional<int> maybe_completed_partial_id =
-    touches_progress.completed(unit_id);
-
-  if(maybe_completed_partial_id) {
-    auto const& partial_id = maybe_completed_partial_id.value();
-
-    // the partial id has been touched the requisite number of times
-    // and so this command is done and partial_id is a completed
-    // tensor.
-    _completed(
-      std::move(lk),
-      true,
-      {inn},
-      optional<int>(partial_id)
-    );
+void state_t::event_loop_launch(int id) {
+  auto const& node = taskgraph.nodes[id];
+  if(node.op.is_apply()) {
+    {
+      unique_lock lk(m_apply);
+      pending_applys.push(id);
+    }
+    cv_apply.notify_one();
+  } else if(node.op.is_move()) {
+    {
+      unique_lock lk(m_send);
+      pending_sends.push(id);
+    }
+    cv_send.notify_one();
   } else {
-    // More touches need to happen
-    _completed(
-      std::move(lk),
-      false,
-      {inn},
-      optional<int>()
-    );
+    throw std::runtime_error("event loop launch only for apply and send");
   }
-  // _completed has release the mutex
-
-  cv.notify_all();
 }
 
-void cpu_exec_state_t::completed_apply(int apply_id)
+void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
+  auto const& ts = touches.at(partialize_id);
+  for(int unit_id = 0; unit_id != ts.size(); ++unit_id) {
+    auto const& items = ts[unit_id];
+    if(items.size() == 1) {
+      // this unit is a singleton, no need to dance with units_in_progress
+      auto const& [touch_inn, _] = items[0];
+      if(inn_id == touch_inn) {
+        {
+          unique_lock lk(m_apply);
+          pending_touches.push(which_touch_t { partialize_id, unit_id, 0 });
+        }
+        cv_apply.notify_one();
+      }
+    } else {
+      touch_unit_t touch_unit { partialize_id, unit_id };
+      auto& unit_state = units_in_progress[touch_unit];
+      for(int touch_id = 0; touch_id != items.size(); ++touch_id) {
+        auto const& [touch_inn, _] = items[touch_id];
+        if(inn_id == touch_inn) {
+          if(unit_state.busy) {
+            //DLINEOUT("having agg wait                   "
+            //    << (which_touch_t { partialize_id, unit_id, touch_id}));
+            unit_state.waiting.push(touch_id);
+          } else {
+            //DLINEOUT("launching agg                     " <<
+            //    (which_touch_t { partialize_id, unit_id, touch_id}));
+            {
+              unique_lock lk(m_apply);
+              pending_touches.push(which_touch_t { partialize_id, unit_id, touch_id });
+            }
+            cv_apply.notify_one();
+            unit_state.busy = true;
+          }
+        }
+      }
+    }
+  }
+}
+
+void state_t::event_loop_register_usage(int id) {
+  auto iter = num_usage_remaining.find(id);
+  if(iter == num_usage_remaining.end()) {
+    throw std::runtime_error("could not find usage count");
+  }
+
+  int& cnt = iter->second;
+  cnt--;
+
+  if(cnt == 0) {
+    bool const& is_save = taskgraph.nodes[id].is_save;
+    if(!is_save) {
+      unique_lock lk(m_tensors);
+      tensors.erase(id);
+    }
+    num_usage_remaining.erase(id);
+  } else if(cnt < 0) {
+    throw std::runtime_error("usage count should not be less than zero");
+  }
+}
+
+tuple<int, touch_t> const&
+state_t::get_touch_info(which_touch_t const& info) const
 {
-  auto const& node = taskgraph.nodes[apply_id];
-  set<int> inns = node.op.inputs();
-
-  _completed(
-    std::unique_lock(m),
-    true,
-    vector<int>(inns.begin(), inns.end()),
-    optional<int>(apply_id)
-  );
-
-  cv.notify_all();
+  auto const& [partialize_id, unit_id, touch_id] = info;
+  return touches.at(partialize_id)[unit_id][touch_id];
 }
 
-bool cpu_exec_state_t::check_complete() const {
-  return num_remaining == 0;
+int const&
+state_t::get_inn_from_which_touch(which_touch_t const& info) const {
+  return std::get<0>(get_touch_info(info));
 }
 
 tuple<
   vector<buffer_t>,
   vector<buffer_t> >
-cpu_exec_state_t::get_buffers(
+state_t::get_buffers(
   vector<tuple<uint64_t, int>> const& which_writes,
   vector<int>                  const& which_reads)
 {
@@ -698,206 +584,19 @@ cpu_exec_state_t::get_buffers(
   return {writes, reads};
 }
 
-void applys_progress_t::insert(
-  int apply_id,
-  bool can_donate,
-  set<int> const& inns,
-  map<int, int>& tensor_usage_cnts)
-{
-  if(num_remaining.count(apply_id) > 0) {
-    throw std::runtime_error("how come applys progress num rem already has this?");
-  }
-
-  num_remaining.insert({apply_id, inns.size()});
-
-  for(auto const& inn: inns) {
-    input_to_applys[inn].push_back(apply_id);
-    tensor_usage_cnts[inn] += 1;
-  }
-
-  if(can_donate) {
-    is_donatable.insert(apply_id);
-  }
+bool operator==(touch_unit_t const& lhs, touch_unit_t const& rhs) {
+  return two_tuple_eq(lhs, rhs);
+}
+bool operator< (touch_unit_t const& lhs, touch_unit_t const& rhs) {
+  return two_tuple_lt(lhs, rhs);
+}
+std::ostream& operator<<(std::ostream& out, which_touch_t const& info) {
+  out << "wt{partialize " << info.partialize_id;
+  out << " unit " << info.unit_id;
+  out << " touch " << info.touch_id;
+  out << "}";
+  return out;
 }
 
-void applys_progress_t::notify_tensor_ready(int input_id)
-{
-  if(input_to_applys.count(input_id) > 0) {
-    for(auto const& apply_id: input_to_applys.at(input_id)) {
-      int& cnt = num_remaining.at(apply_id);
-      cnt -= 1;
-      if(cnt == 0) {
-        ready.push(apply_id);
-        num_remaining.erase(apply_id);
-      }
-    }
-  }
-}
-
-void touches_progress_t::insert_partialize(
-  int partialize_id,
-  vector<vector<tuple<int, touch_t>>> const& touches,
-  map<int, int>& tensor_usage_cnts)
-{
-  if(num_remaining.count(partialize_id) > 0) {
-    throw std::runtime_error("how come touches progress num rem already has this?");
-  }
-
-  num_remaining.insert({partialize_id, touches.size()});
-
-  for(vector<tuple<int, touch_t>> const& ts: touches) {
-    int unit_id = units.size();
-    units.emplace_back(unit_id, partialize_id, ts);
-
-    for(auto const& [inn, _]: ts) {
-      input_to_units[inn].insert(unit_id);
-      tensor_usage_cnts[inn] += 1;
-    }
-  }
-}
-
-void touches_progress_t::notify_tensor_ready(int input_id) {
-  if(input_to_units.count(input_id) > 0) {
-    for(auto const& unit_id: input_to_units.at(input_id)) {
-      auto maybe_op = units[unit_id].notify_tensor_ready(input_id);
-      if(maybe_op) {
-        ready.push(maybe_op.value());
-      }
-    }
-    input_to_units.erase(input_id);
-  }
-}
-
-// Return the partial id that just completed, if applicable
-optional<int> touches_progress_t::completed(int unit_id) {
-  unit_t& unit = units[unit_id];
-  auto maybe_op = unit.completed();
-  if(maybe_op) {
-    ready.push(maybe_op.value());
-    // This partial is not complete as this unit needs to
-    // wait for the given op
-    return optional<int>();
-  } else if(unit.done()) {
-    // Each partial has multiple units it needs to complete,
-    // so decrement and see if this unit is the last one
-    int& cnt = num_remaining.at(unit.partialize_id);
-    cnt -= 1;
-    if(cnt == 0) {
-      num_remaining.erase(unit.partialize_id);
-      return optional<int>(unit.partialize_id);
-    } else {
-      return optional<int>();
-    }
-  } else {
-    // This partial is not complete as this unit is not
-    // done.
-    return optional<int>();
-  }
-
-}
-
-touches_progress_t::unit_t::unit_t(
-  int unit_id,
-  int partialize_id,
-  vector<tuple<int, touch_t>> const& ops)
-  : unit_id(unit_id),
-    partialize_id(partialize_id),
-    ops(ops),
-    init(true),
-    busy(false)
-{
-  // in waiting, store all 0,1, ... ops.size()-1,
-  // the op idxs still to do
-  waiting = vector<int>(ops.size());
-  std::iota(waiting.begin(), waiting.end(), 0);
-}
-
-bool touches_progress_t::unit_t::done() const {
-  return ready.size() == 0 && waiting.size() == 0;
-}
-
-optional<touches_progress_t::touch_info_t>
-touches_progress_t::unit_t::notify_tensor_ready(int tensor_id) {
-  for(int i = 0; i != ops.size(); ++i) {
-    auto const& inn_id = std::get<0>(ops[i]);
-    if(inn_id == tensor_id) {
-      vector_erase_value(waiting, i);
-      ready.push_back(i);
-    }
-  }
-  return try_to_pop();
-}
-
-optional<touches_progress_t::touch_info_t>
-touches_progress_t::unit_t::try_to_pop() {
-  if(busy || ready.size() == 0) {
-    return optional<touch_info_t>();
-  }
-
-  busy = true;
-
-  int which_op = ready.back();
-  ready.pop_back();
-
-  auto [inn, touch] = ops[which_op];
-
-  if(init) {
-    // On the first touch of this unit,
-    // we want to initialize the output instead of
-    // incrementing. So set the castable
-    // to none to specify this op.
-    init = false;
-    touch.castable = optional<castable_t>();
-  }
-  return touch_info_t {
-    .unit  = unit_id,
-    .inn   = inn,
-    .touch = touch
-  };
-}
-
-optional<touches_progress_t::touch_info_t>
-touches_progress_t::unit_t::completed() {
-  if(!busy) {
-    throw std::runtime_error("should be busy!");
-  }
-  busy = false;
-  return try_to_pop();
-}
-
-void sends_progress_t::insert(int move_id, int inn_id) {
-  waiting[inn_id].push_back(move_id);
-}
-
-void sends_progress_t::notify_tensor_ready(int inn_id) {
-  if(waiting.count(inn_id) > 0) {
-    // push the move id(s) onto ready
-    for(auto const& move_id: waiting.at(inn_id)) {
-      ready.push(move_id);
-    }
-
-    waiting.erase(inn_id);
-  }
-}
-
-kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
-  kernel_manager_t ret;
-  update_kernel_manager(ret, taskgraph);
-  return ret;
-}
-
-void update_kernel_manager(
-  kernel_manager_t& ret,
-  taskgraph_t const& taskgraph)
-{
-  for(auto const& node: taskgraph.nodes) {
-    if(node.op.is_apply()) {
-      auto const& e = node.op.get_apply().einsummable;
-      if(!ret.build(e)) {
-        throw std::runtime_error(
-          "could not build a kernel for " + write_with_ss(e));
-      }
-    }
-  }
 }
 

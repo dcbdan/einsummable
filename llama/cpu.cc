@@ -13,13 +13,18 @@
 #include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/repartition.h"
 
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
+#include "../src/autoplace/rwmcmc.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/autopart.h"
 
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
 
 #include <iomanip> // setprecision
+
+#include <fstream>
 
 struct tensor_reader_t {
   tensor_reader_t(string filename) : file(filename, std::ios::binary) {
@@ -301,7 +306,7 @@ struct run_mcmc_t {
   std::mutex m;
   optional<tuple<double, vector<placement_t>>> best_option;
 
-  void operator()(mcmc_t && mcmc, int num_steps) {
+  void operator()(forwardsim_mcmc_t && mcmc, int num_steps) {
     for(int i = 0; i != num_steps; ++i) {
       mcmc.step();
     }
@@ -332,14 +337,14 @@ vector<placement_t> solve(
     if(autoplace_settings.do_balanced) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_balanced(cluster, graph, beta),
+          forwardsim_mcmc_t::init_balanced(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
     if(autoplace_settings.do_singleloc) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          forwardsim_mcmc_t::init_with_single_loc(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
@@ -353,36 +358,77 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 12;
-int num_touch_threads = 12;
+int num_threads_per_node = 4;
+int num_real_threads_per_node = 4;
+int num_steps = 300000;
+int nlocs = 1;
+double beta = 10000.0;
 
 vector<placement_t> autoplace(graph_t const& graph) {
-  gremlin_t gremlin("autoplace");
+  DOUT("num threads per node " << num_threads_per_node)
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+  kernel_coster.touch_start *= 30;
 
-  uint64_t giga = 1e9;
+  int max_blocks = num_threads_per_node * nlocs * 2;
 
-  cluster_settings_t cluster_settings {
-    .num_nodes = 1,
-    .num_threads_per_node = 2*num_threads_per_node,
-    .compute_per_thread = 1*giga,
-    .bandwidth = 10*giga
-  };
+  relationwise_mcmc_t mcmc(
+    graph, kernel_coster,
+    nlocs, num_threads_per_node, max_blocks,
+    equal_items_t<int>());
 
-  autoplace_settings_t autoplace_settings {
-    .num_steps = 1,
-    .betas = {10000.0},
-    .do_balanced = true,
-    .do_singleloc = false
-  };
+  DOUT("single thread cost " << mcmc.cost());
 
-  auto ret = solve(graph, cluster_settings, autoplace_settings);
+  {
+    uint64_t min_sizing = 1;
+    vector<partition_t> parts = autopartition(
+      graph, min_sizing, nlocs * num_threads_per_node, mcmc.get_equal_gids());
 
-  return std::move(ret);
+    // this ignores the equal gids
+    vector<placement_t> pls = load_balanced_placement(graph, parts, nlocs, false);
+
+    mcmc.set_placements(pls);
+  }
+
+  DOUT("balanced cost " << mcmc.cost());
+
+  for(int i = 0; i != num_steps; ++i) {
+    if(i % 5000 == 0) {
+      DOUT( i << " / " << num_steps << "    " << mcmc.cost() << " " << mcmc.get_best_cost() );
+    }
+    mcmc.step(beta);
+  }
+
+  DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
+  return mcmc.get_best_placements();
 }
+
+//vector<placement_t> autoplace(graph_t const& graph) {
+//  gremlin_t gremlin("autoplace");
+//
+//  uint64_t giga = 1e9;
+//
+//  cluster_settings_t cluster_settings {
+//    .num_nodes = 1,
+//    .num_threads_per_node = 2*num_threads_per_node,
+//    .compute_per_thread = 1*giga,
+//    .bandwidth = 10*giga
+//  };
+//
+//  autoplace_settings_t autoplace_settings {
+//    .num_steps = 1,
+//    .betas = {10000.0},
+//    .do_balanced = true,
+//    .do_singleloc = false
+//  };
+//
+//  auto ret = solve(graph, cluster_settings, autoplace_settings);
+//
+//  return std::move(ret);
+//}
 
 void main_(loc_manager_t& manager, string filename) {
   {
-    int seed = runif(10000);
+    int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
     set_seed(seed);
   }
@@ -423,9 +469,23 @@ void main_(loc_manager_t& manager, string filename) {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int niter = 1; // 256-seqlen-1;
+  int niter = 0; // 256-seqlen-1;
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  uint64_t total = 0;
+  for(auto const& node: builder.taskgraph.nodes) {
+    if(node.op.is_partialize()) {
+      for(auto const& [_, touch]: node.op.get_partialize().as_touches_from_flat()) {
+        auto szs = vector_from_each_member(touch.selection, uint64_t, size);
+        total += dtype_size(touch.dtype) * product(szs);
+      }
+    }
+  }
+  DOUT("total touch bytes: " << (double(total)*1.0e-9) << " GB");
+
+  //update_kernel_manager(manager.kernel_manager, builder.taskgraph);
+  //std::ofstream ff("kernel.csv");
+  //manager.kernel_manager.make_dataset(ff);
 
   dbuffer_t embedding_matrix(
     default_dtype(),
@@ -531,13 +591,16 @@ void main_(loc_manager_t& manager, string filename) {
 }
 
 int main(int argc, char** argv) {
-  execute_taskgraph_settings_t settings {
-    .num_apply_runner = num_threads_per_node,
-    .num_touch_runner = num_touch_threads,
-    .num_send_runner = 0,
-    .num_recv_runner = 0,
-    .num_apply_kernel_threads = 1
-  };
+  //auto args = model_args_t::llama_30B();
+  //builder_t builder = builder_t::make_first_token(args, 256, autoplace);
+
+  //for(auto const& [name, rel]: builder.weights) {
+  //  DOUT(name);
+  //  DOUT(rel.placement.total_shape());
+  //  DOUT("");
+  //}
+  auto settings = execute_taskgraph_settings_t::default_settings();
+  settings.num_apply_runner = num_real_threads_per_node;
 
   mpi_t mpi(argc, argv);
 
@@ -551,5 +614,4 @@ int main(int argc, char** argv) {
     main_(manager, argv[1]);
     manager.shutdown();
   }
-
 }

@@ -1,4 +1,4 @@
-#include "autoplace.h"
+#include "fsmcmc.h"
 #include "loadbalanceplace.h"
 #include "autopart.h"
 
@@ -20,10 +20,6 @@ double simulate(
     makespan = std::max(completed.finish, makespan);
   }
   return makespan;
-}
-
-vector<placement_t> single_loc_placements(graph_t const& graph) {
-  return graph.make_singleton_placement();
 }
 
 equal_items_t<int> construct_equal_placements(graph_t const& graph) {
@@ -58,7 +54,7 @@ void construct_equal_placements_inplace(
   }
 }
 
-mcmc_t::mcmc_t(
+forwardsim_mcmc_t::forwardsim_mcmc_t(
   cluster_t const& cl,
   graph_t const& gr,
   double bt,
@@ -81,7 +77,7 @@ mcmc_t::mcmc_t(
   best_placements = current_placements;
 }
 
-mcmc_t mcmc_t::init_with_single_loc(
+forwardsim_mcmc_t forwardsim_mcmc_t::init_with_single_loc(
   cluster_t const& cluster,
   graph_t const& graph,
   double beta,
@@ -89,12 +85,12 @@ mcmc_t mcmc_t::init_with_single_loc(
 {
   construct_equal_placements_inplace(graph, eqs);
 
-  return mcmc_t(cluster, graph, beta,
+  return forwardsim_mcmc_t(cluster, graph, beta,
     eqs,
-    single_loc_placements(graph));
+    graph.make_singleton_placement());
 }
 
-mcmc_t mcmc_t::init_balanced(
+forwardsim_mcmc_t forwardsim_mcmc_t::init_balanced(
   cluster_t const& cluster,
   graph_t const& graph,
   double beta,
@@ -122,10 +118,10 @@ mcmc_t mcmc_t::init_balanced(
     }
   }
 
-  return mcmc_t(cluster, graph, beta, eqs, pls);
+  return forwardsim_mcmc_t(cluster, graph, beta, eqs, pls);
 }
 
-bool mcmc_t::step() {
+bool forwardsim_mcmc_t::step() {
   vector<placement_t> pls = random_change();
   double makespan = simulate(cluster, graph, pls);
 
@@ -151,15 +147,15 @@ bool mcmc_t::step() {
   }
 }
 
-int mcmc_t::random_gid() const {
+int forwardsim_mcmc_t::random_gid() const {
   return candidates[runif(candidates.size())];
 }
 
-int mcmc_t::num_locs() const {
+int forwardsim_mcmc_t::num_locs() const {
   return cluster.devices.size();
 }
 
-int mcmc_t::num_workers() const {
+int forwardsim_mcmc_t::num_workers() const {
   int ret = 0;
   for(auto const& dev: cluster.devices) {
     ret += dev.capacity;
@@ -167,7 +163,7 @@ int mcmc_t::num_workers() const {
   return ret;
 }
 
-vector<placement_t> mcmc_t::random_change() const {
+vector<placement_t> forwardsim_mcmc_t::random_change() const {
   int prob_change_partition = 10;
 
   vector<placement_t> ret = current_placements;
@@ -230,7 +226,7 @@ vector<placement_t> mcmc_t::random_change() const {
   return ret;
 }
 
-placement_t mcmc_t::make_finer(placement_t const& pl) {
+placement_t forwardsim_mcmc_t::make_finer(placement_t const& pl) {
   auto const& part = pl.partition;
   auto blk_shape = part.block_shape();
   vector<int> can_ds;
@@ -268,7 +264,7 @@ placement_t mcmc_t::make_finer(placement_t const& pl) {
   return placement_t(new_partition, new_locs);
 }
 
-placement_t mcmc_t::make_coarser(placement_t const& pl) {
+placement_t forwardsim_mcmc_t::make_coarser(placement_t const& pl) {
   auto const& part = pl.partition;
   auto blk_shape = part.block_shape();
   vector<int> can_ds;

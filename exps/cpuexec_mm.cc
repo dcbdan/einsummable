@@ -128,10 +128,8 @@ int main(int argc, char** argv) {
   if(with_taskgraph) {
     execute_taskgraph_settings_t execute_settings {
       .num_apply_runner = num_threads_per_node,
-      .num_touch_runner = num_threads_per_node,
       .num_send_runner  = num_send_and_recv_threads,
-      .num_recv_runner  = num_send_and_recv_threads,
-      .num_apply_kernel_threads = 1
+      .num_recv_runner  = num_send_and_recv_threads
     };
 
     map<int, buffer_t> tensors;
@@ -161,10 +159,7 @@ int main(int argc, char** argv) {
       .num_recv_runner = num_send_and_recv_threads
     };
 
-    vector<int> which_cache(mpi.world_size);
-    std::iota(which_cache.begin(), which_cache.end(), 0);
-
-    auto [inn_to_mem, _2, memgraph] = memgraph_t::make_without_evict(taskgraph, which_cache);
+    auto [inn_to_mem, _2, memgraph] = memgraph_t::make_without_evict(taskgraph);
 
     if(mpi.this_rank == 0) {
       std::ofstream f("mg.gv");

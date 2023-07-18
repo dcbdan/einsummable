@@ -1,5 +1,6 @@
 #include "loadbalanceplace.h"
 #include "locsetter.h"
+#include "twolayer.h"
 
 struct _lbp_count_t {
   uint64_t size;
@@ -20,8 +21,6 @@ vector<_lbp_count_t> compute_loc_scores(
   std::function<uint64_t(int,int)> get_score,
   vector<int> const& bids)
 {
-  using jid_t = forward_state_t::jid_t;
-
   vector<_lbp_count_t> ret;
   ret.reserve(bids.size());
 
@@ -68,8 +67,6 @@ vector<placement_t> load_balanced_placement(
     vtensor_t<int> locations(part.block_shape(), -1);
     pls.emplace_back(part, locations);
   }
-
-  using jid_t = forward_state_t::jid_t;
 
   auto get_loc = [&pls, &nlocs](jid_t const& jid) {
     auto const& [gid,bid] = jid;

@@ -7,8 +7,6 @@
 #include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
-#include "../src/autoplace/autoplace.h"
-
 #include <fstream>
 
 void usage() {
@@ -49,7 +47,7 @@ void ff(
   vector<int> outs = wsnew;
   outs.push_back(sqdiff);
   auto [graph, m_to_g] = mgraph.compile(outs);
-  auto pls = single_loc_placements(graph);
+  auto pls = graph.make_singleton_placement();
   auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph, pls);
 
   {

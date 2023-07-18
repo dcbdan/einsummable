@@ -1305,7 +1305,22 @@ scalarop_t scalarop_t::from_string(string const& str) {
 }
 
 scalarop_t scalarop_t::make_identity(dtype_t dtype) {
-  return make_arg(0, dtype);
+  static scalarop_t s_f16 = make_arg(0, dtype_t::f16);
+  static scalarop_t s_f32 = make_arg(0, dtype_t::f32);
+  static scalarop_t s_f64 = make_arg(0, dtype_t::f64);
+  static scalarop_t s_c64 = make_arg(0, dtype_t::c64);
+
+  if(dtype == dtype_t::f16) {
+    return s_f16;
+  } else if(dtype == dtype_t::f32) {
+    return s_f32;
+  } else if(dtype == dtype_t::f64) {
+    return s_f64;
+  } else if(dtype == dtype_t::c64) {
+    return s_c64;
+  } else {
+    throw std::runtime_error("should not reach: make_identity");
+  }
 }
 
 scalarop_t scalarop_t::make_arg(int arg, dtype_t dtype) {
