@@ -9,7 +9,7 @@ kernel_coster_t::for_cpu_cluster(int nlocs)
 
   double fl = 1e10;
 
-  double startup = 5e-3; // this many seconds to start doing anything
+  double startup = 5e-4; // this many seconds to start doing anything
 
   return kernel_coster_t {
     .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
@@ -434,7 +434,11 @@ void relationwise_t::_change_refi_cost_at(rid_t rid, bool add)
   auto& move_cost = ginfo.move_cost;
   auto& touch_dst_cost = ginfo.touch_src_cost;
 
-  auto update_touch = [&add](threads_costs_t& t, double c) {
+  bool no_touching = ginfo.partition == ginfo.refinement_partition;
+
+  auto update_touch = [&add, &no_touching](threads_costs_t& t, double c) {
+    if(no_touching) { return; }
+
     if(add) {
       t.add(c);
     } else {
