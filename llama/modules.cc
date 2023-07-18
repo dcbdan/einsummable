@@ -13,16 +13,6 @@
     return t; \
   }()
 
-uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
-{
-  if(top % bot != 0) {
-    err_msg = "uint64_div: has remainder. " + err_msg;
-    throw std::runtime_error(err_msg);
-  } else {
-    return top / bot;
-  }
-}
-
 model_args_t model_args_t::llama_7B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 4096,
@@ -54,7 +44,7 @@ model_args_t model_args_t::llama_30B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 6656,
     .n_layers        = 60,
-    .n_heads         = 54,
+    .n_heads         = 52,
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,
