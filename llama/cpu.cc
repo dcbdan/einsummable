@@ -358,15 +358,16 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 8;
+int num_threads_per_node = 4;
 int num_real_threads_per_node = 4;
-int num_steps = 0;
+int num_steps = 300000;
 int nlocs = 1;
 double beta = 10000.0;
 
 vector<placement_t> autoplace(graph_t const& graph) {
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+  kernel_coster.touch_start *= 30;
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -480,7 +481,7 @@ void main_(loc_manager_t& manager, string filename) {
       }
     }
   }
-  DOUT("total touch bytes: " << total);
+  DOUT("total touch bytes: " << (double(total)*1.0e-9) << " GB");
 
   //update_kernel_manager(manager.kernel_manager, builder.taskgraph);
   //std::ofstream ff("kernel.csv");
