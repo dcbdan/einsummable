@@ -214,7 +214,7 @@ void reference_compute_memgraph(
       // nothing to do
     } else if(op.is_inputsto()) {
       //TODO: how to get the compute loc of the memgraph??
-      if (storages[storage_loc].find(op.get_inputsto().storage_id) == storages[storage_loc].end()) {
+      if (storages[op.get_inputsto().storage_loc].find(op.get_inputsto().storage_id) == storages[op.get_inputsto().storage_loc].end()) {
         throw std::runtime_error(
         "not implemented: storage not given as input "
         "to reference_compute_memgraph");
@@ -318,8 +318,8 @@ void reference_compute_memgraph(
   vector<buffer_t>& compute_location_buffers)
 {
   // TODO: verify that there are no inputsto nodes
-  for(int const& id: memgraph.nodes) {
-    auto const& op = memgraph.nodes[id].op;
+  for(auto const& memnode: memgraph.nodes) {
+    auto const& op = memnode.op;
     if(op.is_inputsto()) {
       throw std::runtime_error("If no inputsto arguments are given, then cannot have any inputsto nodes.");
     }
