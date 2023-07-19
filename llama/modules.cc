@@ -13,6 +13,14 @@
     return t; \
   }()
 
+model_args_t model_args_t::llama(int n, uint64_t batch_size) {
+  if(n == 1) { return llama_7B( batch_size); }
+  if(n == 2) { return llama_13B(batch_size); }
+  if(n == 4) { return llama_30B(batch_size); }
+  if(n == 8) { return llama_65B(batch_size); }
+  throw std::runtime_error("must have 1,2,4,8 number of llama \"n\"");
+}
+
 model_args_t model_args_t::llama_7B(uint64_t batch_size) {
   return model_args_t {
     .dim             = 4096,

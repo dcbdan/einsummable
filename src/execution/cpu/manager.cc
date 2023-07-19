@@ -31,6 +31,9 @@ void loc_manager_t::listen() {
     } else if(cmd == cmd_t::remap_data) {
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       repartition(mpi, remap, data);
+    } else if(cmd == cmd_t::max_tid) {
+      int max_tid_here = data.size() == 0 ? -1 : data.rbegin()->first;
+      mpi->send_int(max_tid_here, 0, 0);
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
@@ -92,6 +95,20 @@ void loc_manager_t::remap_data(remap_relations_t const& remap) {
   broadcast_str(remap.to_wire());
 
   repartition(mpi, remap, data);
+}
+
+int loc_manager_t::get_max_tid() {
+  broadcast_cmd(cmd_t::max_tid);
+
+  int ret = data.size() == 0 ? -1 : data.rbegin()->first;
+
+  if(!mpi) { return ret; }
+
+  for(int i = 1; i != mpi->world_size; ++i) {
+    ret = std::max(ret, mpi->recv_int_from_anywhere(0));
+  }
+
+  return ret;
 }
 
 void loc_manager_t::shutdown() {

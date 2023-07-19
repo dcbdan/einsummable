@@ -15,7 +15,8 @@ struct loc_manager_t {
   // this should be called by all non-zero rank locations
   void listen();
 
-  // Should only be called by rank zero {{{
+  // Should only be called by rank zero and when all other
+  // ranks are listening {{{
   void execute(taskgraph_t const& taskgraph);
 
   // Get a relation broadcast across the cluster and put it
@@ -34,6 +35,11 @@ struct loc_manager_t {
   //       deleted!
   void remap_data(remap_relations_t const& remap);
 
+  // Get the max tid across all data objects on all ranks.
+  // Useful for creating new relations that won't overwrite
+  // existing data
+  int get_max_tid();
+
   void shutdown();
   // }}}
 
@@ -51,12 +57,15 @@ private:
     unpartition,
     partition_into_data,
     remap_data,
+    max_tid,
     shutdown
   };
 
   static vector<string> const& cmd_strs() {
     static vector<string> ret {
-      "execute", "unpartition", "partition_into_data", "remap_data", "shutdown"};
+      "execute", "unpartition", "partition_into_data",
+      "remap_data", "max_tid", "shutdown"
+    };
     return ret;
   }
 

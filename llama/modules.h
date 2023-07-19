@@ -13,6 +13,7 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
 // Helpful structure for llama model
 struct model_args_t {
+  static model_args_t llama(int n, uint64_t batch_size = 1);
   static model_args_t llama_7B(    uint64_t batch_size = 1);
   static model_args_t llama_13B(   uint64_t batch_size = 1);
   static model_args_t llama_30B(   uint64_t batch_size = 1);

@@ -51,8 +51,11 @@ void relationwise_mcmc_t::set_placements(vector<placement_t> const& pls)
   }
 
   for(int gid = 0; gid != pls.size(); ++gid) {
-    current_cost += gwise(gid, pls[gid]);
+    gwise(gid, pls[gid]);
   }
+
+  gwise.reset_cost();
+  current_cost = gwise.total_cost();
 
   //DOUT("set cost " << current_cost);
   if(current_cost < best_cost) {
