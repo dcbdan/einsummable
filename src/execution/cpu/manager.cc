@@ -98,11 +98,11 @@ void loc_manager_t::remap_data(remap_relations_t const& remap) {
 }
 
 int loc_manager_t::get_max_tid() {
-  broadcast_cmd(cmd_t::max_tid);
-
   int ret = data.size() == 0 ? -1 : data.rbegin()->first;
 
   if(!mpi) { return ret; }
+
+  broadcast_cmd(cmd_t::max_tid);
 
   for(int i = 1; i != mpi->world_size; ++i) {
     ret = std::max(ret, mpi->recv_int_from_anywhere(0));
