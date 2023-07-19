@@ -193,7 +193,8 @@ map<int, buffer_t> reference_compute_taskgraph(
 
 void reference_compute_memgraph(
   memgraph_t const& memgraph,
-  vector<buffer_t>& compute_location_buffers)
+  vector<buffer_t>& compute_location_buffers,
+  vector<map<int, buffer_t>>& storages)
 {
   auto make_buffer_at = [&](int loc, mem_t const& mem) {
     return make_buffer_reference(
@@ -204,7 +205,7 @@ void reference_compute_memgraph(
     return dbuffer_t(dtype, make_buffer_at(loc, mem));
   };
 
-  vector<map<int, buffer_t>> storages(memgraph.num_storage_locs);
+  // vector<map<int, buffer_t>> storages(memgraph.num_storage_locs);
   set<int> groups_touched;
 
   for(int const& id: memgraph.get_order()) {
@@ -212,9 +213,12 @@ void reference_compute_memgraph(
     if(op.is_inputmem()) {
       // nothing to do
     } else if(op.is_inputsto()) {
-      throw std::runtime_error(
+      //TODO: how to get the compute loc of the memgraph??
+      if (storages[storage_loc].find(op.get_inputsto().storage_id) == storages[storage_loc].end()) {
+        throw std::runtime_error(
         "not implemented: storage not given as input "
         "to reference_compute_memgraph");
+      } //else nothing to do
     } else if(op.is_apply()) {
       auto const& apply = op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -305,6 +309,27 @@ void reference_compute_memgraph(
       // nothing to do
     } else {
       throw std::runtime_error("reference_compute_memgraph: should not happen");
+    }
+  }
+}
+
+void reference_compute_memgraph(
+  memgraph_t const& memgraph,
+  vector<buffer_t>& compute_location_buffers)
+{
+  // TODO: verify that there are no inputsto nodes
+  for(int const& id: memgraph.nodes) {
+    auto const& op = memgraph.nodes[id].op;
+    if(op.is_inputsto()) {
+      throw std::runtime_error("If no inputsto arguments are given, then cannot have any inputsto nodes.");
+    }
+  }
+  vector<map<int, buffer_t>> temporary_storage;
+  reference_compute_memgraph(memgraph, compute_location_buffers, temporary_storage);
+  // TODO: verify that each storage is empty
+  for (const auto& storage : temporary_storage) {
+    if (!storage.empty()) {
+      throw std::runtime_error("No storage allowed, actual storage not empty.");
     }
   }
 }

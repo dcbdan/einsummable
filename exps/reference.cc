@@ -1155,15 +1155,15 @@ int main(int argc, char** argv) {
   //test_random_matmul();
 
   //main09(argc, argv);
-  //main10();
+  // main10();
   //main11(argc, argv);
   //set_seed(0);
   //test_obvious_random_loc_matmul(5,5,5,5);
 
-  //for(int i = 0; i != 10; ++i) {
+  // for(int i = 0; i != 10; ++i) {
   //  test_random_matmul_then_unary_ew(scalarop_t::make_increment(scalar_t(float(0.77))));
   //  DOUT(i+1);
-  //}
+  // }
 
   //main13();
   //main14();
@@ -1196,13 +1196,15 @@ int main(int argc, char** argv) {
   //  test_with_complex_matmul();
   //}
 
-  for(int i = 0; i != 100; ++i) {
-    DOUT(i);
-    set_seed(i);
-    for(int which = 0; which != 4; ++which) {
-      main_subset(which);
-    }
-  }
+  // for(int i = 0; i != 100; ++i) {
+  //   DOUT(i);
+  //   set_seed(i);
+  //   for(int which = 0; which != 4; ++which) {
+  //     main_subset(which);
+  //   }
+  // }
+  // main06(argc, argv);
+  main08(argc, argv);
 }
 
 
