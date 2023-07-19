@@ -15,6 +15,8 @@ struct loc_manager_t {
   // this should be called by all non-zero rank locations
   void listen();
 
+  void register_listen(string key, std::function<void(loc_manager_t&)> f);
+
   // Should only be called by rank zero and when all other
   // ranks are listening {{{
   void execute(taskgraph_t const& taskgraph);
@@ -43,6 +45,10 @@ struct loc_manager_t {
   void shutdown();
   // }}}
 
+  static string get_registered_cmd() {
+    return write_with_ss(cmd_t::registered_cmd);
+  }
+
   map<int, buffer_t> data;
 
   mpi_t* mpi;
@@ -58,13 +64,14 @@ private:
     partition_into_data,
     remap_data,
     max_tid,
+    registered_cmd,
     shutdown
   };
 
   static vector<string> const& cmd_strs() {
     static vector<string> ret {
       "execute", "unpartition", "partition_into_data",
-      "remap_data", "max_tid", "shutdown"
+      "remap_data", "max_tid", "registered_cmd", "shutdown"
     };
     return ret;
   }
@@ -83,6 +90,8 @@ private:
   void copy_into_data(
     map<int, buffer_t>& tmp,
     remap_relations_t const& remap);
+
+  map<string, std::function<void(loc_manager_t&)>> listeners;
 };
 
 std::ostream& operator<<(std::ostream& out, loc_manager_t::cmd_t const& c);

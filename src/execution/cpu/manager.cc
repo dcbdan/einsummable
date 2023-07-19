@@ -34,10 +34,19 @@ void loc_manager_t::listen() {
     } else if(cmd == cmd_t::max_tid) {
       int max_tid_here = data.size() == 0 ? -1 : data.rbegin()->first;
       mpi->send_int(max_tid_here, 0, 0);
+    } else if(cmd == cmd_t::registered_cmd) {
+      string key = mpi->recv_str(0);
+      listeners.at(key)(*this);
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
   }
+}
+
+void loc_manager_t::register_listen(
+  string key, std::function<void(loc_manager_t&)> f)
+{
+  listeners.insert({key, f});
 }
 
 void loc_manager_t::execute(taskgraph_t const& taskgraph)

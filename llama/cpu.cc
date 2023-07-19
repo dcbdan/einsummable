@@ -22,13 +22,9 @@
 
 #include <fstream>
 
-#include <mkl.h> // for mkl_set_num_threads
-
 #include <iomanip> // setprecision
 
 #include <fstream>
-
-#include <thread>
 
 struct token_maker_t {
   token_maker_t(vector<vector<int>> const ps):
@@ -270,9 +266,9 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 2;
-int num_real_threads_per_node = 6;
-int num_steps = 10000;
+int num_threads_per_node = 8;
+int num_real_threads_per_node = 12;
+int num_steps = 300000;
 int nlocs = -1;
 double beta = 10000.0;
 
@@ -282,7 +278,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
   }
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-  kernel_coster.touch_start = 7e-3;
+  kernel_coster.touch_start = 1e-2;
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -389,7 +385,9 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   dbuffer_t embedding_matrix = [&] {
     int starting_tid = manager.get_max_tid() + 1;
     vector<uint64_t> shape{ args.vocab_size, args.dim };
-    relation_t relation = reader("tok_embeddings.weight", shape, starting_tid);
+    relation_t relation = reader(
+      manager.get_registered_cmd(), manager.mpi, manager.data,
+      "tok_embeddings.weight", shape, starting_tid);
     buffer_t ret = convert_f16_to_default(manager.unpartition(relation).data);
     for(auto const& tid: relation.tids.get()) {
       manager.data.erase(tid);
@@ -426,7 +424,8 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
       auto shape = usage_tinfo.placement.total_shape();
       int starting_tid = manager.get_max_tid() + 1;
       init_remap.insert(
-        reader(name, shape, starting_tid),
+        reader(manager.get_registered_cmd(), manager.mpi, manager.data,
+               name, shape, starting_tid),
         usage_tinfo);
     }
 
@@ -467,7 +466,7 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   }
 
   // all data has been read, so shut down the reader
-  reader.shutdown();
+  reader.shutdown(manager.get_registered_cmd(), manager.mpi);
 
   int world_size = bool(manager.mpi) ? manager.mpi->world_size : 1;
   if(builder.taskgraph.num_locs() > world_size) {
@@ -549,13 +548,21 @@ int main(int argc, char** argv) {
 
   // reader holds data by reference
   tensor_reader_t reader(
-    &mpi, manager.data, argv[1], parse_with_ss<int>(argv[2]));
+    mpi.this_rank, mpi.world_size,
+    argv[1], parse_with_ss<int>(argv[2]));
 
   if(mpi.this_rank != 0) {
-    std::thread manager_thread([&manager] { manager.listen(); });
-    std::thread reader_thread( [&reader]  { reader.listen();  });
-    manager_thread.join();
-    reader_thread.join();
+    manager.register_listen(reader.read_cmd(),
+      [&](loc_manager_t& m) {
+        reader.listen_read(m.mpi, m.data);
+      }
+    );
+    manager.register_listen(reader.shutdown_cmd(),
+      [&](loc_manager_t& m) {
+        reader.listen_shutdown();
+      }
+    );
+    manager.listen();
   } else {
     main_(manager, reader, argv[1]);
     manager.shutdown();

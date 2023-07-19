@@ -90,14 +90,10 @@ local_tensor_reader_t::read_next_weight_info() {
 }
 
 tensor_reader_t::tensor_reader_t(
-  mpi_t* mpi, map<int, buffer_t>& d,
+  int this_rank, int world_size,
   string const& base_filename, int n)
-  : mpi(mpi), data(d), n_total_files(n)
+  : n_total_files(n)
 {
-  int this_rank  = mpi ? mpi->this_rank  : 1 ;
-
-  world_size = mpi ? mpi->world_size : 1 ;
-
   for(int i = this_rank; i < n; i += world_size) {
     string si = write_with_ss(i);
     if(i < 10) {
@@ -112,6 +108,7 @@ tensor_reader_t::tensor_reader_t(
 }
 
 relation_t tensor_reader_t::operator()(
+  string register_cmd, mpi_t* mpi, map<int, buffer_t>& data,
   string const& name,
   vector<uint64_t> const& shape,
   int starting_tid)
@@ -150,11 +147,13 @@ relation_t tensor_reader_t::operator()(
 
   // send the tensor name & tids
   for(int dst = 1; dst != world_size; ++dst) {
+    mpi->send_str(register_cmd, dst);
+    mpi->send_str(read_cmd(), dst);
     mpi->send_str(name, dst);
     mpi->send_vector(v_tids, dst);
   }
 
-  _read(name, v_tids);
+  _read(name, v_tids, data);
 
   return relation_t {
     .dtype     = dtype_t::f16,
@@ -163,7 +162,7 @@ relation_t tensor_reader_t::operator()(
   };
 }
 
-void tensor_reader_t::shutdown() {
+void tensor_reader_t::shutdown(string reg_cmd, mpi_t* mpi) {
   if(!mpi) { return; }
 
   if(mpi->this_rank != 0) {
@@ -171,13 +170,14 @@ void tensor_reader_t::shutdown() {
   }
 
   for(int i = 1; i != mpi->world_size; ++i) {
-    mpi->send_str("", i);
+    mpi->send_str(reg_cmd, i);
+    mpi->send_str(shutdown_cmd(), i);
   }
 
   _shutdown();
 }
 
-void tensor_reader_t::listen() {
+void tensor_reader_t::listen_read(mpi_t* mpi, map<int, buffer_t>& data) {
   if(!mpi) {
     throw std::runtime_error("should not call listen if mpi is not setup");
   }
@@ -185,16 +185,13 @@ void tensor_reader_t::listen() {
     throw std::runtime_error("rank zero should not call listen method");
   }
 
-  while(true) {
-    string msg = mpi->recv_str(0);
-    if(msg == "") {
-      _shutdown();
-      return;
-    }
-    auto const& tensor_name = msg;
-    vector<int> file_to_tid = mpi->recv_vector<int>(0);
-    _read(tensor_name, file_to_tid);
-  }
+  string tensor_name = mpi->recv_str(0);
+  vector<int> file_to_tid = mpi->recv_vector<int>(0);
+  _read(tensor_name, file_to_tid, data);
+}
+
+void tensor_reader_t::listen_shutdown() {
+  _shutdown();
 }
 
 void tensor_reader_t::_shutdown() {
@@ -202,7 +199,8 @@ void tensor_reader_t::_shutdown() {
 }
 
 void tensor_reader_t::_read(
-  string const& tensor_name, vector<int> const& whiches)
+  string const& tensor_name, vector<int> const& whiches,
+  map<int, buffer_t>& data)
 {
   for(auto& [i, reader]: readers) {
     data.insert_or_assign(whiches[i], reader(tensor_name));
