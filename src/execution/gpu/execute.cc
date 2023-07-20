@@ -13,20 +13,6 @@ cudaStream_t cuda_create_stream() {
   return ret;
 }
 
-// check if the offset in mems is greater than the bound
-// throw an error if it is
-// also check if the offset + size is greater than the bound
-void mem_t_check(std::vector<mem_t> mems, int bound) {
-  for (auto mem : mems) {
-    if (mem.offset > bound) {
-      throw std::runtime_error("Error: offset is greater than the bound.");
-    }
-    if (mem.offset + mem.size > bound) {
-      throw std::runtime_error("Error: offset + size is greater than the bound.");
-    }
-  }  
-}
-
 // increment the pointer by the byte offset
 // ONLY USE IF THE UNIT OF OFFSET IS BYTE
 float *offset_increment(const float *ptr, int offset) {
@@ -277,7 +263,7 @@ void execute(const memgraph_t &memgraph, float *memory_base_ptr) {
 //   gpu_execute_state_t *my_state;
 //   int node_idx;
 //   cudaStream_t stream;
-//   bool debug = false;
+//   bool debug = true;
 
 //   void operator()() {
 //     std::mutex &m = *m_ptr;
@@ -298,7 +284,7 @@ void execute(const memgraph_t &memgraph, float *memory_base_ptr) {
 // // function definition of gpu_execute_state_t.run()
 // void gpu_execute_state_t::run() {
 
-//   bool debug = false;
+//   bool debug = true;
 
 //   while (true) {
 
@@ -402,7 +388,6 @@ void execute(const memgraph_t &memgraph, float *memory_base_ptr) {
 //         lk.unlock();
 //         // get the memory offsets
 //         auto memory_vector = node.op.get_apply().mems;
-//         mem_t_check(memory_vector, memgraph.mem_sizes()[0]);
 //         // CASE: TOUCH
 //         if (node.op.is_touch()) {
 //           // std::cout << "Got a touch node" << std::endl;
@@ -467,12 +452,12 @@ void execute(const memgraph_t &memgraph, float *memory_base_ptr) {
 //                   "contraction plans.");
 //             }
 //             // print the memory_vector offsets and sizes
-//             std::cout << "Offset 1: " << memory_vector[1].offset << std::endl;
-//             std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
-//             std::cout << "Offset 3: " << memory_vector[0].offset << std::endl;
-//             std::cout << "Size 1: " << memory_vector[1].size << std::endl;
-//             std::cout << "Size 2: " << memory_vector[2].size << std::endl;
-//             std::cout << "Size 3: " << memory_vector[0].size << std::endl;
+//             // std::cout << "Offset 1: " << memory_vector[1].offset << std::endl;
+//             // std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
+//             // std::cout << "Offset 3: " << memory_vector[0].offset << std::endl;
+//             // std::cout << "Size 1: " << memory_vector[1].size << std::endl;
+//             // std::cout << "Size 2: " << memory_vector[2].size << std::endl;
+//             // std::cout << "Size 3: " << memory_vector[0].size << std::endl;
 
 //             auto contraction_descriptor = einsum_iter->second;
 //             execute_contraction(
@@ -542,7 +527,7 @@ struct callback_data_t {
   std::condition_variable *cv_ptr;
   gpu_execute_state_t *my_state;
   int node_idx;
-  cudaStream_t stream;
+  bool debug = true;
 
   void operator()() {
     std::mutex &m = *m_ptr;
@@ -551,15 +536,18 @@ struct callback_data_t {
       std::unique_lock lk(m);
       // update the queues since this node is finished
       my_state->finished_queue.push(node_idx);
-      cudaStreamDestroy(stream);
+      if (debug){
+        printf("Callback: Node %d finished execution.\n", node_idx);
+      }
     }
     cv.notify_all();
   }
 };
 
-// function definition of gpu_execute_state_t.run()
 void gpu_execute_state_t::run() {
 
+  bool debug = true;
+  
   while (true) {
 
     if (is_complete()) {
@@ -585,6 +573,16 @@ void gpu_execute_state_t::run() {
       auto node = memgraph.nodes[node_idx];
       // remove the first element from the queue
       pending_queue.pop();
+      // print all node indices from the pending queue
+      if (debug){
+        std::cout << "Pending queue: ";
+        std::queue<int> temp_queue = pending_queue;
+        while (temp_queue.size() != 0) {
+          std::cout << temp_queue.front() << " ";
+          temp_queue.pop();
+        }
+        std::cout << std::endl;
+      }
 			lk.unlock();
       // std::cout << "Executing node: " << node_idx << std::endl;
       // execute the node
@@ -621,9 +619,17 @@ void gpu_execute_state_t::run() {
             if (all_group_ids.count(group_id) == 0) {
               // set the castable to nullopt
               touch.castable = std::nullopt;
+              if (debug){
+                std::cout << "Touch node " << node_idx 
+                  << "'s castable is set to nullopt" << std::endl;
+              }
             } else if (group_id < 0) {
               // set the castable to nullopt
               touch.castable = std::nullopt;
+              if (debug){
+                std::cout << "Touch node " << node_idx 
+                  << "'s castable is set to nullopt" << std::endl;
+              }
             } else {
               if (touch.castable == std::nullopt) {
                 throw std::runtime_error(
@@ -673,7 +679,7 @@ void gpu_execute_state_t::run() {
                 get_input_mem_ptrs(memory_vector, memory_base_ptr));
           }
         }
-
+        std::cout << "Node " << node_idx << " has been scheduled to a stream" << std::endl;
         // after execution, we attach the stream with a callback function
         // get all the metadata needed for the callback
         callback_data_t *data = new callback_data_t;
@@ -681,7 +687,6 @@ void gpu_execute_state_t::run() {
         data->cv_ptr = &cv;
         data->node_idx = node_idx;
         data->my_state = this;
-        data->stream = stream;
         // add the callback
         cudaStreamAddCallback(
             stream,
@@ -699,6 +704,7 @@ void gpu_execute_state_t::run() {
                                  "among the following - move, evict, load");
       }
     }
+
     std::unique_lock lk(m);
     while (finished_queue.size() != 0) {
       // get the node index
@@ -708,6 +714,13 @@ void gpu_execute_state_t::run() {
       // update the queue since this node is finished
       auto new_nodes = node_update(node_idx);
       add_to_pending_queue(new_nodes);
+      if (debug){
+        printf("Node %d finished execution. New nodes added: ", node_idx);
+        for (auto n : new_nodes) {
+          printf("%d ", n);
+        }
+        printf("\n");
+      }
     }
     lk.unlock();
   }

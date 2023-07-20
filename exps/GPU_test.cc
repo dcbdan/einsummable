@@ -121,6 +121,7 @@ int main_matmul(int argc, char **argv) {
       exit(1);
     }
 
+    check_bounds(memgraph, memgraph.mem_sizes()[0]);
     execute_test(memgraph);
   }
 

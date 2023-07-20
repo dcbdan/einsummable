@@ -5,11 +5,103 @@
 #include "../src/einsummable/scalarop.h"
 #include "../src/execution/gpu/execute.h"
 
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <sys/types.h>
+
+// print the information of the memgraph
+void print_memgraph(memgraph_t memgraph){
+  // print the input and output of every node
+  for (int i = 0; i < memgraph.nodes.size(); ++i) {
+    std::cout << "Node " << i << " has input: ";
+    for (auto in : memgraph.nodes[i].inns) {
+      std::cout << in << " ";
+    }
+    std::cout << "and output: ";
+    for (auto out : memgraph.nodes[i].outs) {
+      std::cout << out << " ";
+    }
+    std::cout << "Node type: ";
+    memgraph.nodes[i].op.print_type();
+    if (memgraph.nodes[i].op.is_touch()){
+      // print the group id
+      std::cout << " Group id: " << memgraph.nodes[i].op.get_apply().group;
+    }
+    std::cout << std::endl;
+  }
+}
+
+// check if the offset in mems is greater than the bound
+// throw an error if it is
+// also check if the offset + size is greater than the bound
+void mem_t_check(std::vector<mem_t> mems, int bound) {
+  for (auto mem : mems) {
+    if (mem.offset > bound) {
+      throw std::runtime_error("Error: offset is greater than the bound.");
+    }
+    if (mem.offset + mem.size > bound) {
+      throw std::runtime_error("Error: offset + size is greater than the bound.");
+    }
+  }  
+}
+
+// check if all nodes in the memgraph are within the memory bound
+void check_bounds(memgraph_t memgraph, size_t bound){
+  for (auto node: memgraph.nodes){
+    if (node.op.is_inputmem()){
+      auto op = node.op.get_inputmem();
+      if (op.offset + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: INPUTMEM");
+      }
+    }
+    else if (node.op.is_apply()){
+      auto op = node.op.get_apply();
+      mem_t_check(op.mems, bound);
+    }
+    else if (node.op.is_move()){
+      auto op = node.op.get_move();
+      if (std::get<1>(op.src) + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: MOVE");
+      }
+      if (std::get<1>(op.dst) + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: MOVE");
+      }
+    }
+    else if (node.op.is_evict()){
+      memloc_t src = node.op.get_evict().src;
+      if (src.offset + src.size > bound){
+        throw std::runtime_error("Memory bound exceeded: EVICT");
+      }
+    }
+    else if (node.op.is_load()){
+      memloc_t dst = node.op.get_load().dst;
+      if (dst.offset + dst.size > bound){
+        throw std::runtime_error("Memory bound exceeded: LOAD");
+      }
+    }
+    else if (node.op.is_partialize()){
+      auto op = node.op.get_partialize();
+      if (op.offset + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: PARTIALIZE");
+      }
+    }
+    else if (node.op.is_alloc()){
+      auto op = node.op.get_alloc();
+      if (op.offset + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: ALLOC");
+      }
+    }
+    else if (node.op.is_del()){
+      auto op = node.op.get_del();
+      if (op.offset + op.size > bound){
+        throw std::runtime_error("Memory bound exceeded: DEL");
+      }
+    }
+  }
+}
 
 void execute_test(memgraph_t memgraph) {
 
@@ -29,20 +121,7 @@ void execute_test(memgraph_t memgraph) {
             << std::endl;
   bool debug = true;
   if (debug) {
-    // print the input and output of every node
-    for (int i = 0; i < memgraph.nodes.size(); ++i) {
-      std::cout << "Node " << i << " has input: ";
-      for (auto in : memgraph.nodes[i].inns) {
-        std::cout << in << " ";
-      }
-      std::cout << "and output: ";
-      for (auto out : memgraph.nodes[i].outs) {
-        std::cout << out << " ";
-      }
-      std::cout << "Node type: ";
-      memgraph.nodes[i].op.print_type();
-      std::cout << std::endl;
-    }
+    print_memgraph(memgraph);
   }
 
   // allocate a buffer on GPU
@@ -272,7 +351,7 @@ void alignmentTest(int di, int dj, int dk) {
                       offset_increment(gpu_ptr, std::get<0>(output_mem)));
 }
 
-void contractionTest2(){
+void contractionTest2() {
   size_t my_size = 64000000;
   mem_t input1 = {.offset = 1984000000, .size = my_size};
   mem_t input2 = {.offset = 1152000000, .size = my_size};
@@ -286,6 +365,8 @@ void contractionTest2(){
   cutensorContractionDescriptor_t desc;
   build_contraction(&desc, handle, einsummable);
   cudaStream_t stream = cuda_create_stream();
-  execute_contraction(stream, handle, &desc, offset_increment(gpu_ptr, output.offset), 
-    offset_increment(gpu_ptr, input1.offset), offset_increment(gpu_ptr, input2.offset));
+  execute_contraction(stream, handle, &desc,
+                      offset_increment(gpu_ptr, output.offset),
+                      offset_increment(gpu_ptr, input1.offset),
+                      offset_increment(gpu_ptr, input2.offset));
 }
