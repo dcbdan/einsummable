@@ -7,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <cuda_runtime.h>
+#include <vector>
 
 using memgraph_t = memgraph_t;
 
@@ -56,28 +57,27 @@ struct gpu_execute_state_t {
   std::map<int, int> dependency_count;
 
   // how many nodes in the memgraph are remaining to execute
-  // each entry in the map is the number of nodes remaining for this device
-  // for now there's only one device, so we only need one entry
+  // on the same machine, there should be one counter counting all nodes executing
+  // on that machine
   int num_nodes_remaining;
 
   // keep track of the group id of the touches that are executing
   // if we have a new touch and its group id is in the list,
   // we need to wait for the previous touch to finish
-  std::set<int> group_id_executing;
+  std::vector<std::set<int>> group_id_executing;
   std::set<int> all_group_ids;
-  // keep a map from group id to the a queue of nodes waiting
+  // keep a map from group id to the a queue of nodes waiting 
   // for the previous touch with the same id to finish
   std::map<int, std::queue<int>> groupID_to_nodeIDX;
 
-  cutensorHandle_t *handle;
-  // create a pool of streams, every time we need a stream we pop one from the
-  // pool
+  std::vector<cutensorHandle_t*> handles;
+  // create a pool of streams for each device
   std::queue<cudaStream_t> stream_pool;
-  std::queue<int> node_idx_waiting_for_stream;
-  std::queue<cudaStream_t> finished_streams;
+  std::vector<std::queue<int>> node_idx_waiting_for_stream;
+  std::vector<std::queue<cudaStream_t>> finished_streams;
 
   // pointer pointing to the start of the GPU memory
-  float *memory_base_ptr;
+  std::vector<float*> memory_base_ptrs;
 
   std::unordered_map<einsummable_t, cutensorContractionDescriptor_t>
       einsum_to_contraction;
@@ -86,13 +86,7 @@ struct gpu_execute_state_t {
   std::mutex m;
   std::condition_variable cv;
 
-  // a map from the node of the memgraph to the cutensor plan
-  // we only have plans for operation contraction, so we only need to store the
-  // plans for those nodes remember to throw an error if the node is not a
-  // contraction but trying to access the map map<int,
-  // cutensorContractionPlan_t> cutensor_plans;
-
-  gpu_execute_state_t(memgraph_t const &input_memgraph, float *mem_ptr);
+  gpu_execute_state_t(memgraph_t const &input_memgraph, std::vector<float*> mem_ptrs);
   // given a memgraph, traverse the graph and get all
   // the dependencies of a node represented by node.inns()
   // return a map from the node to the number of its dependencies
@@ -116,4 +110,4 @@ struct gpu_execute_state_t {
   void run();
 };
 
-void execute(memgraph_t const &memgraph, float *memory_base_ptr);
+void execute(memgraph_t const &memgraph, std::vector<float*> mem_ptrs);
