@@ -1,11 +1,12 @@
 #include "relationwise.h"
 #include "../base/copyregion.h"
+#include "../einsummable/taskgraph.h" // double_last_dim_inplace
 
 kernel_coster_t
 kernel_coster_t::for_cpu_cluster(int nlocs)
 {
-  // 100 Mbps
-  double bw = 1e8;
+  // 100 Mbps=1e8
+  double bw = 1e9;
 
   double fl = 1e10;
 
@@ -58,6 +59,18 @@ double threads_costs_t::cost() const {
 void threads_costs_t::clear() {
   max_cost = 0.0;
   cnt = 0;
+}
+
+void relationwise_stat_t::print_line(std::ostream& out) const {
+  out << "no_touch:"   << double(num_no_touch) / double(num_can_no_touch) << ","
+      << "join:"       << total_join                    << ","
+      << "touch:"      << total_touch                   << ","
+      << "move:"       << total_move                    << ","
+      << "non-c avg blks:" << double(non_contraction.num_blocks) / double(non_contraction.num) << ","
+      << "non-c avg locs:" << double(non_contraction.num_locs  ) / double(non_contraction.num) << ","
+      << "contr avg blks:" << double(contraction.num_blocks)     / double(contraction.num)     << ","
+      << "contr avg locs:" << double(contraction.num_locs  )     / double(contraction.num)     << ","
+          << std::endl;
 }
 
 relationwise_t::relationwise_t(
@@ -352,12 +365,124 @@ vector<placement_t> relationwise_t::get_placements() const
   return ret;
 }
 
+relationwise_stat_t relationwise_t::make_stat() const {
+  relationwise_stat_t ret {
+    .num_no_touch = 0,
+    .num_can_no_touch = 0,
+    .total_join = 0,
+    .total_touch = 0,
+    .total_move = 0,
+    .non_contraction = { .num = 0, .num_blocks = 0, .num_locs = 0 },
+    .contraction     = { .num = 0, .num_blocks = 0, .num_locs = 0 },
+  };
+
+  for(int id = 0; id != graph.nodes.size(); ++id) {
+    auto const& node = graph.nodes[id];
+    auto const& ginfo = ginfos[id];
+    if(ginfo.has_refinement()) {
+      ret.num_can_no_touch++;
+      if(has_no_touch(id)) {
+        ret.num_no_touch++;
+      }
+    }
+    ret.total_join += vector_max_method(ginfo.join_cost, cost);
+    ret.total_touch += vector_max_method(ginfo.touch_src_cost, cost);
+    ret.total_touch += vector_max_method(ginfo.touch_dst_cost, cost);
+    ret.total_move += vector_max_element(ginfo.move_cost);
+
+    int num_blocks = ginfo.partition.num_parts();
+    set<int> locs(ginfo.locations.begin(), ginfo.locations.end());
+
+    bool is_contraction = [&] {
+      if(node.op.is_einsummable()) {
+        auto const& e = node.op.get_einsummable();
+        return e.is_contraction();
+      }
+      return false;
+    }();
+
+    if(is_contraction) {
+      ret.contraction.num += 1;
+      ret.contraction.num_blocks += num_blocks;
+      ret.contraction.num_locs += locs.size();
+    } else {
+      ret.non_contraction.num += 1;
+      ret.non_contraction.num_blocks += num_blocks;
+      ret.non_contraction.num_locs += locs.size();
+    }
+  }
+
+  return ret;
+}
+
 placement_t relationwise_t::get_placement_at(int gid) const
 {
   ginfo_t const& ginfo = ginfos[gid];
   return placement_t(
     ginfo.partition,
     vtensor_t<int>(ginfo.partition.block_shape(), ginfo.locations));
+}
+
+bool relationwise_t::has_no_touch(int gid) const {
+  auto const& ginfo = ginfos[gid];
+  if(!ginfo.refinement_partition) {
+    return true;
+  }
+
+  auto const& partition = ginfo.partition;
+  auto const& refi_partition = ginfo.refinement_partition.value();
+
+  // Note that the refi_partition is with respect to the real
+  // and the partition is with respect to the output dtype
+  if(dtype_is_complex(graph.out_dtype(gid))) {
+    int out_rank = refi_partition.partdims.size();
+    auto iter = partition.partdims.begin();
+    partition_t out_partition(vector<partdim_t>(iter, iter + out_rank));
+    double_last_dim_inplace(out_partition);
+    return out_partition == refi_partition;
+  } else {
+    int out_rank = refi_partition.partdims.size();
+    if(out_rank == partition.partdims.size()) {
+      return partition == refi_partition;
+    } else {
+      auto iter = partition.partdims.begin();
+      partition_t out_partition(vector<partdim_t>(iter, iter + out_rank));
+      return out_partition == refi_partition;
+    }
+  }
+}
+
+optional<partition_t>
+relationwise_t::notouch_partition(int gid) const
+{
+  auto const& ginfo = ginfos[gid];
+
+  if(!ginfo.refinement_partition) {
+    return ginfo.partition;
+  }
+
+  // dtype issues
+  // agg issues
+
+  auto const& refi_partition = ginfos[gid].refinement_partition.value();
+  auto const& refi_pds = refi_partition.partdims;
+
+  partition_t ret = ginfo.partition;
+  std::copy(refi_pds.begin(), refi_pds.end(), ret.partdims.begin());
+
+  if(dtype_is_complex(graph.out_dtype(gid))) {
+    int out_rank = refi_pds.size();
+    partdim_t& pd = ret.partdims[out_rank-1];
+    auto szs = pd.sizes();
+    for(auto const& sz: szs) {
+      if(sz % 2 != 0) {
+        return std::nullopt;
+      }
+    }
+    pd = partdim_t::from_sizes(vector_halve(szs));
+  }
+
+  return ret;
 }
 
 double relationwise_t::total_cost() const {
@@ -434,7 +559,7 @@ void relationwise_t::_change_refi_cost_at(rid_t rid, bool add)
   auto& move_cost = ginfo.move_cost;
   auto& touch_dst_cost = ginfo.touch_src_cost;
 
-  bool no_touching = ginfo.partition == ginfo.refinement_partition;
+  bool no_touching = has_no_touch(gid);
 
   auto update_touch = [&add, &no_touching](threads_costs_t& t, double c) {
     if(no_touching) { return; }

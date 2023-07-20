@@ -68,6 +68,10 @@ add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
 if(${CPU_EXECUTION_ENGINE})
+  if(NOT MKL_THREADING)
+    set(MKL_THREADING sequential)
+  endif()
+
   find_package(MPI REQUIRED)
 
   find_package(MKL REQUIRED)
