@@ -159,16 +159,18 @@ if(${GPU_EXECUTION_ENGINE})
     ${CUDA_LIBRARIES}
     cutensor
     cudart
-    cublasLt)
+    cublasLt
+    cuda)
 
   endfunction()
 
   # call add_gpu_application here
-  add_gpu_application("test_alignment"  "exps" "test_alignment")
-  add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
-  add_gpu_application("gpuexec_reduction"  "exps" "gpuexec_reduction" )
-  add_gpu_application("gpuexec_conversion"  "exps" "gpuexec_conversion" )
-  add_gpu_application("gpuexec_elementwise"  "exps" "gpuexec_elementwise" )
-  add_gpu_application("gpuexec_kernels"  "exps" "gpuexec_kernels" )
-  add_gpu_application("gpuexec_llama7b"  "exps" "gpuexec_llama7b" )
+  #add_gpu_application("test_alignment"  "exps" "test_alignment")
+  #add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
+  #add_gpu_application("gpuexec_reduction"  "exps" "gpuexec_reduction" )
+  #add_gpu_application("gpuexec_conversion"  "exps" "gpuexec_conversion" )
+  #add_gpu_application("gpuexec_elementwise"  "exps" "gpuexec_elementwise" )
+  #add_gpu_application("gpuexec_kernels"  "exps" "gpuexec_kernels" )
+  #add_gpu_application("gpuexec_llama7b"  "exps" "gpuexec_llama7b" )
+  add_gpu_application("gpuexec_kernelmanager"  "exps" "gpuexec_kernelmanager" )
 endif()

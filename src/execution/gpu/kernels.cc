@@ -104,6 +104,7 @@ touch_kernel_t build_touch(touch_t const& touch_)
   throw std::runtime_error("touch kernel not implemented");
 }
 
+/**
 cutensor_kernel_t
 build_einsummable(einsummable_t const& e_)
 {
@@ -156,6 +157,8 @@ build_einsummable(einsummable_t const& e_)
 
   throw std::runtime_error(err_msg);
 }
+
+*/
 
 cudaDataType_t dtype_to_cudatype(dtype_t type){
   if(type == dtype_t::f16){
@@ -378,7 +381,8 @@ void execute_contraction(
 }
 
 
-tuple<uint64_t, cutensor_kernel_t>
+
+cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
   vector<int> out_modes, vector<uint64_t> out_shape,
@@ -434,38 +438,11 @@ build_cutensor_reduction(
   cudaDataType_t typeC = dtype_to_cudatype(type);
   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
-  cutensorHandle_t* handle;
-  cutensorCreate(&handle);
-
-  cutensorTensorDescriptor_t descA;
-    handle_cutensor_error(
-      cutensorInitTensorDescriptor(handle,
-                 &descA,
-                 nmodeA,
-                 extent_A.data(),
-                 NULL /* stride */,
-                 typeA, CUTENSOR_OP_IDENTITY));
-
-  cutensorTensorDescriptor_t descC;
-  handle_cutensor_error(
-    cutensorInitTensorDescriptor(handle,
-                &descC,
-                nmodeC,
-                extent_C.data(),
-                NULL /* stride */,
-                typeC, CUTENSOR_OP_IDENTITY));
-  uint64_t worksize = 0;
-  handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
-                inns[0], &descA, modeA.data(),
-                out, &descC, modeC.data(),
-                out, &descC, modeC.data(),
-                opReduce, typeCompute, &worksize));
-
-  auto lambda =  [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC,type,typeA,typeC,typeCompute,descA,descC,worksize](
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC,type,typeA,typeC,typeCompute](
     cudaStream_t stream,
     cutensorHandle_t const* handle,
     void* out,
-    vector<void const*> inns, void* work)
+    vector<void const*> inns, void* work, uint64_t worksize)
   {
     
 
@@ -513,6 +490,23 @@ build_cutensor_reduction(
     void const* alpha = ptr1; 
     void const* beta = ptr2; 
 
+    cutensorTensorDescriptor_t descA;
+    handle_cutensor_error(
+        cutensorInitTensorDescriptor(handle,
+                  &descA,
+                  nmodeA,
+                  extent_A.data(),
+                  NULL /* stride */,
+                  typeA, CUTENSOR_OP_IDENTITY));
+
+    cutensorTensorDescriptor_t descC;
+    handle_cutensor_error(
+      cutensorInitTensorDescriptor(handle,
+                  &descC,
+                  nmodeC,
+                  extent_C.data(),
+                  NULL /* stride */,
+                  typeC, CUTENSOR_OP_IDENTITY));
 
     cutensorStatus_t err;
     err = cutensorReduction(handle, 
@@ -524,9 +518,99 @@ build_cutensor_reduction(
     if(err != CUTENSOR_STATUS_SUCCESS)
             printf("ERROR: %s\n", cutensorGetErrorString(err) );
   };
+}
 
-  using tt = tuple<uint64_t, cutensor_kernel_t>;
-  return tt{worksize, lambda};
+uint64_t reduction_worksize(einsummable_t einsummable, void* out, vector<void const*> inns, cutensorHandle_t const* handle)
+{
+  castable_t castable = einsummable.castable.value();
+  dtype_t type = einsummable.inn_dtype(0);
+
+  vector<int> const& inn_modes = einsummable.inns[0];
+
+  auto inn_shape = einsummable.inn_shapes()[0];
+
+  vector<int> out_modes(einsummable.out_rank);
+  std::iota(out_modes.begin(), out_modes.end(), 0);
+
+
+  auto out_shape = einsummable.out_shape();
+
+  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+  std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
+  int32_t nmodeA = modeA.size();
+  int32_t nmodeC = modeC.size();
+
+  std::reverse(modeA.begin(), modeA.end());
+
+  std::vector<int64_t> extent_A;
+  extent_A.reserve(inn_shape.size());
+  for (const auto& element : inn_shape) {
+    extent_A.push_back(static_cast<int64_t>(element));
+  }
+
+  std::vector<int64_t> extent_C;
+  extent_C.reserve(out_shape.size());
+  for (const auto& element : out_shape) {
+    extent_C.push_back(static_cast<int64_t>(element));
+  }
+
+  std::reverse(extent_A.begin(), extent_A.end());
+
+  cutensorOperator_t opReduce;
+  if(castable == castable_t::add) {
+    opReduce = CUTENSOR_OP_ADD;
+  } else if(castable == castable_t::mul) {
+    opReduce = CUTENSOR_OP_MUL;
+  } else if(castable == castable_t::min) {
+    opReduce = CUTENSOR_OP_MIN;
+  } else if(castable == castable_t::max) {
+    opReduce = CUTENSOR_OP_MAX;
+  } else {
+    throw std::runtime_error("should not reach: missing castable");
+  }
+
+  size_t elementsA = 1;
+  for (int i=0;i<inn_shape.size();++i){
+    elementsA *= inn_shape[i];
+  }
+  size_t elementsC = 1;
+  for (int i=0;i<out_shape.size();++i){
+    elementsC *= out_shape[i];
+  }
+
+  size_t sizeA = sizeof(float) * elementsA;
+  size_t sizeC = sizeof(float) * elementsC;
+  
+  cudaDataType_t typeA = dtype_to_cudatype(type);
+  cudaDataType_t typeC = dtype_to_cudatype(type);
+  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
+
+  cutensorTensorDescriptor_t descA;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(handle,
+                &descA,
+                nmodeA,
+                extent_A.data(),
+                NULL /* stride */,
+                typeA, CUTENSOR_OP_IDENTITY));
+
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(handle,
+                &descC,
+                nmodeC,
+                extent_C.data(),
+                NULL /* stride */,
+                typeC, CUTENSOR_OP_IDENTITY));
+
+  uint64_t worksize = 0;
+  handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
+                inns[0], &descA, modeA.data(),
+                out, &descC, modeC.data(),
+                out, &descC, modeC.data(),
+                opReduce, typeCompute, &worksize));
+  
+  return worksize;
 }
 
 cutensor_elementwise_kernel_t
@@ -601,6 +685,18 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
 
     std::vector<int> modeA = binary.lhs.modes;
     std::vector<int> modeC = binary.rhs.modes;
+
+    bool swapped = (modeA.size() > modeC.size());
+
+    
+
+    if(swapped){
+      std::swap(modeA, modeC);
+      std::swap(binary.lhs, binary.rhs);
+    }
+
+    
+
     int nmodeA = modeA.size();
     int nmodeC = modeC.size();
 
@@ -637,10 +733,9 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
 
     //std::cout << nmodeA << std::endl;
     //std::cout << nmodeC << std::endl;
-
-    
      
-    return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,type,typeA,typeC,typeCompute,binary]
+    return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,
+    type,typeA,typeC,typeCompute,binary,swapped]
     (cudaStream_t stream, cutensorHandle_t const* handle, void* out, vector<void const*> inns){
       void* ptr1;
       void* ptr2;
@@ -662,8 +757,6 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
         ptr1 = static_cast<void*>(&alpha2);
         beta2 = binary.rhs.scale.f32();
         ptr2 = static_cast<void*>(&beta2);
-        std::cout << alpha2 << std::endl;
-        std::cout << beta2 << std::endl;
       }
       else if(type == dtype_t::f64){
         alpha3 = binary.lhs.scale.f64();
@@ -706,11 +799,21 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
       float alphayi = 1.0f;
       float betayi = 1.0f;
       //printf("HERERIN\n");
-      handle_cutensor_error(cutensorElementwiseBinary(handle,
-                alpha, inns[0], &descA, modeA.data(),
-                beta, inns[1], &descC, modeC.data(),
-                out, &descC, modeC.data(),
-                binary.op, typeCompute, stream));
+
+
+      if(swapped){
+        handle_cutensor_error(cutensorElementwiseBinary(handle,
+                  alpha, inns[1], &descA, modeA.data(),
+                  beta, inns[0], &descC, modeC.data(),
+                  out, &descC, modeC.data(),
+                  binary.op, typeCompute, stream));
+      }else{
+        handle_cutensor_error(cutensorElementwiseBinary(handle,
+                  alpha, inns[0], &descA, modeA.data(),
+                  beta, inns[1], &descC, modeC.data(),
+                  out, &descC, modeC.data(),
+                  binary.op, typeCompute, stream));
+      }
     };
   }
   else if(std::holds_alternative<cutensor_elementwise_op_t::ternary_t>(op.op)){
@@ -827,9 +930,9 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
                   extent_C.data(),
                   NULL /* stride */,
                   typeC, ternary.a2.op));
-      if(typeA==CUDA_R_32F&&typeB==CUDA_R_32F&&typeC==CUDA_R_32F&&typeCompute==CUDA_R_32F){
-        printf("HERE\n");
-      }
+      //if(typeA==CUDA_R_32F&&typeB==CUDA_R_32F&&typeC==CUDA_R_32F&&typeCompute==CUDA_R_32F){
+      //  printf("HERE\n");
+      //}
       //cutensorElementwiseTrinary(handle,
       //          alpha, inns[0], &descA, modeA.data(),
       //          beta , inns[1], &descB, modeB.data(),
@@ -894,6 +997,27 @@ bool isVectorSequential(const std::vector<int>& vec, int n) {
     return true;  
 }
 
+cutensor_elementwise_op_t make_mul_op(
+  einsummable_t const& e)
+{
+  cutensor_elementwise_op_t op;
+  op.join_shape = e.join_shape;
+
+  cutensor_elementwise_op_t::arg_t a0 {scalar_t::one(dtype_t::f32),CUTENSOR_OP_IDENTITY,e.inns[0]};
+  cutensor_elementwise_op_t::arg_t a1 {scalar_t::one(dtype_t::f32),CUTENSOR_OP_IDENTITY,e.inns[1]};
+
+  cutensorOperator_t op_0_1 = CUTENSOR_OP_MUL;
+
+  cutensor_elementwise_op_t::binary_t bi_op{
+    op_0_1,
+    a0,
+    a1
+  };
+
+  op.op = bi_op;
+
+  return op;
+}
 
 optional<cutensor_elementwise_op_t>
 make_cutensor_elementwise_op(
@@ -927,9 +1051,9 @@ make_cutensor_elementwise_op(
     cutensor_elementwise_op_t::arg_t a1 = convert_arg(binary.rhs, e.inns[1]);
     
     //if a0 is the same as output shape, that swap a0 to the a1 spot
-    if(isVectorSequential(e.inns[0],e.out_rank)){
-      std::swap(a0, a1);
-    }
+    //if(isVectorSequential(e.inns[0],e.out_rank)){
+    //  std::swap(a0, a1);
+    //}
     
     cutensorOperator_t op_0_1 = convert_op(binary.op);
 
@@ -1018,8 +1142,8 @@ cudaDataType_t dtypes_to_scalartype(dtype_t src, dtype_t dst){
 
 cutensor_elementwise_kernel_t
 build_cutensor_type_conversion(einsummable_t const& e){
-  dtype_t from = e.inn_dtype(0);
-  dtype_t to = e.out_dtype();
+  dtype_t src = e.inn_dtype(0);
+  dtype_t dst = e.out_dtype();
 
   
   std::vector<int> modeA = e.inns[0];
@@ -1038,57 +1162,207 @@ build_cutensor_type_conversion(einsummable_t const& e){
   cudaDataType_t typeA = dtype_to_cudatype(src);
   cudaDataType_t typeC = dtype_to_cudatype(dst);
   cudaDataType_t typeCompute = dtypes_to_scalartype(src,dst);
+  
 
-  cutensorHandle_t* handle;
-  cutensorCreate(&handle);
+  
 
-  cutensorTensorDescriptor_t descA;
-  cutensorInitTensorDescriptor(handle,
-            &descA,
-            nmodeA,
-            extent_A.data(),
-            NULL /* stride */,
-            typeA, CUTENSOR_OP_IDENTITY);
+  return [modeA,typeCompute, nmodeA,nmodeC,
+  extent_A, extent_C, typeA, typeC]
+    (
+      cudaStream_t stream,
+      cutensorHandle_t const* handle,
+      void* out,
+      vector<void const*> inns
+    )
+  {
+    void* ptr;
+    float alpha2;
+    double alpha3;
 
-  cutensorTensorDescriptor_t descC;
-  cutensorInitTensorDescriptor(handle,
-            &descC,
-            nmodeA,
-            extent_A.data(),
-            NULL /* stride */,
-            typeC, CUTENSOR_OP_IDENTITY);
-
-  void* ptr;
-  float alpha2;
-  double alpha3;
-
-  if(typeCompute == CUDA_R_32F){
-    alpha2 = 1.0f;
-    ptr = static_cast<void*>(&alpha2);
-  }
-  else if(typeCompute == CUDA_R_64F){
-    alpha3 = 1.0;
-    ptr = static_cast<void*>(&alpha3);
-  }
-
-  void const* alpha = ptr;
-
-  return [modeA,descA, descC,typeCompute, alpha]
-      (
-        cudaStream_t stream,
-        cutensorHandle_t const* handle,
-        void* out,
-        vector<void const*> inns
-      )
-    {
-      cutensorPermutation(handle,
-                alpha, inns[0], &descA, modeA.data(),
-                out, &descC, modeA.data(),
-                typeCompute, stream);
-
-
-
+    if(typeCompute == CUDA_R_32F){
+      alpha2 = 1.0f;
+      ptr = static_cast<void*>(&alpha2);
     }
+    else if(typeCompute == CUDA_R_64F){
+      alpha3 = 1.0;
+      ptr = static_cast<void*>(&alpha3);
+    }
+
+    void const* alpha = ptr;
+
+    cutensorTensorDescriptor_t descA;
+    cutensorInitTensorDescriptor(handle,
+              &descA,
+              nmodeA,
+              extent_A.data(),
+              NULL /* stride */,
+              typeA, CUTENSOR_OP_IDENTITY);
+
+    cutensorTensorDescriptor_t descC;
+    cutensorInitTensorDescriptor(handle,
+              &descC,
+              nmodeA,
+              extent_A.data(),
+              NULL /* stride */,
+              typeC, CUTENSOR_OP_IDENTITY);
+    cutensorStatus_t err;
+    err =  cutensorPermutation(handle,
+              alpha, inns[0], &descA, modeA.data(),
+              out, &descC, modeA.data(),
+              typeCompute, stream);
+    
+    if(err != CUTENSOR_STATUS_SUCCESS)
+            printf("ERROR: %s\n", cutensorGetErrorString(err) );
+
+
+
+  };
 
 
 }
+
+
+
+cutensor_kernel_t
+build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size){
+  cudaDataType_t typeA = CUDA_R_32F;
+  cudaDataType_t typeB = CUDA_R_32F;
+  cudaDataType_t typeC = CUDA_R_32F;
+  cudaDataType_t typeCompute = CUDA_R_32F;
+
+
+  auto binary = std::get<cutensor_elementwise_op_t::binary_t>(op.op);
+
+  std::vector<int> modeA = binary.lhs.modes;
+  std::vector<int> modeC = binary.rhs.modes;
+
+  bool swapped = (modeA.size() > modeC.size());
+
+  
+
+  if(swapped){
+    std::swap(modeA, modeC);
+    std::swap(binary.lhs, binary.rhs);
+  }
+
+  
+
+  int nmodeA = modeA.size();
+  int nmodeC = modeC.size();
+
+  std::reverse(modeA.begin(), modeA.end());
+  std::reverse(modeC.begin(), modeC.end());
+
+
+
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(op.join_shape[mode]);
+  }
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(op.join_shape[mode]);
+  }
+
+
+  typeA = dtype_to_cudatype(binary.lhs.scale.dtype);
+  typeC = dtype_to_cudatype(binary.rhs.scale.dtype);
+  typeCompute = dtype_to_cudatype(binary.lhs.scale.dtype);
+  dtype_t type = binary.lhs.scale.dtype;
+
+    
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,
+  type,typeA,typeC,typeCompute,binary,swapped,a_size]
+    (
+      cudaStream_t stream,
+      cutensorHandle_t const* handle,
+      void* out,
+      vector<void const*> inns, 
+      void* work, uint64_t worksize
+    )
+  {
+    double pow = -1.0;
+    elementwise_power((float*)work,(float*)inns[1],stream,pow,a_size);
+    void* ptr1;
+      void* ptr2;
+      float16_t alpha1, beta1;
+      float alpha2, beta2;
+      double alpha3, beta3;
+      std::complex<float> alpha4(1.0f, 0.0f);
+      std::complex<float> beta4(1.0f, 0.0f);
+
+      if(type == dtype_t::f16){
+        alpha1 = binary.lhs.scale.f16();
+        ptr1 = static_cast<void*>(&alpha1);
+        beta1 = binary.rhs.scale.f16();
+        ptr2 = static_cast<void*>(&beta1);
+        //printf("why is it here\n");
+      }
+      else if(type == dtype_t::f32){
+        alpha2 = binary.lhs.scale.f32();
+        ptr1 = static_cast<void*>(&alpha2);
+        beta2 = binary.rhs.scale.f32();
+        ptr2 = static_cast<void*>(&beta2);
+      }
+      else if(type == dtype_t::f64){
+        alpha3 = binary.lhs.scale.f64();
+        ptr1 = static_cast<void*>(&alpha3);
+        beta3 = binary.rhs.scale.f64();
+        ptr2 = static_cast<void*>(&beta3);
+      }
+      else if(type == dtype_t::c64){
+        alpha4 = binary.lhs.scale.c64();
+        ptr1 =  static_cast<void*>(&alpha4);
+        beta4 = binary.rhs.scale.c64();
+        ptr2 =  static_cast<void*>(&alpha2);
+      }
+
+      void const* alpha = ptr1; 
+      void const* beta = ptr2;
+      
+      if(typeA==CUDA_R_32F&&typeC==CUDA_R_32F&&typeCompute==CUDA_R_32F&&binary.op==CUTENSOR_OP_ADD&&type==dtype_t::f32
+      &&binary.lhs.op==CUTENSOR_OP_IDENTITY&&binary.rhs.op==CUTENSOR_OP_IDENTITY){
+        //printf("HERE\n");
+      }
+
+      cutensorTensorDescriptor_t descA;
+      handle_cutensor_error(
+        cutensorInitTensorDescriptor(handle,
+                  &descA,
+                  nmodeA,
+                  extent_A.data(),
+                  NULL /* stride */,
+                  typeA, binary.lhs.op));
+
+      cutensorTensorDescriptor_t descC;
+      handle_cutensor_error(
+        cutensorInitTensorDescriptor(handle,
+                  &descC,
+                  nmodeC,
+                  extent_C.data(),
+                  NULL /* stride */,
+                  typeC, binary.rhs.op));
+      float alphayi = 1.0f;
+      float betayi = 1.0f;
+      //printf("HERERIN\n");
+
+
+      if(swapped){
+        handle_cutensor_error(cutensorElementwiseBinary(handle,
+                  alpha, work, &descA, modeA.data(),
+                  beta, inns[0], &descC, modeC.data(),
+                  out, &descC, modeC.data(),
+                  binary.op, typeCompute, stream));
+      }else{
+        handle_cutensor_error(cutensorElementwiseBinary(handle,
+                  alpha, inns[0], &descA, modeA.data(),
+                  beta, work, &descC, modeC.data(),
+                  out, &descC, modeC.data(),
+                  binary.op, typeCompute, stream));
+      }
+  };
+
+
+}
+
+

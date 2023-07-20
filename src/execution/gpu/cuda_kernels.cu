@@ -420,7 +420,51 @@ void elementwise_power(float* out, const float* in,
 cudaStream_t stream, double pow, uint64_t size){
   int blockSize = 256;
   int numBlocks = (size + blockSize - 1) / blockSize;
-  powerKernel<<<numBlocks, blockSize>>>(in, out, size, pow);
+  power<<<numBlocks, blockSize>>>(in, out, size, pow);
+
+}
+
+__global__ void increment_scale(const float* in, float* out,
+uint64_t size, float scale) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < size) {
+    out[idx] = scale * in[idx] + 1e-06;
+  }
+}
+
+void scale_and_increment(float* out, const float* in,
+cudaStream_t stream, float scale, uint64_t size){
+  int blockSize = 256;
+  int numBlocks = (size + blockSize - 1) / blockSize;
+  increment_scale<<<numBlocks, blockSize>>>(in, out, size, scale);
+
+}
+
+__global__ void custom_elementwise(const __half* in, __half* out,
+uint64_t size) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < size) {
+
+    //half one = __float2half(1.0f);
+    //half minus_one = __float2half(-1.0f);
+    //half x0 = data[index];
+    float x0 = __half2float(in[idx]);
+    
+
+    //out[idx] = __hmul(x0,minus_one);
+    out[idx] = __float2half(x0*powf(1.0f+expf(-1.0f*x0),-1.0f));
+
+    
+ }
+}
+
+void custom_elementwise_1(void* out, const void* in,
+cudaStream_t stream, uint64_t size){
+  int blockSize = 256;
+  int numBlocks = (size + blockSize - 1) / blockSize;
+  custom_elementwise<<<numBlocks, blockSize>>>((__half*)in, (__half*)out, size);
 
 }
 
