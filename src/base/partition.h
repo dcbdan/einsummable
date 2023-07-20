@@ -2,6 +2,7 @@
 #include "setup.h"
 
 #include "partdim.h"
+#include "vtensor.h"
 
 #include "einsummable.pb.h"
 
@@ -22,6 +23,8 @@ struct partition_t {
   bool refines(partition_t const& other) const;
 
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const;
+
+  vtensor_t<uint64_t> all_block_sizes() const;
 
   partition_t subset(vector<tuple<int, int>> const& region) const;
 
@@ -56,4 +59,9 @@ bool operator==(partition_t const& lhs, partition_t const& rhs);
 bool operator!=(partition_t const& lhs, partition_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, partition_t const& p);
+
+// Putting inline methods of partition_t here
+// (for what appears to be marginal performance improvements)
+#include "partition_.h"
+
 

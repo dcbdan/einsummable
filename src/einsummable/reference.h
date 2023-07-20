@@ -16,6 +16,11 @@ map<int, buffer_t> reference_compute_taskgraph(
 
 void reference_compute_memgraph(
   memgraph_t const& memgraph,
+  vector<buffer_t>& compute_location_buffers,
+  vector<map<int, buffer_t>>& storages);
+
+void reference_compute_memgraph(
+  memgraph_t const& memgraph,
   vector<buffer_t>& compute_location_buffers);
 
 vtensor_t<dbuffer_t> partition_buffer(

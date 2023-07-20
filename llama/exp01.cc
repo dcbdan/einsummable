@@ -4,7 +4,10 @@
 
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
+#include "../src/autoplace/rwmcmc.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/autopart.h"
 
 struct cluster_settings_t {
   int num_nodes;
@@ -49,7 +52,7 @@ cluster_t make_cluster(cluster_settings_t settings)
   return cluster_t::make(devices, connections);
 }
 
-vector<placement_t> solve(
+vector<placement_t> solve_forwardsim(
   graph_t const& graph,
   cluster_settings_t cluster_settings,
   int num_steps,
@@ -57,12 +60,53 @@ vector<placement_t> solve(
 {
   cluster_t cluster = make_cluster(cluster_settings);
 
-  auto mcmc = mcmc_t::init_balanced(cluster, graph, beta);
+  auto mcmc = forwardsim_mcmc_t::init_balanced(cluster, graph, beta);
   for(int i = 0; i != num_steps; ++i) {
     mcmc.step();
   }
 
   return mcmc.best_placements;
+}
+
+vector<placement_t> solve_relationwise(
+  graph_t const& graph,
+  int nlocs,
+  int n_threads_per_node,
+  int max_blocks,
+  int num_steps,
+  double beta)
+{
+  auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
+
+  relationwise_mcmc_t mcmc(
+    graph, kernel_coster,
+    nlocs, n_threads_per_node, max_blocks,
+    equal_items_t<int>());
+
+  DOUT("single thread cost " << mcmc.cost());
+
+  {
+    uint64_t min_sizing = 1;
+    vector<partition_t> parts = autopartition(
+      graph, min_sizing, nlocs * n_threads_per_node, mcmc.get_equal_gids());
+
+    // this ignores the equal gids
+    vector<placement_t> pls = load_balanced_placement(graph, parts, nlocs, false);
+
+    mcmc.set_placements(pls);
+  }
+
+  DOUT("balanced cost " << mcmc.cost());
+
+  for(int i = 0; i != num_steps; ++i) {
+    if(i % 10000 == 0) {
+      DOUT( i << " / " << num_steps << "    " << mcmc.get_best_cost() );
+    }
+    mcmc.step(beta);
+  }
+
+  DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
+  return mcmc.get_best_placements();
 }
 
 int main() {
@@ -73,21 +117,27 @@ int main() {
 
   auto args = model_args_t::llama_7B(bsz);
 
-  int num_nodes = 4;
-  int num_threads_per_node = 64;
-  int num_steps = 3;
+  int num_nodes = 8;
+  int num_threads_per_node = 12;
+  int num_steps = 30000;
+
+  double beta = 10000.0;
 
   auto autoplace = [&](graph_t const& graph) {
-    uint64_t giga = 1e9;
+    //uint64_t giga = 1e9;
+    //cluster_settings_t cluster_settings {
+    //  .num_nodes = num_nodes,
+    //  .num_threads_per_node = num_threads_per_node,
+    //  .compute_per_thread = 1*giga,
+    //  .bandwidth = 10*giga
+    //};
+    //return solve_forwardsim(graph, cluster_settings, num_steps, beta);
 
-    cluster_settings_t cluster_settings {
-      .num_nodes = num_nodes,
-      .num_threads_per_node = num_threads_per_node,
-      .compute_per_thread = 1*giga,
-      .bandwidth = 10*giga
-    };
-
-    return solve(graph, cluster_settings, num_steps, 10000.0);
+    int max_blocks = 2 * num_nodes * num_threads_per_node;
+    return solve_relationwise(
+      graph, num_nodes, num_threads_per_node, max_blocks,
+      num_steps,
+      beta);
   };
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);

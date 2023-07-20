@@ -15,7 +15,8 @@
 partition_t make_correctly_sized_partition(
   partition_t const& init,
   uint64_t min_sizing,
-  optional<int> max_blocking = std::nullopt);
+  optional<int> max_blocking = std::nullopt,
+  bool via_doubling = false);
 
 // For each node in order:
 //   get the default partition from the inputs and call
@@ -24,5 +25,12 @@ vector<partition_t> autopartition(
   graph_t const& graph,
   uint64_t min_sizing,
   int max_blocking,
-  equal_items_t<int> equal_constraints = {});
+  equal_items_t<int> equal_constraints = {},
+  bool via_doubling = false);
+
+optional<partition_t> make_finer_via_doubling(partition_t const& p);
+optional<partition_t> make_coarser_via_halving(partition_t const& p);
+
+optional<partition_t> make_finer_via_increment(partition_t const& p);
+optional<partition_t> make_coarser_via_decrement(partition_t const& p);
 

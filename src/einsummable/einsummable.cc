@@ -315,7 +315,12 @@ einsummable_t einsummable_t::with_new_shape(
   if(e.join_shape.size() != new_join_shape.size()) {
     throw std::runtime_error("einsummable_t::with_new_shape");
   }
-  return einsummable_t(new_join_shape, e.inns, e.out_rank, e.join, e.castable);
+  // copying the previous einsummable and modifying it
+  // is much faster than calling the constructor which
+  // performs lots of checks.
+  einsummable_t ret = e;
+  ret.join_shape = new_join_shape;
+  return ret;
 }
 
 tuple<vector<vector<int>>, int>

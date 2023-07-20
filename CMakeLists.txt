@@ -55,10 +55,12 @@ add_base_application("deepff"           "exps" "deepff")
 add_base_application("base_test"        "exps" "base_test")
 add_base_application("einsummable_test" "exps" "einsummable_test")
 add_base_application("memgraph_test"    "exps" "memgraph_test")
+add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
 
 function(add_llama_application exec filename)
-add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/misc.cc llama/builder.cc)
+add_executable(${exec} llama/${filename}.cc
+  llama/modules.cc llama/misc.cc llama/builder.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
@@ -107,13 +109,14 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
 
   function(add_cpu_llama_application exec filename)
-  add_executable(${exec} llama/${filename}.cc llama/modules.cc llama/builder.cc llama/misc.cc)
-  target_link_libraries(${exec}
-    cpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
-    ${MPI_CXX_LIBRARIES}
-    MKL::MKL)
+    add_executable(${exec} llama/${filename}.cc
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+    target_link_libraries(${exec}
+      cpu_execution_engine
+      proto
+      ${Protobuf_LIBRARIES}
+      ${MPI_CXX_LIBRARIES}
+      MKL::MKL)
   endfunction()
 
   add_cpu_llama_application("llama_cpu" "cpu")

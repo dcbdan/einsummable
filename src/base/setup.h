@@ -116,6 +116,8 @@ std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
   return out;
 }
 
+uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg);
+
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
 
 template <typename T, typename U>
@@ -152,6 +154,57 @@ vector<T> vector_flatten(vector<vector<T>> const& vvs) {
   }
   return ret;
 }
+
+template <typename T>
+T vector_min_element(vector<T> const& xs) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_min_element input empty");
+  }
+  return *std::min_element(xs.begin(), xs.end());
+}
+
+template <typename T>
+T vector_max_element(vector<T> const& xs) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_max_element input empty");
+  }
+  return *std::max_element(xs.begin(), xs.end());
+}
+
+template <typename T, typename F>
+void vector_doeach(vector<T>& xs, F f) {
+  for(T& x: xs) { f(x); }
+}
+
+template <typename T, typename F>
+void vector_doeach(vector<T> const& xs, F f) {
+  for(T const& x: xs) { f(x); }
+}
+
+#define vector_domethod(xs, f) \
+  vector_doeach(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f));
+
+template <typename X, typename F>
+auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
+  if(xs.size() == 0) {
+    throw std::runtime_error("vector_max_transform: empty input");
+  }
+
+  using T = decltype(f(xs[0]));
+
+  T vmax = f(xs[0]);
+  T vtest;
+  for(int i = 1; i != xs.size(); ++i) {
+    vtest = f(xs[i]);
+    if(vmax < vtest) {
+      vmax = vtest;
+    }
+  }
+  return vmax;
+}
+
+#define vector_max_method(xs, f) \
+  vector_max_transform(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f))
 
 template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
@@ -348,6 +401,19 @@ tuple<vector<T1>, vector<T2>> vector_unzip(
   }
 
   return {lhs,rhs};
+}
+
+template <typename T, typename F>
+void set_erase_if_inplace(
+  set<T>& xs, F f)
+{
+  for(auto iter = xs.begin(); iter != xs.end(); ) {
+    if(f(*iter)) {
+      iter = xs.erase(iter);
+    } else {
+      ++iter;
+    }
+  }
 }
 
 template <typename RandomIter>

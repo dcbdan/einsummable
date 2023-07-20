@@ -371,14 +371,18 @@ struct allocator_t {
     uint64_t memsize_t,
     allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
 
-  // Allocate this much memory if possible and return
-  // the offset and all dependents. If there is not
-  // free memory of this size, none is returned.
+  // Allocate this much memory if possible and return the offset and all dependents.
+  // If there is not free memory of this size, none is returned.
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate(uint64_t size);
 
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
+
+  // This function is specifically for allocating without any dependencies.
+  // It will try to allocate a block without any deps and on failure returns none.
+  optional<uint64_t>
+  try_to_allocate_without_deps(uint64_t size);
 
   void set_strategy(allocator_strat_t s) { strat = s; };
   allocator_strat_t get_strategy() const { return strat; }
@@ -419,6 +423,9 @@ private:
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_lowest_dependency_available(uint64_t size);
 
+  optional< tuple<uint64_t, vector<int>> >
+  try_to_allocate_impl(uint64_t size_without_rem, bool no_deps);
+
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_first_available(uint64_t size);
 };
@@ -456,9 +463,9 @@ struct memgraph_make_state_t {
   using alloc_t      = memgraph_t::alloc_t;
   using del_t        = memgraph_t::del_t;
 
-  // Allocate all the inputs to memory and whenever an allocator fails,
-  // set the input as a storage location.
-  map<int, memstoloc_t> allocate_inputs();
+  void initialize_input(int inn);
+
+  bool input_has_been_initialized(int inn);
 
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);
@@ -506,6 +513,11 @@ struct memgraph_make_state_t {
   // This contains tensors who have been donated
   // to another node
   set<int> donated;
+
+  int _sto_id;
+
+  // A mapping from input tid to where it's stored initially
+  map<int, memstoloc_t> input_tid_to_data;
 };
 // Some notes about nodes in the taskgraph vs nodes in the memgraph
 // and how that relates to tensors.
