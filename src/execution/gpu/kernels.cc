@@ -192,6 +192,22 @@ cutensorComputeType_t dtype_to_computetype(dtype_t type){
   return CUTENSOR_COMPUTE_32F;
 }
 
+cudaDataType_t dtype_to_elementwise_computetype(dtype_t type){
+  if(type == dtype_t::f16){
+    return CUDA_R_16F;
+  }
+  else if(type == dtype_t::f32){
+    return CUDA_R_32F;
+  }
+  else if(type == dtype_t::f64){
+    return CUDA_R_64F;
+  }
+  else if(type == dtype_t::c64){
+    return CUDA_C_32F;
+  }
+  return CUDA_R_32F;
+}
+
 
 void build_contraction(
   cutensorContractionDescriptor_t* desc,
@@ -203,9 +219,9 @@ void build_contraction(
 
   einsummable_t e = e_;
 
-  if(!e.is_contraction()) {
-    throw std::runtime_error("build_contraction must be given a contraction");
-  }
+  //if(!e.is_contraction()) {
+  //  throw std::runtime_error("build_contraction must be given a contraction");
+  //}
 
   //printf("here\n");
 
@@ -717,7 +733,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
 
     typeA = dtype_to_cudatype(binary.lhs.scale.dtype);
     typeC = dtype_to_cudatype(binary.rhs.scale.dtype);
-    typeCompute = dtype_to_cudatype(binary.lhs.scale.dtype);
+    typeCompute = dtype_to_elementwise_computetype(binary.lhs.scale.dtype);
     dtype_t type = binary.lhs.scale.dtype;
 
 
@@ -1315,6 +1331,7 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size){
         ptr1 =  static_cast<void*>(&alpha4);
         beta4 = binary.rhs.scale.c64();
         ptr2 =  static_cast<void*>(&alpha2);
+        printf("here!\n");
       }
 
       void const* alpha = ptr1; 

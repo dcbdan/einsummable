@@ -2950,12 +2950,12 @@ void kernel8(dtype_t dtype){
 }
 
 void kernel10(dtype_t dtype){
-  uint64_t a = 4;
-  uint64_t b = 8;
-  uint64_t c = 16;
-  uint64_t d = 8;
+  uint64_t a = 2;
+  uint64_t b = 4;
+  uint64_t c = 4;
+  uint64_t d = 2;
   
-  auto scar = parse_with_ss<scalarop_t>("*[hole|f64@0,hole|f64@1]");
+  auto scar = parse_with_ss<scalarop_t>("*[hole|c64@0,hole|c64@1]");
   
 
 
@@ -2964,6 +2964,18 @@ void kernel10(dtype_t dtype){
     {{0, 1, 2, 3}, {1, 3}},
     4,
     scar,
+    castable_t::add);
+
+  
+  auto scar2 = parse_with_ss<scalarop_t>("*[hole|f32@0,hole|f32@1]");
+  
+
+
+  einsummable_t einsummable2 = einsummable_t(
+    {a,b*2,c,d},
+    {{0, 1, 2, 3}, {1, 3}},
+    4,
+    scar2,
     castable_t::add);
 
  
@@ -2978,7 +2990,7 @@ void kernel10(dtype_t dtype){
   
 
   kernel_manager_t km;
-  auto const& [is_built,wsz] = km.build(einsummable);
+  auto const& [is_built,wsz] = km.build(einsummable2);
 
   //printf("hereyet?");
 
@@ -3040,7 +3052,7 @@ void kernel10(dtype_t dtype){
   optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
     work, size };
 
-  km(einsummable,stream,ou,inns,workspace);
+  km(einsummable2,stream,ou,inns,workspace);
 
   //func(stream, handle, ou, inns);
 
@@ -3058,12 +3070,213 @@ void kernel10(dtype_t dtype){
 }
 
 
+void kernel10_cont(dtype_t dtype){
+  uint64_t a = 2;
+  uint64_t b = 4;
+  uint64_t c = 4;
+  uint64_t d = 2;
+  
+  auto scar = parse_with_ss<scalarop_t>("*[hole|c64@0,hole|c64@1]");
+  
 
+
+  einsummable_t einsummable = einsummable_t(
+    {a,b,c,d},
+    {{0, 1, 2, 3}, {1, 3}},
+    4,
+    scar,
+    castable_t::add);
+
+  
+
+ 
+  dbuffer_t lhs = make_dbuffer(dtype, a*b*c*d);
+  dbuffer_t rhs = make_dbuffer(dtype, b*d);
+
+  lhs.random();
+  rhs.random();
+
+  dbuffer_t out_ref = reference_einsummable(einsummable, {lhs, rhs});
+
+  auto con = contraction_t::make(einsummable);
+
+  //kernel_manager_t km;
+  //auto const& [is_built,wsz] = km.build(einsummable2);
+
+  //printf("hereyet?");
+
+  //if(!wsz){
+  //  throw std::runtime_error("Invalid return!");
+  //}
+
+  uint64_t size = con.worksize;
+
+  void* work;
+  cudaMalloc(&work, size);
+
+  dbuffer_t out = make_dbuffer(dtype,  a*b*c*d);
+  out.zeros();
+
+  cutensorHandle_t* handle;
+  cutensorCreate(&handle);
+
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
+  
+
+  size_t sizeA = lhs.size();
+  size_t sizeB = rhs.size();
+  size_t sizeC = out.size();
+
+  //std::cout << sizeC << std::endl;
+  //std::cout << out.size() << std::endl;
+  
+  void *lh, *rh, *ou;
+  cudaMalloc((void**)&lh, sizeA);
+  cudaMalloc((void**)&rh, sizeB);
+  cudaMalloc((void**)&ou, sizeC);
+
+  float* A = (float*)lhs.ptr();
+
+  float* B = (float*)rhs.ptr();
+
+  float* C = (float*)out.ptr();
+
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+  cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
+
+
+
+  vector<void const*> inns;
+  inns.push_back(lh);
+  inns.push_back(rh);
+
+  //uint64_t size = km.workspace_size(reduction,ou,inns,handle);
+  //void* work;
+  //cudaMalloc(&work, size);
+
+  //optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+  //  work, size };
+
+  optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+    work, size };
+
+  //km(einsummable2,stream,ou,inns,workspace);
+  execute_contraction(stream, handle, &con.desc, ou, inns[0],inns[1],con.dtype,work,size);
+
+  //func(stream, handle, ou, inns);
+
+  cudaStreamDestroy(stream);
+
+  cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
+
+  if(!is_close(out_ref, out)) {
+    printf("KERNEL10 ARE NOT CLOSE!\n");
+    DOUT(out_ref);
+    DOUT(out);
+  }else{
+     std::cout << "Elementwise operation using contraction successful for dtype "<<dtype << "for kernel 10" <<std::endl;
+  }
+}
+
+
+
+
+void kernel10_reference(dtype_t dtype){
+  uint64_t a = 4;
+  uint64_t b = 8;
+  uint64_t c = 16;
+  uint64_t d = 8;
+  
+  auto scar = parse_with_ss<scalarop_t>("*[hole|c64@0,hole|c64@1]");
+  
+
+
+  einsummable_t einsummable = einsummable_t(
+    {a,b,c,d},
+    {{0, 1, 2, 3}, {1, 3}},
+    4,
+    scar,
+    castable_t::add);
+
+ 
+  dbuffer_t lhs = make_dbuffer(dtype, a*b*c*d);
+  dbuffer_t rhs = make_dbuffer(dtype, b*d);
+
+  lhs.random();
+  rhs.random();
+
+  dbuffer_t out_ref = reference_einsummable(einsummable, {lhs, rhs});
+
+  DOUT(out_ref);
+
+  
+  kernel_manager_t km;
+  auto const& [is_built,wsz] = km.build(einsummable);
+}
+
+void verify_transformation(){
+  uint64_t a = 2;
+  uint64_t b = 4;
+  uint64_t c = 8;
+  uint64_t d = 4;
+  
+  auto scar = parse_with_ss<scalarop_t>("*[hole|c64@0,hole|c64@1]");
+  
+
+
+  einsummable_t einsummable = einsummable_t(
+    {a,b,c,d},
+    {{0, 1, 2, 3}, {1, 3}},
+    4,
+    scalarop_t::make_mul(dtype_t::c64),
+    castable_t::add);
+
+  
+  auto scar2 = parse_with_ss<scalarop_t>("*[hole|f32@0,hole|f32@1]");
+  
+
+
+  einsummable_t einsummable2 = einsummable_t(
+    {a,b,c,d*2},
+    {{0, 1, 2, 3}, {1, 3}},
+    4,
+    scalarop_t::make_mul(dtype_t::f32),
+    castable_t::add);
+
+  float val1 = 3.2f;
+
+  float val2 = 2.7f;
+
+ 
+  dbuffer_t lhs = make_dbuffer(dtype_t::c64, a*b*c*d);
+  dbuffer_t rhs = make_dbuffer(dtype_t::c64, b*d);
+
+  lhs.fill(scalar_t(std::complex<float>(val1, val1)));
+  rhs.fill(scalar_t(std::complex<float>(val2, val2)));
+
+
+  dbuffer_t lhs2 = make_dbuffer(dtype_t::f32, a*b*c*d*2);
+  dbuffer_t rhs2 = make_dbuffer(dtype_t::f32, b*d*2);
+
+
+  lhs2.fill(scalar_t(val1));
+  rhs2.fill(scalar_t(val2));
+
+  dbuffer_t out_ref = reference_einsummable(einsummable, {lhs, rhs});
+  dbuffer_t out_ref2 = reference_einsummable(einsummable2, {lhs2, rhs2});
+
+  DOUT(out_ref);
+  DOUT(out_ref2);
+}
 
 int main(){
   //printf("here\n");
 
-
+  //kernel10_reference(dtype_t::c64);
+  kernel10_cont(dtype_t::c64);
   
 
   kernel1(dtype_t::f16, dtype_t::f32);
@@ -3084,7 +3297,7 @@ int main(){
 
   kernel9(dtype_t::f16);
 
-  kernel10(dtype_t::f64);
+  kernel10(dtype_t::c64);
 
   kernel11(dtype_t::f16);
 
@@ -3124,6 +3337,7 @@ int main(){
   kernel28(dtype_t::f16);
 
   kernel29(dtype_t::f16);
+
 
 
   
