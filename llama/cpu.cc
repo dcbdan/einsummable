@@ -266,9 +266,9 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 8;
-int num_real_threads_per_node = 12;
-int num_steps = 300000;
+int num_threads_per_node = 1;
+int num_real_threads_per_node = 1;
+int num_steps = 100000;
 int nlocs = -1;
 double beta = 10000.0;
 
@@ -278,7 +278,13 @@ vector<placement_t> autoplace(graph_t const& graph) {
   }
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-  kernel_coster.touch_start = 1e-2;
+
+  //if(nlocs == 4) {
+  //  kernel_coster.bandwidths[0][1] = 1e10;
+  //  kernel_coster.bandwidths[1][0] = 1e10;
+  //  kernel_coster.bandwidths[2][3] = 1e10;
+  //  kernel_coster.bandwidths[3][2] = 1e10;
+  //}
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -304,7 +310,10 @@ vector<placement_t> autoplace(graph_t const& graph) {
 
   for(int i = 0; i != num_steps; ++i) {
     if(i % 5000 == 0) {
-      DOUT( i << " / " << num_steps << "    " << mcmc.cost() << " " << mcmc.get_best_cost() );
+      std::cout << i << " / " << num_steps << "|"
+        << mcmc.cost() << " " << mcmc.get_best_cost()
+        << "|";
+      mcmc.make_stat().print_line(std::cout);
     }
     mcmc.step(beta);
   }
@@ -339,7 +348,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
 
 void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   {
-    int seed = 99;//runif(10000);
+    int seed = 9975; // runif(10000);
     DOUT("Seed: " << seed);
     set_seed(seed);
   }
@@ -475,6 +484,7 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
 
   DOUT("---");
   manager.execute(builder.taskgraph);
+  return;
 
   {
     dbuffer_t scores = manager.unpartition(builder.scores);

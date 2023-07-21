@@ -28,7 +28,14 @@ void execute_taskgraph(
   mpi_t* mpi,
   map<int, buffer_t>& tensors)
 {
-  executetg_ns::state_t state(mpi, taskgraph, kernel_manager, tensors);
+  using namespace executetg_ns;
+  using apply_stat_t = state_t::apply_stat_t;
+  using send_stat_t  = state_t::send_stat_t;
+
+  state_t state(mpi, taskgraph, kernel_manager, tensors);
+
+  vector<apply_stat_t> apply_stats(settings.num_apply_runner);
+  vector<send_stat_t> send_stats(settings.num_send_runner);
 
   vector<std::thread> runners;
   {
@@ -37,10 +44,16 @@ void execute_taskgraph(
     int const& n_recv = settings.num_recv_runner;
     runners.reserve(n_apply + n_send + n_recv);
     for(int i = 0; i != n_apply; ++i) {
-      runners.emplace_back([&state, i](){ return state.apply_runner(i); });
+      runners.emplace_back([&state, &apply_stats, i](){
+        auto stat = state.apply_runner(i);
+        apply_stats[i] = stat;
+      });
     }
     for(int i = 0; i != n_send; ++i) {
-      runners.emplace_back([&state, i](){ return state.send_runner(i); });
+      runners.emplace_back([&state, &send_stats, i](){
+        auto stat = state.send_runner(i);
+        send_stats[i] = stat;
+      });
     }
     for(int i = 0; i != n_recv; ++i) {
       runners.emplace_back([&state, i](){ return state.recv_runner(i); });
@@ -51,6 +64,47 @@ void execute_taskgraph(
 
   for(auto& t: runners) {
     t.join();
+  }
+
+  if(!mpi || mpi->this_rank == 0) {
+    int      apply_num   = 0;
+    uint64_t apply_total = 0;
+    double   apply_time  = 0.0;
+
+    int      touch_num   = 0;
+    uint64_t touch_total = 0;
+    double   touch_time  = 0.0;
+
+    for(auto const& stat: apply_stats) {
+      apply_num += stat.num_apply;
+      touch_num += stat.num_touch;
+      apply_total += stat.apply_total;
+      touch_total += stat.touch_total;
+      apply_time += stat.apply_kernel_time;
+      touch_time += stat.touch_kernel_time;
+      stat.print(std::cout);
+    }
+
+    std::cout << "apply: " << apply_num << ", " << apply_total << ", " << apply_time << std::endl;
+    std::cout << "touch: " << touch_num << ", " << touch_total << ", " << touch_time << std::endl;
+
+    //if(apply_stats.size() > 0) {
+    //  apply_stats.back().print(std::cout);
+    //}
+    //if(mpi && mpi->world_size > 1 && send_stats.size() > 0) {
+    //  send_stats.back().print(std::cout);
+    //}
+
+    //for(auto const& stat: apply_stats) {
+    //  stat.print(std::cout);
+    //}
+    //if(mpi && mpi->world_size > 1) {
+    //  for(auto const& stat: send_stats) {
+    //    stat.print(std::cout);
+    //  }
+    //}
+
+    std::cout << "-------------------------------------------------" << std::endl;
   }
 }
 
@@ -130,13 +184,49 @@ state_t::state_t(
   }
 }
 
-void state_t::apply_runner(int runner_id)
+void state_t::apply_stat_t::print(std::ostream& out) const {
+  out << "runner id             " << runner_id << std::endl;
+  out << "num apply, num touch: " << num_apply << ", " << num_touch << std::endl;
+  out << "totals apply, touch:  " << apply_total << ", " << touch_total << std::endl;
+  out << "apply kernel / doing: " << apply_kernel_time << " / " << do_apply_time << std::endl;
+  out << "touch kernel / doing: " << touch_kernel_time << " / " << do_touch_time << std::endl;
+  out << "wait time             " << wait_time << std::endl;
+  out << "total time            " << total_time << std::endl;
+
+  out << std::endl;
+}
+
+void state_t::send_stat_t::print(std::ostream& out) const {
+  out << "runner id           " << runner_id << std::endl;
+  out << "num send:           " << num_send << std::endl;
+  out << "bytes sent:         " << num_bytes << std::endl;
+  out << "realized bandwidth: " << (double(num_bytes)*1e-9 / send_time) << std::endl;
+  out << "id time:            " << id_time << std::endl;
+  out << "send time:          " << send_time << std::endl;
+  out << "wait time:          " << wait_time << std::endl;
+  out << "notify time:        " << notify_time << std::endl;
+  out << "total:              " << total_time << std::endl;
+
+  out << std::endl;
+}
+
+state_t::apply_stat_t state_t::apply_runner(int runner_id)
 {
+  auto time_in_seconds = [](timestamp_t const& beg, timestamp_t const& end) {
+    using namespace std::chrono;
+    return (double) duration_cast<microseconds>(end - beg).count()
+         / (double) duration_cast<microseconds>(1s       ).count();
+  };
+
+  apply_stat_t ret(runner_id);
+  auto total_beg = clock_now();
+
   int which_apply;
   which_touch_t which_touch;
   bool doing_touch;
 
   while(true) {
+    auto wait_beg = clock_now();
     {
       unique_lock lk(m_apply);
 
@@ -160,13 +250,24 @@ void state_t::apply_runner(int runner_id)
       });
 
       if(num_apply_remaining == 0) {
-        //DLINEOUT("exiting apply runner");
-        return;
+       auto wait_end = clock_now();
+       ret.wait_time += time_in_seconds(wait_beg, wait_end);
+
+       auto total_end = clock_now();
+       ret.total_time = time_in_seconds(total_beg, total_end);
+
+       return ret;
       }
     }
+    auto wait_end = clock_now();
+    ret.wait_time += time_in_seconds(wait_beg, wait_end);
 
     if(doing_touch) {
+      ret.num_touch++;
+      auto do_touch_beg = clock_now();
       auto const& [inn_id, touch_op] = get_touch_info(which_touch);
+
+      ret.touch_total += product(vector_from_each_member(touch_op.selection, uint64_t, size));
 
       int const& partialize_id = which_touch.partialize_id;
       uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
@@ -179,15 +280,24 @@ void state_t::apply_runner(int runner_id)
       buffer_t& inn_buffer = _is[0];
 
       //DOUT("TOUCH " << which_touch);
+      auto touch_beg = clock_now();
       kernel_manager(touch_op, out_buffer->data, inn_buffer->data);
+      auto touch_end = clock_now();
+      ret.touch_kernel_time += time_in_seconds(touch_beg, touch_end);
 
       {
         unique_lock lk(m_notify);
         did_touches.push(which_touch);
       }
+      auto do_touch_end = clock_now();
+      ret.do_touch_time += time_in_seconds(do_touch_beg, do_touch_end);
     } else {
+      ret.num_apply++;
+      auto do_apply_beg = clock_now();
       auto const& node = taskgraph.nodes[which_apply];
       auto const& [_0, inns, einsummable] = node.op.get_apply();
+
+      ret.apply_total += product(einsummable.join_shape);
 
       auto [workspace, which_workspace] = workspace_manager.get(einsummable);
 
@@ -211,7 +321,11 @@ void state_t::apply_runner(int runner_id)
       }
 
       //DOUT("EINSUMMABLE " << which_apply);
+      auto apply_beg = clock_now();
       kernel_manager(einsummable, out_buffer->data, raw_inputs, workspace);
+      auto apply_end = clock_now();
+      ret.apply_kernel_time += time_in_seconds(apply_beg, apply_end);
+
       workspace_manager.release(which_workspace);
 
       // Note: Even if out_buffer was donated, this is fine. When
@@ -226,6 +340,8 @@ void state_t::apply_runner(int runner_id)
         unique_lock lk(m_notify);
         did_nodes.push(which_apply);
       }
+      auto do_apply_end = clock_now();
+      ret.do_apply_time += time_in_seconds(do_apply_beg, do_apply_end);
     }
 
     cv_notify.notify_one();
@@ -242,9 +358,18 @@ void state_t::apply_runner(int runner_id)
   }
 }
 
-void state_t::send_runner(int runner_id) {
+state_t::send_stat_t state_t::send_runner(int runner_id) {
+  auto time_in_seconds = [](timestamp_t const& beg, timestamp_t const& end) {
+    using namespace std::chrono;
+    return (double) duration_cast<microseconds>(end - beg).count()
+         / (double) duration_cast<microseconds>(1s       ).count();
+  };
+
+  send_stat_t ret(runner_id);
+  auto total_beg = clock_now();
   int send_id;
   while(true) {
+    auto wait_beg = clock_now();
     {
       unique_lock lk(m_send);
       cv_send.wait(lk, [&, this] {
@@ -259,20 +384,37 @@ void state_t::send_runner(int runner_id) {
         return false;
       });
       if(num_send_remaining == 0) {
-        return;
+        auto wait_end = clock_now();
+        ret.wait_time += time_in_seconds(wait_beg, wait_end);
+
+        auto total_end = clock_now();
+        ret.total_time = time_in_seconds(total_beg, total_end);
+        return ret;
       }
     }
+    auto wait_end = clock_now();
+    ret.wait_time += time_in_seconds(wait_beg, wait_end);
 
     auto const& node = taskgraph.nodes[send_id];
     auto const& [_0, dst, inn_id, _1] = node.op.get_move();
 
+    auto id_beg = clock_now();
     mpi->send_int(send_id, dst, mpi->max_tag);
+    auto id_end = clock_now();
+    ret.id_time += time_in_seconds(id_beg, id_end);
 
     auto [_, read_buffers] = get_buffers({}, {inn_id});
     auto& buffer = read_buffers[0];
 
+    auto send_beg = clock_now();
     mpi->send(buffer, dst, send_id);
+    auto send_end = clock_now();
+    ret.send_time += time_in_seconds(send_beg, send_end);
 
+    ret.num_send++;
+    ret.num_bytes += buffer->size;
+
+    auto notify_beg = clock_now();
     {
       unique_lock lk(m_notify);
       did_nodes.push(send_id);
@@ -288,6 +430,8 @@ void state_t::send_runner(int runner_id) {
     if(fini) {
       cv_send.notify_all();
     }
+    auto notify_end = clock_now();
+    ret.notify_time += time_in_seconds(notify_beg, notify_end);
   }
 }
 
@@ -323,6 +467,8 @@ void state_t::recv_runner(int runner_id) {
     cv_notify.notify_one();
   }
 }
+
+#define RLINEOUT(x) if(this_rank == 0) { std::cout << __LINE__ << ": " << x << std::endl; }
 
 void state_t::event_loop()
 {

@@ -99,8 +99,56 @@ namespace executetg_ns {
     void event_loop_launch_touch(int inn_id, int partialize_id);
     void event_loop_register_usage(int id);
 
-    void apply_runner(int runner_id);
-    void send_runner(int runner_id);
+    struct apply_stat_t {
+      apply_stat_t(): apply_stat_t(-1) {}
+
+      apply_stat_t(int runner_id)
+        : runner_id(runner_id),
+          num_touch(0), num_apply(0),
+          apply_total(0), touch_total(0),
+          touch_kernel_time(0.0), apply_kernel_time(0.0),
+          do_touch_time(0.0), do_apply_time(0.0),
+          wait_time(0.0), total_time(0.0)
+      {}
+
+      int runner_id;
+      int num_touch;
+      int num_apply;
+      uint64_t apply_total;
+      uint64_t touch_total;
+      double touch_kernel_time;
+      double apply_kernel_time;
+      double do_touch_time;
+      double do_apply_time;
+      double wait_time;
+      double total_time;
+
+      void print(std::ostream& out) const;
+    };
+
+    struct send_stat_t {
+      send_stat_t(): send_stat_t(-1) {}
+
+      send_stat_t(int runner_id)
+        : runner_id(runner_id), num_send(0), num_bytes(0),
+          wait_time(0.0), id_time(0.0), send_time(0.0),
+          notify_time(0.0), total_time(0.0)
+      {}
+
+      int runner_id;
+      int num_send;
+      uint64_t num_bytes;
+      double wait_time;
+      double id_time;
+      double send_time;
+      double notify_time;
+      double total_time;
+
+      void print(std::ostream& out) const;
+    };
+
+    apply_stat_t apply_runner(int runner_id);
+    send_stat_t send_runner(int runner_id);
     void recv_runner(int runner_id);
 
     int const& get_inn_from_which_touch(which_touch_t const& info) const;
