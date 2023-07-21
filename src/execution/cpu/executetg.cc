@@ -197,10 +197,12 @@ void state_t::apply_runner(int runner_id)
 
       // Can we donate one of the input buffers to
       // this computation?
-      // TODO
-
-      // If not, allocate.
-      if(!out_buffer) {
+      auto maybe_donate_inn = get_donate(which_apply);
+      if(maybe_donate_inn) {
+        int const& which_inn = maybe_donate_inn.value();
+        out_buffer = inputs[which_inn];
+      } else {
+        // No donation is happening, allocate new memory
         out_buffer = make_buffer(node.op.out_size());
       }
 
@@ -322,6 +324,43 @@ void state_t::recv_runner(int runner_id) {
     }
     cv_notify.notify_one();
   }
+}
+
+optional<int> state_t::get_donate(int apply_id) {
+  auto const& node  = taskgraph.nodes[apply_id];
+  auto const& apply = node.op.get_apply();
+  auto const& e     = apply.einsummable;
+  auto const& inns  = apply.inns;
+
+  // Get all inputs that the kernel manager says can be used as
+  // both an input and an output.
+  vector<int> donatables = kernel_manager.donatables(e);
+
+  // Now make sure that the input is only used once.
+  // (It might be better to instead make sure that this is the _last_ usage of the
+  //  input, but that would require more concurrency management.)
+  optional<int> ret;
+  int donate_inn_id;
+  for(int const& which_inn: donatables) {
+    auto const& inn_id = inns[which_inn];
+    auto const& inn_node = taskgraph.nodes[inn_id];
+    if(inn_node.outs.size() == 1) {
+      donate_inn_id = inn_id;
+      ret = which_inn;
+      break;
+    }
+  }
+
+  if(!ret) {
+    return ret;
+  }
+
+  {
+    unique_lock lk(m_donate);
+    donated.insert(donate_inn_id);
+  }
+  //DLINEOUT("num donated: " << donated.size());
+  return ret;
 }
 
 void state_t::event_loop()
@@ -532,10 +571,22 @@ void state_t::event_loop_register_usage(int id) {
 
   if(cnt == 0) {
     bool const& is_save = taskgraph.nodes[id].is_save;
-    if(!is_save) {
+
+    bool was_donated;
+    {
+      unique_lock lk(m_donate);
+      auto iter = donated.find(id);
+      was_donated = iter != donated.end();
+      if(was_donated) {
+        donated.erase(iter);
+      }
+    }
+
+    if(!is_save && !was_donated) {
       unique_lock lk(m_tensors);
       tensors.erase(id);
     }
+
     num_usage_remaining.erase(id);
   } else if(cnt < 0) {
     throw std::runtime_error("usage count should not be less than zero");
