@@ -1218,7 +1218,7 @@ bool scalarop_t::is_max() const {
 
 
 
-cutensor_scalarop_t::arg_t scalarop_t::set_up_arg(node_t node){
+optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node){
   if(node.op.is_hole()){
     if(node.dtype==dtype_t::c64){
       cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),cutensor_scalarop_t::cop_t::identity};
@@ -1233,7 +1233,7 @@ cutensor_scalarop_t::arg_t scalarop_t::set_up_arg(node_t node){
     }else if(node.op.is_power()){
       op = cutensor_scalarop_t::cop_t::pow;
     }else{
-      throw std::runtime_error("Unary op not found");
+      return std::nullopt;
     }
     if(node.children[0].dtype==dtype_t::c64){
       cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),op};
@@ -1261,24 +1261,28 @@ cutensor_scalarop_t::arg_t scalarop_t::set_up_arg(node_t node){
         op = cutensor_scalarop_t::cop_t::pow;
       }
       else{
-        throw std::runtime_error("Unary op not found");
+        return std::nullopt;
       }
       cutensor_scalarop_t::arg_t arg {value,op};
       return arg;
     }else{
-      throw std::runtime_error("Invalid arg structure");
+      return std::nullopt;
     }
   }else{
-    throw std::runtime_error("Invalid node input");
+    return std::nullopt;
   }
-  
+  return std::nullopt;
 }
 
 
 
-cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
+optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop(){
   if(num_inputs()==1){
-    cutensor_scalarop_t::arg_t arg = set_up_arg(node);
+    auto potential_arg = set_up_arg(node);
+    if(!potential_arg){
+      return std::nullopt;
+    }
+    cutensor_scalarop_t::arg_t arg = *potential_arg;
 
     cutensor_scalarop_t::unary_t unary_op{arg};
 
@@ -1288,7 +1292,7 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
 
   }else if(num_inputs()==2){
     if(node.op.num_inputs()!=2){
-      throw std::runtime_error("parent node need to be binary op");
+      return std::nullopt;
     }
 
     cutensor_scalarop_t::cop_t op_0_1;
@@ -1298,7 +1302,7 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     }else if(node.op.is_mul()){
       op_0_1 = cutensor_scalarop_t::cop_t::mul;
     }else{
-      throw std::runtime_error("Binary op not found");
+      return std::nullopt;
     }
 
     node = node.simplify();
@@ -1307,8 +1311,15 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     node_t& h0 = node_children[0];
     node_t& h1 = node_children[1];
 
-    cutensor_scalarop_t::arg_t a0 = set_up_arg(h0);
-    cutensor_scalarop_t::arg_t a1 = set_up_arg(h1);
+    auto potential_a0 = set_up_arg(h0); 
+    auto potential_a1 = set_up_arg(h1); 
+
+    if(!potential_a0||!potential_a1){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::arg_t a0 = *potential_a0;
+    cutensor_scalarop_t::arg_t a1 = *potential_a1;
 
     cutensor_scalarop_t::binary_t bi_op{
       op_0_1,
@@ -1322,7 +1333,7 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
 
   }else if(num_inputs()==3){
     if(node.op.num_inputs()!=2){
-      throw std::runtime_error("parent node need to be binary op");
+      return std::nullopt;
     }
 
     cutensor_scalarop_t::cop_t op_01_2;
@@ -1332,7 +1343,7 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     }else if(node.op.is_mul()){
       op_01_2 = cutensor_scalarop_t::cop_t::mul;
     }else{
-      throw std::runtime_error("Binary op not found");
+      return std::nullopt;
     }
 
     node = node.simplify();
@@ -1341,10 +1352,14 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     node_t& lhs = children[0];
     node_t& rhs = children[1];
 
-    cutensor_scalarop_t::arg_t a2 = set_up_arg(rhs);
+    auto potential_a2= set_up_arg(rhs);
+    if(!potential_a2){
+      return std::nullopt;
+    }
+    cutensor_scalarop_t::arg_t a2 = *potential_a2;
 
     if(lhs.op.num_inputs()!=2){
-      throw std::runtime_error("parent node need to be binary op");
+      return std::nullopt;
     }
 
     cutensor_scalarop_t::cop_t op_0_1;
@@ -1354,7 +1369,7 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     }else if(lhs.op.is_mul()){
       op_0_1 = cutensor_scalarop_t::cop_t::mul;
     }else{
-      throw std::runtime_error("Binary op not found");
+      return std::nullopt;
     }
 
     lhs = lhs.simplify();
@@ -1363,8 +1378,15 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     node_t& h0 = lhs_children[0];
     node_t& h1 = lhs_children[1];
 
-    cutensor_scalarop_t::arg_t a0 = set_up_arg(h0);
-    cutensor_scalarop_t::arg_t a1 = set_up_arg(h1);
+    auto potential_a0 = set_up_arg(h0); 
+    auto potential_a1 = set_up_arg(h1); 
+
+    if(!potential_a0||!potential_a1){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::arg_t a0 = *potential_a0;
+    cutensor_scalarop_t::arg_t a1 = *potential_a1;
 
     cutensor_scalarop_t::ternary_t ter_op{
       op_01_2,
@@ -1378,9 +1400,9 @@ cutensor_scalarop_t scalarop_t::compile_cutensor_scalarop(){
     ternary_scalarop.op = ter_op;
     return ternary_scalarop;
   }else{
-    throw std::runtime_error("Invalid scarlarop_t structure for elementwise");
+    return std::nullopt;
   }
-  
+  return std::nullopt;
 }
 
 

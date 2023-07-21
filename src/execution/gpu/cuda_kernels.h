@@ -30,7 +30,7 @@ void elementwise_power(float* out, const float* in,
 cudaStream_t stream, double pow, uint64_t size);
 
 void scale_and_increment(float* out, const float* in,
-cudaStream_t stream, float scale, uint64_t size);
+cudaStream_t stream, float scale, float increment, uint64_t size);
 
 void custom_elementwise_1(void* out, const void* in,
 cudaStream_t stream, uint64_t size);

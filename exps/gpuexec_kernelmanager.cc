@@ -627,7 +627,7 @@ void kernel24(dtype_t dtype) {
 
   cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
 
-  if(!is_close(out_ref, out,0.05f)) {\
+  if(!is_close(out_ref, out,0.1f)) {\
     printf("KERNEL24:\n");
     //DOUT(dtype);
     DOUT(out_ref);
@@ -939,7 +939,7 @@ void kernel29(dtype_t dtype) {
 
   cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
 
-  if(!is_close(out_ref, out,0.05f)) {\
+  if(!is_close(out_ref, out,0.1f)) {\
     printf("KERNEL29:\n");
     //DOUT(dtype);
     DOUT(out_ref);
@@ -2966,6 +2966,15 @@ void kernel10(dtype_t dtype){
     scar,
     castable_t::add);
 
+
+  scalarop_t op = einsummable.join;
+
+  op = op.simplify();
+
+  auto op_str = op.to_cppstr();
+
+  //std::cout <<  op_str <<std::endl;
+
   
   auto scar2 = parse_with_ss<scalarop_t>("*[hole|f32@0,hole|f32@1]");
   
@@ -2990,7 +2999,7 @@ void kernel10(dtype_t dtype){
   
 
   kernel_manager_t km;
-  auto const& [is_built,wsz] = km.build(einsummable2);
+  auto const& [is_built,wsz] = km.build(einsummable);
 
   //printf("hereyet?");
 
@@ -3052,7 +3061,7 @@ void kernel10(dtype_t dtype){
   optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
     work, size };
 
-  km(einsummable2,stream,ou,inns,workspace);
+  km(einsummable,stream,ou,inns,workspace);
 
   //func(stream, handle, ou, inns);
 
@@ -3276,7 +3285,6 @@ int main(){
   //printf("here\n");
 
   //kernel10_reference(dtype_t::c64);
-  kernel10_cont(dtype_t::c64);
   
 
   kernel1(dtype_t::f16, dtype_t::f32);

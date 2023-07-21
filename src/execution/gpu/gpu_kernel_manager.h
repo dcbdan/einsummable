@@ -132,8 +132,10 @@ bool is_elementwise_with_pow(einsummable_t e);
 
 bool is_custom_kernel1(einsummable_t e);
 
+bool is_c64_elementwise_multiply(einsummable_t e);
+
 double get_power(einsummable_t e);
 
 bool is_scale_and_increment(einsummable_t e);
 
-float get_increment_scale(einsummable_t e);
+tuple<float, float> get_increment_scale(einsummable_t e);

@@ -425,19 +425,19 @@ cudaStream_t stream, double pow, uint64_t size){
 }
 
 __global__ void increment_scale(const float* in, float* out,
-uint64_t size, float scale) {
+uint64_t size, float scale, float increment) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (idx < size) {
-    out[idx] = scale * in[idx] + 1e-06;
+    out[idx] = scale * in[idx] + increment;
   }
 }
 
 void scale_and_increment(float* out, const float* in,
-cudaStream_t stream, float scale, uint64_t size){
+cudaStream_t stream, float scale, float increment, uint64_t size){
   int blockSize = 256;
   int numBlocks = (size + blockSize - 1) / blockSize;
-  increment_scale<<<numBlocks, blockSize>>>(in, out, size, scale);
+  increment_scale<<<numBlocks, blockSize>>>(in, out, size, scale, increment);
 
 }
 

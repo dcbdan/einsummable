@@ -107,11 +107,11 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
   if(is_scale_and_increment(einsummable)){
 
-    float scale = get_increment_scale(einsummable);
+    auto [scale, increment] = get_increment_scale(einsummable);
     uint64_t size = einsummable.join_shape[0];
-    auto lambda = [scale, size]
+    auto lambda = [scale, increment, size]
     (cudaStream_t stream, float* out, const float* in){
-      scale_and_increment(out, in, stream, scale, size);
+      scale_and_increment(out, in, stream, scale, increment, size);
     };
 
     scale_t scale_kernel {scale, lambda};
@@ -159,9 +159,19 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
     return result_pow_ele;
   }
 
+  if(is_c64_elementwise_multiply(einsummable)){
+    auto c = contraction_t::make(einsummable);
+    kernels.insert({einsummable,c});
+    build_result_t result_contraction{
+      .built = true, 
+      .workspace_size = c.worksize};
+    return result_contraction;
+  }
+
+
   auto maybe = make_cutensor_elementwise_op(einsummable); 
 
-  if(maybe){
+  if(maybe&&einsummable.out_dtype()!=dtype_t::c64){
 
     cutensor_elementwise_op_t op = *maybe;
 
@@ -378,6 +388,9 @@ bool is_scale_and_increment(einsummable_t e){
 
     size_t endIndex = op_str.find("*x0))");
 
+    if(op_str.substr(0,16)=="(f32|1e-05+(f32|"&&endIndex==op_str.size() - 5){
+      return true;
+    }
 
     if(op_str.substr(0,16)=="(f32|1e-06+(f32|"&&endIndex==op_str.size() - 5){
       return true;
@@ -436,6 +449,22 @@ bool is_type_conversion(einsummable_t e){
 
 }
 
+bool is_c64_elementwise_multiply(einsummable_t e){
+   if(e.inns.size()==2){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+
+    if(op_str=="(x0*x1)"&&e.inn_dtype(0)==dtype_t::c64&&e.inn_dtype(1)==dtype_t::c64){
+      return true;
+    }
+  }
+  return false;
+}
+
 double get_power(einsummable_t e){
   scalarop_t op = e.join;
 
@@ -455,7 +484,7 @@ double get_power(einsummable_t e){
 }
 
 
-float get_increment_scale(einsummable_t e){
+tuple<float, float> get_increment_scale(einsummable_t e){
   scalarop_t op = e.join;
 
   op = op.simplify();
@@ -468,8 +497,13 @@ float get_increment_scale(einsummable_t e){
 
   std::string number_str = op_str.substr(start_index, end_index - start_index);
   
-  
-  return std::stof(number_str);
+  float increment = 1e-06;
+
+  if(op_str.substr(5,10)=="1e-05"){
+    increment = 1e-05;
+  }
+
+  return std::make_tuple(std::stof(number_str),increment);
 
 }
 

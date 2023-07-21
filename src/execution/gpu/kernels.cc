@@ -1046,7 +1046,13 @@ make_cutensor_elementwise_op(
   if(e.inns.size()==1){
     scalarop_t join = e.join;
 
-    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+    auto potential_scalarop = join.compile_cutensor_scalarop();
+
+    if(!potential_scalarop){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
 
     auto unary = std::get<cutensor_scalarop_t::unary_t>(cutensor_scalarop.op);
 
@@ -1059,7 +1065,13 @@ make_cutensor_elementwise_op(
   }else if(e.inns.size()==2){
     scalarop_t join = e.join;
 
-    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+    auto potential_scalarop = join.compile_cutensor_scalarop();
+
+    if(!potential_scalarop){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
 
     auto binary = std::get<cutensor_scalarop_t::binary_t>(cutensor_scalarop.op);
 
@@ -1086,7 +1098,14 @@ make_cutensor_elementwise_op(
   }else if(e.inns.size()==3){
     scalarop_t join = e.join;
 
-    cutensor_scalarop_t cutensor_scalarop = join.compile_cutensor_scalarop();
+    auto potential_scalarop = join.compile_cutensor_scalarop();
+
+    if(!potential_scalarop){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
+    
     auto ternary = std::get<cutensor_scalarop_t::ternary_t>(cutensor_scalarop.op);
 
     cutensor_elementwise_op_t::arg_t a0 = convert_arg(ternary.a0, e.inns[0]);
