@@ -1,6 +1,6 @@
 #include "repartition.h"
 
-#include "execute.h"
+#include "executetg.h"
 
 #include "../../einsummable/graph.h"
 #include "../../einsummable/taskgraph.h"
@@ -29,36 +29,42 @@ void repartition(
     for(int i = 0; i != remap_gid.size(); ++i) {
       auto const& gid  = std::get<0>(remap_gid[i]);
       auto const& info = std::get<0>(remap[i]);
+      vector<int> const& locs = info.placement.locations.get();
       vector<int> const& inn_tids = info.tids.get();
       vector<int> const& mid_tids = gid_to_inn.at(gid).get();
       if(inn_tids.size() != mid_tids.size()) {
         throw std::runtime_error("!");
       }
       for(int j = 0; j != inn_tids.size(); ++j) {
-        int const& inn_tid = inn_tids[j];
-        int const& mid_tid = mid_tids[j];
-        tmp.insert({mid_tid, data.at(inn_tid)});
+        if(mpi && locs[j] == mpi->this_rank) {
+          int const& inn_tid = inn_tids[j];
+          int const& mid_tid = mid_tids[j];
+          tmp.insert({mid_tid, data.at(inn_tid)});
+        }
       }
     }
     data = tmp;
   }
 
   {
-    settings_t settings = settings_t::only_touch_settings();
+    auto settings = execute_taskgraph_settings_t::default_settings();
     kernel_manager_t ks;
-    execute(taskgraph, settings, ks, mpi, data);
+    execute_taskgraph(taskgraph, settings, ks, mpi, data);
   }
 
   map<int, buffer_t> tmp;
   for(int i = 0; i != remap_gid.size(); ++i) {
     auto const& gid  = std::get<1>(remap_gid[i]);
     auto const& info = std::get<1>(remap[i]);
+    vector<int> const& locs = info.placement.locations.get();
     vector<int> const& out_tids = info.tids.get();
     vector<int> const& mid_tids = gid_to_out.at(gid).get();
     for(int j = 0; j != out_tids.size(); ++j) {
-      int const& out_tid = out_tids[j];
-      int const& mid_tid = mid_tids[j];
-      tmp.insert({out_tid, data.at(mid_tid)});
+      if(mpi && locs[j] == mpi->this_rank) {
+        int const& out_tid = out_tids[j];
+        int const& mid_tid = mid_tids[j];
+        tmp.insert({out_tid, data.at(mid_tid)});
+      }
     }
   }
   data = tmp;

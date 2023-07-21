@@ -2,7 +2,7 @@
 
 #include "repartition.h"
 
-loc_manager_t::loc_manager_t(mpi_t* mpi, settings_t const& settings)
+loc_manager_t::loc_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings)
   : mpi(mpi), settings(settings)
 {}
 
@@ -31,14 +31,27 @@ void loc_manager_t::listen() {
     } else if(cmd == cmd_t::remap_data) {
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       repartition(mpi, remap, data);
+    } else if(cmd == cmd_t::max_tid) {
+      int max_tid_here = data.size() == 0 ? -1 : data.rbegin()->first;
+      mpi->send_int(max_tid_here, 0, 0);
+    } else if(cmd == cmd_t::registered_cmd) {
+      string key = mpi->recv_str(0);
+      listeners.at(key)(*this);
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
   }
 }
 
+void loc_manager_t::register_listen(
+  string key, std::function<void(loc_manager_t&)> f)
+{
+  listeners.insert({key, f});
+}
+
 void loc_manager_t::execute(taskgraph_t const& taskgraph)
 {
+  gremlin_t gremlin("execute from manager");
   broadcast_cmd(cmd_t::execute);
   broadcast_str(taskgraph.to_wire());
   _execute(taskgraph);
@@ -93,6 +106,20 @@ void loc_manager_t::remap_data(remap_relations_t const& remap) {
   repartition(mpi, remap, data);
 }
 
+int loc_manager_t::get_max_tid() {
+  int ret = data.size() == 0 ? -1 : data.rbegin()->first;
+
+  if(!mpi) { return ret; }
+
+  broadcast_cmd(cmd_t::max_tid);
+
+  for(int i = 1; i != mpi->world_size; ++i) {
+    ret = std::max(ret, mpi->recv_int_from_anywhere(0));
+  }
+
+  return ret;
+}
+
 void loc_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
 }
@@ -103,6 +130,10 @@ void loc_manager_t::broadcast_cmd(cmd_t const& cmd) {
 
 void loc_manager_t::broadcast_str(string const& str) {
   if(!mpi) { return; }
+
+  if(mpi->this_rank != 0) {
+    throw std::runtime_error("only rank 0 should do broadcasting");
+  }
 
   for(int i = 1; i != mpi->world_size; ++i) {
     mpi->send_str(str, i);
@@ -116,7 +147,7 @@ loc_manager_t::cmd_t loc_manager_t::recv_cmd() {
 void loc_manager_t::_execute(taskgraph_t const& taskgraph)
 {
   update_kernel_manager(kernel_manager, taskgraph);
-  ::execute(taskgraph, settings, kernel_manager, mpi, data);
+  execute_taskgraph(taskgraph, settings, kernel_manager, mpi, data);
 }
 
 void loc_manager_t::copy_into_data(
@@ -124,8 +155,13 @@ void loc_manager_t::copy_into_data(
   remap_relations_t const& remap)
 {
   for(auto const& [_, dst]: remap.remap) {
-    for(auto const& tid: dst.tids.get()) {
-      data.insert_or_assign(tid, tmp.at(tid));
+    vector<int> const& locs = dst.placement.locations.get();
+    vector<int> const& tids = dst.tids.get();
+    for(int i = 0; i != locs.size(); ++i) {
+      if(mpi && locs[i] == mpi->this_rank) {
+        int const& tid = tids[i];
+        data.insert_or_assign(tid, tmp.at(tid));
+      }
     }
   }
 }

@@ -13,8 +13,11 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg = "");
 
 // Helpful structure for llama model
 struct model_args_t {
-  static model_args_t make_default(uint64_t batch_size = 1);
-  static model_args_t llama_7B(uint64_t batch_size = 1);
+  static model_args_t llama(int n, uint64_t batch_size = 1);
+  static model_args_t llama_7B(    uint64_t batch_size = 1);
+  static model_args_t llama_13B(   uint64_t batch_size = 1);
+  static model_args_t llama_30B(   uint64_t batch_size = 1);
+  static model_args_t llama_65B(   uint64_t batch_size = 1);
 
   uint64_t dim;
   int n_layers;
@@ -24,17 +27,12 @@ struct model_args_t {
   uint64_t batch_size;
   uint64_t max_seq_len;
   uint64_t vocab_size;
-  int world_size;
 
-  // TODO: remove local and world distinction
-  uint64_t n_local_heads() const {
-    return uint64_div(n_heads, world_size, "n_local_heads");
-  }
   uint64_t head_dim() const {
     return uint64_div(dim, n_heads, "head_dim");
   }
   full_dim_t full_dim() const {
-    return full_dim_t({ n_local_heads(), head_dim() });
+    return full_dim_t({ n_heads, head_dim() });
   }
 };
 
@@ -98,7 +96,7 @@ struct attention_t {
   string name;
 
   uint64_t batch_size;
-  uint64_t n_local_heads;
+  uint64_t n_heads;
   uint64_t head_dim;
 
   tensor_t wq;

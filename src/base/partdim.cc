@@ -119,11 +119,38 @@ uint64_t partdim_t::size_at(int i) const {
   }
 }
 
+uint64_t partdim_t::offset_at(int i) const {
+  if(i == 0) {
+    return 0;
+  } else if(i < spans.size()) {
+    return spans[i-1];
+  } else {
+    throw std::runtime_error("partdim_t::offset_at input error");
+  }
+}
+
 bool partdim_t::refines(partdim_t const& other) const {
   if(total() != other.total()) {
     return false;
   }
   return *this == partdim_t::unions({*this, other});
+}
+
+vector<int> partdim_t::refine_counts(partdim_t const& other) const {
+  if(!refines(other)) {
+    throw std::runtime_error("must refine the input");
+  }
+
+  vector<int> ret(other.spans.size(), 0);
+  int idx_o = 0;
+  int idx_r = 0;
+  for(int i = 0; i != other.spans.size(); ++i) {
+    int& cnt = ret[i];
+    do {
+      cnt++;
+    } while(spans[idx_r++] != other.spans[i]);
+  }
+  return ret;
 }
 
 tuple<uint64_t, uint64_t> partdim_t::which_vals(int blk) const {

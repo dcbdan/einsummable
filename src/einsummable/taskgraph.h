@@ -232,6 +232,10 @@ private:
       return vector_flatten(as_touches_from());
     }
 
+    int get_num_touches() const {
+      return as_touches_from_flat().size();
+    }
+
     static partialize_t make_from_touches(
       int loc, vector<tuple<int, touch_t>> const&);
 

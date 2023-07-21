@@ -13,43 +13,47 @@ kernel_manager_t::kernel_manager_t()
    { fix("ij,jk->ik"), { false,false, false,false,false } },
    { fix("ij,kj->ik"), { false, true, false,false,false } },
    { fix("ji,jk->ik"), {  true,false, false,false,false } },
-   { fix("ji,kj->ik"), {  true,false, false,false,false } },
+   { fix("ji,kj->ik"), {  true, true, false,false,false } },
 
    { fix("bij,jk->ik"), { false,false, true,false,false } },
    { fix("bij,kj->ik"), { false, true, true,false,false } },
    { fix("bji,jk->ik"), {  true,false, true,false,false } },
-   { fix("bji,kj->ik"), {  true,false, true,false,false } },
+   { fix("bji,kj->ik"), {  true, true, true,false,false } },
 
    { fix("ij,bjk->ik"), { false,false, false,true,false } },
    { fix("ij,bkj->ik"), { false, true, false,true,false } },
    { fix("ji,bjk->ik"), {  true,false, false,true,false } },
-   { fix("ji,bkj->ik"), {  true,false, false,true,false } },
+   { fix("ji,bkj->ik"), {  true, true, false,true,false } },
 
    { fix("bij,bjk->ik"), { false,false, true,true,false } },
    { fix("bij,bkj->ik"), { false, true, true,true,false } },
    { fix("bji,bjk->ik"), {  true,false, true,true,false } },
-   { fix("bji,bkj->ik"), {  true,false, true,true,false } },
+   { fix("bji,bkj->ik"), {  true, true, true,true,false } },
 
    { fix("bij,jk->bik"), { false,false, true,false,true } },
    { fix("bij,kj->bik"), { false, true, true,false,true } },
    { fix("bji,jk->bik"), {  true,false, true,false,true } },
-   { fix("bji,kj->bik"), {  true,false, true,false,true } },
+   { fix("bji,kj->bik"), {  true, true, true,false,true } },
 
    { fix("ij,bjk->bik"), { false,false, false,true,true } },
    { fix("ij,bkj->bik"), { false, true, false,true,true } },
    { fix("ji,bjk->bik"), {  true,false, false,true,true } },
-   { fix("ji,bkj->bik"), {  true,false, false,true,true } },
+   { fix("ji,bkj->bik"), {  true, true, false,true,true } },
 
    { fix("bij,bjk->bik"), { false,false, true,true,true } },
    { fix("bij,bkj->bik"), { false, true, true,true,true } },
    { fix("bji,bjk->bik"), {  true,false, true,true,true } },
-   { fix("bji,bkj->bik"), {  true,false, true,true,true } }
+   { fix("bji,bkj->bik"), {  true, true, true,true,true } }
   };
 }
 
 optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
 {
   auto einsummable = e_.merge_adjacent_dims();
+
+  if(kernels.count(einsummable) > 0) {
+    return workspace_size(einsummable);
+  }
 
   if(einsummable.is_permutation()) {
     auto const& inn_modes = einsummable.inns[0];
@@ -247,10 +251,7 @@ void kernel_manager_t::operator()(
   void* out,
   void const* inn) const
 {
-  // TODO: there is no reason to wrap the touch kernel in a lambda;
-  //       create touch_kernel
-  auto f = build_touch(touch);
-  f(out, inn);
+  execute_touch(touch.simplify(), out, inn);
 }
 
 void kernel_manager_t::operator()(
@@ -855,51 +856,42 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
   throw std::runtime_error("could not build ab_a reduction kernel");
 }
 
-#define _touch1(name, op) \
-  template <typename T> \
-  void name(touchdim_t const& t0, T* out, T const* inn) { \
+#define _touch1_frame(name, type_t, inner_ops) \
+  void name(touchdim_t const& t0, type_t* out, type_t const* inn) { \
     out += t0.offset_out; \
     inn += t0.offset_inn; \
-    for(uint64_t i = 0; i != t0.size; ++i) { \
-      op; \
-    } \
+    inner_ops \
   }
 
-#define _touch2(name, op) \
-  template <typename T> \
+#define _touch2_frame(name, type_t, inner_ops) \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
-    T* out, \
-    T const* inn) \
+    type_t* out, \
+    type_t const* inn) \
   { \
     out += t0.offset_out*t1.d_out + t1.offset_out; \
     inn += t0.offset_inn*t1.d_inn + t1.offset_inn; \
     for(uint64_t i0 = 0; i0 != t0.size; ++i0) { \
-      for(uint64_t i = 0; i != t1.size; ++i) { \
-        op; \
-      } \
+      inner_ops \
       out += t1.d_out; \
       inn += t1.d_inn; \
     } \
   }
 
-#define _touch3(name, op) \
-  template <typename T> \
+#define _touch3_frame(name, type_t, inner_ops) \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
     touchdim_t const& t2, \
-    T* out, \
-    T const* inn) \
+    type_t* out, \
+    type_t const* inn) \
   { \
     out += t0.offset_out*t1.d_out*t2.d_out + t1.offset_out*t2.d_out + t2.offset_out; \
     inn += t0.offset_inn*t1.d_inn*t2.d_inn + t1.offset_inn*t2.d_inn + t2.offset_inn; \
     for(uint64_t i0 = 0; i0 != t0.size; ++i0) { \
       for(uint64_t i1 = 0; i1 != t1.size; ++i1) { \
-        for(uint64_t i  = 0; i  != t2.size; ++i ) { \
-          op; \
-        } \
+        inner_ops \
         out += t2.d_out; \
         inn += t2.d_inn; \
       } \
@@ -908,15 +900,14 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     } \
   }
 
-#define _touch4(name, op) \
-  template <typename T> \
+#define _touch4_frame(name, type_t, inner_ops) \
   void name(\
     touchdim_t const& t0, \
     touchdim_t const& t1, \
     touchdim_t const& t2, \
     touchdim_t const& t3, \
-    T* out, \
-    T const* inn) \
+    type_t* out, \
+    type_t const* inn) \
   { \
     out += t0.offset_out*t1.d_out*t2.d_out*t3.d_out + \
            t1.offset_out*t2.d_out*t3.d_out + \
@@ -929,9 +920,7 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     for(uint64_t i0 = 0; i0 != t0.size; ++i0) { \
       for(uint64_t i1 = 0; i1 != t1.size; ++i1) { \
         for(uint64_t i2 = 0; i2 != t2.size; ++i2) { \
-          for(uint64_t i  = 0; i  != t3.size; ++i ) { \
-            op; \
-          } \
+          inner_ops \
           out += t3.d_out; \
           inn += t3.d_inn; \
         } \
@@ -943,199 +932,201 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
     } \
   }
 
-_touch1(touch1_none, out[i] =  inn[i]                  );
-_touch1(touch1_add,  out[i] += inn[i]                  );
-_touch1(touch1_mul,  out[i] *= inn[i]                  );
-_touch1(touch1_min,  out[i] =  std::min(out[i], inn[i]));
-_touch1(touch1_max,  out[i] =  std::max(out[i], inn[i]));
+#define _touch1_line(name, op) \
+  template <typename T> \
+  _touch1_frame(name, T, \
+    for(uint64_t i = 0; i != t0.size; ++i) { \
+      op; \
+    })
+#define _touch2_line(name, op) \
+  template <typename T> \
+  _touch2_frame(name, T, \
+    for(uint64_t i = 0; i != t1.size; ++i) { \
+      op; \
+    })
+#define _touch3_line(name, op) \
+  template <typename T> \
+  _touch3_frame(name, T, \
+    for(uint64_t i = 0; i != t2.size; ++i) { \
+      op; \
+    })
+#define _touch4_line(name, op) \
+  template <typename T> \
+  _touch4_frame(name, T, \
+    for(uint64_t i = 0; i != t3.size; ++i) { \
+      op; \
+    })
 
-_touch2(touch2_none, out[i] =  inn[i]                  );
-_touch2(touch2_add,  out[i] += inn[i]                  );
-_touch2(touch2_mul,  out[i] *= inn[i]                  );
-_touch2(touch2_min,  out[i] =  std::min(out[i], inn[i]));
-_touch2(touch2_max,  out[i] =  std::max(out[i], inn[i]));
+template <typename T>
+_touch1_frame(touch1_none, T,
+  std::memcpy(
+    reinterpret_cast<void*>(out),
+    reinterpret_cast<void const*>(inn),
+    sizeof(T)*t0.size);
+)
 
-_touch3(touch3_none, out[i] =  inn[i]                  );
-_touch3(touch3_add,  out[i] += inn[i]                  );
-_touch3(touch3_mul,  out[i] *= inn[i]                  );
-_touch3(touch3_min,  out[i] =  std::min(out[i], inn[i]));
-_touch3(touch3_max,  out[i] =  std::max(out[i], inn[i]));
+template <typename T>
+_touch2_frame(touch2_none, T,
+  std::memcpy(
+    reinterpret_cast<void*>(out),
+    reinterpret_cast<void const*>(inn),
+    sizeof(T)*t1.size);
+)
 
-_touch4(touch4_none, out[i] =  inn[i]                  );
-_touch4(touch4_add,  out[i] += inn[i]                  );
-_touch4(touch4_mul,  out[i] *= inn[i]                  );
-_touch4(touch4_min,  out[i] =  std::min(out[i], inn[i]));
-_touch4(touch4_max,  out[i] =  std::max(out[i], inn[i]));
+template <typename T>
+_touch3_frame(touch3_none, T,
+  std::memcpy(
+    reinterpret_cast<void*>(out),
+    reinterpret_cast<void const*>(inn),
+    sizeof(T)*t2.size);
+)
 
-#define _touch_lambda_f_1(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype == dtype_t::f16) { \
-      using T = float16_t; \
-      name(ts[0], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f32) { \
-      using T = float; \
-      name(ts[0], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f64) { \
-      using T = double; \
-      name(ts[0], (T*)out, (T const*)inn); \
-    } else { \
-      throw std::runtime_error("shoud not reach: touch lambda"); \
-    } \
-  }
-#define _touch_lambda_f_2(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype == dtype_t::f16) { \
-      using T = float16_t; \
-      name(ts[0], ts[1], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f32) { \
-      using T = float; \
-      name(ts[0], ts[1], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f64) { \
-      using T = double; \
-      name(ts[0], ts[1], (T*)out, (T const*)inn); \
-    } else { \
-      throw std::runtime_error("shoud not reach: touch lambda"); \
-    } \
-  }
-#define _touch_lambda_f_3(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype == dtype_t::f16) { \
-      using T = float16_t; \
-      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f32) { \
-      using T = float; \
-      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f64) { \
-      using T = double; \
-      name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
-    } else { \
-      throw std::runtime_error("shoud not reach: touch lambda"); \
-    } \
-  }
-#define _touch_lambda_f_4(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype == dtype_t::f16) { \
-      using T = float16_t; \
-      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f32) { \
-      using T = float; \
-      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
-    } else if(dtype == dtype_t::f64) { \
-      using T = double; \
-      name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
-    } else { \
-      throw std::runtime_error("shoud not reach: touch lambda"); \
-    } \
-  }
+template <typename T>
+_touch4_frame(touch4_none, T,
+  std::memcpy(
+    reinterpret_cast<void*>(out),
+    reinterpret_cast<void const*>(inn),
+    sizeof(T)*t3.size);
+)
 
-#define _touch_lambda_c_1(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
-    using T = std::complex<float>; \
-    name(ts[0], (T*)out, (T const*)inn); \
-  }
-#define _touch_lambda_c_2(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
-    using T = std::complex<float>; \
-    name(ts[0], ts[1], (T*)out, (T const*)inn); \
-  }
-#define _touch_lambda_c_3(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
-    using T = std::complex<float>; \
-    name(ts[0], ts[1], ts[2], (T*)out, (T const*)inn); \
-  }
-#define _touch_lambda_c_4(name) \
-  [dtype,ts](void* out, void const* inn) { \
-    if(dtype != dtype_t::c64) { throw std::runtime_error("wrong dtype: touch"); } \
-    using T = std::complex<float>; \
-    name(ts[0], ts[1], ts[2], ts[3], (T*)out, (T const*)inn); \
-  }
+// TODO: use mkl vector functions instead of calling touch*_line
 
-// This guy is wrapped in a lambda so
-// the it creates a single output which
-// can then be returned.
-// So do
-//   kernel_t my_function() {
-//     return _touch_dispatch(1)
-//    }
-// as opposed to the non-wrapped version
-// which would have
-//  kernel_t my_function() {
-//     _touch_dispatch(1)
-//  }
-// which mysteriously looks like it
-// doesn't return anything.
-#define _touch_dispatch_f(i) \
-  [&]() -> std::function<void(void*, void const*)> { \
-    if(touch.castable) { \
-      castable_t const& c = touch.castable.value(); \
-      if(c == castable_t::add) { \
-        return _touch_lambda_f_##i ( touch##i##_add); \
-      } else if(c == castable_t::mul) { \
-        return _touch_lambda_f_##i ( touch##i##_mul); \
-      } else if(c == castable_t::min) { \
-        return _touch_lambda_f_##i ( touch##i##_min); \
-      } else if(c == castable_t::max) { \
-        return  _touch_lambda_f_##i ( touch##i##_max); \
-      } else { \
-        throw std::runtime_error("castable should not reach"); \
-      } \
-    } else { \
-      return _touch_lambda_f_##i ( touch##i##_none); \
-    } \
-  }()
-// For the complex case, don't include the min or the max
-// cases
-#define _touch_dispatch_c(i) \
-  [&]() -> std::function<void(void*, void const*)> { \
-    if(touch.castable) { \
-      castable_t const& c = touch.castable.value(); \
-      if(c == castable_t::add) { \
-        return _touch_lambda_c_##i ( touch##i##_add); \
-      } else if(c == castable_t::mul) { \
-        return _touch_lambda_c_##i ( touch##i##_mul); \
-      } else { \
-        throw std::runtime_error("castable should not reach"); \
-      } \
-    } else { \
-      return _touch_lambda_c_##i ( touch##i##_none); \
-    } \
-  }()
+_touch1_line(touch1_add,  out[i] += inn[i]                  );
+_touch1_line(touch1_mul,  out[i] *= inn[i]                  );
+_touch1_line(touch1_min,  out[i] =  std::min(out[i], inn[i]));
+_touch1_line(touch1_max,  out[i] =  std::max(out[i], inn[i]));
 
-touch_kernel_t
-build_touch(touch_t const& touch_)
+_touch2_line(touch2_add,  out[i] += inn[i]                  );
+_touch2_line(touch2_mul,  out[i] *= inn[i]                  );
+_touch2_line(touch2_min,  out[i] =  std::min(out[i], inn[i]));
+_touch2_line(touch2_max,  out[i] =  std::max(out[i], inn[i]));
+
+_touch3_line(touch3_add,  out[i] += inn[i]                  );
+_touch3_line(touch3_mul,  out[i] *= inn[i]                  );
+_touch3_line(touch3_min,  out[i] =  std::min(out[i], inn[i]));
+_touch3_line(touch3_max,  out[i] =  std::max(out[i], inn[i]));
+
+_touch4_line(touch4_add,  out[i] += inn[i]                  );
+_touch4_line(touch4_mul,  out[i] *= inn[i]                  );
+_touch4_line(touch4_min,  out[i] =  std::min(out[i], inn[i]));
+_touch4_line(touch4_max,  out[i] =  std::max(out[i], inn[i]));
+
+#define _call_touch1(name, T) \
+  name(ts[0], \
+    reinterpret_cast<T*>(out), \
+    reinterpret_cast<T const*>(inn))
+#define _call_touch2(name, T) \
+  name(ts[0], ts[1], \
+    reinterpret_cast<T*>(out), \
+    reinterpret_cast<T const*>(inn))
+#define _call_touch3(name, T) \
+  name(ts[0], ts[1], ts[2], \
+    reinterpret_cast<T*>(out), \
+    reinterpret_cast<T const*>(inn))
+#define _call_touch4(name, T) \
+  name(ts[0], ts[1], ts[2], ts[3], \
+    reinterpret_cast<T*>(out), \
+    reinterpret_cast<T const*>(inn))
+
+#define _call_touch_s(T, f1, f2, f3, f4) \
+  if(ts.size() == 1) { \
+    _call_touch1(f1, T); \
+  } else if(ts.size() == 2) { \
+    _call_touch2(f2, T); \
+  } else if(ts.size() == 3) { \
+    _call_touch3(f3, T); \
+  } else if(ts.size() == 4) { \
+    _call_touch4(f4, T); \
+  } else { \
+    throw std::runtime_error("_call_touch_s: not enough dims"); \
+  } \
+  return;
+
+void execute_touch(
+  touch_t const& touch,
+  void* out,
+  void const* inn)
 {
-  touch_t touch = touch_.simplify();
+  auto const [ts, maybe_castable, dtype] = touch;
 
-  auto const& dtype = touch.dtype;
-  auto const& ts = touch.selection;
-  if(ts.size() == 1) {
-    return dtype == dtype_t::c64 ?
-      _touch_dispatch_c(1) :
-      _touch_dispatch_f(1) ;
+  if(!maybe_castable) {
+    if(ts.size() == 1) {
+      if(dtype == dtype_t::f16) {
+        return _call_touch1(touch1_none, uint16_t);
+      } else if(dtype == dtype_t::f32) {
+        return _call_touch1(touch1_none, uint32_t);
+      } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+        return _call_touch1(touch1_none, uint64_t);
+      }
+    } else if(ts.size() == 2) {
+      if(dtype == dtype_t::f16) {
+        return _call_touch2(touch2_none, uint16_t);
+      } else if(dtype == dtype_t::f32) {
+        return _call_touch2(touch2_none, uint32_t);
+      } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+        return _call_touch2(touch2_none, uint64_t);
+      }
+    } else if(ts.size() == 3) {
+      if(dtype == dtype_t::f16) {
+        return _call_touch3(touch3_none, uint16_t);
+      } else if(dtype == dtype_t::f32) {
+        return _call_touch3(touch3_none, uint32_t);
+      } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+        return _call_touch3(touch3_none, uint64_t);
+      }
+    } else if(ts.size() == 4) {
+      if(dtype == dtype_t::f16) {
+        return _call_touch4(touch4_none, uint16_t);
+      } else if(dtype == dtype_t::f32) {
+        return _call_touch4(touch4_none, uint32_t);
+      } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+        return _call_touch4(touch4_none, uint64_t);
+      }
+    } else {
+      throw std::runtime_error("too many selection dims; try calling simplify");
+    }
+    throw std::runtime_error("execute_touch: should not reach");
   }
 
-  if(ts.size() == 2) {
-    return dtype == dtype_t::c64 ?
-      _touch_dispatch_c(2) :
-      _touch_dispatch_f(2) ;
+  auto const& castable = maybe_castable.value();
+  if(dtype == dtype_t::f16) {
+    if(castable == castable_t::add) {
+      _call_touch_s(float16_t, touch1_add, touch2_add, touch3_add, touch4_add);
+    } else if(castable == castable_t::mul) {
+      _call_touch_s(float16_t, touch1_mul, touch2_mul, touch3_mul, touch4_mul);
+    } else if(castable == castable_t::min) {
+      _call_touch_s(float16_t, touch1_min, touch2_min, touch3_min, touch4_min);
+    } else if(castable == castable_t::max) {
+      _call_touch_s(float16_t, touch1_max, touch2_max, touch3_max, touch4_max);
+    }
+  } else if(dtype == dtype_t::f32) {
+    if(castable == castable_t::add) {
+      _call_touch_s(float, touch1_add, touch2_add, touch3_add, touch4_add);
+    } else if(castable == castable_t::mul) {
+      _call_touch_s(float, touch1_mul, touch2_mul, touch3_mul, touch4_mul);
+    } else if(castable == castable_t::min) {
+      _call_touch_s(float, touch1_min, touch2_min, touch3_min, touch4_min);
+    } else if(castable == castable_t::max) {
+      _call_touch_s(float, touch1_max, touch2_max, touch3_max, touch4_max);
+    }
+  } else if(dtype == dtype_t::f64) {
+    if(castable == castable_t::add) {
+      _call_touch_s(double, touch1_add, touch2_add, touch3_add, touch4_add);
+    } else if(castable == castable_t::mul) {
+      _call_touch_s(double, touch1_mul, touch2_mul, touch3_mul, touch4_mul);
+    } else if(castable == castable_t::min) {
+      _call_touch_s(double, touch1_min, touch2_min, touch3_min, touch4_min);
+    } else if(castable == castable_t::max) {
+      _call_touch_s(double, touch1_max, touch2_max, touch3_max, touch4_max);
+    }
+  } else if(dtype == dtype_t::c64) {
+    if(castable == castable_t::add) {
+      _call_touch_s(std::complex<float>, touch1_add, touch2_add, touch3_add, touch4_add);
+    } else if(castable == castable_t::mul) {
+      _call_touch_s(std::complex<float>, touch1_mul, touch2_mul, touch3_mul, touch4_mul);
+    }
   }
-
-  if(ts.size() == 3) {
-    return dtype == dtype_t::c64 ?
-      _touch_dispatch_c(3) :
-      _touch_dispatch_f(3) ;
-  }
-
-  if(ts.size() == 4) {
-    return dtype == dtype_t::c64 ?
-      _touch_dispatch_c(4) :
-      _touch_dispatch_f(4) ;
-  }
-
-  throw std::runtime_error("touch kernel not implemented");
+  throw std::runtime_error("execute_touch: should not reach ");
 }
 
 // trans lhs   trans rhs

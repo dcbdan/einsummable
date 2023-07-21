@@ -107,3 +107,90 @@ message RemapRelations {
   repeated Relation srcs = 1;
   repeated Relation dsts = 2;
 }
+
+message MGInputMem {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGInputSto {
+  required int32 loc = 1;
+  required int32 storage_loc = 2;
+  required int32 storage_id = 3;
+}
+
+message MGApply {
+  required int32 loc = 1;
+  repeated uint64 mems_offset = 2;
+  repeated uint64 mems_size = 3;
+  oneof op {
+    Einsummable einsummable = 4;
+    Touch touch = 5;
+  }
+  required int32 group = 6;
+}
+
+message MGMove {
+  required int32 src_loc = 1;
+  required uint64 src_offset = 2;
+  required int32 dst_loc = 3;
+  required uint64 dst_offset = 4;
+  required uint64 size = 5;
+}
+
+message MGEvict {
+  required int32 storage_loc = 1;
+  required int32 storage_id = 2;
+  required int32 loc = 3;
+  required uint64 offset = 4;
+  required uint64 size = 5;
+}
+
+message MGLoad {
+  required int32 storage_loc = 1;
+  required int32 storage_id = 2;
+  required int32 loc = 3;
+  required uint64 offset = 4;
+  required uint64 size = 5;
+}
+
+message MGPartialize {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGAlloc {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MGDel {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required uint64 size = 3;
+}
+
+message MemGraphNode {
+  oneof node {
+    MGInputMem inputmem = 1;
+    MGInputSto inputsto = 2;
+    MGApply apply = 3;
+    MGMove move = 4;
+    MGEvict evict = 5;
+    MGLoad load = 6;
+    MGPartialize partialize = 7;
+    MGAlloc alloc = 8;
+    MGDel del = 9;
+  }
+  repeated int32 inns = 10;
+}
+
+message MemGraph {
+  required int32 num_compute_locs = 1;
+  required int32 num_storage_locs = 2;
+  repeated int32 storage_locs = 3;
+  repeated MemGraphNode nodes = 4;
+}

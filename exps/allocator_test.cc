@@ -63,13 +63,16 @@ int main_(int argc, char** argv) {
     pi,pj,pk, di,dj,dk, np);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+  {
+    std::cout << "tg.gv" << std::endl;
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+  }
+
   // it could be the case that not all locs are actually used,
   // for example 1 1 2 100 100 100 88
   // Here only 2 locs will really be used, not all 88...
   np = taskgraph.num_locs();
-
-  // have everyone share the same cache
-  vector<int> compute_loc_to_cache(np, 0);
 
   {
     tuple<
@@ -78,7 +81,6 @@ int main_(int argc, char** argv) {
       memgraph_t>
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
-        compute_loc_to_cache,
         {},
         { allocator_strat_t::lowest_dependency, 1 } );
     auto const& [_2, _3, memgraph] = _info1;
@@ -95,7 +97,6 @@ int main_(int argc, char** argv) {
       memgraph_t>
       _info1 = memgraph_t::make_without_evict(
         taskgraph,
-        compute_loc_to_cache,
         {},
         { allocator_strat_t::first, 1 } );
     auto const& [_2, _3, memgraph] = _info1;
@@ -158,7 +159,6 @@ int main03() {
 
   return 0;
 }
-
 
 int main(int argc, char** argv) {
   main_(argc, argv);

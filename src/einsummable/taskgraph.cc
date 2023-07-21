@@ -1464,7 +1464,13 @@ void double_last_dim_inplace(multiple_tensor_t& p) {
 
 void halve_last_dim_inplace(partition_t& p) {
   partdim_t& partdim = p.partdims.back();
-  partdim = partdim_t::from_sizes(vector_halve(partdim.sizes()));
+  auto szs = partdim.sizes();
+  for(auto const& sz: szs) {
+    if(sz % 2 != 0) {
+      throw std::runtime_error("can't halve dim");
+    }
+  }
+  partdim = partdim_t::from_sizes(vector_halve(szs));
 }
 void halve_last_dim_inplace(placement_t& p) {
   halve_last_dim_inplace(p.partition);

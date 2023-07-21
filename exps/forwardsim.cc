@@ -1,5 +1,5 @@
 #include "../src/autoplace/forwardsim.h"
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 #include "../src/autoplace/autopart.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/base/timeplot.h"
@@ -53,9 +53,6 @@ void random_walk_through(
 
   forward_state_t state(cluster, graph);
   int nloc = cluster.devices.size();
-
-  using jid_t = forward_state_t::jid_t;
-  using rid_t = forward_state_t::rid_t;
 
   std::function<partition_t(int)> get_partition = [&](int gid)
   {
@@ -165,9 +162,6 @@ void main01() {
   }
 
   forward_state_t state(cluster, graph);
-
-  using jid_t = forward_state_t::jid_t;
-  using rid_t = forward_state_t::rid_t;
 
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
@@ -287,7 +281,7 @@ void main05() {
 
   int nlocs = 4;
 
-  cluster_t cluster = make_cluster(nlocs, 3, 1);
+  cluster_t cluster = make_cluster(nlocs, 30, 1);
 
   //auto graph = three_dimensional_matrix_multiplication(
   //  4,4,4,
@@ -371,8 +365,9 @@ void main05() {
 
   equal_items_t<int> eqs = {};
 
-  double base = simulate(cluster, graph, single_loc_placements(graph));
+  double base = simulate(cluster, graph, graph.make_singleton_placement());
 
+  using mcmc_t = forwardsim_mcmc_t;
   //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
   mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 

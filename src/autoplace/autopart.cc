@@ -1,7 +1,7 @@
 #include "autopart.h"
 #include "../einsummable/taskgraph.h"
 
-optional<partition_t> _make_finer(partition_t const& p) {
+optional<partition_t> make_finer_via_doubling(partition_t const& p) {
   auto const& pds = p.partdims;
 
   uint64_t mx_sz = 0;
@@ -27,7 +27,7 @@ optional<partition_t> _make_finer(partition_t const& p) {
   return partition_t(new_pds);
 }
 
-optional<partition_t> _make_coarser(partition_t const& p) {
+optional<partition_t> make_coarser_via_halving(partition_t const& p) {
   auto const& pds = p.partdims;
 
   uint64_t mn_sz = std::numeric_limits<uint64_t>::max();
@@ -53,6 +53,62 @@ optional<partition_t> _make_coarser(partition_t const& p) {
   return partition_t(new_pds);
 }
 
+optional<partition_t> make_finer_via_increment(partition_t const& p) {
+  auto const& pds = p.partdims;
+
+  int min_parts;
+  int split_d = -1;
+
+  for(int d = 0; d != pds.size(); ++d) {
+    auto const& pd = pds[d];
+    uint64_t total = pd.total();
+    int n_parts = pd.spans.size();
+    if(n_parts != total) {
+      if(split_d == -1 || n_parts < min_parts) {
+        min_parts = n_parts;
+        split_d = d;
+      }
+    }
+  }
+
+  if(split_d == -1) {
+    return std::nullopt;
+  }
+
+  vector<partdim_t> new_pds = pds;
+  new_pds[split_d] = partdim_t::split(pds[split_d].total(), min_parts + 1);
+
+  return partition_t(new_pds);
+}
+
+optional<partition_t> make_coarser_via_decrement(partition_t const& p) {
+  auto const& pds = p.partdims;
+
+  int max_parts;
+  int split_d = -1;
+
+  for(int d = 0; d != pds.size(); ++d) {
+    auto const& pd = pds[d];
+    uint64_t total = pd.total();
+    int n_parts = pd.spans.size();
+    if(n_parts != 1) {
+      if(split_d == -1 || n_parts > max_parts) {
+        max_parts = n_parts;
+        split_d = d;
+      }
+    }
+  }
+
+  if(split_d == -1) {
+    return std::nullopt;
+  }
+
+  vector<partdim_t> new_pds = pds;
+  new_pds[split_d] = partdim_t::split(pds[split_d].total(), max_parts - 1);
+
+  return partition_t(new_pds);
+}
+
 uint64_t get_smallest_block_size(partition_t const& p) {
   uint64_t ret = 1;
   for(auto const& pd: p.partdims) {
@@ -65,9 +121,18 @@ uint64_t get_smallest_block_size(partition_t const& p) {
 partition_t make_correctly_sized_partition(
   partition_t const& init,
   uint64_t min_sizing,
-  optional<int> maybe_max_blocking)
+  optional<int> maybe_max_blocking,
+  bool via_doubling)
 {
   partition_t p = init;
+
+  auto _make_coarser = via_doubling ?
+    make_coarser_via_halving        :
+    make_coarser_via_decrement      ;
+
+  auto _make_finer = via_doubling   ?
+    make_finer_via_doubling         :
+    make_finer_via_increment        ;
 
   if(get_smallest_block_size(p) < min_sizing) {
     do {
@@ -119,7 +184,8 @@ vector<partition_t> autopartition(
   graph_t const& graph,
   uint64_t min_sizing,
   int max_blocking,
-  equal_items_t<int> equal_constraints)
+  equal_items_t<int> equal_constraints,
+  bool via_doubling)
 {
   vector<partition_t> ret;
 
@@ -127,14 +193,15 @@ vector<partition_t> autopartition(
     if(node.op.is_input()) {
       partition_t init = partition_t::singleton(node.op.out_shape());
       ret.push_back(make_correctly_sized_partition(
-        init, min_sizing, max_blocking));
+        init, min_sizing, max_blocking, via_doubling));
     } else if(node.op.is_formation()) {
       auto const& inn = node.inns[0];
       int out_rank = node.op.out_shape().size();
       if(graph.nodes[inn].op.has_aggregation()) {
         auto const& pds = ret[inn].partdims;
         partition_t init(vector<partdim_t>(pds.begin(), pds.begin() + out_rank));
-        ret.push_back(make_correctly_sized_partition(init, min_sizing, max_blocking));
+        ret.push_back(
+          make_correctly_sized_partition(init, min_sizing, max_blocking, via_doubling));
       } else {
         ret.push_back(ret[inn]);
       }
@@ -164,7 +231,8 @@ vector<partition_t> autopartition(
           }
           total /= 2;
           init.partdims.back() = partdim_t::singleton(total);
-          ret.push_back(make_correctly_sized_partition(init, min_sizing, max_blocking));
+          ret.push_back(
+            make_correctly_sized_partition(init, min_sizing, max_blocking, via_doubling));
         }
       }
     } else if(node.op.is_concat()) {
@@ -198,14 +266,16 @@ vector<partition_t> autopartition(
 
       partition_t init(pds);
 
-      ret.push_back(make_correctly_sized_partition(init, min_sizing, max_blocking));
+      ret.push_back(
+        make_correctly_sized_partition(init, min_sizing, max_blocking, via_doubling));
     } else if(node.op.is_subset()) {
       int const& inn = node.inns[0];
       auto const& subset = node.op.get_subset();
       auto const& inn_part = ret[inn];
       auto new_part_full = inn_part.subset(subset.get_hrect());
       auto new_part = partition_t(subset.squeeze_vec(new_part_full.partdims));
-      ret.push_back(make_correctly_sized_partition(new_part, min_sizing, max_blocking));
+      ret.push_back(
+        make_correctly_sized_partition(new_part, min_sizing, max_blocking, via_doubling));
     } else if(node.op.is_einsummable()) {
       auto const& e = node.op.get_einsummable();
       vector<vector<partdim_t>> pds(e.join_shape.size());
@@ -224,7 +294,8 @@ vector<partition_t> autopartition(
         pd.push_back(partdim_t::unions(_pd));
       }
       partition_t init(pd);
-      ret.push_back(make_correctly_sized_partition(init, min_sizing, max_blocking));
+      ret.push_back(
+        make_correctly_sized_partition(init, min_sizing, max_blocking, via_doubling));
     } else {
       throw std::runtime_error("missing node type");
     }

@@ -21,9 +21,13 @@ struct partdim_t {
 
   uint64_t size_at(int i) const;
 
+  uint64_t offset_at(int i) const;
+
   int num_parts() const { return spans.size(); }
 
   bool refines(partdim_t const& other) const;
+
+  vector<int> refine_counts(partdim_t const& other) const;
 
   tuple<uint64_t, uint64_t> which_vals(int blk) const;
 

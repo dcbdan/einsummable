@@ -1,8 +1,8 @@
 #include "../src/einsummable/taskgraph.h"
 
-#include "../src/autoplace/autoplace.h"
+#include "../src/autoplace/fsmcmc.h"
 
-#include "../src/execution/cpu/execute.h"
+#include "../src/execution/cpu/executetg.h"
 #include "../src/execution/cpu/mpi_class.h"
 
 #include <thread>
@@ -114,7 +114,7 @@ struct run_mcmc_t {
   std::mutex m;
   optional<tuple<double, vector<placement_t>>> best_option;
 
-  void operator()(mcmc_t && mcmc, int num_steps) {
+  void operator()(forwardsim_mcmc_t && mcmc, int num_steps) {
     for(int i = 0; i != num_steps; ++i) {
       mcmc.step();
     }
@@ -145,14 +145,14 @@ taskgraph_t solve(
     if(autoplace_settings.do_balanced) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_balanced(cluster, graph, beta),
+          forwardsim_mcmc_t::init_balanced(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
     if(autoplace_settings.do_singleloc) {
       threads.emplace_back([&]() {
         runner(
-          mcmc_t::init_with_single_loc(cluster, graph, beta),
+          forwardsim_mcmc_t::init_with_single_loc(cluster, graph, beta),
           autoplace_settings.num_steps);
       });
     }
@@ -176,12 +176,10 @@ int main(int argc, char** argv)
 
   int num_threads_per_node = 4;
 
-  settings_t execute_settings {
+  execute_taskgraph_settings_t execute_settings {
     .num_apply_runner = num_threads_per_node,
-    .num_touch_runner = 2,
     .num_send_runner  = 1,
-    .num_recv_runner  = 1,
-    .num_apply_kernel_threads = 1
+    .num_recv_runner  = 1
   };
 
   taskgraph_t taskgraph;
@@ -239,7 +237,7 @@ int main(int argc, char** argv)
   {
     mpi.barrier();
     raii_print_time_elapsed_t gremlin("cpuexec time");
-    execute(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
+    execute_taskgraph(taskgraph, execute_settings, kernel_manager, &mpi, tensors);
     mpi.barrier();
   }
 }

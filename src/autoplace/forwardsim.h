@@ -1,10 +1,9 @@
 #pragma once
 #include "../base/setup.h"
 
-#include "../base/hrect.h"
-
 #include "../einsummable/graph.h"
 #include "cluster.h"
+#include "twolayer.h"
 
 // Assumption: all time >= 0; all util >= 1
 struct capacity_scheduler_t {
@@ -192,15 +191,6 @@ private:
 //   completed refinement (rid,dst)
 //   completed join (jid)
 struct forward_state_t {
-  struct jid_t {
-    int gid;
-    int bid;
-  };
-  struct rid_t {
-    int gid;
-    int bid;
-  };
-
   struct completed_t {
     completed_t(double b, double e, int src, int dst, int gid, int bid, int uid, uint64_t size)
       : start(b), finish(e), c(done_move_t{ src, dst, gid, bid, uid, size })
@@ -235,54 +225,6 @@ struct forward_state_t {
 
   private:
     std::variant<done_move_t, done_apply_t> c;
-  };
-
-  // An agg unit is something that will get summed.
-  // So if Y = X1 + X2 + X3 + X4 at locations
-  //       0    0   1    1    2
-  // then X1 is not moved,
-  //      X2 and X3 are summed at location 1 and moved
-  //      X4 is moved.
-  // An agg unit depends on a set of join ids (X1,X2,X3,X4)
-  // but not neccessarily on all elements of the join ids.
-  // The size variable how much of each input it takes.
-  struct agg_unit_t {
-    uint64_t size;
-    vector<int> deps; // these are the join bids of the graph node that
-                      // this agg unit belongs to
-  };
-
-  // A refinement is called such because when constructing from
-  // a graph object, this is one block of the refinement partition
-  // of all usages of some graph node.
-  //
-  // Consider Y = UnaryElementwiseOp(X) where X is partitioned into 2x2 blocks
-  // and Y is a formation and the only usage, partitioned into 3x3 blocks.
-  // The refinement of Y[0,0] has one agg unit. That agg unit has as dependency
-  //   just Unary(X[0,0]) and the size is the size of Y[0,0] block.
-  // The refinement of Y[1,1] has four agg units. Each agg unit has one of the
-  //   Unary(X[i,j]) blocks for i,j in [0,1]x[0,1]. The size of each agg unit block
-  //   is roughly 1/4 the size of the Y[1,1] block.
-  // Since this is an elementwise op, each agg unit is just a copy and does no
-  //   actual summation.
-  //
-  // Consider instead Y = (ijk->ij, X) where X is partition into 2x2x3 blocks
-  // and Y is partitioned again into 3x3 blocks. Everything holds the same
-  // as before except each agg unit has 3 inputs.
-  // The refinement of Y[0,0] has one agg unit. That agg unit has as dependency
-  //   (ijk->ij, X[0,0,k]) for k=0,1,2 and the size is the size of Y[0,0] block.
-  // The refinement of Y[1,1] has four agg units. Each agg unit represents some i,j
-  //   and that agg unit has blocks (ijk->ij, X[i,j,k]) for k=0,1,2.
-  //   The size of each agg unit block is roughly 1/4 the size of the Y[1,1] block.
-  struct refinement_t {
-    vector<agg_unit_t> units;
-    set<jid_t> outs;
-  };
-
-  struct join_t {
-    optional<einsummable_t> einsummable;
-    set<rid_t> deps;
-    set<int> outs; // get all refinement bids that depend on this join
   };
 
   struct unit_status_t {
@@ -327,7 +269,7 @@ struct forward_state_t {
     // Note that partition is with respect
     // to the graph dtype (as one would expect)
 
-    // -1 = has been comptued
+    // -1 = has been computed
     //  0 = can be computed or is being computed
     // >0 = this many tensor fractions must be moved or computed
     optional<vector<int>> compute_status;
@@ -490,12 +432,3 @@ private:
   void insert_refi_out(rid_t rid, jid_t jid);
 };
 
-bool operator==(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
-bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
-bool operator< (forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
-bool operator==(forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
-bool operator!=(forward_state_t::jid_t const& lhs, forward_state_t::jid_t const& rhs);
-bool operator< (forward_state_t::rid_t const& lhs, forward_state_t::rid_t const& rhs);
-
-std::ostream& operator<<(std::ostream&, forward_state_t::jid_t const&);
-std::ostream& operator<<(std::ostream&, forward_state_t::rid_t const&);
