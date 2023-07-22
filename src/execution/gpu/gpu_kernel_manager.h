@@ -67,7 +67,7 @@ struct elementwise_t{
 };
 
 struct custom_kernel_1_t{
-  void_cuda_kernel_t kernel;
+  cutensor_elementwise_kernel_t kernel;
 };
 
 

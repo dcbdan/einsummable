@@ -127,10 +127,12 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
   if(is_custom_kernel1(einsummable)){
     uint64_t size = einsummable.join_shape[0];
-    auto lambda = [size]
-    (cudaStream_t stream, void* out, const void* in){
-      custom_elementwise_1(out, in, stream, size);
-    };
+    //auto lambda = [size]
+    //(cudaStream_t stream, void* out, const void* in){
+    //  custom_elementwise_1(out, in, stream, size);
+    //};
+
+    auto lambda = cutensor_silu_elementwise(size);
 
     custom_kernel_1_t custom_kernel {lambda};
 
@@ -315,7 +317,7 @@ void kernel_manager_t::call(
   }else if(holds_alternative<custom_kernel_1_t>(kernel)) {
     assert_num_inputs(1);
     auto const& [f] = get<custom_kernel_1_t>(kernel);
-    f(stream,out,inns[0]);
+    f(stream,handle,out,inns);
   }    
 
 }

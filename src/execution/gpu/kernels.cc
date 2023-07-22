@@ -971,6 +971,65 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
   return {};
 }
 
+cutensor_elementwise_kernel_t
+cutensor_silu_elementwise(uint64_t size)
+{
+  cudaDataType_t typeA = CUDA_R_16F;
+  cudaDataType_t typeC = CUDA_R_16F;
+  cudaDataType_t typeCompute = CUDA_R_16F;
+
+  std::vector<int> modeA = {0};
+  std::vector<int> modeC = {0};
+
+  int nmodeA = modeA.size();
+  int nmodeC = modeC.size();
+
+  vector<int64_t> extent_A = {static_cast<int64_t>(size)};
+  vector<int64_t> extent_C = {static_cast<int64_t>(size)};
+
+  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,
+  typeA,typeC,typeCompute]
+  (cudaStream_t stream, cutensorHandle_t const* handle, void* out, vector<void const*> inns){
+
+    void* ptr1;
+    void* ptr2;
+    float16_t alpha1 = float16_t(1.0);
+    float16_t beta1 = float16_t(1.0);
+    ptr1 = static_cast<void*>(&alpha1);
+    ptr2 = static_cast<void*>(&beta1);
+    void const* alpha = ptr1; 
+    void const* beta = ptr2;
+
+    
+    cutensorTensorDescriptor_t descA;
+    handle_cutensor_error(
+      cutensorInitTensorDescriptor(handle,
+                &descA,
+                nmodeA,
+                extent_A.data(),
+                NULL /* stride */,
+                typeA, CUTENSOR_OP_SIGMOID));
+
+    cutensorTensorDescriptor_t descC;
+    handle_cutensor_error(
+      cutensorInitTensorDescriptor(handle,
+                &descC,
+                nmodeC,
+                extent_C.data(),
+                NULL /* stride */,
+                typeC, CUTENSOR_OP_IDENTITY));
+    
+    handle_cutensor_error(cutensorElementwiseBinary(handle,
+                  alpha, inns[0], &descA, modeA.data(),
+                  beta, inns[0], &descC, modeC.data(),
+                  out, &descC, modeC.data(),
+                  CUTENSOR_OP_MUL, typeCompute, stream));
+
+
+  };
+
+}
+
 cutensor_elementwise_op_t::arg_t convert_arg(cutensor_scalarop_t::arg_t arg, vector<int> modes){
   scalar_t scale = arg.scale;
   cutensorOperator_t op;

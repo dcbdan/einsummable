@@ -106,12 +106,17 @@ struct cutensor_elementwise_op_t {
 cutensor_elementwise_kernel_t
 build_cutensor_elementwise(cutensor_elementwise_op_t op);
 
+cutensor_elementwise_kernel_t
+cutensor_silu_elementwise(uint64_t size);
+
 // Attempt to construct a cutensor elementwise op
 // from an einsummable. If the einsummable can't be
 // converted, return none
 optional<cutensor_elementwise_op_t>
 make_cutensor_elementwise_op(
   einsummable_t const& e);
+
+
 
 // Straight elementwise means:
 //   for(int i = 0; i != size; ++i) {
