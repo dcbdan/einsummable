@@ -340,6 +340,36 @@ private:
   int insert(op_t op, bool is_save);
 };
 
+// The taskgraph has at each node an op that produces a tensor. However,
+// sometimes it is helpful to work with respect to each computational
+// unit of the taskgraph. The only op that is not atomic is the partialize
+// op which consists of many atomic touch ops.
+struct _tg_op_t {
+  struct touchop_t {
+    int task_id;
+    int unit_id;
+    int touch_id;
+  };
+  struct miscop_t {
+    int task_id;
+  };
+
+  _tg_op_t() {}
+
+  _tg_op_t(miscop_t miscop):   op(miscop)  {}
+  _tg_op_t(touchop_t touchop): op(touchop) {}
+
+  bool is_touchop() const { return std::holds_alternative<touchop_t>(op); }
+  bool is_miscop()  const { return std::holds_alternative<miscop_t>(op); }
+
+  touchop_t const& get_touchop() const { return std::get<touchop_t>(op); }
+  miscop_t  const& get_miscop()  const { return std::get<miscop_t>(op); }
+
+  int const& get_task_id() const;
+
+  std::variant<touchop_t, miscop_t> op;
+};
+
 partition_t concat_split_partition(
   partition_t const& partition,
   concat_t const& concat);

@@ -54,6 +54,233 @@ void execute_taskgraph(
   }
 }
 
+void execute_taskgraph_in_order(
+  taskgraph_t const& taskgraph,
+  vector<_tg_op_t> const& ops,
+  kernel_manager_t const& kernel_manager,
+  map<int, buffer_t>& tensors)
+{
+  map<int, int> usage_counts;
+  auto register_usage = [&](int id) {
+    auto iter = usage_counts.find(id);
+    if(iter == usage_counts.end()) {
+      auto const& node = taskgraph.nodes[id];
+      if(node.outs.size() == 1) {
+        tensors.erase(id);
+      } else {
+        usage_counts.insert({id, node.outs.size() - 1});
+      }
+    } else {
+      int& cnt = iter->second;
+      cnt--;
+      if(cnt == 0) {
+        auto const& node = taskgraph.nodes[id];
+        if(!node.is_save) {
+          tensors.erase(id);
+        }
+        usage_counts.erase(iter);
+      }
+    }
+  };
+
+  // partialize_id -> unit -> (inn, touch) pairs
+  map<int, vector<vector<tuple<int, touch_t>>>> touches;
+  for(int id = 0; id != taskgraph.nodes.size(); ++id) {
+    auto const& node = taskgraph.nodes[id];
+    if(node.op.is_partialize()) {
+      auto const& p = node.op.get_partialize();
+      touches.insert({id, p.as_touches_from()});
+    }
+  }
+
+  buffer_t workspace = make_buffer(1);
+
+  for(auto const& op: ops) {
+    if(op.is_miscop()) {
+      int const& id = op.get_task_id();
+
+      auto const& node = taskgraph.nodes[id];
+      if(node.op.is_move()) {
+        throw std::runtime_error(
+          "single threaded execution engine cannot do moves!");
+      } else if(node.op.is_partialize()) {
+        // this probably should not happen, but assume all that
+        // work is done in the apply
+      } else if(node.op.is_input()) {
+        // nothing to do
+      } else if(node.op.is_apply()) {
+        auto const& [_0, inns, einsummable] = node.op.get_apply();
+
+        vector<void const*> raw_inputs;
+        raw_inputs.reserve(inns.size());
+        for(auto const& inn_id: inns) {
+          raw_inputs.push_back(tensors.at(inn_id)->raw());
+        }
+
+        uint64_t sz = kernel_manager.workspace_size(einsummable);
+        if(sz > workspace->size) {
+          workspace = make_buffer(sz);
+        }
+
+        buffer_t out_buffer = make_buffer(node.op.out_size());
+
+        tuple<void*, uint64_t> ws { workspace->raw(), workspace->size };
+        kernel_manager(einsummable, out_buffer->raw(), raw_inputs, ws);
+        tensors.insert({id, out_buffer});
+
+        for(auto const& inn_id: inns) {
+          register_usage(inn_id);
+        }
+      } else {
+        throw std::runtime_error("missing tg type");
+      }
+    } else {
+      auto const& [id, unit_id, touch_id] = op.get_touchop();
+      auto const& [inn_id, touch_op] = touches.at(id)[unit_id][touch_id];
+
+      buffer_t out_buffer;
+      {
+        auto iter = tensors.find(id);
+        if(iter == tensors.end()) {
+          uint64_t sz = taskgraph.out_size(id);
+          out_buffer = make_buffer(sz);
+          tensors.insert({id, out_buffer});
+        } else {
+          out_buffer = iter->second;
+        }
+      }
+
+      buffer_t const& inn_buffer = tensors.at(inn_id);
+      kernel_manager(touch_op, out_buffer->raw(), inn_buffer->raw());
+
+      register_usage(inn_id);
+    }
+  }
+}
+
+vector<_tg_op_t>
+random_taskgraph_order(taskgraph_t const& taskgraph)
+{
+  vector<_tg_op_t> ret;
+  ret.reserve(2*taskgraph.nodes.size());
+
+  vector<_tg_op_t> pending;
+
+  // partialize id -> number of touches still needed to complete
+  // all other id  -> number of inputs left until can start
+  vector<int> num_rem;
+
+  map<int, int> num_touch_rem;
+
+  int num_completed = 0;
+
+  using touchop_t = _tg_op_t::touchop_t;
+  using miscop_t  = _tg_op_t::miscop_t;
+
+  // inn id -> touches it is a part of
+  map<int, vector<touchop_t>> id_to_touches;
+
+  auto register_complete = [&](int id) {
+    num_completed++;
+
+    // add the corresponding touches
+    auto iter = id_to_touches.find(id);
+    if(iter != id_to_touches.end()) {
+      for(auto const& touch: iter->second) {
+        pending.push_back(touch);
+      }
+      id_to_touches.erase(iter);
+    }
+
+    // for all non partialize nodes, a dependency has been finished
+    // (partialize nodes have their dependency satisified only after
+    //  touches)
+    auto const& node = taskgraph.nodes[id];
+    for(int const& out: node.outs) {
+      auto const& out_node = taskgraph.nodes[out];
+      if(!out_node.op.is_partialize()) {
+        int& cnt = num_rem[out];
+        cnt--;
+        if(cnt == 0) {
+          pending.push_back(miscop_t { .task_id = out });
+        }
+      }
+    }
+  };
+  auto register_complete_touch = [&](int partialize_id) {
+    int& cnt = num_rem[partialize_id];
+    cnt--;
+    if(cnt == 0) {
+      register_complete(partialize_id);
+    }
+  };
+
+  {
+    num_rem.reserve(taskgraph.nodes.size());
+    vector<int> inputs;
+    for(int id = 0; id != taskgraph.nodes.size(); ++id) {
+      auto const& node = taskgraph.nodes[id];
+
+      int n_inn = node.op.inputs().size();
+      if(node.op.is_partialize()) {
+        num_rem.push_back(0);
+        int& num_touch_rem = num_rem.back();
+
+        // fill out num_touch_rem and id_to_touches
+        auto const& p = node.op.get_partialize();
+        for(int unit_id = 0; unit_id != p.units.size(); ++unit_id) {
+          auto const& unit = p.units[unit_id];
+          for(int touch_id = 0; touch_id != unit.inputs.size(); ++touch_id) {
+            auto const& inn_id = unit.inputs[touch_id].id;
+            id_to_touches[inn_id].push_back(touchop_t {
+              .task_id = id,
+              .unit_id = unit_id,
+              .touch_id = touch_id
+            });
+
+            num_touch_rem++;
+          }
+        }
+      } else {
+        num_rem.push_back(n_inn);
+        if(n_inn == 0) {
+          if(!node.op.is_input()) {
+            throw std::runtime_error(
+              "how can a node with zero inputs not be an input node?");
+          }
+          // this is an input node
+          inputs.push_back(id);
+        }
+      }
+    }
+    // now that num rem has been setup, register that the
+    // input tensors are ready
+    for(auto const& id: inputs) {
+      register_complete(id);
+    }
+  }
+
+  while(pending.size() != 0) {
+    auto op = vector_random_pop(pending);
+    ret.push_back(op);
+    if(op.is_miscop()) {
+      int const& id = op.get_task_id();
+      register_complete(id);
+    } else if(op.is_touchop()) {
+      int const& partialize_id = op.get_task_id();
+      register_complete_touch(partialize_id);
+    } else {
+      throw std::runtime_error("should not happen");
+    }
+  }
+
+  if(num_completed != taskgraph.nodes.size()) {
+    throw std::runtime_error("num completed != taskgraph nodes size");
+  }
+
+  return ret;
+}
+
 namespace executetg_ns {
 
 state_t::state_t(

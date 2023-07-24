@@ -395,6 +395,8 @@ private:
   find_first_available(uint64_t size);
 };
 
+// TODO: remove which_node_t and which_touch_t in favor of what is
+//       in taskgraph.h
 struct _which_node_t {
   int task_id;
 };

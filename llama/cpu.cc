@@ -266,8 +266,8 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 8;
-int num_real_threads_per_node = 12;
+int num_threads_per_node = 12;
+int num_real_threads_per_node = 4;
 int num_steps = 300000;
 int nlocs = -1;
 double beta = 10000.0;
@@ -409,6 +409,11 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   }
   DOUT("total touch bytes: " << (double(total)*1.0e-9) << " GB");
   DOUT("taskgraph number of locs " << builder.taskgraph.num_locs());
+  //{
+  //  std::ofstream f("tg.gv");
+  //  builder.taskgraph.print_graphviz(f);
+  //  DOUT("printed tg.gv");
+  //}
 
   // TODO: tensor_reader_t reads everything in f16. Support when
   //       f16 isn't the default dtype by converting f16 read tensors
@@ -462,6 +467,7 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
       insert_local(tinfo, embeddings);
     }
 
+    DLINEOUT("remap data");
     manager.remap_data(init_remap);
   }
 

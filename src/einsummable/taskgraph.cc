@@ -3179,3 +3179,14 @@ std::ostream& operator<<(std::ostream& out, touch_t const& t) {
   return out;
 }
 
+int const& _tg_op_t::get_task_id() const
+{
+  if(is_touchop()) {
+    return get_touchop().task_id;
+  } else if(is_miscop()) {
+    return get_miscop().task_id;
+  } else {
+    throw std::runtime_error("missing tg_op_t");
+  }
+}
+

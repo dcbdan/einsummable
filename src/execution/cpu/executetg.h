@@ -47,6 +47,19 @@ void execute_taskgraph(
   mpi_t* mpi, // if this is nullptr, the taskgraph must be single-node
   map<int, buffer_t>& tensors);
 
+void execute_taskgraph_in_order(
+  taskgraph_t const& taskgraph,
+  vector<_tg_op_t> const& ops_in_order,
+  kernel_manager_t const& kernel_manager,
+  map<int, buffer_t>& tensors);
+
+vector<_tg_op_t>
+random_taskgraph_order(taskgraph_t const& taskgraph);
+
+// TODO
+vector<_tg_op_t>
+temporal_taskgraph_order(taskgraph_t const& taskgraph);
+
 namespace executetg_ns {
   using std::thread;
   using std::queue;
