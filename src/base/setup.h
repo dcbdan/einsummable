@@ -438,6 +438,17 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
   return ret;
 }
 
+template <typename T>
+set<T> set_intersection(set<T> const& lhs, set<T> const& rhs) {
+  // TODO: use some back-inserting iterator
+  vector<T> ret(std::max(lhs.size(), rhs.size()));
+  auto end = std::set_intersection(
+    lhs.begin(), lhs.end(),
+    rhs.begin(), rhs.end(),
+    ret.begin());
+  return set<T>(ret.begin(), end);
+}
+
 template <typename Iter, typename F>
 Iter max_element_transform(
   Iter first,
@@ -746,25 +757,7 @@ private:
   map<T, int> to_sets;
 };
 
-// This is so you can do range based for loops:
-//
-//  // print 1,2,3,4,5
-//  set<int> xs{5,4,3,2,1};
-//  for(int const& item: set_in_order(xs)) {
-//    std::cout << item << std::endl;
-//  }
-//
-// Note that you can't do for(int& item: set_in_order(x)) {...}
-//   since modifying elements of a std::set can't be done (that would
-//   invalidate set internals)
-//
-// (This function doesn't do anything since std::set keeps things
-//  orded for you--but it keeps one from having to remember that
-//  when all one cares is that a set is a bag of elements)
-template <typename T>
-inline set<T> const& set_in_order(set<T> const& items) {
-  return items;
-}
+
 
 void hash_combine_impl(std::size_t& seed, std::size_t value);
 

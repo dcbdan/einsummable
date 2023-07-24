@@ -118,17 +118,33 @@ int main(int argc, char** argv) {
   }
 
   for(int i = 0; i != 10; ++i) {
-    auto ops_in_order = random_taskgraph_order(taskgraph);
+    //{
+    //  auto ops_in_order = random_taskgraph_order(taskgraph);
 
-    // Note: this only works as expected if donation is not supported
-    //       in execute_taskgraph_in_order
-    map<int, buffer_t> tensors_shallow_copy = tensors;
+    //  // Note: this only works as expected if donation is not supported
+    //  //       in execute_taskgraph_in_order
+    //  map<int, buffer_t> tensors_shallow_copy = tensors;
 
-    gremlin_t gremlin("mm single thread taskgraph execution");
-    execute_taskgraph_in_order(
-      taskgraph,
-      ops_in_order,
-      kernel_manager,
-      tensors_shallow_copy);
+    //  gremlin_t gremlin("mm single thread taskgraph execution (random)");
+    //  execute_taskgraph_in_order(
+    //    taskgraph,
+    //    ops_in_order,
+    //    kernel_manager,
+    //    tensors_shallow_copy);
+    //}
+    {
+      auto ops_in_order = temporal_taskgraph_order(taskgraph);
+
+      // Note: this only works as expected if donation is not supported
+      //       in execute_taskgraph_in_order
+      map<int, buffer_t> tensors_shallow_copy = tensors;
+
+      gremlin_t gremlin("mm single thread taskgraph execution (somewhat ordered)");
+      execute_taskgraph_in_order(
+        taskgraph,
+        ops_in_order,
+        kernel_manager,
+        tensors_shallow_copy);
+    }
   }
 }

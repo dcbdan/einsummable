@@ -159,8 +159,35 @@ void execute_taskgraph_in_order(
 }
 
 vector<_tg_op_t>
-random_taskgraph_order(taskgraph_t const& taskgraph)
+_make_taskgraph_order(taskgraph_t const& taskgraph, bool always_random)
 {
+  auto get_tensors_worked_on_at_op = [&taskgraph](_tg_op_t const& op) {
+    set<int> ts;
+    if(op.is_miscop()) {
+      int const& tid = op.get_task_id();
+      auto const& node = taskgraph.nodes[tid];
+      if(node.op.is_apply()) {
+        auto const& inns = node.op.get_apply().inns;
+        ts = set<int>(inns.begin(), inns.end());
+        ts.insert(tid);
+      } else if(node.op.is_move()) {
+        auto const& m = node.op.get_move();
+        ts = set<int>{m.inn, tid};
+      } else {
+        throw std::runtime_error("must be apply or move");
+      }
+    } else if(op.is_touchop()) {
+      auto const& [tid, unit_id, touch_id] = op.get_touchop();
+      auto const& node = taskgraph.nodes[tid];
+      auto const& p = node.op.get_partialize();
+      int inn = p.get_inn_at(unit_id, touch_id);
+      ts = set<int>{inn, tid};
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+    return ts;
+  };
+
   vector<_tg_op_t> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
@@ -261,7 +288,33 @@ random_taskgraph_order(taskgraph_t const& taskgraph)
   }
 
   while(pending.size() != 0) {
-    auto op = vector_random_pop(pending);
+    _tg_op_t op;
+    if(!always_random && ret.size() > 0) {
+      // get the tensors being being worked with
+      _tg_op_t const& last_op = ret.back();
+      set<int> ts = get_tensors_worked_on_at_op(last_op);
+
+      // just pick the first op that has shared bytes
+      bool set_the_next_op = false;
+      for(auto iter = pending.begin(); iter != pending.end(); ++iter) {
+        auto const& p = *iter;
+        set<int> ts_at_p = get_tensors_worked_on_at_op(p);
+        set<int> in_both = set_intersection(ts, ts_at_p);
+        if(in_both.size() > 0) {
+          op = p;
+          pending.erase(iter);
+          set_the_next_op = true;
+          break;
+        }
+      }
+      if(!set_the_next_op) {
+        // if none, just pick something random
+        op = vector_random_pop(pending);
+      }
+    } else {
+      op = vector_random_pop(pending);
+    }
+
     ret.push_back(op);
     if(op.is_miscop()) {
       int const& id = op.get_task_id();
@@ -279,6 +332,16 @@ random_taskgraph_order(taskgraph_t const& taskgraph)
   }
 
   return ret;
+}
+
+vector<_tg_op_t>
+random_taskgraph_order(taskgraph_t const& taskgraph) {
+  return _make_taskgraph_order(taskgraph, true);
+}
+
+vector<_tg_op_t>
+temporal_taskgraph_order(taskgraph_t const& taskgraph) {
+  return _make_taskgraph_order(taskgraph, false);
 }
 
 namespace executetg_ns {

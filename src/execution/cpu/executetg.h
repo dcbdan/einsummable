@@ -56,7 +56,6 @@ void execute_taskgraph_in_order(
 vector<_tg_op_t>
 random_taskgraph_order(taskgraph_t const& taskgraph);
 
-// TODO
 vector<_tg_op_t>
 temporal_taskgraph_order(taskgraph_t const& taskgraph);
 

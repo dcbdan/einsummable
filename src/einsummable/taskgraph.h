@@ -232,6 +232,10 @@ private:
       return vector_flatten(as_touches_from());
     }
 
+    int get_inn_at(int unit_id, int which_touch) const {
+      return units.at(unit_id).inputs.at(which_touch).id;
+    }
+
     int get_num_touches() const {
       return as_touches_from_flat().size();
     }
