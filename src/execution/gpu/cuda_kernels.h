@@ -1,30 +1,31 @@
 #pragma once
 #include <cstdint>
 #include <cuda_fp16.h>
+#include <cuComplex.h>
 
-void touch1_dispatch(float*, const float*, uint64_t,
+void touch1_dispatch(void*, const void*, uint64_t,
                      uint64_t, uint64_t, uint64_t,
-                     uint64_t, cudaStream_t,int);
+                     uint64_t, cudaStream_t,int,int);
 
-void touch2_dispatch(float*, const float*, uint64_t,
-                     uint64_t, uint64_t, uint64_t,
-                     uint64_t,uint64_t,uint64_t,
-                     uint64_t,cudaStream_t,int);
-
-void touch3_dispatch(float*, const float*, uint64_t,
+void touch2_dispatch(void*, const void*, uint64_t,
                      uint64_t, uint64_t, uint64_t,
                      uint64_t,uint64_t,uint64_t,
+                     uint64_t,cudaStream_t,int,int);
+
+void touch3_dispatch(void*, const void*, uint64_t,
+                     uint64_t, uint64_t, uint64_t,
                      uint64_t,uint64_t,uint64_t,
                      uint64_t,uint64_t,uint64_t,
-                     cudaStream_t,int);
-void touch4_dispatch(float*, const float*, uint64_t,
+                     uint64_t,uint64_t,uint64_t,
+                     cudaStream_t,int,int);
+void touch4_dispatch(void*, const void*, uint64_t,
                      uint64_t, uint64_t, uint64_t,
                      uint64_t,uint64_t,uint64_t,
                      uint64_t,uint64_t,uint64_t,
                      uint64_t,uint64_t,uint64_t,
                      uint64_t,uint64_t,uint64_t,
                      uint64_t,uint64_t,
-                     cudaStream_t,int);
+                     cudaStream_t,int,int);
 
 void elementwise_power(float* out, const float* in,
 cudaStream_t stream, double pow, uint64_t size);

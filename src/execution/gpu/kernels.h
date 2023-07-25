@@ -10,7 +10,7 @@
 #include <cutensor.h>
 
 using touch_kernel_t = std::function<
-    void(cudaStream_t, float*, float const*)
+    void(cudaStream_t, void*, void const*)
   >;
 using cutensor_kernel_t = std::function<
     void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>, void*, uint64_t)

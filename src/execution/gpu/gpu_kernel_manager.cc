@@ -238,7 +238,7 @@ void kernel_manager_t::operator()(
   void const* inn) const
 {
   auto f = build_touch(touch);
-  f(stream, (float*)out, (float*)inn);
+  f(stream, out, inn);
 }
 
 

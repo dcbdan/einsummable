@@ -1,62 +1,62 @@
 #include "kernels.h"
 #include "cuda_kernels.h"
 
-void touch1(touchdim_t const& t0, float* out,
-            float const* inn, cudaStream_t stream,
-            int choice) {
+void touch1(touchdim_t const& t0, void* out,
+            void const* inn, cudaStream_t stream,
+            int choice, int dtype_info) {
   touch1_dispatch(out, inn, t0.offset_inn,
   t0.offset_out, t0.size, t0.d_inn, t0.d_out,
-  stream, choice);
+  stream, choice, dtype_info);
 }
 
 void touch2(touchdim_t const& t0, touchdim_t const& t1,
-            float* out, float const* inn, cudaStream_t stream,
-            int choice) {
+            void* out, void const* inn, cudaStream_t stream,
+            int choice, int dtype_info) {
   touch2_dispatch(out, inn, t0.offset_inn,
   t1.offset_inn, t0.offset_out, t1.offset_out,
   t0.size, t1.size, t1.d_inn, t1.d_out,
-  stream, choice);
+  stream, choice, dtype_info);
 }
 
 void touch3(touchdim_t const& t0, touchdim_t const& t1,
-            touchdim_t const& t2, float* out, float const* inn,
-            cudaStream_t stream, int choice) {
+            touchdim_t const& t2, void* out, void const* inn,
+            cudaStream_t stream, int choice, int dtype_info) {
   touch3_dispatch(out, inn, t0.offset_inn,
   t1.offset_inn, t2.offset_inn, t0.offset_out,
   t1.offset_out, t2.offset_out,t0.size,
   t1.size, t2.size, t1.d_inn, t1.d_out,
-  t2.d_inn, t2.d_out, stream, choice);
+  t2.d_inn, t2.d_out, stream, choice, dtype_info);
 }
 
 void touch4(touchdim_t const& t0, touchdim_t const& t1,
             touchdim_t const& t2, touchdim_t const& t3,
-            float* out, float const* inn, cudaStream_t stream,
-            int choice) {
+            void* out, void const* inn, cudaStream_t stream,
+            int choice, int dtype_info) {
   touch4_dispatch(out, inn, t0.offset_inn, t1.offset_inn,
   t2.offset_inn, t3.offset_inn,t0.offset_out, t1.offset_out,
   t2.offset_out, t3.offset_out,t0.size, t1.size, t2.size,
   t3.size, t1.d_inn, t1.d_out, t2.d_inn, t2.d_out, t3.d_inn,
-  t3.d_out, stream, choice);
+  t3.d_out, stream, choice, dtype_info);
 }
 
 #define _touch_lambda_1(choice) \
-  [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch1(ts[0], out, inn, stream, choice); \
+  [ts, dtype_info](cudaStream_t stream, void* out, const void* inn) -> void { \
+    touch1(ts[0], out, inn, stream, choice, dtype_info); \
 }
 
 #define _touch_lambda_2(choice) \
-  [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch2(ts[0], ts[1], out, inn, stream, choice); \
+  [ts, dtype_info](cudaStream_t stream, void* out, const void* inn) -> void { \
+    touch2(ts[0], ts[1], out, inn, stream, choice, dtype_info); \
 }
 
 #define _touch_lambda_3(choice) \
-  [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch3(ts[0], ts[1], ts[2], out, inn, stream, choice); \
+  [ts, dtype_info](cudaStream_t stream, void* out, const void* inn) -> void { \
+    touch3(ts[0], ts[1], ts[2], out, inn, stream, choice, dtype_info); \
 }
 
 #define _touch_lambda_4(choice) \
-  [ts](cudaStream_t stream, float* out, const float* inn) -> void { \
-    touch4(ts[0], ts[1], ts[2], ts[3],out, inn, stream, choice); \
+  [ts, dtype_info](cudaStream_t stream, void* out, const void* inn) -> void { \
+    touch4(ts[0], ts[1], ts[2], ts[3],out, inn, stream, choice, dtype_info); \
 }
 
 
@@ -85,6 +85,19 @@ touch_kernel_t build_touch(touch_t const& touch_)
   touch_t touch = touch_.simplify();
 
   auto const& ts = touch.selection;
+
+  int dtype_info = 0;
+
+  auto const& dtype = touch.dtype;
+
+  if(dtype == dtype_t::f32) {
+    dtype_info = 1;
+  } else if(dtype == dtype_t::f64) {
+    dtype_info = 2;
+  } else if(dtype == dtype_t::c64) {
+    dtype_info = 3;
+  }
+
   if(ts.size() == 1) {
     return _touch_dispatch(1);
   }
