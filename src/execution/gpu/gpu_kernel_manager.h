@@ -38,48 +38,44 @@ public:
 struct kernel_manager_t{
 private:
 
-struct reduction_t{
-  cutensor_kernel_t kernel;
-};
+  struct reduction_t{
+    cutensor_kernel_t kernel;
+  };
 
-struct power_t{
-  double power;
-  cuda_kernel_t kernel;
-};
+  struct power_t{
+    double power;
+    cuda_kernel_t kernel;
+  };
 
-struct scale_t{
-  float scale;
-  cuda_kernel_t kernel;
-};
+  struct scale_t{
+    float scale;
+    cuda_kernel_t kernel;
+  };
 
-struct pow_and_elementwise_t{
-  cutensor_kernel_t kernel;
-  uint64_t worksize;
-  uint64_t a_size;
-};
+  struct pow_and_elementwise_t{
+    cutensor_kernel_t kernel;
+    uint64_t worksize;
+    uint64_t a_size;
+  };
 
-struct type_conversion_t{
-  cutensor_elementwise_kernel_t kernel;
-};
+  struct type_conversion_t{
+    cutensor_elementwise_kernel_t kernel;
+  };
 
-struct elementwise_t{
-  cutensor_elementwise_kernel_t kernel;
-};
+  struct elementwise_t{
+    cutensor_elementwise_kernel_t kernel;
+  };
 
-struct custom_kernel_1_t{
-  cutensor_elementwise_kernel_t kernel;
-};
+  struct custom_kernel_1_t{
+    cutensor_elementwise_kernel_t kernel;
+  };
 
 
 public:
 
-  kernel_manager_t();
-
   build_result_t build(einsummable_t const& e);
 
   optional<uint64_t> workspace_size(einsummable_t const& e) const;
-
-
 
   uint64_t workspace_size(einsummable_t const& e, 
   void* out, vector<void const*> inns,
@@ -118,24 +114,22 @@ private:
 
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
 
+  static bool is_power_elementwise(einsummable_t e);
 
+  static bool is_type_conversion(einsummable_t e);
 
+  static bool is_elementwise_with_pow(einsummable_t e);
+
+  static bool is_custom_kernel1(einsummable_t e);
+
+  static bool is_c64_elementwise_multiply(einsummable_t e);
+
+  static double get_power(einsummable_t e);
+
+  static bool is_scale_and_increment(einsummable_t e);
+
+  static tuple<float, float> get_increment_scale(einsummable_t e);
 
 
 };
 
-bool is_power_elementwise(einsummable_t e);
-
-bool is_type_conversion(einsummable_t e);
-
-bool is_elementwise_with_pow(einsummable_t e);
-
-bool is_custom_kernel1(einsummable_t e);
-
-bool is_c64_elementwise_multiply(einsummable_t e);
-
-double get_power(einsummable_t e);
-
-bool is_scale_and_increment(einsummable_t e);
-
-tuple<float, float> get_increment_scale(einsummable_t e);

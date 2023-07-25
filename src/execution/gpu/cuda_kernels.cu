@@ -91,7 +91,6 @@ struct FunctorMax {
 };
 
 
-
 template <typename Functor>
 __global__ void touch1(
   void* out, const void* in,
@@ -305,12 +304,6 @@ void touch1_dispatch(
       t0_d_out,
       FunctorMax(),dtype_info);
   }
-
-  
-
-    
-
-
 
 
 }
@@ -555,10 +548,6 @@ uint64_t size) {
 
   if (idx < size) {
 
-    //half one = __float2half(1.0f);
-    //half minus_one = __float2half(-1.0f);
-    //half x0 = data[index];
-
     __half x = in[idx];
     __half y = out[idx];
     float x0 = __half2float(in[idx]);
@@ -566,12 +555,7 @@ uint64_t size) {
     __hadd(x,y);
     __hgt(x,y);
     __hlt(x,y);
-    
-
-    //out[idx] = __hmul(x0,minus_one);
     out[idx] = __float2half(x0*powf(1.0f+expf(-1.0f*x0),-1.0f));
-
-    
  }
 }
 

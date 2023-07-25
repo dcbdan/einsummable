@@ -1,11 +1,6 @@
 #include "gpu_kernel_manager.h"
 
-kernel_manager_t::kernel_manager_t()
-{
 
-
-
-}
 
 build_result_t kernel_manager_t::build(einsummable_t const& e_)
 {
@@ -127,10 +122,6 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
   if(is_custom_kernel1(einsummable)){
     uint64_t size = einsummable.join_shape[0];
-    //auto lambda = [size]
-    //(cudaStream_t stream, void* out, const void* in){
-    //  custom_elementwise_1(out, in, stream, size);
-    //};
 
     auto lambda = cutensor_silu_elementwise(size);
 
@@ -362,7 +353,7 @@ contraction_t contraction_t::make(einsummable_t const&  einsummable){
 
 }
 
-bool is_power_elementwise(einsummable_t e){
+bool kernel_manager_t::is_power_elementwise(einsummable_t e){
   if(e.inns.size()==1){
     scalarop_t op = e.join;
 
@@ -380,7 +371,7 @@ bool is_power_elementwise(einsummable_t e){
   return false;
 }
 
-bool is_scale_and_increment(einsummable_t e){
+bool kernel_manager_t::is_scale_and_increment(einsummable_t e){
   if(e.inns.size()==1){
     scalarop_t op = e.join;
 
@@ -401,7 +392,7 @@ bool is_scale_and_increment(einsummable_t e){
   return false;
 }
 
-bool is_elementwise_with_pow(einsummable_t e){
+bool kernel_manager_t::is_elementwise_with_pow(einsummable_t e){
   if(e.inns.size()==2){
     scalarop_t op = e.join;
 
@@ -417,7 +408,7 @@ bool is_elementwise_with_pow(einsummable_t e){
   return false;
 }
 
-bool is_custom_kernel1(einsummable_t e){
+bool kernel_manager_t::is_custom_kernel1(einsummable_t e){
   if(e.inns.size()==1){
     scalarop_t op = e.join;
 
@@ -434,7 +425,7 @@ bool is_custom_kernel1(einsummable_t e){
 }
 
 
-bool is_type_conversion(einsummable_t e){
+bool kernel_manager_t::is_type_conversion(einsummable_t e){
   scalarop_t op = e.join;
 
   op = op.simplify();
@@ -451,7 +442,7 @@ bool is_type_conversion(einsummable_t e){
 
 }
 
-bool is_c64_elementwise_multiply(einsummable_t e){
+bool kernel_manager_t::is_c64_elementwise_multiply(einsummable_t e){
    if(e.inns.size()==2){
     scalarop_t op = e.join;
 
@@ -467,7 +458,7 @@ bool is_c64_elementwise_multiply(einsummable_t e){
   return false;
 }
 
-double get_power(einsummable_t e){
+double kernel_manager_t::get_power(einsummable_t e){
   scalarop_t op = e.join;
 
   op = op.simplify();
@@ -486,7 +477,7 @@ double get_power(einsummable_t e){
 }
 
 
-tuple<float, float> get_increment_scale(einsummable_t e){
+tuple<float, float> kernel_manager_t::get_increment_scale(einsummable_t e){
   scalarop_t op = e.join;
 
   op = op.simplify();
