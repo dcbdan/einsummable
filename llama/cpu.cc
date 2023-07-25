@@ -266,8 +266,8 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 12;
-int num_real_threads_per_node = 4;
+int num_threads_per_node = 2;
+int num_real_threads_per_node = 2;
 int num_steps = 300000;
 int nlocs = -1;
 double beta = 10000.0;
@@ -480,7 +480,19 @@ void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   }
 
   DOUT("---");
+  //{
+  //  update_kernel_manager(manager.kernel_manager, builder.taskgraph);
+  //  auto ops_in_order = random_taskgraph_order(builder.taskgraph);
+  //  //auto ops_in_order = temporal_taskgraph_order(builder.taskgraph);
+  //  gremlin_t gremlin("execute taskgraph in order time");
+  //  execute_taskgraph_in_order(
+  //    builder.taskgraph,
+  //    ops_in_order,
+  //    manager.kernel_manager,
+  //    manager.data);
+  //}
   manager.execute(builder.taskgraph);
+  return;
 
   {
     dbuffer_t scores = manager.unpartition(builder.scores);

@@ -1,5 +1,7 @@
 #include "executetg.h"
 
+#include <sched.h>
+
 kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
   kernel_manager_t ret;
   update_kernel_manager(ret, taskgraph);
@@ -32,7 +34,8 @@ void execute_taskgraph(
 
   vector<std::thread> runners;
   {
-    int const& n_apply = settings.num_apply_runner;
+    int n_apply = 4;
+    //int const& n_apply = settings.num_apply_runner;
     int const& n_send = settings.num_send_runner;
     int const& n_recv = settings.num_recv_runner;
     runners.reserve(n_apply + n_send + n_recv);
@@ -60,28 +63,15 @@ void execute_taskgraph_in_order(
   kernel_manager_t const& kernel_manager,
   map<int, buffer_t>& tensors)
 {
-  map<int, int> usage_counts;
-  auto register_usage = [&](int id) {
-    auto iter = usage_counts.find(id);
-    if(iter == usage_counts.end()) {
-      auto const& node = taskgraph.nodes[id];
-      if(node.outs.size() == 1) {
-        tensors.erase(id);
-      } else {
-        usage_counts.insert({id, node.outs.size() - 1});
-      }
-    } else {
-      int& cnt = iter->second;
-      cnt--;
-      if(cnt == 0) {
-        auto const& node = taskgraph.nodes[id];
-        if(!node.is_save) {
-          tensors.erase(id);
-        }
-        usage_counts.erase(iter);
-      }
+  DLINEOUT("executing taskgraph in order");
+  {
+    cpu_set_t cpu_set;
+    CPU_ZERO(&cpu_set);
+    CPU_SET(1, &cpu_set);
+    if(sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0) {
+      throw std::runtime_error("could not pin thread");
     }
-  };
+  }
 
   // partialize_id -> unit -> (inn, touch) pairs
   map<int, vector<vector<tuple<int, touch_t>>>> touches;
@@ -92,6 +82,41 @@ void execute_taskgraph_in_order(
       touches.insert({id, p.as_touches_from()});
     }
   }
+
+  vector<int> usage_counts(taskgraph.nodes.size(), 0);
+
+  // every touch is a usage,
+  // every move form is a usage,
+  // every apply that uses an input is a usage
+
+  for(auto const& [_, tts]: touches) {
+    for(auto const& ts: tts) {
+      for(auto const& [inn_id, _]: ts) {
+        usage_counts[inn_id]++;
+      }
+    }
+  }
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      for(auto const& inn_id: node.op.inputs()) {
+        usage_counts[inn_id]++;
+      }
+    } else if(node.op.is_move()) {
+      auto const& m = node.op.get_move();
+      usage_counts[m.inn]++;
+    }
+  }
+
+  auto register_usage = [&](int id) {
+    int& cnt = usage_counts[id];
+    cnt--;
+    if(cnt == 0) {
+      auto const& node = taskgraph.nodes[id];
+      if(!node.is_save) {
+        tensors.erase(id);
+      }
+    }
+  };
 
   buffer_t workspace = make_buffer(1);
 
@@ -422,6 +447,15 @@ state_t::state_t(
 
 void state_t::apply_runner(int runner_id)
 {
+  {
+    cpu_set_t cpu_set;
+    CPU_ZERO(&cpu_set);
+    CPU_SET(2*runner_id + 1, &cpu_set);
+    if(sched_setaffinity(0, sizeof(cpu_set), &cpu_set) != 0) {
+      throw std::runtime_error("could not pin thread");
+    }
+  }
+
   int which_apply;
   which_touch_t which_touch;
   bool doing_touch;
