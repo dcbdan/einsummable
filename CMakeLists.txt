@@ -127,6 +127,61 @@ if(${CPU_EXECUTION_ENGINE})
 
 endif()
 
+if(${OPENBLAS_EXECUTION_ENGINE})
+  add_definitions(-DUSE_OPENBLAS)
+
+  find_package(BLAS REQUIRED)
+  find_package(MPI REQUIRED)
+
+  include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
+
+  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
+  #       have to be rebuilt?
+  add_library(cpu_execution_engine
+    STATIC
+    ${BA_FILES}
+    ${ES_FILES}
+    ${MG_FILES}
+    ${AP_FILES}
+    ${CP_FILES}
+  )
+
+  function(add_cpu_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    ${BLAS_LIBRARIES})
+  endfunction()
+
+  add_cpu_application("cpuexec"         "exps" "cpuexec")
+  add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
+  add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
+  add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
+  add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
+  add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
+  #add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+  #add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+
+  function(add_cpu_llama_application exec filename)
+    add_executable(${exec} llama/${filename}.cc
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+    target_link_libraries(${exec}
+      cpu_execution_engine
+      proto
+      ${Protobuf_LIBRARIES}
+      ${MPI_CXX_LIBRARIES}
+      ${BLAS_LIBRARIES})
+  endfunction()
+
+  add_cpu_llama_application("llama_cpu" "cpu")
+
+endif()
+
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)
 

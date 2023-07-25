@@ -1,7 +1,11 @@
 #include "kernels.h"
 
+#ifdef USE_OPENBLAS
+#include <cblas.h>
+#else
 #include <mkl_cblas.h>
 #include <mkl.h>
+#endif
 
 #include "permute.h"
 
@@ -1147,27 +1151,27 @@ void matrix_multiply_update(
   bool is_zero_else_one)
 {
   if(dtype == dtype_t::f16) {
-    using f16_t = MKL_F16;
-    // Use the half library (float16_t) to set one and zero,
-    // then convert it to whatever type mkl sets MKL_F16 to.
-    float16_t one_(1.0);
-    float16_t zero_(0.0);
-    f16_t& one  = reinterpret_cast<f16_t&>(one_);
-    f16_t& zero = reinterpret_cast<f16_t&>(zero_);
+  //  using f16_t = MKL_F16;
+  //  // Use the half library (float16_t) to set one and zero,
+  //  // then convert it to whatever type mkl sets MKL_F16 to.
+  //  float16_t one_(1.0);
+  //  float16_t zero_(0.0);
+  //  f16_t& one  = reinterpret_cast<f16_t&>(one_);
+  //  f16_t& zero = reinterpret_cast<f16_t&>(zero_);
 
-    cblas_hgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
-      one,
-      (f16_t const*)lhs,
-      trans_lhs ? ni : nj,
-      (f16_t const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? zero : one,
-      (f16_t*)out,
-      nk);
+  //  cblas_hgemm(
+  //    CblasRowMajor,
+  //    trans_lhs ? CblasTrans : CblasNoTrans,
+  //    trans_rhs ? CblasTrans : CblasNoTrans,
+  //    ni,nk,nj,
+  //    one,
+  //    (f16_t const*)lhs,
+  //    trans_lhs ? ni : nj,
+  //    (f16_t const*)rhs,
+  //    trans_rhs ? nj : nk,
+  //    is_zero_else_one ? zero : one,
+  //    (f16_t*)out,
+  //    nk);
   } else if(dtype == dtype_t::f32) {
     cblas_sgemm(
       CblasRowMajor,

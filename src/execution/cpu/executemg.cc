@@ -5,6 +5,10 @@
 #include <mutex>
 #include <condition_variable>
 
+#ifdef USE_OPENBLAS
+#include <cblas.h>
+#endif
+
 using std::thread;
 using std::queue;
 
@@ -285,6 +289,10 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
 }
 
 void cpu_mg_exec_state_t::apply_runner(int runner_id) {
+#ifdef USE_OPENBLAS
+  openblas_set_num_threads(1);
+#endif
+
   int which;
   while(true)
   {

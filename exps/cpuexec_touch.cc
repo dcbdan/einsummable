@@ -107,9 +107,9 @@ void test_touch(touch_t const& touch) {
   }
 
   {
-    auto built = build_touch(touch);
+    kernel_manager_t kernel_manager;
     raii_print_time_elapsed_t gremlin("built       ");
-    built(out2.ptr(), inn.ptr());
+    kernel_manager(touch, out2.ptr(), inn.ptr());
   }
 
   if(out1 != out2) {

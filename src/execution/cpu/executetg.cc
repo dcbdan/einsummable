@@ -1,5 +1,9 @@
 #include "executetg.h"
 
+#ifdef USE_OPENBLAS
+#include <cblas.h>
+#endif
+
 kernel_manager_t make_kernel_manager(taskgraph_t const& taskgraph) {
   kernel_manager_t ret;
   update_kernel_manager(ret, taskgraph);
@@ -132,6 +136,10 @@ state_t::state_t(
 
 void state_t::apply_runner(int runner_id)
 {
+#ifdef USE_OPENBLAS
+  openblas_set_num_threads(1);
+#endif
+
   int which_apply;
   which_touch_t which_touch;
   bool doing_touch;
