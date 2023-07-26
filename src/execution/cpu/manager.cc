@@ -2,11 +2,11 @@
 
 #include "repartition.h"
 
-loc_manager_t::loc_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings)
+tg_manager_t::tg_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings)
   : mpi(mpi), settings(settings)
 {}
 
-void loc_manager_t::listen() {
+void tg_manager_t::listen() {
   if(!mpi) {
     throw std::runtime_error("should not call listen if mpi is not setup");
   }
@@ -43,13 +43,13 @@ void loc_manager_t::listen() {
   }
 }
 
-void loc_manager_t::register_listen(
-  string key, std::function<void(loc_manager_t&)> f)
+void tg_manager_t::register_listen(
+  string key, std::function<void(tg_manager_t&)> f)
 {
   listeners.insert({key, f});
 }
 
-void loc_manager_t::execute(taskgraph_t const& taskgraph)
+void tg_manager_t::execute(taskgraph_t const& taskgraph)
 {
   gremlin_t gremlin("execute from manager");
   broadcast_cmd(cmd_t::execute);
@@ -57,7 +57,7 @@ void loc_manager_t::execute(taskgraph_t const& taskgraph)
   _execute(taskgraph);
 }
 
-dbuffer_t loc_manager_t::unpartition(relation_t const& relation) {
+dbuffer_t tg_manager_t::unpartition(relation_t const& relation) {
   broadcast_cmd(cmd_t::unpartition);
 
   map<int, buffer_t> tmp = data;
@@ -74,7 +74,7 @@ dbuffer_t loc_manager_t::unpartition(relation_t const& relation) {
   return dbuffer_t(relation.dtype, tmp.at(99));
 }
 
-void loc_manager_t::partition_into_data(
+void tg_manager_t::partition_into_data(
   relation_t const& relation,
   dbuffer_t src_tensor)
 {
@@ -98,7 +98,7 @@ void loc_manager_t::partition_into_data(
   copy_into_data(tmp, remap);
 }
 
-void loc_manager_t::remap_data(remap_relations_t const& remap) {
+void tg_manager_t::remap_data(remap_relations_t const& remap) {
   broadcast_cmd(cmd_t::remap_data);
 
   broadcast_str(remap.to_wire());
@@ -106,7 +106,7 @@ void loc_manager_t::remap_data(remap_relations_t const& remap) {
   repartition(mpi, remap, data);
 }
 
-int loc_manager_t::get_max_tid() {
+int tg_manager_t::get_max_tid() {
   int ret = data.size() == 0 ? -1 : data.rbegin()->first;
 
   if(!mpi) { return ret; }
@@ -120,15 +120,15 @@ int loc_manager_t::get_max_tid() {
   return ret;
 }
 
-void loc_manager_t::shutdown() {
+void tg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
 }
 
-void loc_manager_t::broadcast_cmd(cmd_t const& cmd) {
+void tg_manager_t::broadcast_cmd(cmd_t const& cmd) {
   broadcast_str(write_with_ss(cmd));
 }
 
-void loc_manager_t::broadcast_str(string const& str) {
+void tg_manager_t::broadcast_str(string const& str) {
   if(!mpi) { return; }
 
   if(mpi->this_rank != 0) {
@@ -140,17 +140,17 @@ void loc_manager_t::broadcast_str(string const& str) {
   }
 }
 
-loc_manager_t::cmd_t loc_manager_t::recv_cmd() {
+tg_manager_t::cmd_t tg_manager_t::recv_cmd() {
   return parse_with_ss<cmd_t>(mpi->recv_str(0));
 }
 
-void loc_manager_t::_execute(taskgraph_t const& taskgraph)
+void tg_manager_t::_execute(taskgraph_t const& taskgraph)
 {
   update_kernel_manager(kernel_manager, taskgraph);
   execute_taskgraph(taskgraph, settings, kernel_manager, mpi, data);
 }
 
-void loc_manager_t::copy_into_data(
+void tg_manager_t::copy_into_data(
   map<int, buffer_t>& tmp,
   remap_relations_t const& remap)
 {
@@ -166,14 +166,14 @@ void loc_manager_t::copy_into_data(
   }
 }
 
-std::ostream& operator<<(std::ostream& out, loc_manager_t::cmd_t const& c) {
-  auto const& items = loc_manager_t::cmd_strs();
+std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {
+  auto const& items = tg_manager_t::cmd_strs();
   out << items.at(int(c));
   return out;
 }
 
-std::istream& operator>>(std::istream& inn, loc_manager_t::cmd_t& c) {
-  c = loc_manager_t::cmd_t(istream_expect_or(inn, loc_manager_t::cmd_strs()));
+std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c) {
+  c = tg_manager_t::cmd_t(istream_expect_or(inn, tg_manager_t::cmd_strs()));
   return inn;
 }
 

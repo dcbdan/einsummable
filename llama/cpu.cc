@@ -207,7 +207,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
   return mcmc.get_best_placements();
 }
 
-void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
+void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
   {
     int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
@@ -410,7 +410,7 @@ int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
   nlocs = mpi.world_size;
 
-  loc_manager_t manager(&mpi, settings);
+  tg_manager_t manager(&mpi, settings);
 
   if(argc != 3) {
     throw std::runtime_error("usage: base_filename n_files");
@@ -423,12 +423,12 @@ int main(int argc, char** argv) {
 
   if(mpi.this_rank != 0) {
     manager.register_listen(reader.read_cmd(),
-      [&](loc_manager_t& m) {
+      [&](tg_manager_t& m) {
         reader.listen_read(m.mpi, m.data);
       }
     );
     manager.register_listen(reader.shutdown_cmd(),
-      [&](loc_manager_t& m) {
+      [&](tg_manager_t& m) {
         reader.listen_shutdown();
       }
     );

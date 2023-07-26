@@ -6,16 +6,16 @@
 
 #include "../../einsummable/relation.h"
 
-// A loc manager updates a map<int, buffer_t> state
+// A tg manager updates a map<int, buffer_t> state
 // from a client node at rank zero. All the other nodes
 // cooperate to do the various updates.
-struct loc_manager_t {
-  loc_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings);
+struct tg_manager_t {
+  tg_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings);
 
   // this should be called by all non-zero rank locations
   void listen();
 
-  void register_listen(string key, std::function<void(loc_manager_t&)> f);
+  void register_listen(string key, std::function<void(tg_manager_t&)> f);
 
   // Should only be called by rank zero and when all other
   // ranks are listening {{{
@@ -91,9 +91,9 @@ private:
     map<int, buffer_t>& tmp,
     remap_relations_t const& remap);
 
-  map<string, std::function<void(loc_manager_t&)>> listeners;
+  map<string, std::function<void(tg_manager_t&)>> listeners;
 };
 
-std::ostream& operator<<(std::ostream& out, loc_manager_t::cmd_t const& c);
-std::istream& operator>>(std::istream& inn, loc_manager_t::cmd_t& c);
+std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c);
+std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 

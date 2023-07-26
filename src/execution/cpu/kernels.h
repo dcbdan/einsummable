@@ -152,9 +152,6 @@ build_ab_a_reduction_kernel(
 
 using touch_kernel_t = std::function<void(void*, void const*)>;
 
-touch_kernel_t
-build_touch(touch_t const& touch);
-
 // trans lhs   trans rhs
 // F           F          ij,jk->ik
 // T           F          ji,jk->ik
