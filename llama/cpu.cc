@@ -18,105 +18,13 @@
 #include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/autopart.h"
 
-#include <fstream>
+#include "reader.h"
 
-#include <mkl.h> // for mkl_set_num_threads
+#include <fstream>
 
 #include <iomanip> // setprecision
 
 #include <fstream>
-
-struct tensor_reader_t {
-  tensor_reader_t(string filename) : file(filename, std::ios::binary) {
-    if(!file) {
-      throw std::runtime_error("Failed to open the file.");
-    }
-  }
-
-  vector<string> all_names() {
-    vector<string> ret;
-    while(true) {
-      auto maybe_info = read_next_weight_info();
-      if(!maybe_info) {
-        break;
-      }
-      auto const& [name, nelem] = maybe_info.value();
-      ret.push_back(name);
-
-      // Assuming all tensors are stored in float16s
-      uint64_t size = nelem * sizeof(float16_t);
-
-      file.seekg(file.tellg() + std::ifstream::pos_type(size));
-      // TODO: how to use pos_type correctly?
-    }
-    to_beginning();
-    return ret;
-  }
-
-  buffer_t operator()(string tensor_name) {
-    while(true) {
-      auto maybe_info = read_next_weight_info();
-      if(!maybe_info) {
-        break;
-      }
-
-      auto const& [name, nelem] = maybe_info.value();
-
-      // Assuming all tensors are stored in float16s
-      uint64_t size = nelem * sizeof(float16_t);
-
-      if(name == tensor_name) {
-        // Read the tensor data
-        buffer_t buffer = make_buffer(size);
-        file.read(reinterpret_cast<char*>(buffer->data), size);
-
-        to_beginning();
-        return buffer;
-      } else {
-        file.seekg(file.tellg() + std::ifstream::pos_type(size));
-        // TODO: how to use pos_type correctly?
-      }
-    }
-
-    to_beginning();
-    throw std::runtime_error("did not find \"" + tensor_name + "\"");
-  }
-
-private:
-  std::ifstream file;
-
-  void to_beginning() {
-    file.clear();
-    file.seekg(0);
-  }
-
-  optional<tuple<string, uint64_t>>
-  read_next_weight_info() {
-    if(file.eof()) {
-      return std::nullopt;
-    }
-
-    // Read the text data (name of weight tensor)
-    char text_data[51];
-    file.read(text_data, 50);
-    text_data[50] = '\0';
-    std::string name(text_data);
-
-    if(file.eof()) {
-      return std::nullopt;
-    }
-
-    std::string space = " ";
-    const auto str_end = name.find_last_not_of(space);
-    const auto str_range = str_end + 1;
-    name = name.substr(0, str_range);
-
-    // Read the binary data (size of tensor)
-    int64_t nelem;
-    file.read(reinterpret_cast<char*>(&nelem), sizeof(int64_t));
-    return optional<tuple<string, uint64_t>>({name, nelem});
-  }
-};
 
 struct token_maker_t {
   token_maker_t(vector<vector<int>> const ps):
@@ -358,16 +266,19 @@ vector<placement_t> solve(
   return pls;
 }
 
-int num_threads_per_node = 4;
-int num_real_threads_per_node = 4;
+int num_threads_per_node = 8;
+int num_real_threads_per_node = 12;
 int num_steps = 300000;
-int nlocs = 1;
+int nlocs = -1;
 double beta = 10000.0;
 
 vector<placement_t> autoplace(graph_t const& graph) {
+  if(nlocs == -1) {
+    throw std::runtime_error("need to set nlocs");
+  }
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-  kernel_coster.touch_start *= 30;
+  kernel_coster.touch_start = 1e-2;
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -426,7 +337,7 @@ vector<placement_t> autoplace(graph_t const& graph) {
 //  return std::move(ret);
 //}
 
-void main_(loc_manager_t& manager, string filename) {
+void main_(loc_manager_t& manager, tensor_reader_t& reader, string filename) {
   {
     int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
@@ -434,8 +345,6 @@ void main_(loc_manager_t& manager, string filename) {
   }
 
   set_default_dtype(dtype_t::f16);
-
-  tensor_reader_t reader(filename);
 
   auto convert_f16_to_default = [](buffer_t buffer) {
     if(default_dtype() != dtype_t::f16) {
@@ -467,9 +376,26 @@ void main_(loc_manager_t& manager, string filename) {
   uint64_t bsz    = init_tokens.get_shape()[0];
   uint64_t seqlen = init_tokens.get_shape()[1];
 
-  auto args = model_args_t::llama_7B(bsz);
+  model_args_t args = model_args_t::llama(reader.num_files(), bsz);
 
   int niter = 0; // 256-seqlen-1;
+
+  DLINEOUT("getting the embedding matrix");
+
+  dbuffer_t embedding_matrix = [&] {
+    int starting_tid = manager.get_max_tid() + 1;
+    vector<uint64_t> shape{ args.vocab_size, args.dim };
+    relation_t relation = reader(
+      manager.get_registered_cmd(), manager.mpi, manager.data,
+      "tok_embeddings.weight", shape, starting_tid);
+    buffer_t ret = convert_f16_to_default(manager.unpartition(relation).data);
+    for(auto const& tid: relation.tids.get()) {
+      manager.data.erase(tid);
+    }
+    return dbuffer_t(default_dtype(), ret);
+  }();
+
+  DOUT("making builder");
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
   uint64_t total = 0;
@@ -482,47 +408,47 @@ void main_(loc_manager_t& manager, string filename) {
     }
   }
   DOUT("total touch bytes: " << (double(total)*1.0e-9) << " GB");
+  DOUT("taskgraph number of locs " << builder.taskgraph.num_locs());
 
-  //update_kernel_manager(manager.kernel_manager, builder.taskgraph);
-  //std::ofstream ff("kernel.csv");
-  //manager.kernel_manager.make_dataset(ff);
-
-  dbuffer_t embedding_matrix(
-    default_dtype(),
-    convert_f16_to_default(reader("tok_embeddings.weight")));
+  // TODO: tensor_reader_t reads everything in f16. Support when
+  //       f16 isn't the default dtype by converting f16 read tensors
+  //       into different default dtype then remapping the relations
 
   // need all weights, mask, freqcis, embeddings
 
   {
-    int counter = 0;
-
-    auto get_id = [&counter]{ return counter++; };
-
     remap_relations_t init_remap;
-    auto insert_tinfo = [&](relation_t const& tinfo, buffer_t buffer) {
-      int id = get_id();
+
+    DLINEOUT("getting weights");
+    for(auto const& [name, usage_tinfo]: builder.weights) {
+      auto shape = usage_tinfo.placement.total_shape();
+      int starting_tid = manager.get_max_tid() + 1;
+      init_remap.insert(
+        reader(manager.get_registered_cmd(), manager.mpi, manager.data,
+               name, shape, starting_tid),
+        usage_tinfo);
+    }
+
+    DLINEOUT("got weights");
+    auto insert_local = [&](relation_t const& tinfo, buffer_t buffer) {
+      int id = manager.get_max_tid() + 1;
       manager.data.insert({ id, buffer });
       init_remap.insert(
         tinfo.as_singleton(id),
         tinfo);
     };
 
-    for(auto const& [name, tinfo]: builder.weights) {
-      buffer_t w = reader(name);
-      w = convert_f16_to_default(w);
-      insert_tinfo(tinfo, w);
-    }
 
     if(builder.mask) {
       auto const& tinfo = builder.mask.value();
       buffer_t mask = transformer_t::form_start_mask(seqlen).data;
-      insert_tinfo(tinfo, mask);
+      insert_local(tinfo, mask);
     }
 
     {
       auto const& tinfo = builder.freqs_cis;
       buffer_t freqs_cis = transformer_t::form_full_freqs_cis(args).data;
-      insert_tinfo(tinfo, freqs_cis);
+      insert_local(tinfo, freqs_cis);
     }
 
     {
@@ -533,10 +459,18 @@ void main_(loc_manager_t& manager, string filename) {
         init_tokens).data;
 
       auto const& tinfo = builder.embeddings;
-      insert_tinfo(tinfo, embeddings);
+      insert_local(tinfo, embeddings);
     }
 
     manager.remap_data(init_remap);
+  }
+
+  // all data has been read, so shut down the reader
+  reader.shutdown(manager.get_registered_cmd(), manager.mpi);
+
+  int world_size = bool(manager.mpi) ? manager.mpi->world_size : 1;
+  if(builder.taskgraph.num_locs() > world_size) {
+    throw std::runtime_error("the taskgraph has more locs than mpi rank");
   }
 
   DOUT("---");
@@ -599,19 +533,38 @@ int main(int argc, char** argv) {
   //  DOUT(rel.placement.total_shape());
   //  DOUT("");
   //}
+
   auto settings = execute_taskgraph_settings_t::default_settings();
   settings.num_apply_runner = num_real_threads_per_node;
 
   mpi_t mpi(argc, argv);
+  nlocs = mpi.world_size;
 
   loc_manager_t manager(&mpi, settings);
+
+  if(argc != 3) {
+    throw std::runtime_error("usage: base_filename n_files");
+  }
+
+  // reader holds data by reference
+  tensor_reader_t reader(
+    mpi.this_rank, mpi.world_size,
+    argv[1], parse_with_ss<int>(argv[2]));
+
   if(mpi.this_rank != 0) {
+    manager.register_listen(reader.read_cmd(),
+      [&](loc_manager_t& m) {
+        reader.listen_read(m.mpi, m.data);
+      }
+    );
+    manager.register_listen(reader.shutdown_cmd(),
+      [&](loc_manager_t& m) {
+        reader.listen_shutdown();
+      }
+    );
     manager.listen();
   } else {
-    if(argc != 2) {
-      throw std::runtime_error("usage: filename");
-    }
-    main_(manager, argv[1]);
+    main_(manager, reader, argv[1]);
     manager.shutdown();
   }
 }

@@ -193,7 +193,8 @@ map<int, buffer_t> reference_compute_taskgraph(
 
 void reference_compute_memgraph(
   memgraph_t const& memgraph,
-  vector<buffer_t>& compute_location_buffers)
+  vector<buffer_t>& compute_location_buffers,
+  vector<map<int, buffer_t>>& storages)
 {
   auto make_buffer_at = [&](int loc, mem_t const& mem) {
     return make_buffer_reference(
@@ -204,7 +205,6 @@ void reference_compute_memgraph(
     return dbuffer_t(dtype, make_buffer_at(loc, mem));
   };
 
-  vector<map<int, buffer_t>> storages(memgraph.num_storage_locs);
   set<int> groups_touched;
 
   for(int const& id: memgraph.get_order()) {
@@ -212,9 +212,14 @@ void reference_compute_memgraph(
     if(op.is_inputmem()) {
       // nothing to do
     } else if(op.is_inputsto()) {
-      throw std::runtime_error(
+      // verify that the input is indeed on storage
+      auto const& [_, which_storage, sto_id] = op.get_inputsto();
+      auto const& storage = storages.at(which_storage);
+      if(storage.find(sto_id) == storage.end()) {
+        throw std::runtime_error(
         "not implemented: storage not given as input "
         "to reference_compute_memgraph");
+      }
     } else if(op.is_apply()) {
       auto const& apply = op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -305,6 +310,30 @@ void reference_compute_memgraph(
       // nothing to do
     } else {
       throw std::runtime_error("reference_compute_memgraph: should not happen");
+    }
+  }
+}
+
+void reference_compute_memgraph(
+  memgraph_t const& memgraph,
+  vector<buffer_t>& compute_location_buffers)
+{
+  for(auto const& memnode: memgraph.nodes) {
+    auto const& op = memnode.op;
+    if(op.is_inputsto()) {
+      throw std::runtime_error(
+        "If no storage given, then cannot have any inputsto nodes. "
+        "Try calling the other reference_compute_memgraph.");
+    }
+  }
+  vector<map<int, buffer_t>> temporary_storage;
+  reference_compute_memgraph(memgraph, compute_location_buffers, temporary_storage);
+
+  for(const auto& storage : temporary_storage) {
+    if(!storage.empty()) {
+      throw std::runtime_error(
+        "No storage provided, but data is on storage. "
+        "Try calling the other reference_compute_memgraph.");
     }
   }
 }

@@ -59,6 +59,24 @@ private:
   int const n_threads;
 };
 
+struct relationwise_stat_t {
+  int num_no_touch;
+  int num_can_no_touch;
+  double total_join;
+  double total_touch;
+  double total_move;
+  struct blocks_t {
+    int num;
+    int num_blocks;
+    int num_locs;
+  };
+  blocks_t non_contraction;
+  blocks_t contraction;
+
+  void print_line(std::ostream& out) const;
+  void print(std::ostream& out) const;
+};
+
 struct relationwise_t {
   struct ginfo_t {
     partition_t partition;
@@ -101,7 +119,13 @@ struct relationwise_t {
 
   vector<placement_t> get_placements() const;
 
+  relationwise_stat_t make_stat() const;
+
   placement_t get_placement_at(int gid) const;
+
+  bool has_no_touch(int gid) const;
+
+  optional<partition_t> notouch_partition(int gid) const;
 
   // NOTE: to get a better costing, call reset_cost first
   double total_cost() const;

@@ -1,5 +1,15 @@
 #include "setup.h"
 
+uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
+{
+  if(top % bot != 0) {
+    err_msg = "uint64_div: has remainder. " + err_msg;
+    throw std::runtime_error(err_msg);
+  } else {
+    return top / bot;
+  }
+}
+
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n) {
   if(n < num_parts) {
     throw std::runtime_error("Cannot have size zero parts");

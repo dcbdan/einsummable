@@ -103,6 +103,10 @@ namespace executetg_ns {
     void send_runner(int runner_id);
     void recv_runner(int runner_id);
 
+    // Mark an input of this apply for donation. If something is marked for donation,
+    // return the corresponding input to the apply.
+    optional<int> get_donate(int apply_id);
+
     int const& get_inn_from_which_touch(which_touch_t const& info) const;
     tuple<int, touch_t> const& get_touch_info(which_touch_t const&) const;
 
@@ -157,6 +161,9 @@ namespace executetg_ns {
     queue<int> here_nodes;
     queue<which_touch_t> here_touches;
 
+    // these tensors have been donated, so do not delete them
+    set<int> donated;
+
     // for tensors
     mutex m_tensors;
 
@@ -182,6 +189,9 @@ namespace executetg_ns {
     // for num_recv_post_remaining
     mutex m_recv;
     condition_variable cv_recv;
+
+    // for donated
+    mutex m_donate;
 
     // State only updated by the event loop:
     //   num_remaining

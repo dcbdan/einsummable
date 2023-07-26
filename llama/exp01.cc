@@ -68,7 +68,8 @@ vector<placement_t> solve_forwardsim(
   return mcmc.best_placements;
 }
 
-vector<placement_t> solve_relationwise(
+tuple<vector<placement_t>, vector<relationwise_stat_t>>
+solve_relationwise(
   graph_t const& graph,
   int nlocs,
   int n_threads_per_node,
@@ -96,17 +97,30 @@ vector<placement_t> solve_relationwise(
     mcmc.set_placements(pls);
   }
 
+  vector<relationwise_stat_t> stats;
+  stats.push_back(mcmc.make_stat());
   DOUT("balanced cost " << mcmc.cost());
 
   for(int i = 0; i != num_steps; ++i) {
     if(i % 10000 == 0) {
       DOUT( i << " / " << num_steps << "    " << mcmc.get_best_cost() );
+      stats.push_back(mcmc.make_stat());
     }
     mcmc.step(beta);
   }
 
   DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
-  return mcmc.get_best_placements();
+  return {mcmc.get_best_placements(), stats};
+}
+
+void add_kernels(taskgraph_t const& tg, std::unordered_set<einsummable_t>& ops)
+{
+  for(auto const& node: tg.nodes) {
+    if(node.op.is_apply()) {
+      auto const& ee = node.op.get_apply().einsummable;
+      ops.insert(ee.merge_adjacent_dims());
+    }
+  }
 }
 
 int main() {
@@ -115,30 +129,44 @@ int main() {
   uint64_t bsz    = 4;
   uint64_t seqlen = 8;
 
-  auto args = model_args_t::llama_7B(bsz);
+  auto args = model_args_t::llama_13B(bsz);
+
+  //auto autoplace = [&](graph_t const& graph) {
+  //  return graph.make_singleton_placement();
+  //};
+
+  //std::unordered_set<einsummable_t> ops;
+  //builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  //add_kernels(builder.taskgraph, ops);
+
+  //builder_t builder_ = builder_t::make_next_token(builder);
+  //add_kernels(builder_.taskgraph, ops);
+
+  //for(auto const& e: ops) {
+  //  DOUT(e << " join[" << e.join << "], castable[" << e.castable << "]");
+  //}
+
 
   int num_nodes = 8;
   int num_threads_per_node = 12;
-  int num_steps = 30000;
+  int num_steps = 100000;
 
   double beta = 10000.0;
 
+  vector<relationwise_stat_t> stats;
   auto autoplace = [&](graph_t const& graph) {
-    //uint64_t giga = 1e9;
-    //cluster_settings_t cluster_settings {
-    //  .num_nodes = num_nodes,
-    //  .num_threads_per_node = num_threads_per_node,
-    //  .compute_per_thread = 1*giga,
-    //  .bandwidth = 10*giga
-    //};
-    //return solve_forwardsim(graph, cluster_settings, num_steps, beta);
-
     int max_blocks = 2 * num_nodes * num_threads_per_node;
-    return solve_relationwise(
+    auto [ret,stats_] = solve_relationwise(
       graph, num_nodes, num_threads_per_node, max_blocks,
       num_steps,
       beta);
+    stats = std::move(stats_);
+    return ret;
   };
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+
+  for(auto const& stat: stats) {
+    stat.print_line(std::cout);
+  }
 }

@@ -116,6 +116,8 @@ std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
   return out;
 }
 
+uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg);
+
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
 
 template <typename T, typename U>
