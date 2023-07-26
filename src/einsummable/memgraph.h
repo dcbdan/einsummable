@@ -42,6 +42,7 @@ struct memstoloc_t {
 
 std::ostream& operator<<(std::ostream&, mem_t const&);
 std::ostream& operator<<(std::ostream&, memloc_t const&);
+std::ostream& operator<<(std::ostream&, stoloc_t const&);
 
 struct memgraph_make_state_t;
 
@@ -312,10 +313,12 @@ public:
   };
   vector<node_t> nodes;
 
+  int insert(op_t op, set<int> const& deps);
+
 private:
   friend class memgraph_make_state_t;
 
-  int insert(op_t op, set<int> const& deps);
+  
 
   // Get whether or not there is a directed path from
   // bot to top

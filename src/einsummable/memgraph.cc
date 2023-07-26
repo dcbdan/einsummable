@@ -60,10 +60,12 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       }
     } else if(op.is_inputsto()) {
       auto const& input = op.get_inputsto();
-      string label = "inputsto@";
+      string stoloc = write_with_ss(input.as_stoloc());
+      label = "inputsto@" + stoloc;
       if(input.loc < colors.size()) {
         color = colors[input.loc];
       }
+      std::cout<<"Label is: " + label<<std::endl;
       //label = "input " + write_with_ss(id);
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
@@ -1476,6 +1478,11 @@ std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
 }
 std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {
   out << "loc" << memloc.loc << memloc.as_mem();
+  return out;
+}
+
+std::ostream& operator<<(std::ostream& out, stoloc_t const& stoloc) {
+  out << "loc" << stoloc.loc << "tensor_id:"<< stoloc.id;
   return out;
 }
 

@@ -79,18 +79,56 @@ vector<storage_t::block_t>::iterator storage_t::find_first_available(uint64_t si
 
 void storage_t::create_free_space(uint64_t position, uint64_t size)
 {
+	if(try_merge_blocks(position, size)) { return; }
+
+	block_t block = {position, position + size};
+	blocks.emplace_back(block);
+}
+
+/*
+	Method that checks for adjacent blocks of currently loaded block and 
+	merges them in one bigger block if possible 
+
+	So if we have |_______|xxxxxxx|___| this situation where x is memory to be freed, 
+	this would become |_________________| -> one bigger block
+*/
+bool storage_t::try_merge_blocks(uint64_t position, uint64_t size)
+{
 	for (auto iter = blocks.begin(); iter != blocks.end(); ++iter)
 	{
-		if (iter->end == position)
+		auto preceding = iter;
+		auto following = iter + 1;
+		if (can_be_merged(preceding->end, position))
 		{
-			iter->end = position+size;
-			return;
+			preceding->end = position+size;
+			return true;
+		}
+		
+		if (following == blocks.end()) { return false; }
+		
+		if (can_be_merged(following->beg, position+size))
+		{
+			following->beg = position;
+			return true;
+		}
+
+		if (can_be_merged(preceding->end, position) && can_be_merged(following->end, position + size))
+		{
+			preceding->end = following->end;
+			blocks.erase(following);
+			return true;
 		}
 	}
 
-	block_t block = {position, position + size};
-	blocks.push_back(block);
+	return false;
 }
+
+bool can_be_merged(uint64_t first_position, uint64_t last_position)
+{
+	return first_position == last_position;
+} 
+
+
 
 void storage_t::allocate_block(vector<block_t>::iterator block, uint64_t size)
 {

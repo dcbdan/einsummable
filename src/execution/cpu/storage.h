@@ -34,6 +34,7 @@ private:
 	
 	vector<block_t>::iterator find_first_available(uint64_t size);
 
+	bool try_merge_blocks(uint64_t position, uint64_t size);
 	void create_free_space(uint64_t position, uint64_t size);
 	void allocate_block(vector<block_t>::iterator block, uint64_t size);
 };
