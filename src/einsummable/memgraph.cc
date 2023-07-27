@@ -15,6 +15,20 @@ mem_t memloc_t::as_mem() const {
   };
 }
 
+mem_t const& memsto_t::get_mem() const {
+  if(!_is_mem) {
+    throw std::runtime_error("cannot get mem");
+  }
+  return info.mem;
+}
+
+int const& memsto_t::get_sto() const {
+  if(_is_mem) {
+    throw std::runtime_error("cannot get sto");
+  }
+  return info.sto_id;
+}
+
 allocator_settings_t allocator_settings_t::default_settings()
 {
   return allocator_settings_t {
@@ -760,7 +774,7 @@ memgraph_t::make_without_evict(
   std::iota(which_storage.begin(), which_storage.end(), 0);
 
   auto [inn_to_memdata, save_to_memdata, memgraph] =
-    make(taskgraph, which_storage, mem_sizes, settings, false);
+    make(taskgraph, which_storage, mem_sizes, {}, settings, false);
 
   map<int, mem_t> inn_to_mem;
   for(auto const& [tid, memdata]: inn_to_memdata) {
@@ -783,6 +797,7 @@ memgraph_t::make(
   taskgraph_t const& taskgraph,
   vector<int> const& which_storage,
   vector<uint64_t> mem_sizes,
+  map<int, memstoloc_t> input_tid_to_data,
   allocator_settings_t settings,
   bool use_storage)
 {
@@ -827,6 +842,7 @@ memgraph_t::make(
     taskgraph,
     which_storage,
     allocators,
+    input_tid_to_data,
     n_compute_locs, n_storage_locs,
     use_storage);
 
@@ -844,7 +860,10 @@ memgraph_t::make(
           );
         }
 
-        state.initialize_input(id);
+        // It could be the case that the used initialized the input
+        if(!state.input_has_been_initialized(id)) {
+          state.initialize_input(id);
+        }
       }
     }
   }
@@ -865,7 +884,7 @@ memgraph_t::make(
   }
 
   return {
-    state.input_tid_to_data,
+    input_tid_to_data,
     save_to_data,
     state.memgraph
   };
@@ -875,6 +894,7 @@ memgraph_make_state_t::memgraph_make_state_t(
   taskgraph_t const& tg,
   vector<int> const& which_storage,
   vector<allocator_t> const& as,
+  map<int, memstoloc_t>& ittd,
   int num_compute,
   int num_storage,
   bool use_storage)
@@ -882,7 +902,8 @@ memgraph_make_state_t::memgraph_make_state_t(
     memgraph(num_compute, num_storage, which_storage),
     allocators(as),
     _group(0),
-    use_storage(use_storage)
+    use_storage(use_storage),
+    input_tid_to_data(ittd)
 {
   _sto_id = 0;
   remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);

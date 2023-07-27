@@ -10,6 +10,7 @@
 #include <tuple>
 #include <set>
 #include <map>
+#include <array>
 #include <optional>
 #include <sstream>
 #include <string>

@@ -23,12 +23,12 @@ void tg_manager_t::listen() {
       map<int, buffer_t> tmp = data;
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       repartition(mpi, remap, tmp);
-    } else if(cmd == cmd_t::partition_into_data) {
+    } else if(cmd == cmd_t::partition_into) {
       map<int, buffer_t> tmp;
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       repartition(mpi, remap, tmp);
       copy_into_data(tmp, remap);
-    } else if(cmd == cmd_t::remap_data) {
+    } else if(cmd == cmd_t::remap) {
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       repartition(mpi, remap, data);
     } else if(cmd == cmd_t::max_tid) {
@@ -57,7 +57,7 @@ void tg_manager_t::execute(taskgraph_t const& taskgraph)
   _execute(taskgraph);
 }
 
-dbuffer_t tg_manager_t::unpartition(relation_t const& relation) {
+dbuffer_t tg_manager_t::get_tensor(relation_t const& relation) {
   broadcast_cmd(cmd_t::unpartition);
 
   map<int, buffer_t> tmp = data;
@@ -74,7 +74,7 @@ dbuffer_t tg_manager_t::unpartition(relation_t const& relation) {
   return dbuffer_t(relation.dtype, tmp.at(99));
 }
 
-void tg_manager_t::partition_into_data(
+void tg_manager_t::partition_into(
   relation_t const& relation,
   dbuffer_t src_tensor)
 {
@@ -82,7 +82,7 @@ void tg_manager_t::partition_into_data(
     throw std::runtime_error("can't partition different dtypes");
   }
 
-  broadcast_cmd(cmd_t::partition_into_data);
+  broadcast_cmd(cmd_t::partition_into);
 
   remap_relations_t remap;
   remap.insert(
@@ -98,8 +98,8 @@ void tg_manager_t::partition_into_data(
   copy_into_data(tmp, remap);
 }
 
-void tg_manager_t::remap_data(remap_relations_t const& remap) {
-  broadcast_cmd(cmd_t::remap_data);
+void tg_manager_t::remap(remap_relations_t const& remap) {
+  broadcast_cmd(cmd_t::remap);
 
   broadcast_str(remap.to_wire());
 
@@ -166,6 +166,52 @@ void tg_manager_t::copy_into_data(
   }
 }
 
+//mg_manager_t::mg_manager_t(
+//  mpi_t* mpi,
+//  execute_memgraph_settings_t const& exec_sts,
+//  uint64_t memory_size,
+//  allocator_settings_t alloc_sts)
+//  : mpi(mpi), exec_settings(exec_sts), alloc_settings(alloc_sts)
+//{
+//  mem = make_buffer(memory_size);
+//}
+//
+//void mg_manager_t::listen() {
+//  if(!mpi) {
+//    throw std::runtime_error("should not call listen if mpi is not setup");
+//  }
+//  if(mpi->this_rank == 0) {
+//    throw std::runtime_error("rank zero should not call listen method");
+//  }
+//  while(true) {
+//    cmd_t cmd = recv_cmd();
+//    if(cmd == cmd_t::execute) {
+//      memgraph_t mg = taskgraph_t::from_wire(mpi->recv_str(0));
+//      _execute(mg);
+//    } else if(cmd == cmd_t::unpartition) {
+//      // TODO: how to unpartition?
+//    } else if(cmd == cmd_t::partition_into) {
+//      // TODO: how to partition_into this guy
+//    } else if(cmd == cmd_t::remap) {
+//      auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
+//      repartition(mpi, remap, data_locs, mem, storage);
+//    } else if(cmd == cmd_t::max_tid) {
+//      int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
+//      mpi->send_int(max_tid_here, 0, 0);
+//    } else if(cmd == cmd_t::shutdown) {
+//      break;
+//    }
+//  }
+//}
+//
+//void mg_manager_t::remap(remap_relations_t const& remap) {
+//  broadcast_cmd(cmd_t::remap);
+//
+//  broadcast_str(remap.to_wire());
+//
+//  repartition(mpi, remap, data_locs, mem, storage);
+//}
+
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {
   auto const& items = tg_manager_t::cmd_strs();
   out << items.at(int(c));
@@ -176,4 +222,15 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c) {
   c = tg_manager_t::cmd_t(istream_expect_or(inn, tg_manager_t::cmd_strs()));
   return inn;
 }
+
+//std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c) {
+//  auto const& items = mg_manager_t::cmd_strs();
+//  out << items.at(int(c));
+//  return out;
+//}
+//
+//std::istream& operator>>(std::istream& inn, mg_manager_t::cmd_t& c) {
+//  c = mg_manager_t::cmd_t(istream_expect_or(inn, mg_manager_t::cmd_strs()));
+//  return inn;
+//}
 

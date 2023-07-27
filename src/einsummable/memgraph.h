@@ -12,10 +12,30 @@ struct mem_t {
   memloc_t as_memloc(int loc) const;
 };
 
+// This does not use std::variant so that it can be sent over the wire.
+struct memsto_t {
+  memsto_t() {}
+  memsto_t(mem_t const& m): _is_mem(true), info { .mem = m } {}
+  memsto_t(int sto_id): _is_mem(false), info { .sto_id = sto_id } {}
+
+  bool is_mem() const { return _is_mem; }
+
+  mem_t const& get_mem() const;
+  int const& get_sto() const;
+
+  bool _is_mem;
+  union {
+    mem_t mem;
+    int sto_id;
+  } info;
+};
+
 struct memloc_t {
   uint64_t offset;
   uint64_t size;
   int loc;
+
+  memsto_t as_memsto() const { return memsto_t(as_mem()); }
 
   mem_t as_mem() const;
 };
@@ -23,6 +43,8 @@ struct memloc_t {
 struct stoloc_t {
   int loc; // this storage location
   int id;  // with this id
+
+  memsto_t as_memsto() const { return memsto_t(id); }
 };
 
 struct memstoloc_t {
@@ -91,6 +113,7 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<int> const& which_storage,
     vector<uint64_t> mem_sizes = {},
+    map<int, memstoloc_t> init_input_tid_to_data = {},
     allocator_settings_t settings = allocator_settings_t::default_settings(),
     bool use_storage = true);
 
@@ -415,6 +438,7 @@ struct memgraph_make_state_t {
     taskgraph_t const& taskgraph,
     vector<int> const& which_storage,
     vector<allocator_t> const& as,
+    map<int, memstoloc_t>& input_tid_to_data,
     int num_compute,
     int num_storage,
     bool use_storage);
@@ -482,7 +506,7 @@ struct memgraph_make_state_t {
   int _sto_id;
 
   // A mapping from input tid to where it's stored initially
-  map<int, memstoloc_t> input_tid_to_data;
+  map<int, memstoloc_t>& input_tid_to_data;
 };
 // Some notes about nodes in the taskgraph vs nodes in the memgraph
 // and how that relates to tensors.

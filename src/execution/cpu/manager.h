@@ -3,6 +3,7 @@
 
 #include "mpi_class.h"
 #include "executetg.h"
+#include "executemg.h"
 
 #include "../../einsummable/relation.h"
 
@@ -23,11 +24,11 @@ struct tg_manager_t {
 
   // Get a relation broadcast across the cluster and put it
   // onto node zero. Don't modify this->data
-  dbuffer_t unpartition(relation_t const& src_relation);
+  dbuffer_t get_tensor(relation_t const& src_relation);
 
   // Get a tensor here and partition it across the cluster
   // into this->data
-  void partition_into_data(
+  void partition_into(
     relation_t const& dst_relation,
     dbuffer_t src_tensor);
 
@@ -35,7 +36,7 @@ struct tg_manager_t {
   // modifying this->data in the process
   // Note: anything not in the dst remap may get
   //       deleted!
-  void remap_data(remap_relations_t const& remap);
+  void remap(remap_relations_t const& remap);
 
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
@@ -61,8 +62,8 @@ private:
   enum class cmd_t {
     execute = 0,
     unpartition,
-    partition_into_data,
-    remap_data,
+    partition_into,
+    remap,
     max_tid,
     registered_cmd,
     shutdown
@@ -70,8 +71,8 @@ private:
 
   static vector<string> const& cmd_strs() {
     static vector<string> ret {
-      "execute", "unpartition", "partition_into_data",
-      "remap_data", "max_tid", "registered_cmd", "shutdown"
+      "execute", "unpartition", "partition_into",
+      "remap", "max_tid", "registered_cmd", "shutdown"
     };
     return ret;
   }
@@ -96,4 +97,90 @@ private:
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c);
 std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
+
+//struct mg_manager_t {
+//  mg_manager_t(
+//    mpi_t* mpi,
+//    execute_memgraph_settings_t const& exec_sts,
+//    uint64_t memory_size,
+//    allocator_settings_t alloc_sts = alocator_settings_t::default_settings());
+//
+//  // this should be called by all non-zero rank locations
+//  void listen();
+//  // TODO
+//
+//  // Should only be called by rank zero and when all other
+//  // ranks are listening {{{
+//
+//  // Compile a taskgraph into a memgraph and execute the
+//  // memgraph
+//  void execute(taskgraph_t const& taskgraph); // TODO
+//
+//  void execute(memgraph_t  const& memgraph); // TODO
+//
+//  // Get a relation broadcast across the cluster and put it
+//  // onto node zero. Don't modify data owned by this
+//  dbuffer_t unpartition(relation_t const& src_relation);
+//  // TODO
+//
+//  // Get a tensor here and partition it across the cluster
+//  void partition_into(
+//    relation_t const& dst_relation,
+//    dbuffer_t src_tensor);
+//  // TODO
+//
+//  void remap(remap_relations_t const& remap);
+//  // TODO
+//
+//  // Get the max tid across all data objects on all ranks.
+//  // Useful for creating new relations that won't overwrite
+//  // existing data
+//  int get_max_tid();
+//  // TODO
+//
+//  void shutdown();
+//  // TODO
+//  // }}}
+//
+//  map<int, memsto_t> data_locs;
+//
+//  buffer_t mem;
+//  storage_t storage;
+//
+//  execute_memgraph_settings_t exec_settings;
+//  allocator_settings_t alloc_settings;
+//  kernel_manager_t kernel_manager;
+//
+//private:
+//  enum class cmd_t {
+//    execute = 0,
+//    unpartition,
+//    partition_into,
+//    remap,
+//    max_tid,
+//    shutdown
+//  };
+//
+//  static vector<string> const& cmd_strs() {
+//    static vector<string> ret {
+//      "execute", "unpartition", "partition_into",
+//      "remap", "max_tid", "shutdown"
+//    };
+//    return ret;
+//  }
+//
+//  friend std::ostream& operator<<(std::ostream& out, cmd_t const& c);
+//  friend std::istream& operator>>(std::istream& inn, cmd_t& c);
+//
+//  void broadcast_cmd(cmd_t const& cmd);  // TODO
+//  void broadcast_str(string const& str); // TODO
+//
+//  // only recvs from rank 0
+//  cmd_t recv_cmd(); // TODO
+//
+//  void _execute(memgraph_t const& mg); // TODO
+//};
+//
+//std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c);
+//std::istream& operator>>(std::istream& inn, mg_manager_t::cmd_t& c);
 

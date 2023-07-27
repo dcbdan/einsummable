@@ -258,7 +258,7 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
     relation_t relation = reader(
       manager.get_registered_cmd(), manager.mpi, manager.data,
       "tok_embeddings.weight", shape, starting_tid);
-    buffer_t ret = convert_f16_to_default(manager.unpartition(relation).data);
+    buffer_t ret = convert_f16_to_default(manager.get_tensor(relation).data);
     for(auto const& tid: relation.tids.get()) {
       manager.data.erase(tid);
     }
@@ -332,7 +332,7 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
       insert_local(tinfo, embeddings);
     }
 
-    manager.remap_data(init_remap);
+    manager.remap(init_remap);
   }
 
   // all data has been read, so shut down the reader
@@ -347,7 +347,7 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
   manager.execute(builder.taskgraph);
 
   {
-    dbuffer_t scores = manager.unpartition(builder.scores);
+    dbuffer_t scores = manager.get_tensor(builder.scores);
 
     uint64_t top_n = 5;
     vtensor_t<int> top_choices = get_top_choices(
@@ -363,7 +363,7 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
 
     //builder.print_info();
 
-    manager.remap_data(builder.remap.value());
+    manager.remap(builder.remap.value());
 
     {
       dbuffer_t embeddings = lookup_embeddings(
@@ -372,14 +372,14 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
         embedding_matrix,
         token_maker.last_column());
 
-      manager.partition_into_data(builder.embeddings, embeddings);
+      manager.partition_into(builder.embeddings, embeddings);
     }
 
     DOUT("---");
     manager.execute(builder.taskgraph);
 
     {
-      dbuffer_t scores = manager.unpartition(builder.scores);
+      dbuffer_t scores = manager.get_tensor(builder.scores);
 
       uint64_t top_n = 5;
       vtensor_t<int> top_choices = get_top_choices(
