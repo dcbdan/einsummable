@@ -59,6 +59,10 @@ struct memstoloc_t {
   memloc_t const& get_memloc() const { return std::get<memloc_t>(data); }
   stoloc_t const& get_stoloc() const { return std::get<stoloc_t>(data); }
 
+  memsto_t as_memsto() const {
+    return is_memloc() ? get_memloc().as_memsto() : get_stoloc().as_memsto() ;
+  }
+
   std::variant<memloc_t, stoloc_t> data;
 };
 

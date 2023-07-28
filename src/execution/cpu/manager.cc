@@ -193,8 +193,8 @@ void tg_manager_t::copy_into_data(
 //    } else if(cmd == cmd_t::partition_into) {
 //      // TODO: how to partition_into this guy
 //    } else if(cmd == cmd_t::remap) {
-//      auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
-//      repartition(mpi, remap, data_locs, mem, storage);
+//      remap_relations_t remap; // not actually used
+//      repartition(mpi, remap, alloc_settings, data_locs, mem, storage);
 //    } else if(cmd == cmd_t::max_tid) {
 //      int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
 //      mpi->send_int(max_tid_here, 0, 0);
@@ -204,12 +204,38 @@ void tg_manager_t::copy_into_data(
 //  }
 //}
 //
+//void mg_manager_t::execute(taskgraph_t const& taskgraph) {
+//  vector<int> which_storage(world_size);
+//  std::iota(which_storage.begin(), which_storage.end(), 0);
+//
+//  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
+//    memgraph_t::make(
+//      taskgraph, which_storage, mem_sizes,
+//      data_locs, alloc_settings, true);
+//
+//  vector<vector<std::array<int, 2>>> storage_remaps =
+//    create_storage_remaps(mem_sizes.size(), data_locs, inn_tg_to_loc);
+//
+//  // TODO: remap all the storage items
+//
+//
+//}
+//
+//void mg_manager_t::execute(memgraph_t const& memgraph) {
+//  gremlin_t gremlin("execute memgraph from manager");
+//  broadcast_cmd(cmd_t::execute);
+//  broadcast_str(memgraph.to_wire());
+//  _execute(memgraph);
+//}
+//
 //void mg_manager_t::remap(remap_relations_t const& remap) {
 //  broadcast_cmd(cmd_t::remap);
+//  repartition(mpi, remap, alloc_settings, data_locs, mem, storage);
+//}
 //
-//  broadcast_str(remap.to_wire());
-//
-//  repartition(mpi, remap, data_locs, mem, storage);
+//void mg_manager_t::_execute(memgraph_t const& mg) {
+//  update_kernel_manager(kernel_manager, memgraph);
+//  execute_memgraph(memgraph, exec_settings, kernel_manager, mpi, mem, storage);
 //}
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {

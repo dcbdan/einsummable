@@ -10,6 +10,24 @@ using std::queue;
 
 #define RLINEOUT(x) // if(mpi->this_rank == 0) { DLINEOUT(x); }
 
+void update_kernel_manager(
+  kernel_manager_t& ret,
+  memgraph_t const& memgraph)
+{
+  for(auto const& node: memgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& apply = node.op.get_apply();
+      if(apply.is_einsummable()) {
+        auto const& e = apply.get_einsummable();
+        if(!ret.build(e)) {
+          throw std::runtime_error(
+            "could not build a kernel for " + write_with_ss(e));
+        }
+      }
+    }
+  }
+}
+
 struct cpu_mg_exec_state_t {
   cpu_mg_exec_state_t(
     mpi_t* mpi,
@@ -458,3 +476,234 @@ void cpu_mg_exec_state_t::send_can_recv_runner() {
     mpi->send_int(recv_id, move.get_src_loc(), mpi->max_tag);
   }
 }
+
+////////////////////////
+
+_tg_with_mg_helper_t::_tg_with_mg_helper_t(
+  mpi_t* a,
+  map<int, memsto_t>& b,
+  buffer_t& c,
+  storage_t& d,
+  int e)
+  : mpi(a), data_locs(b), mem(c), storage(d), server_rank(e)
+{
+  if(mpi) {
+    this_rank  = mpi->this_rank;
+    world_size = mpi->world_size;
+  } else {
+    this_rank = 0;
+    world_size = 1;
+    if(server_rank != 0) {
+      throw std::runtime_error("invalid server rank");
+    }
+  }
+}
+
+vector<uint64_t> _tg_with_mg_helper_t::recv_mem_sizes() {
+  vector<uint64_t> mem_sizes;
+  mem_sizes.reserve(world_size);
+  for(int src = 0; src != world_size; ++src) {
+    if(src == this_rank) {
+      mem_sizes.push_back(mem->size);
+    } else {
+      vector<uint64_t> singleton = mpi->recv_vector<uint64_t>(src);
+      mem_sizes.push_back(singleton[0]);
+    }
+  }
+  return mem_sizes;
+}
+
+void _tg_with_mg_helper_t::send_mem_size() {
+  vector<uint64_t> singleton{mem->size};
+  mpi->send_vector(singleton, server_rank);
+}
+
+map<int, memstoloc_t> _tg_with_mg_helper_t::recv_full_data_locs() {
+  auto fix = [](memsto_t const& memsto, int loc) {
+    if(memsto.is_mem()) {
+      return memstoloc_t(memsto.get_mem().as_memloc(loc));
+    } else {
+      int const& sto_id = memsto.get_sto();
+      return memstoloc_t(stoloc_t { loc, sto_id });
+    }
+  };
+
+  map<int, memstoloc_t> ret;
+  for(int src = 0; src != world_size; ++src) {
+    if(src == this_rank) {
+      for(auto const& [id, memsto]: data_locs) {
+        ret.insert({id, fix(memsto, src)});
+      }
+    } else {
+      auto src_data_locs = mpi->recv_vector<id_memsto_t>(src);
+      for(auto const& [id, memsto]: src_data_locs) {
+        ret.insert({id, fix(memsto, src)});
+      }
+    }
+  }
+
+  return ret;
+}
+
+void _tg_with_mg_helper_t::send_data_locs() {
+  vector<id_memsto_t> items;
+  for(auto const& [id, memsto]: data_locs) {
+    items.push_back(id_memsto_t { id, memsto });
+  }
+  mpi->send_vector(items, server_rank);
+}
+
+void _tg_with_mg_helper_t::storage_remap_server(
+  vector<vector<std::array<int, 2>>> const& storage_remaps)
+{
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst == this_rank) {
+      storage.remap(storage_remaps[this_rank]);
+    } else {
+      mpi->send_vector(storage_remaps[dst], dst);
+    }
+  }
+}
+
+void _tg_with_mg_helper_t::storage_remap_client() {
+  auto storage_remap = mpi->recv_vector<std::array<int, 2>>(server_rank);
+  storage.remap(storage_remap);
+}
+
+void _tg_with_mg_helper_t::broadcast_memgraph(memgraph_t const& mg) {
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst != this_rank) {
+      mpi->send_str(mg.to_wire(), dst);
+    }
+  }
+}
+
+memgraph_t _tg_with_mg_helper_t::recv_memgraph() {
+  return memgraph_t::from_wire(mpi->recv_str(server_rank));
+}
+
+void _tg_with_mg_helper_t::rewrite_data_locs_server(
+  map<int, memstoloc_t> const& new_data_locs)
+{
+  auto get_loc = [](memstoloc_t const& x) {
+    if(x.is_memloc()) {
+      return x.get_memloc().loc;
+    } else {
+      // Note: stoloc_t::loc is a storage location, but we are
+      //       assuming that storage loc == compute loc in this directory!
+      return x.get_stoloc().loc;
+    }
+  };
+
+  vector<vector<id_memsto_t>> items;
+  data_locs.clear();
+  for(auto const& [id, memstoloc]: new_data_locs) {
+    int loc = get_loc(memstoloc);
+    if(loc == this_rank) {
+      data_locs.insert({ id, memstoloc.as_memsto() });
+    } else {
+      items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
+    }
+  }
+
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst != this_rank) {
+      mpi->send_vector(items[dst], dst);
+    }
+  }
+}
+
+void _tg_with_mg_helper_t::rewrite_data_locs_client() {
+  data_locs.clear();
+  auto new_data_locs = mpi->recv_vector<id_memsto_t>(server_rank);
+  for(auto const& [id, memsto]: new_data_locs) {
+    data_locs.insert({id, memsto});
+  }
+}
+
+vector<vector<std::array<int, 2>>>
+_tg_with_mg_helper_t::create_storage_remaps(
+  map<int, memstoloc_t> const& full_data_locs,
+  map<int, memstoloc_t> const& inn_tg_to_loc)
+{
+  vector<vector<std::array<int, 2>>> storage_remaps(world_size);
+  for(auto const& [id, mg_memstoloc]: inn_tg_to_loc) {
+    if(mg_memstoloc.is_stoloc()) {
+      auto const& [loc, new_sto_id] = mg_memstoloc.get_stoloc();
+      auto const& [_, old_sto_id] = full_data_locs.at(id).get_stoloc();
+      storage_remaps[loc].push_back({new_sto_id, old_sto_id});
+    }
+  }
+  return storage_remaps;
+}
+
+void execute_taskgraph_as_memgraph_server(
+  taskgraph_t const& taskgraph,
+  execute_memgraph_settings_t const& exec_settings,
+  kernel_manager_t const& kernel_manager,
+  allocator_settings_t const& alloc_settings,
+  mpi_t* mpi,
+  map<int, memsto_t>& data_locs,
+  buffer_t mem,
+  storage_t& storage)
+{
+  int this_rank  = bool(mpi) ? 0 : mpi->this_rank;
+  _tg_with_mg_helper_t helper(mpi, data_locs, mem, storage, this_rank);
+
+  vector<uint64_t> mem_sizes = helper.recv_mem_sizes();
+
+  map<int, memstoloc_t> full_data_locs = helper.recv_full_data_locs();
+
+  vector<int> which_storage(helper.world_size);
+  std::iota(which_storage.begin(), which_storage.end(), 0);
+
+  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
+    memgraph_t::make(
+      taskgraph, which_storage, mem_sizes,
+      full_data_locs, alloc_settings, true);
+
+  // memgraph now uses wtvr storage ids it chooses... So for each input,
+  // figure out what the remap is
+  vector<vector<std::array<int, 2>>> storage_remaps =
+    helper.create_storage_remaps(full_data_locs, inn_tg_to_loc);
+
+  // this is not need anymore
+  full_data_locs.clear();
+
+  helper.storage_remap_server(storage_remaps);
+
+  helper.broadcast_memgraph(memgraph);
+
+  execute_memgraph(
+    memgraph, exec_settings, kernel_manager,
+    mpi, mem, storage);
+
+  helper.rewrite_data_locs_server(out_tg_to_loc);
+}
+
+void execute_taskgraph_as_memgraph_client(
+  execute_memgraph_settings_t const& exec_settings,
+  kernel_manager_t const& kernel_manager,
+  int server_rank,
+  mpi_t* mpi,
+  map<int, memsto_t>& data_locs,
+  buffer_t mem,
+  storage_t& storage)
+{
+  _tg_with_mg_helper_t helper(mpi, data_locs, mem, storage, server_rank);
+
+  helper.send_mem_size();
+
+  helper.send_data_locs();
+
+  helper.storage_remap_client();
+
+  memgraph_t memgraph = helper.recv_memgraph();
+
+  execute_memgraph(
+    memgraph, exec_settings, kernel_manager,
+    mpi, mem, storage);
+
+  helper.rewrite_data_locs_client();
+}
+

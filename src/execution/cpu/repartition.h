@@ -19,18 +19,22 @@ void repartition(
   mpi_t* mpi,
   remap_relations_t const& remap,
   map<int, buffer_t>& data);
+// Note: remap must be the same across all nodes
 
-// This is the same as the other function except instead the data
-// is distributed across mem and storage objects. data_locs contains
-// a mapping from ids to where on this node data currently is.
-//
-// To run the computation, a memgraph is created and executed.
-//
-// Assumption: for all i, storage loc i == compute loc i
-void repartition(
+// These server, client pair functions are also do a repartition, but
+// by creating a taskgraph & updating the tid mapping in data_locs
+// accordingly
+void repartition_server(
   mpi_t* mpi,
   remap_relations_t const& remap,
   allocator_settings_t const& alloc_settings,
+  map<int, memsto_t>& data_locs,
+  buffer_t& mem,
+  storage_t& storage);
+
+void repartition_client(
+  mpi_t* mpi,
+  int server_rank,
   map<int, memsto_t>& data_locs,
   buffer_t& mem,
   storage_t& storage);

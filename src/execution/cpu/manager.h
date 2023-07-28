@@ -107,7 +107,6 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 //
 //  // this should be called by all non-zero rank locations
 //  void listen();
-//  // TODO
 //
 //  // Should only be called by rank zero and when all other
 //  // ranks are listening {{{
@@ -116,7 +115,7 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 //  // memgraph
 //  void execute(taskgraph_t const& taskgraph); // TODO
 //
-//  void execute(memgraph_t  const& memgraph); // TODO
+//  void execute(memgraph_t  const& memgraph);
 //
 //  // Get a relation broadcast across the cluster and put it
 //  // onto node zero. Don't modify data owned by this
@@ -130,7 +129,6 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 //  // TODO
 //
 //  void remap(remap_relations_t const& remap);
-//  // TODO
 //
 //  // Get the max tid across all data objects on all ranks.
 //  // Useful for creating new relations that won't overwrite
@@ -143,6 +141,8 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 //  // }}}
 //
 //  map<int, memsto_t> data_locs;
+//
+//  vector<uint64_t> mem_sizes; // TODO: rank 0 should have this
 //
 //  buffer_t mem;
 //  storage_t storage;
