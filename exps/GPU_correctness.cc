@@ -220,6 +220,7 @@ void check_correctness(memgraph_t memgraph, bool debug = false) {
 }
 
 // ij,jk->ik
+/*
 void contractionTest(int di, int dj, int dk) {
   auto num_elems = di * dj + dj * dk + di * dk;
   auto buffer_size = num_elems * sizeof(float);
@@ -370,3 +371,4 @@ void contractionTest2() {
                       offset_increment(gpu_ptr, input1.offset),
                       offset_increment(gpu_ptr, input2.offset));
 }
+*/

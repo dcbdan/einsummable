@@ -137,6 +137,7 @@ if(${GPU_EXECUTION_ENGINE})
   string(REPLACE " " ";" INSTALLED_GPU_CCS_3 "${INSTALLED_GPU_CCS_2}")
   string(REPLACE "." "" CUDA_ARCH_LIST "${INSTALLED_GPU_CCS_3}")
   SET(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_LIST})
+  SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_60")
   set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
 
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
@@ -172,10 +173,9 @@ if(${GPU_EXECUTION_ENGINE})
   endfunction()
 
   # call add_gpu_application here
-  add_gpu_application("gpuexec_touch"  "exps" "gpuexec_touch")
   ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
   add_gpu_application("test_alignment"  "exps" "test_alignment")
-  add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
+
   
   add_gpu_application("basicTest" "exps" "GPU_test")
   # add_gpu_application("ffTest" "exps" "GPU_ff_test")

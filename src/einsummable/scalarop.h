@@ -197,6 +197,34 @@ private:
 
 } // scalar_ns
 
+struct cutensor_scalarop_t {
+  // list out cutensor elementwise ops that
+  // may be discovered
+  enum cop_t { add, mul, min, max, exp, pow,identity };
+
+  struct arg_t {
+    scalar_t scale;
+    cop_t op;
+  };
+  struct unary_t {
+    arg_t arg;
+  };
+  struct binary_t {
+    cop_t op;
+    arg_t lhs;
+    arg_t rhs;
+  };
+  struct ternary_t {
+    cop_t op_01_2;
+    cop_t op_0_1;
+    arg_t a0;
+    arg_t a1;
+    arg_t a2;
+  };
+  std::variant<unary_t, binary_t, ternary_t> op;
+};
+
+
 dtype_t& _default_dtype();
 dtype_t const& default_dtype();
 void set_default_dtype(dtype_t);
@@ -241,6 +269,9 @@ struct scalarop_t {
   bool is_max() const;
   bool is_min() const;
   bool is_add() const;
+
+  optional<cutensor_scalarop_t::arg_t> set_up_arg(node_t node);
+  optional<cutensor_scalarop_t> compile_cutensor_scalarop();
 
   bool is_constant_of(scalar_t val) const;
 

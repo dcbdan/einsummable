@@ -15,8 +15,8 @@ cudaStream_t cuda_create_stream() {
 
 // increment the pointer by the byte offset
 // ONLY USE IF THE UNIT OF OFFSET IS BYTE
-float *offset_increment(const float *ptr, int offset) {
-  return (float *)((char *)ptr + offset);
+void *offset_increment(const void *ptr, int offset) {
+  return (void *)((char *)ptr + offset);
 }
 
 // USE THIS IF THE UNIT OF OFFSET IS FLOAT
@@ -29,7 +29,7 @@ void printFloatCPU(const float *cpu_ptr, int count) {
   }
   printf("\n");
 }
-void printFloatGPU(const float *gpu_ptr, int count) {
+void printFloatGPU(const void *gpu_ptr, int count) {
   float *cpu_ptr = (float *)malloc(count * sizeof(float));
   cudaMemcpy(cpu_ptr, gpu_ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
   printFloatCPU(cpu_ptr, count);
@@ -181,21 +181,21 @@ bool gpu_execute_state_t::is_complete() {
 }
 
 // calling cuda malloc to allocate memory for a given size
-float *gpu_allocate_memory(size_t size) {
+void *gpu_allocate_memory(size_t size) {
   void *ret;
   if (cudaMalloc(&ret, size) != cudaSuccess) {
     // print an error message and the error code
     std::cout << "Error code: " << cudaGetLastError() << std::endl;
     throw std::runtime_error("cuda_malloc");
   }
-  return (float *)ret;
+  return ret;
 }
 
 // helper function to get the input memory pointers from a vector of mem_t
 // input memory pointers are mem[1: n]
-std::vector<float const *> get_input_mem_ptrs(std::vector<mem_t> mem,
-                                              float *memory_base_ptr) {
-  std::vector<float const *> ret;
+std::vector<void const *> get_input_mem_ptrs(std::vector<mem_t> mem,
+                                              void *memory_base_ptr) {
+  std::vector<void const *> ret;
   for (int i = 1; i < mem.size(); i++) {
     ret.push_back(offset_increment(memory_base_ptr, mem[i].offset));
   }
@@ -203,7 +203,7 @@ std::vector<float const *> get_input_mem_ptrs(std::vector<mem_t> mem,
 }
 
 gpu_execute_state_t::gpu_execute_state_t(memgraph_t const &input_memgraph,
-                                         float* mem_ptr)
+                                         void* mem_ptr)
     : memgraph(input_memgraph), memory_base_ptr(mem_ptr) {
 
   // create a cutensor handle
@@ -220,26 +220,39 @@ gpu_execute_state_t::gpu_execute_state_t(memgraph_t const &input_memgraph,
     if (memgraph.nodes[i].inns.size() == 0) {
       pending_queue.push(i);
     }
-    // check if the node is a contraction
+    // check if the node is an einsummable
     if (memgraph.nodes[i].op.is_einsummable()) {
       // get the einsummable object
       auto my_einsummable = memgraph.nodes[i].op.get_einsummable();
       // check is this a contraction
-      if (my_einsummable.is_contraction()) {
+      //if (my_einsummable.is_contraction()) {
         // merge the adjacent dims
-        einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
+      //  einsummable_t my_einsum_merged = my_einsummable.merge_adjacent_dims();
         // check if the contraction is already in the map
-        if (einsum_to_contraction.find(my_einsum_merged) ==
-            einsum_to_contraction.end()) {
+      //  if (einsum_to_contraction.find(my_einsum_merged) ==
+      //      einsum_to_contraction.end()) {
           // create a cutensor descriptor
-          cutensorContractionDescriptor_t desc;
+      //    cutensorContractionDescriptor_t desc;
           // when building the contraction we already merge
           // the adjacent dims so we don't need to do it here
-          build_contraction(&desc, handle, my_einsum_merged);
+      //    build_contraction(&desc, handle, my_einsum_merged);
           // add the contraction to the map
-          einsum_to_contraction[my_einsum_merged] = desc;
-        }
+      //    einsum_to_contraction[my_einsum_merged] = desc;
+      //  }
+      
+      //build the einsum using kernel manager and get the built result
+      build_result_t result = km.build(my_einsummable);
+
+      //if the build result is not registered, add it to the unordered_map
+      if (einsum_build_results.find(my_einsummable) ==
+          einsum_build_results.end()) {
+        
+        einsum_build_results[my_einsummable] = result;
+
       }
+      
+      
+      
     }
   }
 
@@ -250,7 +263,7 @@ gpu_execute_state_t::gpu_execute_state_t(memgraph_t const &input_memgraph,
   }
 }
 
-void execute(const memgraph_t &memgraph, float *memory_base_ptr) {
+void execute(const memgraph_t &memgraph, void *memory_base_ptr) {
   // create a gpu_execute_state_t
   gpu_execute_state_t gpu_execute_state(memgraph, memory_base_ptr);
   gpu_execute_state.run();
@@ -639,45 +652,65 @@ void gpu_execute_state_t::run() {
             // add this group id to the executing set
             group_id_executing.insert(group_id);
             all_group_ids.insert(group_id);
-            auto touch_kernel = build_touch(touch);
-            touch_kernel(
-                stream,
-                offset_increment(memory_base_ptr, memory_vector[0].offset),
-                offset_increment(memory_base_ptr, memory_vector[1].offset));
+            //auto touch_kernel = build_touch(touch);
+            //touch_kernel(
+            //    stream,
+            //    offset_increment(memory_base_ptr, memory_vector[0].offset),
+            //    offset_increment(memory_base_ptr, memory_vector[1].offset));
+
+            // use the operator of kernel_manager to run touch
+            km(touch,
+            stream,
+            offset_increment(memory_base_ptr, memory_vector[0].offset),
+            offset_increment(memory_base_ptr, memory_vector[1].offset));
           }
         } else {
           auto my_einsummable = node.op.get_einsummable();
-          // CASE: CONTRACTION
           if (my_einsummable.is_contraction()) {
             // do a check of the offsets
             checkContractionOffset(node_idx);
-            // merge the adjacent dims
-            // std::cout << "Got a contraction node" << std::endl;
-            einsummable_t my_einsum_merged =
-                my_einsummable.merge_adjacent_dims();
-            // print an error if we didn't find my_einsum_merged in the map
-            auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
-            if (einsum_iter == einsum_to_contraction.end()) {
-              throw std::runtime_error(
-                  "Error: contraction descriptor not found in the map of "
-                  "contraction plans.");
+          }
+
+          auto einsum_iter = einsum_build_results.find(my_einsummable);
+          if (einsum_iter == einsum_build_results.end()) {
+            throw std::runtime_error(
+                "Error: Einsummable not found");
+          }
+          //Get the is_built and worksize for corresponding build_result 
+          auto [is_built, wsz] = einsum_iter->second;
+
+          // is_built - can the kernel manager handle this particular einsum
+          if(is_built){
+            uint64_t size = 0;
+            void* work;
+
+            //If einsum is built but does not have workspace
+            //then it's a reduction; called workspace_size()
+            //to get the worksize needed
+            if(!wsz){
+              size = km.workspace_size(my_einsummable,
+              offset_increment(memory_base_ptr, memory_vector[0].offset),
+              get_input_mem_ptrs(memory_vector, memory_base_ptr), handle);
+              work = gpu_allocate_memory(size);
+            }else if((uint64_t)*wsz>0){ //if wsz(worksize) is larger than 0, we need to allocate workspace
+              size = *wsz;
+              work = gpu_allocate_memory(size);
             }
-            auto contraction_descriptor = einsum_iter->second;
-            execute_contraction(
-                stream, handle, &contraction_descriptor,
-                offset_increment(memory_base_ptr, memory_vector[0].offset),
-                offset_increment(memory_base_ptr, memory_vector[1].offset),
-                offset_increment(memory_base_ptr, memory_vector[2].offset));
+
+            //create the worspace
+            optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+            work, size };
+
+
+            //use kernel_manager operator to run einsum
+            km(my_einsummable,stream,
+              offset_increment(memory_base_ptr, memory_vector[0].offset),
+              get_input_mem_ptrs(memory_vector, memory_base_ptr),workspace);
           }
-          // CASE: OTHER EINSUMMABLE
-          else {
-            // std::cout << "Got a other einsummable node" << std::endl;
-            auto cutensor_kernel = build_einsummable(my_einsummable);
-            cutensor_kernel(
-                stream, handle,
-                offset_increment(memory_base_ptr, memory_vector[0].offset),
-                get_input_mem_ptrs(memory_vector, memory_base_ptr));
-          }
+          //TODO: Implement solution if kernel_manager can't handle einsum
+
+          
+          
         }
         std::cout << "Node " << node_idx << " has been scheduled to a stream" << std::endl;
         // after execution, we attach the stream with a callback function
@@ -725,4 +758,3 @@ void gpu_execute_state_t::run() {
     lk.unlock();
   }
 }
-

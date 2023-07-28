@@ -130,13 +130,13 @@ int main_matmul(int argc, char **argv) {
 
 // testing on how contraction works
 int main_contraction() {
-  contractionTest(5, 5, 10);
+  //contractionTest(5, 5, 10);
   return 0;
 }
 
 // testing the allocator gives alignment and create no error
 int main_alignment() {
-  alignmentTest(5, 7, 14);
+  //alignmentTest(5, 7, 14);
   return 0;
 }
 

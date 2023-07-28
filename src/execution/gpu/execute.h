@@ -4,6 +4,7 @@
 #include "../../einsummable/reference.h"
 #include "cutensor.h"
 #include "kernels.h"
+#include "gpu_kernel_manager.h"
 #include <mutex>
 #include <condition_variable>
 #include <cuda_runtime.h>
@@ -26,7 +27,7 @@ void test();
 
 // return a memory pointer that is allocated on the gpu
 // uses cudaMalloc
-float *gpu_allocate_memory(size_t size);
+void *gpu_allocate_memory(size_t size);
 
 // debugging; set all the values in the memory to a specific value
 void init_value(float *ptr, int count, float value);
@@ -35,7 +36,7 @@ void init_value(float *ptr, int count, float value);
 
 void printFloatCPU(const float *cpu_ptr, int count);
 void printFloatGPU(const float *gpu_ptr, int count);
-float *offset_increment(const float *ptr, int offset);
+void *offset_increment(const void *ptr, int offset);
 float *float_increment(float *ptr, int offset);
 
 cudaStream_t cuda_create_stream();
@@ -46,6 +47,8 @@ struct gpu_execute_state_t {
   std::queue<int> pending_queue;
   // maintain a queue of tasks that are finished
   std::queue<int> finished_queue;
+  //kernel manager for this specific gpu_execute_state_t
+  kernel_manager_t km;
 
   // if we are not modifying the original memgraph, we can use a map
   // to store the dependency count of each node
@@ -77,10 +80,13 @@ struct gpu_execute_state_t {
   std::queue<cudaStream_t> finished_streams;
 
   // pointer pointing to the start of the GPU memory
-  float *memory_base_ptr;
+  void *memory_base_ptr;
 
   std::unordered_map<einsummable_t, cutensorContractionDescriptor_t>
       einsum_to_contraction;
+
+  std::unordered_map<einsummable_t,build_result_t> 
+      einsum_build_results;
 
   // synchronization variables used by the callback function
   std::mutex m;
@@ -92,7 +98,7 @@ struct gpu_execute_state_t {
   // contraction but trying to access the map map<int,
   // cutensorContractionPlan_t> cutensor_plans;
 
-  gpu_execute_state_t(memgraph_t const &input_memgraph, float *mem_ptr);
+  gpu_execute_state_t(memgraph_t const &input_memgraph, void *mem_ptr);
   // given a memgraph, traverse the graph and get all
   // the dependencies of a node represented by node.inns()
   // return a map from the node to the number of its dependencies
@@ -116,4 +122,4 @@ struct gpu_execute_state_t {
   void run();
 };
 
-void execute(memgraph_t const &memgraph, float *memory_base_ptr);
+void execute(memgraph_t const &memgraph, void *memory_base_ptr);
