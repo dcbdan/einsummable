@@ -36,6 +36,8 @@ struct storage_t
   // after: 8,60
   // (the before 60,9,10 would get removed)
 
+  int get_max_id() const;
+
   storage_t() {}
 };
 

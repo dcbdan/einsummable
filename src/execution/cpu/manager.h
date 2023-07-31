@@ -121,13 +121,11 @@ struct mg_manager_t {
   // Get a relation broadcast across the cluster and put it
   // onto node zero. Don't modify data owned by this
   dbuffer_t get_tensor(relation_t const& src_relation);
-  // TODO
 
   // Get a tensor here and partition it across the cluster
   void partition_into(
     relation_t const& dst_relation,
     dbuffer_t src_tensor);
-  // TODO
 
   void remap(remap_relations_t const& remap);
 
@@ -176,11 +174,11 @@ private:
   friend std::ostream& operator<<(std::ostream& out, cmd_t const& c);
   friend std::istream& operator>>(std::istream& inn, cmd_t& c);
 
-  void broadcast_cmd(cmd_t const& cmd);  // TODO
-  void broadcast_str(string const& str); // TODO
+  void broadcast_cmd(cmd_t const& cmd);
+  void broadcast_str(string const& str);
 
   // only recvs from rank 0
-  cmd_t recv_cmd(); // TODO
+  cmd_t recv_cmd();
 
   void _execute_mg(memgraph_t const& mg);
 
@@ -193,6 +191,8 @@ private:
   buffer_t get_data(int tid);
 
   map<int, buffer_t> _unpartition(remap_relations_t const& remap);
+
+  void _remap_into_here(remap_relations_t const& remap, map<int, buffer_t> data);
 };
 
 std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c);

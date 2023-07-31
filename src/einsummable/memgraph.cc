@@ -908,6 +908,25 @@ memgraph_make_state_t::memgraph_make_state_t(
   _sto_id = 0;
   remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
 
+  for(auto const& allocator: allocators) {
+    if(!allocator.is_empty()) {
+      throw std::runtime_error(
+        "initial allocators to memgraph_make_state_t should be empty");
+    }
+  }
+
+  // tell the allocators what memory is being used at time zero and update
+  // sto_id accordingly
+  for(auto const& [_, memstoloc]: input_tid_to_data) {
+    if(memstoloc.is_memloc()) {
+      auto const& [offset,size,loc] = memstoloc.get_memloc();
+      allocators[loc].allocate_at_without_deps(offset, size);
+    } else if(memstoloc.is_stoloc()) {
+      int const& id = memstoloc.get_stoloc().id;
+      _sto_id = 1 + id;
+    }
+  }
+
   // We may have an einsummable y = x + x. In this case,
   // x gets used once by y.
   //
@@ -1509,6 +1528,69 @@ allocator_t::allocate(uint64_t size)
   throw std::runtime_error("allocator_t: could not allocate");
 }
 
+void allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size) {
+  auto beg = binary_search_find(blocks.begin(), blocks.end(),
+    [&offset](block_t const& blk) {
+      return blk.beg <= offset;
+    }
+  );
+  // beg points to the last block that has the beg <= offset.
+
+  auto last = binary_search_find(beg, blocks.end(),
+    [&offset, &size](block_t const& blk) {
+      return blk.beg < offset + size;
+    });
+  // last points to the last block with an element in [offset,offset+size).
+  if(last == blocks.end()) {
+    throw std::runtime_error("maybe not enough memory");
+  }
+
+  auto end = last + 1;
+
+  for(auto iter = beg; iter != end; ++iter) {
+    auto const& blk = *iter;
+    if(blk.dep && blk.dep.value() < 0) {
+      // this memory is available and has no dependencies
+    } else {
+      throw std::runtime_error("unavailable memory: allocate at without deps");
+    }
+  }
+
+  uint64_t unused_begin = beg->beg;
+  uint64_t unused_begin_size = offset - unused_begin;
+
+  uint64_t unused_end = offset + size;
+  uint64_t unused_end_size = last->end - unused_end;
+
+  auto iter = blocks.erase(beg, end);
+
+  // iter = the spot to insert before,
+  // so insert the unused end segment,
+  // the used segment and then the unused
+  // begin segment.
+
+  if(unused_end_size != 0) {
+    iter = blocks.insert(iter, block_t {
+      .beg = unused_end,
+      .end = unused_end + unused_end_size,
+      .dep = optional<int>(-1)
+    });
+  }
+
+  iter = blocks.insert(iter, block_t {
+    .beg = offset,
+    .end = offset + size,
+    .dep = std::nullopt
+  });
+
+  if(unused_begin_size != 0) {
+    iter = blocks.insert(iter, block_t {
+      .beg = unused_begin,
+      .end = unused_begin + unused_begin_size,
+      .dep = optional<int>(-1)
+    });
+  }
+}
 
 void allocator_t::free(uint64_t offset, int del) {
   auto iter = binary_search_find(blocks.begin(), blocks.end(),
@@ -1542,6 +1624,15 @@ void allocator_t::print() const {
     }
     out << std::endl;
   }
+}
+
+bool allocator_t::is_empty() const {
+  for(auto const& blk: blocks) {
+    if(blk.occupied()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {

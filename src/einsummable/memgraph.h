@@ -377,6 +377,8 @@ struct allocator_t {
   optional<uint64_t>
   try_to_allocate_without_deps(uint64_t size);
 
+  void allocate_at_without_deps(uint64_t offset, uint64_t size);
+
   void set_strategy(allocator_strat_t s) { strat = s; };
   allocator_strat_t get_strategy() const { return strat; }
 
@@ -385,6 +387,9 @@ struct allocator_t {
   void free(uint64_t offset, int del);
 
   void print() const;
+
+  // chcek that no memory is being taken up
+  bool is_empty() const;
 
 private:
   struct block_t {
@@ -442,7 +447,7 @@ struct memgraph_make_state_t {
   memgraph_make_state_t(
     taskgraph_t const& taskgraph,
     vector<int> const& which_storage,
-    vector<allocator_t> const& as,
+    vector<allocator_t> const& empty_allocators,
     map<int, memstoloc_t>& input_tid_to_data,
     int num_compute,
     int num_storage,

@@ -124,7 +124,7 @@ void tg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
 }
 
-void tg_manager_t::broadcast_cmd(cmd_t const& cmd) {
+void tg_manager_t::broadcast_cmd(tg_manager_t::cmd_t const& cmd) {
   broadcast_str(write_with_ss(cmd));
 }
 
@@ -140,7 +140,7 @@ void tg_manager_t::broadcast_str(string const& str) {
   }
 }
 
-tg_manager_t::cmd_t tg_manager_t::recv_cmd() {
+mg_manager_t::cmd_t mg_manager_t::recv_cmd() {
   return parse_with_ss<cmd_t>(mpi->recv_str(0));
 }
 
@@ -186,7 +186,6 @@ void mg_manager_t::listen() {
   while(true) {
     cmd_t cmd = recv_cmd();
     if(cmd == cmd_t::execute_tg) {
-      // TODO: need to recv kernels and update the kernel manager
       execute_taskgraph_as_memgraph_client(
         exec_settings, kernel_manager, 0,
         mpi, data_locs, mem, storage);
@@ -204,7 +203,9 @@ void mg_manager_t::listen() {
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
       _unpartition(remap);
     } else if(cmd == cmd_t::partition_into) {
-      // TODO: how to partition_into this guy
+      auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
+      map<int, buffer_t> tmp;
+      _remap_into_here(remap, tmp);
     } else if(cmd == cmd_t::remap) {
       repartition_client(mpi, 0, data_locs, mem, storage);
     } else if(cmd == cmd_t::max_tid) {
@@ -377,6 +378,88 @@ map<int, buffer_t> mg_manager_t::_unpartition(remap_relations_t const& remap) {
   repartition(mpi, remap, data);
 
   return data;
+}
+
+void mg_manager_t::broadcast_cmd(mg_manager_t::cmd_t const& cmd) {
+  broadcast_str(write_with_ss(cmd));
+}
+
+void mg_manager_t::broadcast_str(string const& str) {
+  if(!mpi) { return; }
+
+  if(mpi->this_rank != 0) {
+    throw std::runtime_error("only rank 0 should do broadcasting");
+  }
+
+  for(int i = 1; i != mpi->world_size; ++i) {
+    mpi->send_str(str, i);
+  }
+}
+
+void mg_manager_t::partition_into(
+  relation_t const& relation,
+  dbuffer_t src_tensor)
+{
+  if(relation.dtype != src_tensor.dtype) {
+    throw std::runtime_error("can't partition different dtypes");
+  }
+
+  broadcast_cmd(cmd_t::partition_into);
+
+  remap_relations_t remap;
+  remap.insert(
+    relation.as_singleton(99), relation);
+
+  broadcast_str(remap.to_wire());
+
+  map<int, buffer_t> tmp;
+  tmp.insert({ 99, src_tensor.data });
+
+  _remap_into_here(remap, tmp);
+}
+
+void mg_manager_t::_remap_into_here(
+  remap_relations_t const& remap,
+  map<int, buffer_t> data)
+{
+  int this_rank = bool(mpi) ? mpi->this_rank : 0;
+
+  repartition(mpi, remap, data);
+
+  // create an allocator that represents the current utilization
+  // of this buffer
+  allocator_t allocator(mem->size, alloc_settings);
+  for(auto const& [_, memsto]: data_locs) {
+    if(memsto.is_mem()) {
+      auto const& [offset, size] = memsto.get_mem();
+      allocator.allocate_at_without_deps(offset, size);
+    }
+  }
+
+  int _sto_id = storage.get_max_id() + 1;
+
+  for(auto const& [_, rel]: remap.remap) {
+    auto const& locs = rel.placement.locations.get();
+    auto const& tids = rel.tids.get();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      int const& loc = locs[bid];
+      int const& tid = tids[bid];
+      if(loc == this_rank) {
+        auto& buffer = data.at(tid);
+        uint64_t const& size = buffer->size;
+        auto maybe = allocator.try_to_allocate_without_deps(size);
+        if(maybe) {
+          uint64_t offset = maybe.value();
+          data_locs.insert({tid, memsto_t(mem_t{ offset, size })});
+          std::copy(buffer->data, buffer->data + size, mem->data + offset);
+        } else {
+          int new_sto_id = _sto_id++;
+          data_locs.insert({tid, memsto_t(new_sto_id)});
+          storage.write(buffer, new_sto_id);
+        }
+      }
+    }
+  }
 }
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {
