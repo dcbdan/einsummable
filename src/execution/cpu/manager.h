@@ -114,13 +114,13 @@ struct mg_manager_t {
 
   // Compile a taskgraph into a memgraph and execute the
   // memgraph
-  void execute(taskgraph_t const& taskgraph); // TODO
+  void execute(taskgraph_t const& taskgraph);
 
   void execute(memgraph_t  const& memgraph);
 
   // Get a relation broadcast across the cluster and put it
   // onto node zero. Don't modify data owned by this
-  dbuffer_t unpartition(relation_t const& src_relation);
+  dbuffer_t get_tensor(relation_t const& src_relation);
   // TODO
 
   // Get a tensor here and partition it across the cluster
@@ -138,10 +138,8 @@ struct mg_manager_t {
   // Useful for creating new relations that won't overwrite
   // existing data
   int get_max_tid();
-  // TODO
 
   void shutdown();
-  // TODO
   // }}}
 
   map<int, memsto_t> data_locs;
@@ -189,6 +187,12 @@ private:
   void _broadcast_es(vector<std::unordered_set<einsummable_t>> const& es);
   void _update_km(std::unordered_set<einsummable_t> const& es);
   void _update_km(es_proto::EinsummableList const& es);
+
+  // If this memory is in storage, copy it out and return.
+  // If this memory is not on storage, return a view.
+  buffer_t get_data(int tid);
+
+  map<int, buffer_t> _unpartition(remap_relations_t const& remap);
 };
 
 std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c);

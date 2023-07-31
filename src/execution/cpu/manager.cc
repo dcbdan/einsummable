@@ -201,7 +201,8 @@ void mg_manager_t::listen() {
       }
       _update_km(es);
     } else if(cmd == cmd_t::unpartition) {
-      // TODO: how to unpartition?
+      auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
+      _unpartition(remap);
     } else if(cmd == cmd_t::partition_into) {
       // TODO: how to partition_into this guy
     } else if(cmd == cmd_t::remap) {
@@ -287,6 +288,24 @@ void mg_manager_t::_update_km(es_proto::EinsummableList const& es) {
   }
 }
 
+int mg_manager_t::get_max_tid() {
+  int ret = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
+
+  if(!mpi) { return ret; }
+
+  broadcast_cmd(cmd_t::max_tid);
+
+  for(int i = 1; i != mpi->world_size; ++i) {
+    ret = std::max(ret, mpi->recv_int_from_anywhere(0));
+  }
+
+  return ret;
+}
+
+void mg_manager_t::shutdown() {
+  broadcast_cmd(cmd_t::shutdown);
+}
+
 void mg_manager_t::execute(taskgraph_t const& taskgraph) {
   broadcast_cmd(cmd_t::execute_tg);
   execute_taskgraph_as_memgraph_server(
@@ -301,6 +320,22 @@ void mg_manager_t::execute(memgraph_t const& memgraph) {
   _execute_mg(memgraph);
 }
 
+dbuffer_t mg_manager_t::get_tensor(relation_t const& relation) {
+  broadcast_cmd(cmd_t::unpartition);
+
+  remap_relations_t remap;
+
+  remap.insert(
+    relation, relation.as_singleton(99));
+
+  broadcast_str(remap.to_wire());
+
+  map<int, buffer_t> data = _unpartition(remap);
+
+  return dbuffer_t(relation.dtype, data.at(99));
+}
+
+
 void mg_manager_t::remap(remap_relations_t const& remap) {
   broadcast_cmd(cmd_t::remap);
   repartition_server(mpi, remap, alloc_settings, data_locs, mem, storage);
@@ -308,6 +343,40 @@ void mg_manager_t::remap(remap_relations_t const& remap) {
 
 void mg_manager_t::_execute_mg(memgraph_t const& mg) {
   execute_memgraph(mg, exec_settings, kernel_manager, mpi, mem, storage);
+}
+
+buffer_t mg_manager_t::get_data(int tid) {
+  memsto_t const& loc = data_locs.at(tid);
+  if(loc.is_mem()) {
+    mem_t const& m = loc.get_mem();
+    return make_buffer_reference(mem->data + m.offset, m.size);
+  } else if(loc.is_sto()) {
+    int const& id = loc.get_sto();
+    return storage.load(id);
+  } else {
+    throw std::runtime_error("should not reach: memsto");
+  }
+}
+
+map<int, buffer_t> mg_manager_t::_unpartition(remap_relations_t const& remap) {
+  int this_rank = bool(mpi) ? mpi->this_rank : 0;
+
+  map<int, buffer_t> data;
+  for(auto const& [inn_rel, _]: remap.remap) {
+    auto const& locs = inn_rel.placement.locations.get();
+    auto const& tids = inn_rel.tids.get();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      int const& loc = locs[bid];
+      int const& tid = tids[bid];
+      if(loc == this_rank) {
+        data.insert({tid, get_data(tid)});
+      }
+    }
+  }
+
+  repartition(mpi, remap, data);
+
+  return data;
 }
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {

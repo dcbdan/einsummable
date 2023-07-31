@@ -18,7 +18,8 @@ struct memsto_t {
   memsto_t(mem_t const& m): _is_mem(true), info { .mem = m } {}
   memsto_t(int sto_id): _is_mem(false), info { .sto_id = sto_id } {}
 
-  bool is_mem() const { return _is_mem; }
+  bool is_mem() const { return  _is_mem; }
+  bool is_sto() const { return !_is_mem; }
 
   mem_t const& get_mem() const;
   int const& get_sto() const;
