@@ -31,6 +31,10 @@ struct storage_t
   // If an old isn't a storage id here, throw an error
   // If a storage id isn't an old, delete it
   void remap(vector<std::array<int, 2>> const& old_to_new_stoids);
+  // before: 3,5,60,9,10
+  // remap: {3,8}, {5,60}
+  // after: 8,60
+  // (the before 60,9,10 would get removed)
 
   storage_t() {}
 };

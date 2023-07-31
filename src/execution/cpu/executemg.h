@@ -52,7 +52,7 @@ void execute_memgraph(
 // the extra coordinating. The client version should be
 // called by all the other nodes.
 void execute_taskgraph_as_memgraph_server(
-  taskgraph_t const& memgraph,
+  taskgraph_t const& taskgraph,
   execute_memgraph_settings_t const& exec_settings,
   kernel_manager_t const& kernel_manager,
   allocator_settings_t const& alloc_settings,

@@ -14,6 +14,10 @@ message Einsummable {
   optional string castable = 5;
 }
 
+message EinsummableList {
+  repeated Einsummable es = 1;
+}
+
 message TouchDim {
   required uint64 d_inn = 1;
   required uint64 d_out = 2;

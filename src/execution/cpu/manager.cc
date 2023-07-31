@@ -166,77 +166,149 @@ void tg_manager_t::copy_into_data(
   }
 }
 
-//mg_manager_t::mg_manager_t(
-//  mpi_t* mpi,
-//  execute_memgraph_settings_t const& exec_sts,
-//  uint64_t memory_size,
-//  allocator_settings_t alloc_sts)
-//  : mpi(mpi), exec_settings(exec_sts), alloc_settings(alloc_sts)
-//{
-//  mem = make_buffer(memory_size);
-//}
-//
-//void mg_manager_t::listen() {
-//  if(!mpi) {
-//    throw std::runtime_error("should not call listen if mpi is not setup");
-//  }
-//  if(mpi->this_rank == 0) {
-//    throw std::runtime_error("rank zero should not call listen method");
-//  }
-//  while(true) {
-//    cmd_t cmd = recv_cmd();
-//    if(cmd == cmd_t::execute) {
-//      memgraph_t mg = taskgraph_t::from_wire(mpi->recv_str(0));
-//      _execute(mg);
-//    } else if(cmd == cmd_t::unpartition) {
-//      // TODO: how to unpartition?
-//    } else if(cmd == cmd_t::partition_into) {
-//      // TODO: how to partition_into this guy
-//    } else if(cmd == cmd_t::remap) {
-//      remap_relations_t remap; // not actually used
-//      repartition(mpi, remap, alloc_settings, data_locs, mem, storage);
-//    } else if(cmd == cmd_t::max_tid) {
-//      int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
-//      mpi->send_int(max_tid_here, 0, 0);
-//    } else if(cmd == cmd_t::shutdown) {
-//      break;
-//    }
-//  }
-//}
-//
-//void mg_manager_t::execute(taskgraph_t const& taskgraph) {
-//  vector<int> which_storage(world_size);
-//  std::iota(which_storage.begin(), which_storage.end(), 0);
-//
-//  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
-//    memgraph_t::make(
-//      taskgraph, which_storage, mem_sizes,
-//      data_locs, alloc_settings, true);
-//
-//  vector<vector<std::array<int, 2>>> storage_remaps =
-//    create_storage_remaps(mem_sizes.size(), data_locs, inn_tg_to_loc);
-//
-//  // TODO: remap all the storage items
-//
-//
-//}
-//
-//void mg_manager_t::execute(memgraph_t const& memgraph) {
-//  gremlin_t gremlin("execute memgraph from manager");
-//  broadcast_cmd(cmd_t::execute);
-//  broadcast_str(memgraph.to_wire());
-//  _execute(memgraph);
-//}
-//
-//void mg_manager_t::remap(remap_relations_t const& remap) {
-//  broadcast_cmd(cmd_t::remap);
-//  repartition(mpi, remap, alloc_settings, data_locs, mem, storage);
-//}
-//
-//void mg_manager_t::_execute(memgraph_t const& mg) {
-//  update_kernel_manager(kernel_manager, memgraph);
-//  execute_memgraph(memgraph, exec_settings, kernel_manager, mpi, mem, storage);
-//}
+mg_manager_t::mg_manager_t(
+  mpi_t* mpi,
+  execute_memgraph_settings_t const& exec_sts,
+  uint64_t memory_size,
+  allocator_settings_t alloc_sts)
+  : mpi(mpi), exec_settings(exec_sts), alloc_settings(alloc_sts)
+{
+  mem = make_buffer(memory_size);
+}
+
+void mg_manager_t::listen() {
+  if(!mpi) {
+    throw std::runtime_error("should not call listen if mpi is not setup");
+  }
+  if(mpi->this_rank == 0) {
+    throw std::runtime_error("rank zero should not call listen method");
+  }
+  while(true) {
+    cmd_t cmd = recv_cmd();
+    if(cmd == cmd_t::execute_tg) {
+      // TODO: need to recv kernels and update the kernel manager
+      execute_taskgraph_as_memgraph_client(
+        exec_settings, kernel_manager, 0,
+        mpi, data_locs, mem, storage);
+    } else if(cmd == cmd_t::execute_mg) {
+      memgraph_t mg = memgraph_t::from_wire(mpi->recv_str(0));
+      _execute_mg(mg);
+    } else if(cmd == cmd_t::update_km) {
+      string str = mpi->recv_str(0);
+      es_proto::EinsummableList es;
+      if(!es.ParseFromString(str)) {
+        throw std::runtime_error("could not parse einsummable list!");
+      }
+      _update_km(es);
+    } else if(cmd == cmd_t::unpartition) {
+      // TODO: how to unpartition?
+    } else if(cmd == cmd_t::partition_into) {
+      // TODO: how to partition_into this guy
+    } else if(cmd == cmd_t::remap) {
+      repartition_client(mpi, 0, data_locs, mem, storage);
+    } else if(cmd == cmd_t::max_tid) {
+      int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
+      mpi->send_int(max_tid_here, 0, 0);
+    } else if(cmd == cmd_t::shutdown) {
+      break;
+    }
+  }
+}
+
+void mg_manager_t::update_kernel_manager(taskgraph_t const& tg) {
+  vector<std::unordered_set<einsummable_t>> es;
+  for(auto const& node: tg.nodes) {
+    auto const& op = node.op;
+    if(op.is_apply()) {
+      int loc = op.out_loc();
+      auto const& e = op.get_apply().einsummable;
+      es[loc].insert(e.merge_adjacent_dims());
+    }
+  }
+
+  broadcast_cmd(cmd_t::update_km);
+  _broadcast_es(es);
+  _update_km(es[0]);
+}
+
+void mg_manager_t::update_kernel_manager(memgraph_t const& mg) {
+  vector<std::unordered_set<einsummable_t>> es;
+  for(auto const& node: mg.nodes) {
+    auto const& op = node.op;
+    if(op.is_apply()) {
+      auto const& apply = op.get_apply();
+      if(apply.is_einsummable()) {
+        int const& loc = apply.loc;
+        auto const& e = apply.get_einsummable();
+        es[loc].insert(e.merge_adjacent_dims());
+      }
+    }
+  }
+  broadcast_cmd(cmd_t::update_km);
+  _broadcast_es(es);
+  _update_km(es[0]);
+}
+
+void mg_manager_t::_broadcast_es(
+  vector<std::unordered_set<einsummable_t>> const& einsummables)
+{
+  for(int loc = 1; loc != einsummables.size(); ++loc) {
+    es_proto::EinsummableList es;
+    for(auto const& einsummable: einsummables[loc]) {
+      es_proto::Einsummable* e = es.add_es();
+      einsummable.to_proto(*e);
+    }
+    string ret;
+    es.SerializeToString(&ret);
+    mpi->send_str(ret, loc);
+  }
+}
+
+void mg_manager_t::_update_km(
+  std::unordered_set<einsummable_t> const& es)
+{
+  for(auto const& e: es) {
+    auto maybe = kernel_manager.build(e);
+    if(!maybe) {
+      throw std::runtime_error("mg manager: could not build a kernel");
+    }
+  }
+}
+
+void mg_manager_t::_update_km(es_proto::EinsummableList const& es) {
+  int n = es.es_size();
+  for(int i = 0; i != n; ++i) {
+    es_proto::Einsummable const& e = es.es(i);
+    einsummable_t einsummable = einsummable_t::from_proto(e);
+    auto maybe = kernel_manager.build(einsummable);
+    if(!maybe) {
+      throw std::runtime_error("mg manager: could not build a kernel");
+    }
+  }
+}
+
+void mg_manager_t::execute(taskgraph_t const& taskgraph) {
+  broadcast_cmd(cmd_t::execute_tg);
+  execute_taskgraph_as_memgraph_server(
+    taskgraph, exec_settings, kernel_manager, alloc_settings,
+    mpi, data_locs, mem, storage);
+}
+
+void mg_manager_t::execute(memgraph_t const& memgraph) {
+  gremlin_t gremlin("execute memgraph from manager");
+  broadcast_cmd(cmd_t::execute_mg);
+  broadcast_str(memgraph.to_wire());
+  _execute_mg(memgraph);
+}
+
+void mg_manager_t::remap(remap_relations_t const& remap) {
+  broadcast_cmd(cmd_t::remap);
+  repartition_server(mpi, remap, alloc_settings, data_locs, mem, storage);
+}
+
+void mg_manager_t::_execute_mg(memgraph_t const& mg) {
+  execute_memgraph(mg, exec_settings, kernel_manager, mpi, mem, storage);
+}
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {
   auto const& items = tg_manager_t::cmd_strs();
@@ -249,14 +321,14 @@ std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c) {
   return inn;
 }
 
-//std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c) {
-//  auto const& items = mg_manager_t::cmd_strs();
-//  out << items.at(int(c));
-//  return out;
-//}
-//
-//std::istream& operator>>(std::istream& inn, mg_manager_t::cmd_t& c) {
-//  c = mg_manager_t::cmd_t(istream_expect_or(inn, mg_manager_t::cmd_strs()));
-//  return inn;
-//}
+std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c) {
+  auto const& items = mg_manager_t::cmd_strs();
+  out << items.at(int(c));
+  return out;
+}
+
+std::istream& operator>>(std::istream& inn, mg_manager_t::cmd_t& c) {
+  c = mg_manager_t::cmd_t(istream_expect_or(inn, mg_manager_t::cmd_strs()));
+  return inn;
+}
 
