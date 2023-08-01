@@ -288,6 +288,8 @@ public:
     mem_t       get_output_mem() const;
 
     bool is_local_to(int loc) const;
+    string get_name() const;
+
   private:
     _op_t op;
 

@@ -57,7 +57,6 @@ add_base_application("einsummable_test" "exps" "einsummable_test")
 add_base_application("memgraph_test"    "exps" "memgraph_test")
 add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
-add_base_application("dummy_evict_mg"   "exps" "dummy_evict_mg")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -108,10 +107,10 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
   add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
   add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-  add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+  add_cpu_application("dummy_evict_mg"  "exps" "dummy_evict_mg")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

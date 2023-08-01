@@ -463,6 +463,8 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
     }
   }
 
+  std::cout << "Inserting node in the memgraph: " << op.get_name() << std::endl;
+
   nodes.push_back(node_t {
     .op = op,
     .inns = inns,
@@ -532,6 +534,30 @@ memgraph_t::del_t::from_memloc(memloc_t const& m) {
     .offset = m.offset,
     .size = m.size
   };
+}
+
+string memgraph_t::op_t::get_name() const{
+  if (is_alloc()) {
+    return "alloc";
+  } else if (is_apply()) {
+    return "apply";
+  } else if (is_evict()) {
+    return "evict";   
+  } else if (is_load()) {
+    return "load";
+  } else if (is_inputsto()) {
+    return "inputsto";
+  } else if (is_move()) {
+    return "move";
+  } else if (is_del()) {
+    return "del";
+  } else if (is_inputmem()) {
+    return "inputmem";
+  } else if (is_partialize()) {
+    return "partialize";
+  } 
+
+  return "unknown";
 }
 
 void memgraph_t::op_t::check_op() const {

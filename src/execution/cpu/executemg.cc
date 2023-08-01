@@ -51,7 +51,7 @@ struct cpu_mg_exec_state_t {
   workspace_manager_t workspace_manager;
 
   // Encapsulates the logic of disk IO operations
-  storage_t storage;
+  storage_t& storage;
 
   int this_rank;
 
@@ -95,6 +95,8 @@ void execute_memgraph(
   // same shared storage location.
   //
   // For now, enforce no shared storage by having storage_loc[i] == i for all i.
+  std::cout << "Starting to execute memgraph" << std::endl; 
+
   auto const& storage_loc = memgraph.storage_locs;
   for(int i = 0; i != storage_loc.size(); ++i) {
     if(storage_loc[i] != i) {
@@ -224,6 +226,7 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
 {
   {
     std::unique_lock lk(m);
+    std::cout << "Completed the node: " << _node_id << std::endl;
 
     if(group_id >= 0) {
       bool did_remove = busy_groups.erase(group_id);
@@ -299,9 +302,11 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
     {
       std::unique_lock lk(m);
       cv.wait(lk, [&which, this]() {
+        std::cout << "Waiting for apply node..." << std::endl;
         if(num_remaining == 0) {
           return true;
         }
+        std::cout << "Executing apply node..." << std::endl;
         for(auto iter = apply_ready.begin(); iter != apply_ready.end(); ++iter) {
           auto const& id = *iter;
           auto const& group_id = memgraph.nodes[id].op.get_apply().group;
@@ -351,29 +356,38 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
   int node_id;
   while(true)
   {
-    std::unique_lock lk(m);
-    cv.wait(lk, [&node_id, this]() {
-      if (num_remaining == 0) return true;
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [&node_id, this]() {
+        std::cout << "Waiting for cache node..." << std::endl;
 
-      if (cache_ready.empty()) return false;
+        if (num_remaining == 0) return true;
 
-      int node_id = cache_ready.front();
-      cache_ready.pop();
-      return true;
-    });
+        if (cache_ready.empty()) return false;
+
+        node_id = cache_ready.front();
+        cache_ready.pop();
+        return true;
+      });
+    }
 
     if (num_remaining == 0) return;
 
     auto const& node = memgraph.nodes[node_id];
+    std::cout << "Executing cache node..." << node.op.get_name() << std::endl;
 
     if (node.op.is_evict())
     {
+      std::cout << "Im evicting" << std::endl;
       buffer_t data = get_buffer_reference(node.op.get_evict().src.as_mem());
+      std::cout << "Survived getting buffer reference" << std::endl;
       int tensor_id = node.op.get_evict().dst.id;
       storage.write(data, tensor_id);
+      std::cout << "Left storage.write()" << std::endl;
     } 
     else if (node.op.is_load())
     {
+      std::cout << "Im loading" << std::endl;
       buffer_t data = get_buffer_reference(node.op.get_load().dst.as_mem());
       int tensor_id = node.op.get_load().src.id;
       storage.read(data, tensor_id);

@@ -5,6 +5,7 @@
 
 #include "mpi_class.h"
 #include "kernels.h"
+#include "storage.h"
 
 #include <thread>
 
