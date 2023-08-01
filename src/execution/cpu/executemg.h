@@ -11,7 +11,7 @@
 
 struct execute_memgraph_settings_t {
   int num_apply_runner;
-  int num_cache_runner;
+  int num_storage_runner;
   int num_send_runner;
   int num_recv_runner;
 
@@ -19,7 +19,7 @@ struct execute_memgraph_settings_t {
     int num_threads = std::max(1u, std::thread::hardware_concurrency());
     return execute_memgraph_settings_t {
       .num_apply_runner = num_threads,
-      .num_cache_runner = 2,
+      .num_storage_runner = 1,
       .num_send_runner = 2,
       .num_recv_runner = 2
     };
@@ -35,7 +35,6 @@ void execute_memgraph(
   mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
   buffer_t memory);
 
-// TODO
 void execute_memgraph(
   memgraph_t const& memgraph,
   execute_memgraph_settings_t const& settings,

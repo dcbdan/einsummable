@@ -15,7 +15,7 @@ struct storage_t
 
 	void write(buffer_t buffer, int id);
 
-	void read(buffer_t& buffer, int id);
+	void read(buffer_t buffer, int id);
 
   buffer_t read(int id);
 
@@ -27,7 +27,7 @@ struct storage_t
     return ret;
   }
 
-  void load(buffer_t& ret, int id) {
+  void load(buffer_t ret, int id) {
     read(ret, id);
     remove(id);
   }
@@ -64,7 +64,7 @@ private:
   };
 
   // these don't have grab a mutex
-  void _read(buffer_t& buffer, uint64_t offset);
+  void _read(buffer_t buffer, uint64_t offset);
   void _remove(int id);
 private:
   std::mutex m;

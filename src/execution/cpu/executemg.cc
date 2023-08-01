@@ -33,10 +33,11 @@ struct cpu_mg_exec_state_t {
     mpi_t* mpi,
     memgraph_t const& memgraph,
     kernel_manager_t const& kernel_manager,
-    buffer_t& buffer);
+    buffer_t& buffer,
+    storage_t* storage);
 
   void apply_runner(int runner_id);
-  void cache_runner(int runner_id);
+  void storage_runner(int runner_id);
   void send_runner(int runner_id);
   void recv_runner(int runner_id);
 
@@ -46,7 +47,7 @@ struct cpu_mg_exec_state_t {
 
   void completed(int node_id, int group_id = -1);
 
-  void run(int n_apply, int n_cache, int n_send, int n_recv);
+  void run(int n_apply, int n_sto, int n_send, int n_recv);
 
   void* get_raw(mem_t const& m) {
     return reinterpret_cast<void*>(buffer->data + m.offset);
@@ -62,6 +63,7 @@ struct cpu_mg_exec_state_t {
   memgraph_t const& memgraph;
   kernel_manager_t const& kernel_manager;
   buffer_t& buffer;
+  storage_t* storage;
 
   // this holds the kernel_manager and queries it
   workspace_manager_t workspace_manager;
@@ -83,7 +85,7 @@ struct cpu_mg_exec_state_t {
   // the recv here can proceed
   queue<int> can_recv_ready;
 
-  queue<int> cache_ready;
+  queue<int> sto_ready;
 
   int num_remaining;
 
@@ -95,12 +97,13 @@ struct cpu_mg_exec_state_t {
   set<int> busy_groups;
 };
 
-void execute_memgraph(
+void _execute_memgraph(
   memgraph_t const& memgraph,
   execute_memgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,
-  mpi_t* mpi,
-  buffer_t memory)
+  mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
+  buffer_t memory,
+  storage_t* storage)
 {
   // TODO: For shared storage, the memgraph execution engine will need
   // inform the load at dst that the evict at src has happened on the
@@ -114,26 +117,47 @@ void execute_memgraph(
     }
   }
 
-  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory);
+  cpu_mg_exec_state_t state(mpi, memgraph, kernel_manager, memory, storage);
 
   int world_size = bool(mpi) ? mpi->world_size : 1;
 
   state.run(
     settings.num_apply_runner,
-    settings.num_cache_runner,
+    bool(storage) ? settings.num_storage_runner : 0,
     world_size > 1 ? settings.num_send_runner : 0,
     world_size > 1 ? settings.num_recv_runner : 0);
 }
 
-void cpu_mg_exec_state_t::run(int n_apply, int n_cache, int n_send, int n_recv)
+void execute_memgraph(
+  memgraph_t const& memgraph,
+  execute_memgraph_settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
+  mpi_t* mpi,
+  buffer_t memory)
+{
+  _execute_memgraph(memgraph, settings, kernel_manager, mpi, memory, nullptr);
+}
+
+void execute_memgraph(
+  memgraph_t const& memgraph,
+  execute_memgraph_settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
+  mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
+  buffer_t memory,
+  storage_t& storage)
+{
+  _execute_memgraph(memgraph, settings, kernel_manager, mpi, memory, &storage);
+}
+
+void cpu_mg_exec_state_t::run(int n_apply, int n_sto, int n_send, int n_recv)
 {
   vector<thread> runners;
-  runners.reserve(n_apply + n_cache + n_send + n_recv + 2);
+  runners.reserve(n_apply + n_sto + n_send + n_recv + 2);
   for(int i = 0; i != n_apply; ++i) {
     runners.emplace_back([this, i](){ return this->apply_runner(i); });
   }
-  for(int i = 0; i != n_cache; ++i) {
-    runners.emplace_back([this, i](){ return this->cache_runner(i); });
+  for(int i = 0; i != n_sto; ++i) {
+    runners.emplace_back([this, i](){ return this->storage_runner(i); });
   }
   for(int i = 0; i != n_send; ++i) {
     runners.emplace_back([this, i](){ return this->send_runner(i); });
@@ -156,12 +180,14 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
   mpi_t* mpi,
   memgraph_t const& mg,
   kernel_manager_t const& km,
-  buffer_t& b)
+  buffer_t& b,
+  storage_t* ss)
   : mpi(mpi),
     memgraph(mg),
     kernel_manager(km),
     buffer(b),
-    workspace_manager(km)
+    workspace_manager(km),
+    storage(ss)
 {
   // set num_remaining, num_deps_remaining and the move notification setup variables
   vector<int> readys;
@@ -281,7 +307,7 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
               can_recv_ready.push(out);
             }
           } else if(node.op.is_evict() || node.op.is_load()) {
-            cache_ready.push(out);
+            sto_ready.push(out);
           } else if(node.op.is_inputmem() || node.op.is_inputsto()
                  || node.op.is_partialize() || node.op.is_alloc()
                  || node.op.is_del())
@@ -357,8 +383,58 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
   }
 }
 
-void cpu_mg_exec_state_t::cache_runner(int runner_id) {
-  throw std::runtime_error("cache_runner not implemented");
+void cpu_mg_exec_state_t::storage_runner(int runner_id) {
+  if(runner_id > 0) {
+    throw std::runtime_error("only one storage runner allowed");
+  }
+  if(!storage) {
+    throw std::runtime_error("must have storage ptr");
+  }
+
+  storage_t& sto = *storage;
+
+  int node_id;
+  while(true)
+  {
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [&node_id, this](){
+        if(num_remaining == 0) {
+          return true;
+        }
+        if(sto_ready.size() > 0) {
+          node_id = sto_ready.front();
+          sto_ready.pop();
+          return true;
+        }
+        return false;
+      });
+
+      if(num_remaining == 0) {
+        return;
+      }
+    }
+    auto const& node = memgraph.nodes[node_id];
+    if(!node.op.is_local_to(this_rank)) {
+      throw std::runtime_error("node given to storage runner is not local");
+    }
+
+    if(node.op.is_evict()) {
+      auto const& evict = node.op.get_evict();
+      buffer_t data = get_buffer_reference(evict.src.as_mem());
+      int tensor_id = evict.dst.id;
+      sto.write(data, tensor_id);
+    } else if(node.op.is_load()) {
+      auto const& load = node.op.get_load();
+      buffer_t data = get_buffer_reference(load.dst.as_mem());
+      int tensor_id = load.src.id;
+      sto.load(data, tensor_id);
+    } else {
+      throw std::runtime_error("storage runner must have evict or load node");
+    }
+
+    completed(node_id);
+  }
 }
 
 void cpu_mg_exec_state_t::send_runner(int runner_id) {

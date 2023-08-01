@@ -73,7 +73,7 @@ void storage_t::write(buffer_t buffer, int id)
   file.write(data, buffer->size);
 }
 
-void storage_t::read(buffer_t& buffer, int id) {
+void storage_t::read(buffer_t buffer, int id) {
   std::unique_lock lk(m);
 
   auto iter = offsets.find(id);
@@ -102,7 +102,7 @@ buffer_t storage_t::read(int id) {
   return buffer;
 }
 
-void storage_t::_read(buffer_t& buffer, uint64_t offset) {
+void storage_t::_read(buffer_t buffer, uint64_t offset) {
   file.seekg(offset);
   char* data = reinterpret_cast<char*>(buffer->data);
   file.read(data, buffer->size);
