@@ -1635,6 +1635,27 @@ bool allocator_t::is_empty() const {
   return true;
 }
 
+optional<tuple<uint64_t, uint64_t>>
+allocator_t::get_allocated_region(uint64_t offset) const
+{
+  auto iter = binary_search_find(blocks.begin(), blocks.end(),
+    [&offset](block_t const& blk) {
+      return blk.beg <= offset;
+    }
+  );
+
+  if(iter == blocks.end()) {
+    return std::nullopt;
+  }
+
+  block_t const& block = *iter;
+  if(!block.occupied()) {
+    return std::nullopt;
+  }
+
+  return optional<tuple<uint64_t, uint64_t>>({block.beg, block.end});
+}
+
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
   out << "[" << mem.offset << "," << mem.offset+mem.size << ")";
   return out;

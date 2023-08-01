@@ -140,7 +140,7 @@ void tg_manager_t::broadcast_str(string const& str) {
   }
 }
 
-mg_manager_t::cmd_t mg_manager_t::recv_cmd() {
+tg_manager_t::cmd_t tg_manager_t::recv_cmd() {
   return parse_with_ss<cmd_t>(mpi->recv_str(0));
 }
 
@@ -394,6 +394,10 @@ void mg_manager_t::broadcast_str(string const& str) {
   for(int i = 1; i != mpi->world_size; ++i) {
     mpi->send_str(str, i);
   }
+}
+
+mg_manager_t::cmd_t mg_manager_t::recv_cmd() {
+  return parse_with_ss<cmd_t>(mpi->recv_str(0));
 }
 
 void mg_manager_t::partition_into(

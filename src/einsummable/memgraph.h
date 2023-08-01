@@ -391,6 +391,11 @@ struct allocator_t {
   // chcek that no memory is being taken up
   bool is_empty() const;
 
+  // If the memory at offset is occupied, return the corresponding
+  // occupied interval. Else return None.
+  optional<tuple<uint64_t, uint64_t>>
+  get_allocated_region(uint64_t offset) const;
+
 private:
   struct block_t {
     uint64_t beg;
