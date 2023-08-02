@@ -116,7 +116,7 @@ struct memgraph_t {
     memgraph_t>
   make(
     taskgraph_t const& graph,
-    vector<int> const& which_storage,
+    vector<int> which_storage = {},
     vector<uint64_t> mem_sizes = {},
     map<int, memstoloc_t> init_input_tid_to_data = {},
     allocator_settings_t settings = allocator_settings_t::default_settings(),

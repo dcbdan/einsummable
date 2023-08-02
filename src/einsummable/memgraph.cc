@@ -74,11 +74,11 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       }
     } else if(op.is_inputsto()) {
       auto const& input = op.get_inputsto();
-      string label = "inputsto@";
       if(input.loc < colors.size()) {
-        color = colors[input.loc];
+        color = "pink";
+        //color = colors[input.loc];
       }
-      //label = "input " + write_with_ss(id);
+      label = "inputsto@sto_id=" + write_with_ss(input.storage_id);
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
       auto const& aop = apply.op;
@@ -122,7 +122,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         "->storage_id" +
         write_with_ss(stoloc.id);
       if(memloc.loc < colors.size()) {
-        color = colors[memloc.loc];
+        color = "pink"; // colors[memloc.loc];
       }
     } else if(op.is_load()) {
       auto const& [stoloc, memloc] = node.op.get_load();
@@ -130,7 +130,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         "storage_id" + write_with_ss(stoloc.id) + "->" +
         write_with_ss(memloc);
       if(memloc.loc < colors.size()) {
-        color = colors[memloc.loc];
+        color = "pink"; // colors[memloc.loc];
       }
     } else if(op.is_partialize()) {
       partialize_t const& par = op.get_partialize();
@@ -812,13 +812,19 @@ tuple<
   memgraph_t>
 memgraph_t::make(
   taskgraph_t const& taskgraph,
-  vector<int> const& which_storage,
+  vector<int> which_storage,
   vector<uint64_t> mem_sizes,
   map<int, memstoloc_t> input_tid_to_data,
   allocator_settings_t settings,
   bool use_storage)
 {
   int const n_compute_locs = taskgraph.num_locs();
+
+  if(which_storage.size() == 0) {
+    which_storage = vector<int>(n_compute_locs);
+    std::iota(which_storage.begin(), which_storage.end(), 0);
+  }
+
   if(which_storage.size() != n_compute_locs) {
     throw std::runtime_error("incorrect which storage length: memgraph_t::make");
   }
@@ -1117,7 +1123,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
     // For apply and move nodes, insert the newly created
     // memid into the tensor mapping
-    task_tensor_to_mem_node_insert_on_memory(id, new_memid);
+    task_tensor_to_mem_node_update_on_memory(id, new_memid);
   } else {
     // This is a touch in a partialize node.
 
@@ -1132,14 +1138,13 @@ void memgraph_make_state_t::add_to_memgraph(
     auto& in_progress = partializes_in_progress[id];
     in_progress.push_back(new_memid);
 
-    bool is_first_touch = (in_progress.size() == 1);
     bool is_last_touch = (in_progress.size() == num_touches_in_partialize);
 
     if(is_last_touch) {
       // This partialize is complete
       if(num_touches_in_partialize == 1) {
         // then insert the newly created memid into the tensor mapping
-        task_tensor_to_mem_node_insert_on_memory(id, new_memid);
+        task_tensor_to_mem_node_update_on_memory(id, new_memid);
       } else {
         // create a partialize node that depends on everything in in_progress
         // and insert that into the tensor mapping
@@ -1154,11 +1159,7 @@ void memgraph_make_state_t::add_to_memgraph(
     } else {
       // This partialize is still in progress. Insert the allocated
       // output memid.
-      if(is_first_touch) {
-        task_tensor_to_mem_node_insert_on_memory(id, touch_output_memid.value());
-      } else {
-        task_tensor_to_mem_node_update_on_memory(id, touch_output_memid.value());
-      }
+      task_tensor_to_mem_node_update_on_memory(id, touch_output_memid.value());
     }
   }
 
@@ -1377,8 +1378,8 @@ void memgraph_make_state_t::task_tensor_to_mem_node_update_on_storage(
 
   {
     auto iter = tensors_on_memory.find(tid);
-    if(iter == tensors_on_memory.end()) {
-      tensors_on_memory.erase(tid);
+    if(iter != tensors_on_memory.end()) {
+      tensors_on_memory.erase(iter);
       tensors_on_storage.insert(tid);
     } else {
       if(tensors_on_storage.count(tid) == 0) {
@@ -1395,8 +1396,8 @@ void memgraph_make_state_t::task_tensor_to_mem_node_update_on_memory(
 
   {
     auto iter = tensors_on_storage.find(tid);
-    if(iter == tensors_on_storage.end()) {
-      tensors_on_storage.erase(tid);
+    if(iter != tensors_on_storage.end()) {
+      tensors_on_storage.erase(iter);
       tensors_on_memory.insert(tid);
     } else {
       if(tensors_on_memory.count(tid) == 0) {
@@ -1459,11 +1460,11 @@ int memgraph_make_state_t::order_state_t::get(int tid)
       return *iter;
     }
   }
-  // If this happens, it is probably by mistake
-  throw std::runtime_error(
-    "order state: this tensor not going to be used again");
-  // Otherwise, just return a large value saying
-  // this "will never be used again"
+
+  // If this tensor will not be used again but hasn't been deleted,
+  // it is probably a save node.
+
+  // Return a large value to say this "will never be used again"
   return std::numeric_limits<int>::max();
 }
 
