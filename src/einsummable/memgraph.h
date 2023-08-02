@@ -495,7 +495,8 @@ struct memgraph_make_state_t {
   // Load as many tensors as possible, with a maximum number of bytes
   // loaded at hint.
   // The algorihtm is:
-  //   1. find all tensors in storage less than size hint,
+  //   1. find all tensors in storage less than size hint and will
+  //      be used again
   //   2. load the tensor that is used earliest
   //   3. decrement hint and recurse
   // If allocation fails or there are no tensors smaller than

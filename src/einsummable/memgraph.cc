@@ -1477,12 +1477,18 @@ void memgraph_make_state_t::load_tensors_until(int loc, uint64_t hint)
 
   vector<int> candidates(tensors_on_storage.begin(), tensors_on_storage.end());
 
-
   vector_filter_inplace(candidates, [&](int const& tid) {
     auto const& node = taskgraph.nodes[tid];
     if(node.op.out_loc() != loc) {
       return false;
     }
+
+    // don't load the tensor if it does not need
+    // to be used again
+    if(remaining_usage_counts[tid] == 0) {
+      return false;
+    }
+
     return node.op.out_size() <= hint;
   });
 
@@ -1614,8 +1620,13 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
   };
   _sto_id += 1;
 
-  // this eviction can only happen when node's outs finish
+  // this eviction can only happen when (1) the node is finished
+  // and (2) all of node's outs finish.
+  // Note that the node may not actually have any outs, in particular
+  // it might be a save node that we are evicting because it won't be
+  // used again.
   set<int> evict_deps;
+  evict_deps.insert(node_mid);
   for (const auto& out : node.outs) {
     evict_deps.insert(out);
   }
