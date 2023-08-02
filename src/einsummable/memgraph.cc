@@ -688,6 +688,23 @@ mem_t memgraph_t::op_t::get_output_mem() const {
   return get_output_memloc().as_mem();
 }
 
+stoloc_t memgraph_t::op_t::get_stoloc() const {
+  if (!(is_evict() || is_inputsto() || is_load())) {
+    throw std::runtime_error(
+      "There's no incident stoloc for nodes that are not evict/inputsto/load.");
+  } else {
+    if (is_evict()) {
+      return get_evict().dst;
+    } else if (is_load()) {
+      return get_load().src;
+    } else if (is_inputsto()) {
+      return get_inputsto().as_stoloc();
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  }
+}
+
 bool memgraph_t::op_t::is_local_to(int loc) const {
   if(is_inputmem()) {
     return loc == get_inputmem().loc;
@@ -817,7 +834,7 @@ memgraph_t::make(
   for(int i = 0; i != n_storage_locs; ++i) {
     auto iter = std::find(which_storage.begin(), which_storage.end(), i);
     if(iter == which_storage.end()) {
-      throw std::runtime_error("storage locs must be 0, ..., n_storage_locs-1; no missing");
+      throw std::runtime_error("storage locs must have 0, ..., n_storage_locs-1; no missing");
     }
   }
 
@@ -868,10 +885,7 @@ memgraph_t::make(
     }
   }
 
-  for(auto which_op: order_taskgraph(taskgraph))
-  {
-    state.add_to_memgraph(which_op);
-  }
+  state.process(order_taskgraph(taskgraph));
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
@@ -973,7 +987,8 @@ void memgraph_make_state_t::initialize_input(int inn){
 
     op_t input_op = op_t(input_mem);
     int memid = memgraph.insert(input_op, {});
-    task_tensor_to_mem_node.insert_or_assign(inn, memid);
+
+    task_tensor_to_mem_node_insert_on_memory(inn, memid);
   } else {
     // If we are not able to allocate on memory, insert into inputsto_t
 
@@ -990,7 +1005,7 @@ void memgraph_make_state_t::initialize_input(int inn){
 
     op_t input_op = op_t(input_sto);
     int memid = memgraph.insert(input_op, {});
-    task_tensor_to_mem_node.insert_or_assign(inn, memid);
+    task_tensor_to_mem_node_insert_on_storage(inn, memid);
   }
 }
 
@@ -1102,7 +1117,7 @@ void memgraph_make_state_t::add_to_memgraph(
 
     // For apply and move nodes, insert the newly created
     // memid into the tensor mapping
-    task_tensor_to_mem_node.insert_or_assign(id, new_memid);
+    task_tensor_to_mem_node_insert_on_memory(id, new_memid);
   } else {
     // This is a touch in a partialize node.
 
@@ -1117,13 +1132,14 @@ void memgraph_make_state_t::add_to_memgraph(
     auto& in_progress = partializes_in_progress[id];
     in_progress.push_back(new_memid);
 
+    bool is_first_touch = (in_progress.size() == 1);
     bool is_last_touch = (in_progress.size() == num_touches_in_partialize);
 
     if(is_last_touch) {
       // This partialize is complete
       if(num_touches_in_partialize == 1) {
         // then insert the newly created memid into the tensor mapping
-        task_tensor_to_mem_node.insert_or_assign(id, new_memid);
+        task_tensor_to_mem_node_insert_on_memory(id, new_memid);
       } else {
         // create a partialize node that depends on everything in in_progress
         // and insert that into the tensor mapping
@@ -1132,19 +1148,76 @@ void memgraph_make_state_t::add_to_memgraph(
         int partialize_memid = memgraph.insert(
           op_t(new_partialize),
           set<int>(in_progress.begin(), in_progress.end()));
-        task_tensor_to_mem_node.insert_or_assign(id, partialize_memid);
+        task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
       }
       partializes_in_progress.erase(id);
     } else {
       // This partialize is still in progress. Insert the allocated
       // output memid.
-      task_tensor_to_mem_node.insert_or_assign(id, touch_output_memid.value());
+      if(is_first_touch) {
+        task_tensor_to_mem_node_insert_on_memory(id, touch_output_memid.value());
+      } else {
+        task_tensor_to_mem_node_update_on_memory(id, touch_output_memid.value());
+      }
     }
   }
 
   // Now try to delete some tensors
   for(auto const& used_task_id: used_task_tensors) {
     register_usage(used_task_id);
+  }
+}
+
+void memgraph_make_state_t::process(
+  vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops)
+{
+  // if there is no storage, don't bother setting anything up
+  if(!use_storage) {
+    for(auto which_op: all_ops) {
+      add_to_memgraph(which_op);
+    }
+    return;
+  }
+
+  // Since storage may be used, setup a structure containing info on
+  // when something will be used next.
+  {
+    vector<set<int>> usage(taskgraph.nodes.size());
+    for(int oid = 0; oid != all_ops.size(); ++oid) {
+      auto const& which_op = all_ops[oid];
+      if(std::holds_alternative<_which_node_t>(which_op)) {
+        auto const& [task_id] = std::get<_which_node_t>(which_op);
+        usage[task_id].insert(oid);
+        for(auto const& inn_id: taskgraph.nodes[task_id].op.inputs()) {
+          usage[inn_id].insert(oid);
+        }
+      } else {
+        auto const& [task_id, unit_id, touch_id] =
+          std::get<_which_touch_t>(which_op);
+        usage[task_id].insert(oid);
+        auto const& p = taskgraph.nodes[task_id].op.get_partialize();
+        int const& inn_id = p.units[unit_id].inputs[touch_id].id;
+        usage[inn_id].insert(oid);
+      }
+    }
+
+    order_state = order_state_t {
+      .when_used = usage,
+      .threshold = 0
+    };
+  }
+
+  // Do each op, updating ostate threshold so that items can be compared
+  // based on when they'll be used next
+  auto& ostate = order_state.value();
+  for(int oid = 0; oid != all_ops.size(); ++oid) {
+    // Note: threshold should only be increased since
+    //       ostate's compare function may remove items less than the
+    //       threshold
+    ostate.threshold = oid;
+
+    auto const& which_op = all_ops[oid];
+    add_to_memgraph(which_op);
   }
 }
 
@@ -1177,38 +1250,34 @@ memgraph_make_state_t::get_tensors_in_memory(
       if(maybe_mem.is_memloc()) {
         ret.emplace_back(memid, maybe_mem.get_memloc().as_mem());
       } else {
-        throw std::runtime_error("not implemented: loading from storage");
+        // This tensor is not in memory, so load it without
+        // evicting any of the other task_ids
+        load_tensor_with_evict(tid, task_ids);
+        int const& memid = task_tensor_to_mem_node.at(tid);
+        mem_t const& mem = memgraph.nodes[memid].op.get_output_mem();
+        ret.emplace_back(memid, mem);
       }
     } else {
       auto const& node = taskgraph.nodes[tid];
+      // This else branch should be allocating memory for _output tensors_
+      // being formed as part of a computation.
+      // Actual taskgraph input tensors are expected to be dealt with separately.
       if(node.op.is_input()) {
-        throw std::runtime_error("The input node SHOULD BE in task_tensor_to_mem!");
-      }
-      int loc = node.op.out_loc();
-      auto size = node.op.out_size();
-      auto maybe = allocators[loc].try_to_allocate(size);
-      if(maybe) {
-        auto const& [offset, vector_deps] = maybe.value();
-        alloc_t alloc {
-          .loc = loc,
-          .offset = offset,
-          .size = size
-        };
-        set<int> deps(vector_deps.begin(), vector_deps.end());
-        int new_memid = memgraph.insert(op_t(alloc), deps);
-        ret.emplace_back(
-          new_memid,
-          mem_t { .offset = offset, .size = size });
-
-        // make sure to add the memid into task_tensor_to_mem_node
-        // so we don't keep allocating this memory!
-        task_tensor_to_mem_node.insert({tid, new_memid});
-      } else if(use_storage) {
         throw std::runtime_error(
-          "not implemented: evicting things to make room for allocation");
-      } else {
-        throw std::runtime_error("storage not enabled and ran out of memory");
+          "The input node must already be in task_tensor_to_mem_node!");
       }
+
+      // See to it that the memory gets allocated, possibly with evictions.
+      int loc = node.op.out_loc();
+      uint64_t size = node.op.out_size();
+      int alloc_mid = allocate_with_evict(loc, size, task_ids);
+      mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
+
+      ret.emplace_back(alloc_mid, alloc_mem);
+
+      // make sure to add the memid into task_tensor_to_mem_node
+      // so we don't keep allocating this output memory!
+      task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
     }
   }
   return ret;
@@ -1272,8 +1341,339 @@ void memgraph_make_state_t::register_usage(int task_id)
 
     allocators[memloc.loc].free(memloc.offset, del_id);
 
-    task_tensor_to_mem_node.erase(task_id);
+    task_tensor_to_mem_node_erase_on_memory(task_id);
+
+    load_tensors_until(del.loc, del.size);
   }
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_insert_on_storage(
+  int tid, int mid)
+{
+  _task_tensor_to_mem_node_insert(tid, mid);
+  tensors_on_storage.insert(tid);
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_insert_on_memory(
+  int tid, int mid)
+{
+  _task_tensor_to_mem_node_insert(tid, mid);
+  tensors_on_memory.insert(tid);
+}
+
+void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
+  int tid, int mid)
+{
+  if(task_tensor_to_mem_node.count(tid) > 0) {
+    throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
+  }
+  task_tensor_to_mem_node.insert({tid, mid});
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_update_on_storage(
+  int tid, int mid)
+{
+  _task_tensor_to_mem_node_update(tid, mid);
+
+  {
+    auto iter = tensors_on_memory.find(tid);
+    if(iter == tensors_on_memory.end()) {
+      tensors_on_memory.erase(tid);
+      tensors_on_storage.insert(tid);
+    } else {
+      if(tensors_on_storage.count(tid) == 0) {
+        throw std::runtime_error("update_on_storage: not in tensors_on_x");
+      }
+    }
+  }
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_update_on_memory(
+  int tid, int mid)
+{
+  _task_tensor_to_mem_node_update(tid, mid);
+
+  {
+    auto iter = tensors_on_storage.find(tid);
+    if(iter == tensors_on_storage.end()) {
+      tensors_on_storage.erase(tid);
+      tensors_on_memory.insert(tid);
+    } else {
+      if(tensors_on_memory.count(tid) == 0) {
+        throw std::runtime_error("update_on_memory: not in tensors_on_x");
+      }
+    }
+  }
+}
+
+void memgraph_make_state_t::_task_tensor_to_mem_node_update(int tid, int mid)
+{
+  auto iter = task_tensor_to_mem_node.find(tid);
+  if(iter == task_tensor_to_mem_node.end()) {
+    throw std::runtime_error("when updating: tid is not in task_tensor_to_mem_node");
+  }
+  iter->second = mid;
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_erase_on_storage(
+  int tid)
+{
+  _task_tensor_to_mem_node_erase(tid);
+
+  auto iter = tensors_on_storage.find(tid);
+  if(iter == tensors_on_storage.end()) {
+    throw std::runtime_error("cannot erase: not on tensors_on_storage");
+  }
+  tensors_on_storage.erase(iter);
+}
+
+void memgraph_make_state_t::task_tensor_to_mem_node_erase_on_memory(
+  int tid)
+{
+  _task_tensor_to_mem_node_erase(tid);
+
+  auto iter = tensors_on_memory.find(tid);
+  if(iter == tensors_on_memory.end()) {
+    throw std::runtime_error("cannot erase: not on tensors_on_memory");
+  }
+  tensors_on_memory.erase(iter);
+}
+
+void memgraph_make_state_t::_task_tensor_to_mem_node_erase(int tid)
+{
+  auto iter = task_tensor_to_mem_node.find(tid);
+  if(iter == task_tensor_to_mem_node.end()) {
+    throw std::runtime_error("cannot erase: not on task_tensor_to_mem_ndoe");
+  }
+  task_tensor_to_mem_node.erase(iter);
+}
+
+int memgraph_make_state_t::order_state_t::get(int tid)
+{
+  auto& xs = when_used.at(tid);
+  auto iter = xs.begin();
+  while(iter != xs.end()) {
+    if(*iter < threshold) {
+      iter = xs.erase(iter);
+    } else {
+      return *iter;
+    }
+  }
+  // If this happens, it is probably by mistake
+  throw std::runtime_error(
+    "order state: this tensor not going to be used again");
+  // Otherwise, just return a large value saying
+  // this "will never be used again"
+  return std::numeric_limits<int>::max();
+}
+
+void memgraph_make_state_t::load_tensors_until(int loc, uint64_t hint)
+{
+  if(!use_storage) { return; }
+  if(!order_state) { throw std::runtime_error("order state must be setup"); }
+
+  auto& ostate = order_state.value();
+
+  vector<int> candidates(tensors_on_storage.begin(), tensors_on_storage.end());
+
+
+  vector_filter_inplace(candidates, [&](int const& tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.out_loc() != loc) {
+      return false;
+    }
+    return node.op.out_size() <= hint;
+  });
+
+  // Order the candidates in descending order so that the last item
+  // is the one that is use earliest
+  vector_sort_inplace(candidates, [&](int const& lhs, int const& rhs) {
+    return ostate.get(lhs) > ostate.get(rhs);
+  });
+
+
+  while(candidates.size() > 0) {
+    int tid_to_load = candidates.back();
+    candidates.pop_back();
+
+    if(!load_tensor_without_evict(tid_to_load)) {
+      return;
+    }
+
+    uint64_t sz = taskgraph.nodes[tid_to_load].op.out_size();
+    hint -= sz;
+
+    vector_filter_inplace(candidates, [&](int const& tid) {
+      return taskgraph.nodes[tid].op.out_size() <= hint;
+    });
+  }
+}
+
+optional<int>
+memgraph_make_state_t::find_victim(
+  int loc,
+  uint64_t size,
+  vector<int> cannot_evict)
+{
+  if(!use_storage) { return std::nullopt; }
+  if(!order_state) { throw std::runtime_error("order state must be setup"); }
+
+  auto& ostate = order_state.value();
+
+  vector<int> candidates(tensors_on_memory.begin(), tensors_on_memory.end());
+
+  vector_filter_inplace(candidates, [&](int const& tid) {
+    // If this tid is in cannot_evict, return false
+    auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
+    if(iter != cannot_evict.end()) {
+      return false;
+    }
+
+    if(taskgraph.nodes[tid].op.out_loc() != loc) {
+      return false;
+    }
+
+    // Make sure it is big enough to evict
+    uint64_t tensor_size = taskgraph.nodes[tid].op.out_size();
+    return tensor_size >= size;
+  });
+
+  // Order the candidates in ascending order so that the last item
+  // is the one that is used the lastest
+  vector_sort_inplace(candidates, [&, this](int const& lhs, int const& rhs) {
+    return ostate.get(lhs) < ostate.get(rhs);
+  });
+
+  if(candidates.size() == 0) {
+    return std::nullopt;
+  }
+
+  return candidates.back();
+}
+
+int memgraph_make_state_t::allocate_with_evict(
+  int loc, uint64_t size,
+  vector<int> cannot_evict)
+{
+  {
+    auto maybe = allocate_without_evict(loc, size);
+    if(maybe) {
+      return maybe.value();
+    }
+  }
+
+  auto maybe_victim = find_victim(loc, size, cannot_evict);
+  if(maybe_victim) {
+    int const& victim = maybe_victim.value();
+    evict_tensor(victim);
+    auto maybe_ret = allocate_without_evict(loc, size);
+    if(!maybe_ret) {
+      throw std::runtime_error(
+        "allocate_with_evict: could not allocate even after evicting a tensor"
+        "... Is this an alignment issue?");
+    }
+    return maybe_ret.value();
+  } else {
+    throw std::runtime_error("allocate_with_evict: could not find victim!");
+  }
+}
+
+optional<int> memgraph_make_state_t::allocate_without_evict(
+  int loc, uint64_t size)
+{
+  auto maybe = allocators[loc].try_to_allocate(size);
+  if(maybe) {
+    auto const& [offset, vector_deps] = maybe.value();
+    alloc_t alloc {
+      .loc = loc,
+      .offset = offset,
+      .size = size
+    };
+    set<int> deps(vector_deps.begin(), vector_deps.end());
+    int new_memid = memgraph.insert(op_t(alloc), deps);
+    return new_memid;
+  } else {
+    return std::nullopt;
+  }
+}
+
+void memgraph_make_state_t::evict_tensor(int victim_tid)
+{
+  int node_mid = task_tensor_to_mem_node.at(victim_tid);
+  auto const& node = memgraph.nodes[node_mid];
+
+  auto evict_memloc = node.op.get_output_memloc();
+  int const& storage_loc = memgraph.storage_locs[evict_memloc.loc];
+  evict_t evict {
+    .src = evict_memloc,
+    .dst = stoloc_t {
+      .loc = storage_loc,
+      .id = _sto_id
+    }
+  };
+  _sto_id += 1;
+
+  // this eviction can only happen when node's outs finish
+  set<int> evict_deps;
+  for (const auto& out : node.outs) {
+    evict_deps.insert(out);
+  }
+
+  int evict_mid = memgraph.insert(evict, evict_deps);
+
+  // now free the memory, depending on the eviction having been completed
+  allocators[evict_memloc.loc].free(evict_memloc.offset, evict_mid);
+
+  //update mapping in memgraph_make_state_t
+  task_tensor_to_mem_node_update_on_storage(victim_tid, evict_mid);
+}
+
+void memgraph_make_state_t::load_tensor_with_evict(
+  int tid,
+  vector<int> cannot_evict)
+{
+  if(tensors_on_storage.count(tid) == 0) {
+    throw std::runtime_error("cannot load: not on storage");
+  }
+
+  auto const& node = taskgraph.nodes[tid];
+  int loc = node.op.out_loc();
+  uint64_t size = node.op.out_size();
+
+  int alloc_mid = allocate_with_evict(loc, size, cannot_evict);
+  _load_tensor_helper(tid, alloc_mid);
+}
+
+bool memgraph_make_state_t::load_tensor_without_evict(int tid)
+{
+  if(tensors_on_storage.count(tid) == 0) {
+    throw std::runtime_error("cannot load: not on storage");
+  }
+  auto const& node = taskgraph.nodes[tid];
+  int loc = node.op.out_loc();
+  uint64_t size = node.op.out_size();
+
+  auto maybe_alloc_mid = allocate_without_evict(loc, size);
+  if(maybe_alloc_mid) {
+    int const& alloc_mid = maybe_alloc_mid.value();
+    _load_tensor_helper(tid, alloc_mid);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
+{
+  int const& sto_mid = task_tensor_to_mem_node.at(tid);
+
+  load_t load {
+    .src = memgraph.nodes[sto_mid].op.get_stoloc(),
+    .dst = memgraph.nodes[alloc_mid].op.get_output_memloc()
+  };
+
+  int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
+  task_tensor_to_mem_node_update_on_memory(tid, mid);
 }
 
 vector<std::variant<_which_node_t, _which_touch_t>>

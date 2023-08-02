@@ -405,6 +405,19 @@ tuple<vector<T1>, vector<T2>> vector_unzip(
 }
 
 template <typename T, typename F>
+void vector_filter_inplace(vector<T>& xs, F f)
+{
+  auto iter = std::copy_if(xs.begin(), xs.end(), xs.begin(), f);
+  xs.resize(std::distance(xs.begin(), iter));
+}
+
+template <typename T, typename F>
+void vector_sort_inplace(vector<T>& xs, F f)
+{
+  std::sort(xs.begin(), xs.end(), f);
+}
+
+template <typename T, typename F>
 void set_erase_if_inplace(
   set<T>& xs, F f)
 {
