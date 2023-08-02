@@ -3,8 +3,6 @@
 
 #include <fstream>
 
-void test_obvious_matmul_with_evict(int pi, int pj, int pk);
-
 struct random_placement_t {
   placement_t operator()(vector<uint64_t> const& total_shape) {
     vector<partdim_t> partdims;
@@ -277,8 +275,8 @@ void test_make_memgraph_with_evict(
   vector<placement_t> const& placements,
   map<int, dbuffer_t> full_inns,
   vector<int> const& which_storage,
-  vector<uint64_t> mem_sizes){
-
+  vector<uint64_t> mem_sizes)
+{
   // graph.print();
   // for(int i = 0; i != graph.nodes.size(); ++i) {
   //  DOUT(i << ": " << placements[i].partition);
@@ -289,7 +287,7 @@ void test_make_memgraph_with_evict(
     map<int, vtensor_t<int> >,
     taskgraph_t>
     _info0 = taskgraph_t::make(graph, placements);
-  auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;   
+  auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
 
   {
    std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
@@ -308,16 +306,30 @@ void test_make_memgraph_with_evict(
 
   DOUT("After memgraph make...");
 
+  // verify that deduced mem_sizes match with provided mem sizes
+  {
+    auto mem_sizes_ = memgraph.mem_sizes();
+    if(mem_sizes.size() != mem_sizes_.size()) {
+      throw std::runtime_error("mem_sizes invalid");
+    }
+    for(int i = 0; i != mem_sizes.size(); ++i) {
+      if(mem_sizes_[i] > mem_sizes[i]) {
+        throw std::runtime_error("memory allocated past provided mem_sizes");
+      }
+    }
+  }
+  DLINEOUT(mem_sizes);
 
   // allocate a blob of memory at each compute location
   vector<buffer_t> loc_buffers;
-  mem_sizes = memgraph.mem_sizes();
   for(uint64_t const& mem_sz: mem_sizes) {
     loc_buffers.push_back(std::make_shared<buffer_holder_t>(mem_sz));
   }
+  DLINE;
+
   // Declare a vector that stores buffer in each storage location
-  vector<map<int, buffer_t>> sto_buffers; 
-  
+  vector<map<int, buffer_t>> sto_buffers(num_locs);
+
   // Initialize the taskgraph inputs and then
   // copy into the location wise buffers
   {
@@ -328,6 +340,8 @@ void test_make_memgraph_with_evict(
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
     }
+
+    DLINE;
 
     for(auto const& [tid, dbuffer]: task_inns) {
       memstoloc_t inn_memstoloc = task_inn_to_mem.at(tid);
@@ -346,6 +360,7 @@ void test_make_memgraph_with_evict(
       }
     }
   }
+  DLINE;
 
   // compute the reference implementation
   map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
@@ -613,6 +628,58 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
 
   map<int, dbuffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
   test_make_memgraph_without_evict(graph, inns);
+}
+
+void test_obvious_matmul_with_evict(int pi, int pj, int pk,
+  uint64_t ni = 20, uint64_t nj = 20, uint64_t nk = 20,
+  uint64_t mem_size = 2000)
+{
+  graph_constructor_t graph;
+
+  partdim_t pdi = partdim_t::split(ni, pi);
+  partdim_t pdj = partdim_t::split(nj, pj);
+  partdim_t pdk = partdim_t::split(nk, pk);
+
+  int id_lhs = graph.insert_input(partition_t({pdi,pdj}));
+  int id_rhs = graph.insert_input(partition_t({pdj,pdk}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    partition_t({pdi, pdk, pdj}),
+    matmul,
+    {id_lhs, id_rhs});
+
+  int id_save = graph.insert_formation(
+    partition_t({pdi, pdk}),
+    id_join,
+    true);
+
+  dbuffer_t buffer_lhs = make_dbuffer(default_dtype(), ni*nj);
+  buffer_lhs.random("-0.001", "0.002");
+
+  dbuffer_t buffer_rhs = make_dbuffer(default_dtype(), nj*nk);
+  buffer_rhs.random("-0.001", "0.001");
+
+  map<int, dbuffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
+
+  int n_compute_locs = 0;
+  vector<placement_t> placements = graph.get_placements();
+  for (auto const& placement: placements) {
+    for (auto const& location: placement.locations.get()) {
+      if (location >= n_compute_locs) {
+        n_compute_locs = location + 1;
+      }
+    }
+  }
+
+  vector<int> which_storage(n_compute_locs);
+  std::iota(which_storage.begin(), which_storage.end(), 0);
+
+  vector<uint64_t> mem_sizes(n_compute_locs, mem_size);
+
+  test_make_memgraph_with_evict(graph.graph, graph.get_placements(), inns, which_storage, mem_sizes);
 }
 
 void test_random_matmul() {
@@ -1144,60 +1211,6 @@ void test_with_complex_matmul() {
   }
 }
 
-void test_obvious_matmul_with_evict(int pi, int pj, int pk) {
-  graph_constructor_t graph;
-
-  uint64_t ni = 10;
-  uint64_t nj = 10;
-  uint64_t nk = 10;
-
-  partdim_t pdi = partdim_t::split(ni, pi);
-  partdim_t pdj = partdim_t::split(nj, pj);
-  partdim_t pdk = partdim_t::split(nk, pk);
-
-  int id_lhs = graph.insert_input(partition_t({pdi,pdj}));
-  int id_rhs = graph.insert_input(partition_t({pdj,pdk}));
-
-  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
-  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
-
-  int id_join = graph.insert_einsummable(
-    partition_t({pdi, pdk, pdj}),
-    matmul,
-    {id_lhs, id_rhs});
-
-  int id_save = graph.insert_formation(
-    partition_t({pdi, pdk}),
-    id_join,
-    true);
-
-  dbuffer_t buffer_lhs = make_dbuffer(default_dtype(), ni*nj);
-  buffer_lhs.iota(-10);
-
-  dbuffer_t buffer_rhs = make_dbuffer(default_dtype(), nj*nk);
-  buffer_rhs.iota(-20);
-
-  map<int, dbuffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
-
-  int n_compute_locs = 0;
-  vector<placement_t> placements = graph.get_placements();
-  for (auto const& placement: placements) {
-    for (auto const& location: placement.locations.get()) {
-      if (location >= n_compute_locs) {
-        n_compute_locs = location + 1;
-      }
-    }
-  }
-  
-
-  vector<int> which_storage(n_compute_locs);
-  std::iota(which_storage.begin(), which_storage.end(), 0);
-
-  vector<uint64_t> mem_sizes(n_compute_locs, 500);
-
-  test_make_memgraph_with_evict(graph.graph, graph.get_placements(), inns, which_storage, mem_sizes);
-}
-
 void main_pass_through_partials_stuff() {
   {
     taskgraph_t tg;
@@ -1393,7 +1406,9 @@ int main(int argc, char** argv) {
   //   }
   // }
   // main06(argc, argv);
-  main08(argc, argv);
+  //main08(argc, argv);
+
+  test_obvious_matmul_with_evict(4, 4, 2, 40, 40, 40, 20*20*3*4*2);
 }
 
 
