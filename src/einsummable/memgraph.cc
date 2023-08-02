@@ -1581,7 +1581,24 @@ int memgraph_make_state_t::allocate_with_evict(
     }
     return maybe_ret.value();
   } else {
-    throw std::runtime_error("allocate_with_evict: could not find victim!");
+    // TODO: what is the right thing to do here?
+
+    // Option 1: just give up
+    //   throw std::runtime_error("allocate_with_evict: could not find victim!");
+    // Option 2: just keep evicting things, don't even worry about the size
+    //   (see below)
+    // Option 3: something smarter?
+    while(true) {
+      auto maybe_victim = find_victim(loc, 0, cannot_evict);
+      if(!maybe_victim) {
+        throw std::runtime_error("allocate_with_evict: there is nothing to evict; no memory left!");
+      }
+      evict_tensor(maybe_victim.value());
+      auto maybe_ret = allocate_without_evict(loc, size);
+      if(maybe_ret) {
+        return maybe_ret.value();
+      }
+    }
   }
 }
 

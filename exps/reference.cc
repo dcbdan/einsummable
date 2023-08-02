@@ -318,14 +318,12 @@ void test_make_memgraph_with_evict(
       }
     }
   }
-  DLINEOUT(mem_sizes);
 
   // allocate a blob of memory at each compute location
   vector<buffer_t> loc_buffers;
   for(uint64_t const& mem_sz: mem_sizes) {
     loc_buffers.push_back(std::make_shared<buffer_holder_t>(mem_sz));
   }
-  DLINE;
 
   // Declare a vector that stores buffer in each storage location
   vector<map<int, buffer_t>> sto_buffers(num_locs);
@@ -340,8 +338,6 @@ void test_make_memgraph_with_evict(
         full_buffer);
       fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
     }
-
-    DLINE;
 
     for(auto const& [tid, dbuffer]: task_inns) {
       memstoloc_t inn_memstoloc = task_inn_to_mem.at(tid);
@@ -360,7 +356,6 @@ void test_make_memgraph_with_evict(
       }
     }
   }
-  DLINE;
 
   // compute the reference implementation
   map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
@@ -1408,7 +1403,7 @@ int main(int argc, char** argv) {
   // main06(argc, argv);
   //main08(argc, argv);
 
-  test_obvious_matmul_with_evict(4, 4, 2, 40, 40, 40, 20*20*3*4*2);
+  test_obvious_matmul_with_evict(3, 3, 3, 40, 40, 40, 15*15*4*3 * 2);
 }
 
 
