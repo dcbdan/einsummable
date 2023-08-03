@@ -95,6 +95,9 @@ struct cpu_mg_exec_state_t {
   int num_recv_can_recv_remaining;
 
   set<int> busy_groups;
+
+  // group id -> is it first
+  std::unordered_map<int, bool> is_firsts;
 };
 
 void _execute_memgraph(
@@ -247,6 +250,14 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
         readys.push_back(id);
       }
     }
+
+    // fill in is_firsts
+    if(node.op.is_apply()) {
+      int const& group = node.op.get_apply().group;
+      if(group >= 0) {
+        is_firsts.insert({group, true});
+      }
+    }
   }
 
   // now that everything is setup, get it started
@@ -330,11 +341,12 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
 
 void cpu_mg_exec_state_t::apply_runner(int runner_id) {
   int which;
+  bool is_first;
   while(true)
   {
     {
       std::unique_lock lk(m);
-      cv.wait(lk, [&which, this]() {
+      cv.wait(lk, [&which, &is_first, this]() {
         if(num_remaining == 0) {
           return true;
         }
@@ -343,8 +355,18 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
           auto const& group_id = memgraph.nodes[id].op.get_apply().group;
           if(group_id < 0 || busy_groups.count(group_id) == 0) {
             which = id;
+
+            if(group_id >= 0) {
+              bool& f = is_firsts.at(group_id);
+              is_first = f;
+              f = false;
+            } else {
+              is_first = false;
+            }
+
             apply_ready.erase(iter);
             busy_groups.insert(group_id);
+
             return true;
           }
         }
@@ -373,7 +395,11 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
 
       workspace_manager.release(which_workspace);
     } else if(apply.is_touch()) {
-      auto const& touch = apply.get_touch();
+      auto touch = apply.get_touch();
+      if(is_first) {
+        touch.castable = std::nullopt;
+      }
+
       kernel_manager(touch, get_raw(mems[0]), get_raw(mems[1]));
     } else {
       throw std::runtime_error("missing apply op type impl");
