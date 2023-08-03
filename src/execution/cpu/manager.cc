@@ -96,6 +96,7 @@ void tg_manager_t::partition_into(
   repartition(mpi, remap, tmp);
 
   copy_into_data(tmp, remap);
+
 }
 
 void tg_manager_t::remap(remap_relations_t const& remap) {
@@ -218,7 +219,8 @@ void mg_manager_t::listen() {
 }
 
 void mg_manager_t::update_kernel_manager(taskgraph_t const& tg) {
-  vector<std::unordered_set<einsummable_t>> es;
+  int world_size = bool(mpi) ? mpi->world_size : 1;
+  vector<std::unordered_set<einsummable_t>> es(world_size);
   for(auto const& node: tg.nodes) {
     auto const& op = node.op;
     if(op.is_apply()) {

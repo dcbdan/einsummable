@@ -64,11 +64,44 @@ void test_server(
   {
     mg_manager_t manager(&mpi, settings.exec_mg, settings.memgraph_buffer_size);
 
-    // TODO
+    // partition gid_inn_data into the manager
+    for(auto [gid, dbuffer]: gid_inn_data) {
+      relation_t rel {
+        .dtype = dbuffer.dtype,
+        .placement = placements[gid],
+        .tids = inn_gid_to_tids[gid]
+      };
+
+      manager.partition_into(rel, dbuffer);
+    }
+
+    // unlike the taskgraph manager, kernels are not implicitly compiled
+    manager.update_kernel_manager(taskgraph);
+
+    // execute the taskgraph
+    {
+      gremlin_t gremlin("executing the taskgraph as memgraph");
+      manager.execute(taskgraph);
+    }
+
+    // get all the outputs
+    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+      auto const& node = graph.nodes[gid];
+      if(node.op.is_save()) {
+        relation_t rel {
+          .dtype = node.op.out_dtype(),
+          .placement = placements[gid],
+          .tids = save_gid_to_tids[gid]
+        };
+        mg_out_data.insert({gid, manager.get_tensor(rel)});
+      }
+    }
 
     // shutdown so the client can stop!
     manager.shutdown();
   }
+
+  // TODO: compare tg and mg out data
 }
 
 void test_client(mpi_t& mpi, full_settings_t const& settings) {

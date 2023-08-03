@@ -154,6 +154,9 @@ void storage_t::remap(map<int, int> const& mm) {
 }
 
 int storage_t::get_max_id() const {
+  if(offsets.size() == 0) {
+    return -1;
+  }
   return offsets.rbegin()->first;
 }
 

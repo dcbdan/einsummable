@@ -434,6 +434,15 @@ memgraph_t memgraph_t::from_wire(string const& str) {
   return ret;
 }
 
+int memgraph_t::get_loc_from_storage_loc(int sto_loc) const {
+  for(int loc = 0; loc != storage_locs.size(); ++loc) {
+    if(storage_locs[loc] == sto_loc) {
+      return loc;
+    }
+  }
+  throw std::runtime_error("invalid sto_loc");
+}
+
 int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
   // Note that deps may include dependencies that are shadowed
   // by other dependencies.
@@ -935,15 +944,34 @@ memgraph_make_state_t::memgraph_make_state_t(
     }
   }
 
-  // tell the allocators what memory is being used at time zero and update
-  // sto_id accordingly
-  for(auto const& [_, memstoloc]: input_tid_to_data) {
+  // - tell the allocators what memory is being used at time zero
+  // - update sto_id accordingly
+  // - insert onto task_tensor_to_mem_node
+  for(auto const& [tid, memstoloc]: input_tid_to_data) {
     if(memstoloc.is_memloc()) {
       auto const& [offset,size,loc] = memstoloc.get_memloc();
       allocators[loc].allocate_at_without_deps(offset, size);
+
+      inputmem_t input {
+        .loc = loc,
+        .offset = offset,
+        .size = size
+      };
+
+      int mid = memgraph.insert(op_t(input), {});
+      task_tensor_to_mem_node_insert_on_memory(tid, mid);
     } else if(memstoloc.is_stoloc()) {
-      int const& id = memstoloc.get_stoloc().id;
-      _sto_id = 1 + id;
+      auto const& [storage_loc, storage_id] = memstoloc.get_stoloc();
+      _sto_id = 1 + storage_id;
+
+      inputsto_t input {
+        .loc = memgraph.get_loc_from_storage_loc(storage_loc),
+        .storage_loc = storage_loc,
+        .storage_id = storage_id
+      };
+
+      int mid = memgraph.insert(op_t(input), {});
+      task_tensor_to_mem_node_insert_on_storage(tid, mid);
     }
   }
 

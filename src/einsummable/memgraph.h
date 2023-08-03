@@ -145,6 +145,14 @@ struct memgraph_t {
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
   vector<int> const storage_locs;
 
+  // TODO TODO TODO
+  // This method is very dirty. A single sto_loc may map into
+  // multiple locations, yet this function returns the first location!
+  // This is fine whenever there is a one-to-one mapping.
+  //
+  // As a larger design point, storage locs may need to be changed...
+  int get_loc_from_storage_loc(int sto_loc) const;
+
 public:
   struct inputmem_t {
     int loc;
