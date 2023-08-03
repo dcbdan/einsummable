@@ -333,6 +333,9 @@ dbuffer_t mg_manager_t::get_tensor(relation_t const& relation) {
 
   broadcast_str(remap.to_wire());
 
+  // _unpartition will copy the data completely, so
+  // all the buffers are fresh and not referencing the large
+  // buffer
   map<int, buffer_t> data = _unpartition(remap);
 
   return dbuffer_t(relation.dtype, data.at(99));
@@ -348,11 +351,14 @@ void mg_manager_t::_execute_mg(memgraph_t const& mg) {
   execute_memgraph(mg, exec_settings, kernel_manager, mpi, mem, storage);
 }
 
-buffer_t mg_manager_t::get_data(int tid) {
+buffer_t mg_manager_t::get_copy_of_data(int tid) {
   memsto_t const& loc = data_locs.at(tid);
   if(loc.is_mem()) {
     mem_t const& m = loc.get_mem();
-    return make_buffer_reference(mem->data + m.offset, m.size);
+    buffer_t src = make_buffer_reference(mem->data + m.offset, m.size);
+    buffer_t dst = make_buffer(m.size);
+    std::memcpy(dst->raw(), src->raw(), m.size);
+    return dst;
   } else if(loc.is_sto()) {
     int const& id = loc.get_sto();
     return storage.load(id);
@@ -372,7 +378,7 @@ map<int, buffer_t> mg_manager_t::_unpartition(remap_relations_t const& remap) {
       int const& loc = locs[bid];
       int const& tid = tids[bid];
       if(loc == this_rank) {
-        data.insert({tid, get_data(tid)});
+        data.insert({tid, get_copy_of_data(tid)});
       }
     }
   }

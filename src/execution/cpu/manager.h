@@ -186,9 +186,7 @@ private:
   void _update_km(std::unordered_set<einsummable_t> const& es);
   void _update_km(es_proto::EinsummableList const& es);
 
-  // If this memory is in storage, copy it out and return.
-  // If this memory is not on storage, return a view.
-  buffer_t get_data(int tid);
+  buffer_t get_copy_of_data(int tid);
 
   map<int, buffer_t> _unpartition(remap_relations_t const& remap);
 

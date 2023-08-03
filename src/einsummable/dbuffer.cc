@@ -298,6 +298,44 @@ std::complex<float> const* dbuffer_t::c64() const {
   return reinterpret_cast<std::complex<float>*>(data->data);
 }
 
+template <typename T>
+double _sq_diff_helper(T const* lhs, T const* rhs, uint64_t n)
+{
+  double ret = 0.0;
+  double l;
+  double r;
+  for(uint64_t i = 0; i != n; ++i) {
+    l = double(lhs[i]);
+    r = double(rhs[i]);
+    ret += (l-r)*(l-r);
+  }
+  return ret;
+}
+
+double dbuffer_squared_distance(dbuffer_t lhs, dbuffer_t rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("dbuffer sq distance: must have same dtype");
+  }
+  if(lhs.nelem() != rhs.nelem()) {
+    throw std::runtime_error("dbuffer sq distance: must have same num elem");
+  }
+
+  if(lhs.dtype == dtype_t::c64) {
+    lhs = lhs.view_c64_as_f32();
+    rhs = rhs.view_c64_as_f32();
+  }
+
+  if(lhs.dtype == dtype_t::f16) {
+    return _sq_diff_helper(lhs.f16(), rhs.f16(), lhs.nelem());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return _sq_diff_helper(lhs.f32(), rhs.f32(), lhs.nelem());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return _sq_diff_helper(lhs.f64(), rhs.f64(), lhs.nelem());
+  } else {
+    throw std::runtime_error("missing dbuffer sq distance dtype");
+  }
+}
+
 dbuffer_t make_dbuffer(dtype_t dtype, uint64_t num_elems) {
   return dbuffer_t(dtype, make_buffer(dtype_size(dtype) * num_elems));
 }

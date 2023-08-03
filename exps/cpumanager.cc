@@ -25,6 +25,12 @@ void test_server(
   auto [inn_gid_to_tids, save_gid_to_tids, taskgraph] =
     taskgraph_t::make(graph, placements);
 
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("printed to tg.gv");
+  }
+
   map<int, dbuffer_t> tg_out_data;
   {
     tg_manager_t manager(&mpi, settings.exec_tg);
@@ -101,7 +107,13 @@ void test_server(
     manager.shutdown();
   }
 
-  // TODO: compare tg and mg out data
+  for(auto const& [gid, tdata]: tg_out_data) {
+    auto const& mdata = mg_out_data.at(gid);
+    DOUT("gid " << gid << " has sq distance: " << dbuffer_squared_distance(tdata, mdata));
+    if(!is_close(tdata, mdata)) {
+      throw std::runtime_error("not close");
+    }
+  }
 }
 
 void test_client(mpi_t& mpi, full_settings_t const& settings) {
@@ -202,7 +214,7 @@ mm(int world_size, int argc, char** argv)
       auto const& [dtype, shape] = node.op.get_input();
 
       dbuffer_t d = make_dbuffer(dtype, product(shape));
-      d.random("-0.001", "0.001");
+      d.random("-0.1", "0.1");
 
       data.insert({gid, d});
     }
@@ -215,7 +227,7 @@ int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
 
   uint64_t ngb = 1;
-  int num_threads = 8;
+  int num_threads = 1;
 
   uint64_t GB = 1000000000;
 
