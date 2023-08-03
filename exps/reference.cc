@@ -1403,7 +1403,7 @@ int main(int argc, char** argv) {
   // main06(argc, argv);
   //main08(argc, argv);
 
-  test_obvious_matmul_with_evict(3, 3, 3, 40, 40, 40, 15*15*4*3 * 2);
+  test_obvious_matmul_with_evict(2, 2, 2, 40, 40, 40, 20*20*4*3 * 2);
 }
 
 
