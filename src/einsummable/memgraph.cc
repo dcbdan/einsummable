@@ -1107,23 +1107,26 @@ void memgraph_make_state_t::add_to_memgraph(
 
   optional<int> touch_output_memid;
 
-  // TODO: read_tids is a fine name with what is implemented.
-  // However, this implementation needlessly serializes touches in a partialize.
-  // To fix this, quit updating the tid until it is complete.
-  // So things being touched should also be in "read_tids"---which should
-  // be renamed to "used_tids"
-  vector<int> read_tids;
+  // All all tids passed into get_tensors_in_memory will be added here.
+  // Get tensors in memory has two parts: it'll allocate
+  // brand new output tensors or it will load or find existing
+  // tensors. It is probably sufficient to only add the latter group
+  // of tids to used_tids, but that'd require more bookkeeping and being
+  // more conservative with used_tids in this case should lead to the same
+  // result.
+  vector<int> used_tids;
 
   // TODO: this method should support tensor donation
 
   if(node.op.is_apply()) {
     auto const& [loc, inns, es] = node.op.get_apply();
 
-    read_tids = inns;
-
-    vector<int> out_then_inns(inns.size() + 1);
+    vector<int>& out_then_inns = used_tids;
+    out_then_inns = vector<int>(inns.size() + 1);
     out_then_inns[0] = id;
     std::copy(inns.begin(), inns.end(), out_then_inns.begin()+1);
+
+    used_tids = out_then_inns;
 
     auto [vector_deps, mems] = vector_unzip(
       get_tensors_in_memory(out_then_inns));
@@ -1142,9 +1145,8 @@ void memgraph_make_state_t::add_to_memgraph(
   } else if(node.op.is_move()) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();
 
-    read_tids = {task_inn};
-
-    auto info = get_tensors_in_memory({task_inn, id});
+    used_tids = {task_inn, id};
+    auto info = get_tensors_in_memory(used_tids);
     auto const& [src_mem_id, src_mem] = info[0];
     auto const& [dst_mem_id, dst_mem] = info[1];
 
@@ -1164,9 +1166,8 @@ void memgraph_make_state_t::add_to_memgraph(
     auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
-    read_tids = {task_inn};
-
-    auto info = get_tensors_in_memory({task_inn, id});
+    used_tids = {task_inn, id};
+    auto info = get_tensors_in_memory(used_tids);
     auto const& [inn_mem_id, inn_mem] = info[0];
     auto const& [out_mem_id, out_mem] = info[1];
 
@@ -1190,8 +1191,8 @@ void memgraph_make_state_t::add_to_memgraph(
   int new_memid = memgraph.insert(op.value(), deps);
 
   // notify tensors_on_memory that these tensors were used
-  for(auto const& read_tid: read_tids) {
-    tensors_on_memory[read_tid].insert(new_memid);
+  for(auto const& used_tid: used_tids) {
+    tensors_on_memory[used_tid].insert(new_memid);
   }
 
   if(std::holds_alternative<_which_node_t>(which_op)) {
@@ -1482,11 +1483,6 @@ void memgraph_make_state_t::task_tensor_to_mem_node_update_on_memory(
       auto iter_m = tensors_on_memory.find(tid);
       if(iter_m == tensors_on_memory.end()) {
         throw std::runtime_error("update_on_memory: not in tensors_on_x");
-      } else {
-        set<int> const& used_at = iter_m->second;
-        if(used_at.size() != 0) {
-          throw std::runtime_error("update_on_memory: this tid already used!");
-        }
       }
     }
   }
