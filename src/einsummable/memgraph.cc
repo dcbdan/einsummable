@@ -42,6 +42,15 @@ memgraph_t::memgraph_t(
   : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs)
 {}
 
+memgraph_t::memgraph_t(
+  memgraph_t const& mg)
+  : num_compute_locs(mg.num_compute_locs),
+    num_storage_locs(mg.num_storage_locs),
+    storage_locs(mg.storage_locs),
+    nodes(mg.nodes),
+    all_deps(mg.all_deps)
+{}
+
 void memgraph_t::print_graphviz(std::ostream& out) const {
   using std::endl;
 
@@ -102,6 +111,9 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       if(apply.loc < colors.size()) {
         color = colors[apply.loc];
       }
+      if(apply.group == 0) {
+        color = "yellow";
+      }
     } else if(op.is_move()) {
       move_t const& move = op.get_move();
 
@@ -161,6 +173,27 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("memgraph print should not happen");
     }
     label = write_with_ss(id) + " " + label;
+
+    //auto memlocs = op.get_memlocs();
+    //for(auto const& memloc: memlocs) {
+    //  auto const& [offset, size] = memloc.as_mem();
+    //  if(interval_intersect(
+    //      {offset, offset+size},
+    //      {1000000, 2000000}))
+    //  {
+    //    color = "chocolate2";
+    //  }
+    //}
+    //for(auto const& x: {13,14,97,129,137,147}) {
+    //  if(id == x) {
+    //    color = "x11purple";
+    //  }
+    //}
+    //for(auto const& x: {60,61}) {
+    //  if(id == x) {
+    //    color = "linen";
+    //  }
+    //}
 
     //auto memlocs = op.get_memlocs();
     //for(int i = 1; i != memlocs.size(); ++i) {
@@ -1074,10 +1107,19 @@ void memgraph_make_state_t::add_to_memgraph(
 
   optional<int> touch_output_memid;
 
+  // TODO: read_tids is a fine name with what is implemented.
+  // However, this implementation needlessly serializes touches in a partialize.
+  // To fix this, quit updating the tid until it is complete.
+  // So things being touched should also be in "read_tids"---which should
+  // be renamed to "used_tids"
+  vector<int> read_tids;
+
   // TODO: this method should support tensor donation
 
   if(node.op.is_apply()) {
     auto const& [loc, inns, es] = node.op.get_apply();
+
+    read_tids = inns;
 
     vector<int> out_then_inns(inns.size() + 1);
     out_then_inns[0] = id;
@@ -1100,6 +1142,8 @@ void memgraph_make_state_t::add_to_memgraph(
   } else if(node.op.is_move()) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();
 
+    read_tids = {task_inn};
+
     auto info = get_tensors_in_memory({task_inn, id});
     auto const& [src_mem_id, src_mem] = info[0];
     auto const& [dst_mem_id, dst_mem] = info[1];
@@ -1119,6 +1163,8 @@ void memgraph_make_state_t::add_to_memgraph(
 
     auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
+
+    read_tids = {task_inn};
 
     auto info = get_tensors_in_memory({task_inn, id});
     auto const& [inn_mem_id, inn_mem] = info[0];
@@ -1142,6 +1188,11 @@ void memgraph_make_state_t::add_to_memgraph(
   }
 
   int new_memid = memgraph.insert(op.value(), deps);
+
+  // notify tensors_on_memory that these tensors were used
+  for(auto const& read_tid: read_tids) {
+    tensors_on_memory[read_tid].insert(new_memid);
+  }
 
   if(std::holds_alternative<_which_node_t>(which_op)) {
     task_node_to_mem_node.insert({
@@ -1387,7 +1438,7 @@ void memgraph_make_state_t::task_tensor_to_mem_node_insert_on_memory(
   int tid, int mid)
 {
   _task_tensor_to_mem_node_insert(tid, mid);
-  tensors_on_memory.insert(tid);
+  tensors_on_memory.insert({tid, {}});
 }
 
 void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
@@ -1423,13 +1474,19 @@ void memgraph_make_state_t::task_tensor_to_mem_node_update_on_memory(
   _task_tensor_to_mem_node_update(tid, mid);
 
   {
-    auto iter = tensors_on_storage.find(tid);
-    if(iter != tensors_on_storage.end()) {
-      tensors_on_storage.erase(iter);
-      tensors_on_memory.insert(tid);
+    auto iter_s = tensors_on_storage.find(tid);
+    if(iter_s != tensors_on_storage.end()) {
+      tensors_on_storage.erase(iter_s);
+      tensors_on_memory.insert({tid, {}});
     } else {
-      if(tensors_on_memory.count(tid) == 0) {
+      auto iter_m = tensors_on_memory.find(tid);
+      if(iter_m == tensors_on_memory.end()) {
         throw std::runtime_error("update_on_memory: not in tensors_on_x");
+      } else {
+        set<int> const& used_at = iter_m->second;
+        if(used_at.size() != 0) {
+          throw std::runtime_error("update_on_memory: this tid already used!");
+        }
       }
     }
   }
@@ -1555,7 +1612,7 @@ memgraph_make_state_t::find_victim(
 
   auto& ostate = order_state.value();
 
-  vector<int> candidates(tensors_on_memory.begin(), tensors_on_memory.end());
+  vector<int> candidates = map_get_keys(tensors_on_memory);
 
   vector_filter_inplace(candidates, [&](int const& tid) {
     // If this tid is in cannot_evict, return false
@@ -1665,16 +1722,30 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
   };
   _sto_id += 1;
 
-  // this eviction can only happen when (1) the node is finished
-  // and (2) all of node's outs finish.
-  // Note that the node may not actually have any outs, in particular
+  // When can an eviction begin? When all of the nodes that have used
+  // victim_tid have been completed.
+  //
+  // Consider
+  //   input[T] -> A -> B -> C -> D[use T]
+  //            -> X -> Y -> Z -> ^
+  // The outs of input[T] are just A and X but it is used
+  // at D. So we want
+  //   input[T] -> A -> B -> C -> D[use T] -> evict[T]
+  //            -> X -> Y -> Z -> ^
+  // NOT
+  //   input[T] -> A -> B -> C -> D[use T]
+  //               |> evict[T]
+  //            -> X -> Y -> Z -> ^
+  //   (the |> arrow means A to evict[T] and X to evict[T])
+  //
+  // This is why we go through the hassle of maintaining, for
+  // all tensors in memory, where they've been used while in memory.
+  //
+  // Note that victim_tid may not actually have been used, in particular
   // it might be a save node that we are evicting because it won't be
   // used again.
-  set<int> evict_deps;
-  evict_deps.insert(node_mid);
-  for (const auto& out : node.outs) {
-    evict_deps.insert(out);
-  }
+  set<int>& evict_deps = tensors_on_memory.at(victim_tid);
+  evict_deps.insert(node_mid); // in case it wasn't used
 
   int evict_mid = memgraph.insert(evict, evict_deps);
 

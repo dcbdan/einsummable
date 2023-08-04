@@ -114,7 +114,8 @@ struct mg_manager_t {
 
   // Compile a taskgraph into a memgraph and execute the
   // memgraph
-  void execute(taskgraph_t const& taskgraph);
+  memgraph_t execute(taskgraph_t const& taskgraph);
+  // (returning the memgraph for debugging)
 
   void execute(memgraph_t  const& memgraph);
 

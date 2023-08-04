@@ -87,6 +87,9 @@ struct memgraph_t {
     int num_storage_locs,
     vector<int> const& storage_locs);
 
+  memgraph_t(
+    memgraph_t const& other);
+
   // Create a memgraph without any memory-size constraints.
   // Return also mappings
   //   input taskgraph node ids -> memory
@@ -496,8 +499,7 @@ struct memgraph_make_state_t {
 
   // At the end of this call, these tensors should be in memory. If they can't
   // all be in memory, then an error is thrown. If the tensor isn't yet created,
-  // a tensor of the correct size is allocated. It is up to the caller to make
-  // sure that newly created tensors make it into task_tensor_to_mem_node
+  // a tensor of the correct size is allocated.
   vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
 
   // Load as many tensors as possible, with a maximum number of bytes
@@ -573,16 +575,19 @@ struct memgraph_make_state_t {
   // A mapping from partialize id to all apply memids doing a touch
   map<int, vector<int>> partializes_in_progress;
 
+  // These objects should tend to be updated together {{{
   // Mappings from the taskgraph tensor to the corresponding
   // mem graph node. This gets updated as tensors get evicted,
   // and fully computed.
   map<int, int> task_tensor_to_mem_node;
 
-  // extra meta data that keeps track of where tensors currently are
+  // these are all the tensors (represented as tids) that are in storage
   set<int> tensors_on_storage;
-  set<int> tensors_on_memory;
-  // Note: tensors_on_x can be computed from task_tensor_to_mem_node;
-  //       they exist for efficiency
+
+  // tensors_on_memory is a map from tid to all of the mids that have used
+  // that tensor while it has been in memory.
+  map<int, set<int>> tensors_on_memory;
+  // }}}
 
   // A mapping from (apply || move) taskgraph node to the corresponding
   // apply or move

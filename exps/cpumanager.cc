@@ -49,6 +49,11 @@ void test_server(
     // execute the taskgraph
     manager.execute(taskgraph);
 
+    for(auto const& [tid, b]: manager.data) {
+      DOUT("tid " << tid << " sum " <<
+        dbuffer_t(default_dtype(), b).sum());
+    }
+
     // get all the outputs
     for(int gid = 0; gid != graph.nodes.size(); ++gid) {
       auto const& node = graph.nodes[gid];
@@ -86,8 +91,26 @@ void test_server(
 
     // execute the taskgraph
     {
-      gremlin_t gremlin("executing the taskgraph as memgraph");
-      manager.execute(taskgraph);
+      std::shared_ptr<memgraph_t> mg;
+      {
+        gremlin_t gremlin("executing the taskgraph as memgraph");
+        mg = std::make_shared<memgraph_t>(manager.execute(taskgraph));
+      }
+      std::ofstream f("mg.gv");
+      mg->print_graphviz(f);
+      DOUT("printed to mg.gv");
+    }
+
+    for(auto const& [tid, loc]: manager.data_locs) {
+      if(loc.is_sto()) {
+        DOUT("tid " << tid << " with sum " <<
+          dbuffer_t(default_dtype(), manager.storage.read(loc.get_sto())).sum());
+      } else {
+        auto const& [offset, size] = loc.get_mem();
+        buffer_t b = make_buffer_reference(manager.mem->data + offset, size);
+        DOUT("tid " << tid << " with sum " <<
+          dbuffer_t(default_dtype(), b).sum());
+      }
     }
 
     // get all the outputs
@@ -111,6 +134,19 @@ void test_server(
     auto const& mdata = mg_out_data.at(gid);
     DOUT("gid " << gid << " has sq distance: " << dbuffer_squared_distance(tdata, mdata));
     if(!is_close(tdata, mdata)) {
+      //bool ee = true;
+      //for(int i = 0; i != tdata.nelem(); ++i) {
+      //  bool yy = (tdata.f32()[i] == mdata.f32()[i]);
+      //  if(ee != yy) {
+      //    int ix = i / 1000;
+      //    int iy = i % 1000;
+      //    DOUT("(" << ix << "," << iy << ")" << " " << std::boolalpha << yy);
+      //    ee = yy;
+      //  }
+      //}
+      DOUT("total nelem of " << tdata.nelem());
+      DOUT(tdata.sum());
+      DOUT(mdata.sum());
       throw std::runtime_error("not close");
     }
   }
@@ -131,6 +167,8 @@ void test_client(mpi_t& mpi, full_settings_t const& settings) {
 tuple<graph_t, vector<placement_t>, map<int, dbuffer_t>>
 mm(int world_size, int argc, char** argv)
 {
+  set_seed(0);
+
   string usage = "Usage: ni nj nk li lj rj rk ji jj jk oi ok";
 
   if(argc != 13) {
@@ -170,7 +208,6 @@ mm(int world_size, int argc, char** argv)
   DOUT("oi ok    " << (vector< int    >{oi,ok}   ));
 
   graph_constructor_t g;
-  dtype_t dtype = default_dtype();
 
   int lhs = g.insert_input(partition_t({
     partdim_t::split(ni, li),
@@ -199,7 +236,6 @@ mm(int world_size, int argc, char** argv)
 
   vector<placement_t> pls = g.get_placements();
   if(world_size > 1) {
-    set_seed(0);
     for(auto& placement: pls) {
       for(auto& loc: placement.locations.get()) {
         loc = runif(world_size);
@@ -223,13 +259,31 @@ mm(int world_size, int argc, char** argv)
   return {graph, pls, data};
 }
 
+//int main() {
+//  set_default_dtype(dtype_t::f64);
+//
+//  storage_t storage;
+//  for(int id = 0; id != 10; ++id) {
+//    dbuffer_t inn = make_dbuffer(default_dtype(), 1000*1000);
+//    inn.random();
+//    storage.write(inn.data, id);
+//    dbuffer_t out(default_dtype(), storage.read(id));
+//
+//    if(!is_close(inn, out)) {
+//      throw std::runtime_error("BOWAJSAAA");
+//    }
+//  }
+//}
+
 int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
 
-  uint64_t ngb = 1;
   int num_threads = 1;
 
+  uint64_t ngb = 1;
   uint64_t GB = 1000000000;
+
+  uint64_t buffer_size = 7000000;
 
   full_settings_t settings {
     .exec_tg = execute_taskgraph_settings_t {
@@ -244,7 +298,7 @@ int main(int argc, char** argv) {
       .num_recv_runner = 2
     },
     .alloc = allocator_settings_t::default_settings(),
-    .memgraph_buffer_size = ngb*GB
+    .memgraph_buffer_size = buffer_size // ngb*GB
   };
 
   if(mpi.this_rank == 0) {

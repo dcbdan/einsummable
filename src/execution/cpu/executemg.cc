@@ -739,7 +739,7 @@ _tg_with_mg_helper_t::create_storage_remaps(
   return storage_remaps;
 }
 
-void execute_taskgraph_as_memgraph_server(
+memgraph_t execute_taskgraph_as_memgraph_server(
   taskgraph_t const& taskgraph,
   execute_memgraph_settings_t const& exec_settings,
   kernel_manager_t const& kernel_manager,
@@ -781,6 +781,8 @@ void execute_taskgraph_as_memgraph_server(
     mpi, mem, storage);
 
   helper.rewrite_data_locs_server(out_tg_to_loc);
+
+  return memgraph;
 }
 
 void execute_taskgraph_as_memgraph_client(

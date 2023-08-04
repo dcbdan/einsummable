@@ -50,7 +50,7 @@ void execute_memgraph(
 // The server version should be called once and will do
 // the extra coordinating. The client version should be
 // called by all the other nodes.
-void execute_taskgraph_as_memgraph_server(
+memgraph_t execute_taskgraph_as_memgraph_server(
   taskgraph_t const& taskgraph,
   execute_memgraph_settings_t const& exec_settings,
   kernel_manager_t const& kernel_manager,
@@ -59,6 +59,7 @@ void execute_taskgraph_as_memgraph_server(
   map<int, memsto_t>& data_locs,
   buffer_t memory,
   storage_t& storage);
+// returning the memgraph for debugging TODO remove
 
 void execute_taskgraph_as_memgraph_client(
   execute_memgraph_settings_t const& exec_settings,

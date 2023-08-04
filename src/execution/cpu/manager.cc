@@ -309,9 +309,9 @@ void mg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
 }
 
-void mg_manager_t::execute(taskgraph_t const& taskgraph) {
+memgraph_t mg_manager_t::execute(taskgraph_t const& taskgraph) {
   broadcast_cmd(cmd_t::execute_tg);
-  execute_taskgraph_as_memgraph_server(
+  return execute_taskgraph_as_memgraph_server(
     taskgraph, exec_settings, kernel_manager, alloc_settings,
     mpi, data_locs, mem, storage);
 }

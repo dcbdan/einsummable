@@ -417,6 +417,16 @@ void vector_sort_inplace(vector<T>& xs, F f)
   std::sort(xs.begin(), xs.end(), f);
 }
 
+template <typename K, typename V>
+vector<K> map_get_keys(map<K, V> const& xys) {
+  vector<K> ret;
+  ret.reserve(xys.size());
+  for(auto const& [x,_]: xys) {
+    ret.push_back(x);
+  }
+  return ret;
+}
+
 template <typename T, typename F>
 void set_erase_if_inplace(
   set<T>& xs, F f)

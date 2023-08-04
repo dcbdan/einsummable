@@ -7,7 +7,7 @@
 //     how-to-create-a-stdofstream-to-a-temp-file
 string open_temp(string path, std::fstream& f)
 {
-  path += "/XXXXXX";
+  path += "/es_XXXXXX";
   std::vector<char> dst_path(path.begin(), path.end());
   dst_path.push_back('\0');
 
@@ -15,8 +15,7 @@ string open_temp(string path, std::fstream& f)
   if(fd != -1) {
     path.assign(dst_path.begin(), dst_path.end() - 1);
     f.open(path.c_str(),
-           std::ios_base::in     | std::ios_base::out |
-           std::ios_base::binary | std::ios_base::app );
+           std::ios_base::in | std::ios_base::out | std::ios_base::binary );
     close(fd);
   }
   return path;
@@ -68,9 +67,11 @@ void storage_t::write(buffer_t buffer, int id)
   uint64_t offset = allocator.allocate(buffer->size);
   offsets.insert({id, offset});
 
-  file.seekp(offset);
+  file.seekp(offset, std::ios::beg);
   char* data = reinterpret_cast<char*>(buffer->data);
   file.write(data, buffer->size);
+
+  file.flush();
 }
 
 void storage_t::read(buffer_t buffer, int id) {
@@ -99,13 +100,15 @@ buffer_t storage_t::read(int id) {
   uint64_t sz = allocator.get_size_at(offset);
   buffer_t buffer = make_buffer(sz);
   _read(buffer, offset);
+
   return buffer;
 }
 
 void storage_t::_read(buffer_t buffer, uint64_t offset) {
-  file.seekg(offset);
+  file.seekg(offset, std::ios::beg);
   char* data = reinterpret_cast<char*>(buffer->data);
   file.read(data, buffer->size);
+  file.flush();
 }
 
 void storage_t::remove(int id) {
