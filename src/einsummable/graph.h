@@ -272,6 +272,25 @@ public:
     }
   };
 
+  struct backprop_state_t {
+    // get the gradient of this id
+    int operator[](int id);
+
+    // Add the initial ones at out_id
+    void start(int out_id);
+
+    map<int, int> grads;
+    graph_t& self;
+    set<int> nodeset;
+
+    struct out_edge_t {
+      int out;
+      int which_inn;
+    };
+    vector<out_edge_t> get_out_edges(int id) const;
+
+  };
+
   vector<node_t> nodes;
 
 private:
