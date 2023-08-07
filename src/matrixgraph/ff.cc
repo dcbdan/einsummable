@@ -30,30 +30,39 @@ ff_sqdiff_update(
 
   scalarop_t squared_difference =
     scalarop_t::from_string(
-      "power{2}[+[hole|"+ds+"@0,*[hole|"+ds+"@1,constant{"+ds+"|-1}]]]");
+      "power{2}[+[hole|"+ds+"@0,*[hole|"+ds+"@1,constant{"+ds+"|-1}]]]"); // (yhat - y)**2
 
   matrixgraph_t mgraph;
 
   int x = mgraph.insert_input(dn, dp);
-  int y = mgraph.insert_input(dn, dd);
+  int y = mgraph.insert_input(dn, dd); 
+  std::cout << "Inserted expected output matrix with dimensions: " << dn << ", " << dd << " " << y <<  std::endl;
 
   int yhat = x;
   vector<int> ws;
   vector<uint64_t> ws_sizes;
   {
     uint64_t dlast = dp;
+    int i = 1;
     for(auto const& dw: dws) {
       ws.push_back(mgraph.insert_input(dlast, dw));
+      std::cout << "Inserted weight matrix W" << i++ << " with dimensions: " << dlast << ", " << dw << std::endl;
       ws_sizes.push_back(dlast*dw);
+      std::cout << "Inserting matmul node that has inn nodes: " << yhat << ", " << ws.back() << std::endl;
       yhat = mgraph.insert_matmul_ss(yhat, ws.back());
+      std::cout << "Inserting ReLu node that has inn node: " << yhat << std::endl;
       yhat = mgraph.insert_ew(relu, yhat);
+      
       dlast = dw;
     }
     ws.push_back(mgraph.insert_input(dlast, dd));
+    std::cout << "Inserted weight matrix of outer layer W" << i++ << " with dimensions: " << dlast << ", " << dd << std::endl;
     ws_sizes.push_back(dlast*dd);
+    std::cout << "Inserting matmul node that has inn nodes: " << yhat << ", " << ws.back() << std::endl;
     yhat = mgraph.insert_matmul_ss(yhat, ws.back());
   }
 
+  std::cout << "Inserting squared difference node with inn nodes: " << yhat << ", " << y << std::endl; 
   int sqdiff = mgraph.insert_ewb(squared_difference, yhat, y);
 
   vector<int> grads = mgraph.backprop(sqdiff, ws);
@@ -63,6 +72,7 @@ ff_sqdiff_update(
     int const& g = grads[i];
     int const& w = ws[i];
     wsnew.push_back(mgraph.insert_ewb(gradupdate, w, g));
+    std::cout << "Inserted gradupdate node with entry nodes: " << w << ", " << g << std::endl; 
   }
 
   set_default_dtype(dtype_before);

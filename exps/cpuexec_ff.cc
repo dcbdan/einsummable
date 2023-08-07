@@ -51,6 +51,12 @@ void ff(
   auto [inputs_g_to_t, outputs_g_to_t, taskgraph] = taskgraph_t::make(graph, pls);
 
   {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("wrote g.gv");
+  }
+
+  {
     std::ofstream f("tg.gv");
     taskgraph.print_graphviz(f);
     DOUT("wrote tg.gv");
@@ -107,6 +113,7 @@ void ff(
 
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
+    std::cout << "Executing taskgraph..." << std::endl;
     execute_taskgraph(taskgraph, settings, kernel_manager, &mpi, buffers);
 
     if(i % 10 == 0) {

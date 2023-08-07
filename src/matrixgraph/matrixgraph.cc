@@ -127,6 +127,8 @@ int matrixgraph_t::insert_adds(vector<int> items) {
     throw std::runtime_error("invalid insert_adds input");
   }
 
+  std::cout << "Inserting grad calculation nodes, with total of nodes: " << items.size() << std::endl;
+
   while(items.size() != 1) {
     int n = items.size() / 2;
     int r = items.size() % 2;
@@ -136,6 +138,7 @@ int matrixgraph_t::insert_adds(vector<int> items) {
       next_up.push_back(items.back());
     }
     for(int i = 0; i != n; ++i) {
+      std::cout << "\t Inserted ewb add node" << std::endl;
       next_up.push_back(insert_ewb(scalarop_t::make_add(), items[2*i], items[2*i+1]));
     }
     items = next_up;
@@ -262,6 +265,10 @@ vector<int> matrixgraph_t::backprop(int out, vector<int> weights)
   // silly.
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
+  for (auto const& node : nodeset) {
+    std::cout << "\t\tNodeset element: " << node << std::endl; 
+  }
+
   backprop_state_t state {
     .grads = {},
     .self = *this,
@@ -293,6 +300,7 @@ int matrixgraph_t::backprop_state_t::operator[](int id) {
     throw std::runtime_error("this id isn't in the nodeset");
   }
 
+  std::cout << "Calculating gradient for node: " << id << std::endl;
   // Let e1, e2, ..., en be all edges going out from node id
   // that are in the nodeset.
   // Then g[id] = sum_i { grad_at[e(i)] "*" this[e(i).out] }
@@ -306,6 +314,8 @@ int matrixgraph_t::backprop_state_t::operator[](int id) {
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn]: out_edges) {
     auto const& out_grad = (*this)[out]; // recurse
+    std::cout << "Finsihed. For node: " << id << std::endl;
+    std::cout << "What the hell is out grad? " << out_grad << std::endl;
     terms.push_back(
       self.build_grad_term(out, which_inn, out_grad)
     );
@@ -321,6 +331,12 @@ int matrixgraph_t::backprop_state_t::operator[](int id) {
   } else {
     ret = self.insert_adds(terms);
   }
+  auto const& node_grad = self.nodes[ret];
+  std::cout << "\t These are the input nodes for this grad node: " << std::endl;
+  for (auto const& inn : node_grad.inns_set()) {
+    std::cout << "\t Input node: " << inn << std::endl;
+  }
+  std::cout << "Calculated grad for node_id: " << id << " with grad_id being: " << ret << std::endl;
   grads.insert({id, ret});
   return ret;
 };
@@ -345,6 +361,7 @@ matrixgraph_t::backprop_state_t::get_out_edges(int id) const
       {
         auto const& inn = inns[which_inn];
         if(inn == id) {
+          std::cout << "\t ** New out edge for node_id: " << id << " with values: (out, which_inn) : (" << out << ", " << which_inn << ")" << std::endl;
           ret.push_back(out_edge_t {
             .out = out,
             .which_inn = which_inn
@@ -465,7 +482,7 @@ int matrixgraph_t::build_grad_term_matmul_lhs(
   auto const& [t_lhs, lhs, t_rhs, rhs] = matmul;
 
   // Compute: d(LR)/d(L) "*" node_grad = R "*" node_grad
-
+  std::cout << "\t Inserting MATMUL for LHS" << std::endl;
   // node_grad shape: ik
   // return shape == lhs shape
   if(t_lhs) {
@@ -499,7 +516,7 @@ int matrixgraph_t::build_grad_term_matmul_rhs(
 {
   auto const& [t_lhs, lhs, t_rhs, rhs] = matmul;
   // Compute: d(LR)/d(R) "*" node_grad = L "*" node_grad
-
+  std::cout << "\t Inserting MATMUL for RHS" << std::endl;
   // node_grad shape: ik
   // return shape == rhs shape
   if(t_rhs) {
@@ -538,15 +555,19 @@ int matrixgraph_t::build_grad_term_ewb_arg(
   //   d [ f(A,B) ] / d B .* node_grad
   auto const& [op, lhs, rhs] = ewb;
 
-  scalarop_t deri_op = op.derivative(arg);
+
+  scalarop_t deri_op = op.derivative(arg); //  2*power(1)*(yhat - y) for first computation
+  std::cout << "\t Deri op is : " << deri_op.to_cppstr() << " with lhs and rhs being: (" << lhs << ", " << rhs << ")" << std::endl;
 
   if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
     return node_grad;
   }
 
   // TODO: can simplifications be made if constant of zero?
+  // This is presumably (2x)' = 2 so we have to make a scale node 
   if(deri_op.is_constant()) {
     scalar_t val = deri_op.eval({});
+    std::cout << "Inserting scale derivative op " << std::endl;
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 
@@ -578,10 +599,13 @@ int matrixgraph_t::build_grad_term_ewb_arg(
       scalarop_t::make_mul(),
       {deri_fixed, scalarop_t::make_identity(default_dtype())});
 
+    std::cout << "Inserting unary derivative op for node_id: " << inn << std::endl;
     return insert_ewb(combined, inn, node_grad);
   } else if(which_inputs.size() == 2) {
     // deri_op is binary
-    int tmp = insert_ewb(deri_op, lhs, rhs);
+    std::cout << "Inserting binary derivative op for out grad: " << node_grad << std::endl;
+    int tmp = insert_ewb(deri_op, lhs, rhs); // 2 * (yhat - y)
+    
     return insert_ewb(scalarop_t::make_mul(), tmp, node_grad);
   } else {
     throw std::runtime_error("should not happen");
@@ -612,12 +636,14 @@ int matrixgraph_t::build_grad_term_ew_inn(
   scalarop_t deri_op = op.derivative(0);
 
   if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
+    std::cout << "Not adding a new node to graph because derivative is 1 for node_id: " << inn << std::endl;
     return node_grad;
   }
 
   // TODO: can simplifications be made if constant of zero?
   if(deri_op.is_constant()) {
     scalar_t val = deri_op.eval({});
+    std::cout << "Adding EW node for gradient and node_id: " << inn << std::endl;
     return insert_ew(scalarop_t::make_scale(val), node_grad);
   }
 
@@ -632,6 +658,8 @@ int matrixgraph_t::build_grad_term_ew_inn(
     scalarop_t::make_mul(),
     {deri_op, scalarop_t::make_identity(default_dtype())});
 
+  std::cout << combined.to_cppstr() << std::endl;
+  std::cout << "Adding EWB node for node_id: " << inn << std::endl;
   return insert_ewb(combined, inn, node_grad);
 }
 
@@ -758,6 +786,11 @@ matrixgraph_t::compile(vector<int> const& saves) const
     vector<int> next_up;
     for(auto const& mid: pending) {
       node_t const& node = nodes[mid];
+      std::cout << "Creating node in graph_t for node_id of matrixgraph: " << mid << " with inns: " << std::endl;
+      if (node.inns_set().empty()) std::cout << std::endl;
+      for (auto const& inn : node.inns_set()) {
+        std::cout << "\t\t -- " << inn << std::endl;
+      } 
 
       if(node.is_ones()) {
         // ones nodes are not added to the return graph
@@ -780,6 +813,7 @@ matrixgraph_t::compile(vector<int> const& saves) const
           form = einsummable.has_aggregation();
         } else if(node.is_input()) {
           auto const& [d0,d1] = node.out_shape;
+          std::cout<< "\t Creating insert node" << std::endl;
           gid = ret.insert_input({d0,d1});
         } else {
           throw std::runtime_error("should not reach");
@@ -864,6 +898,7 @@ matrixgraph_t::translate_node(node_t const& node) const
 
     auto const& [lhs_d0, lhs_d1] = nodes[id_lhs].out_shape;
     auto const& [rhs_d0, rhs_d1] = nodes[id_rhs].out_shape;
+    std::cout<< "\t Creating matmul node" << std::endl;
 
     if(t_lhs) {
       uint64_t const& dj = lhs_d0;
@@ -890,11 +925,13 @@ matrixgraph_t::translate_node(node_t const& node) const
     auto const& [op, id_lhs, id_rhs] = std::get<ewb_t>(node.op);
     auto const& [d0,d1] = node.out_shape;
     einsummable_t e = einsummable_t({d0, d1}, { {0, 1}, {0, 1} }, 2, op, castable_t::add);
+    std::cout<< "\t Creating ewb einsum node" << std::endl;
     return {e, {id_lhs, id_rhs}};
   } else if(node.is_ew()) {
     auto const& [op, id_inn] = std::get<ew_t>(node.op);
     auto const& [d0,d1] = node.out_shape;
     einsummable_t e  = einsummable_t({d0, d1}, { {0, 1} }, 2, op, castable_t::add);
+    std::cout<< "\t Creating ew einsum node" << std::endl;
     return {e, {id_inn}};
   } else {
     throw std::runtime_error("should not reach");
