@@ -49,10 +49,10 @@ void test_server(
     // execute the taskgraph
     manager.execute(taskgraph);
 
-    for(auto const& [tid, b]: manager.data) {
-      DOUT("tid " << tid << " sum " <<
-        dbuffer_t(default_dtype(), b).sum());
-    }
+    //for(auto const& [tid, b]: manager.data) {
+    //  DOUT("tid " << tid << " sum " <<
+    //    dbuffer_t(default_dtype(), b).sum());
+    //}
 
     // get all the outputs
     for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -101,17 +101,17 @@ void test_server(
       DOUT("printed to mg.gv");
     }
 
-    for(auto const& [tid, loc]: manager.data_locs) {
-      if(loc.is_sto()) {
-        DOUT("tid " << tid << " with sum " <<
-          dbuffer_t(default_dtype(), manager.storage.read(loc.get_sto())).sum());
-      } else {
-        auto const& [offset, size] = loc.get_mem();
-        buffer_t b = make_buffer_reference(manager.mem->data + offset, size);
-        DOUT("tid " << tid << " with sum " <<
-          dbuffer_t(default_dtype(), b).sum());
-      }
-    }
+    //for(auto const& [tid, loc]: manager.data_locs) {
+    //  if(loc.is_sto()) {
+    //    DOUT("tid " << tid << " with sum " <<
+    //      dbuffer_t(default_dtype(), manager.storage.read(loc.get_sto())).sum());
+    //  } else {
+    //    auto const& [offset, size] = loc.get_mem();
+    //    buffer_t b = make_buffer_reference(manager.mem->data + offset, size);
+    //    DOUT("tid " << tid << " with sum " <<
+    //      dbuffer_t(default_dtype(), b).sum());
+    //  }
+    //}
 
     // get all the outputs
     for(int gid = 0; gid != graph.nodes.size(); ++gid) {

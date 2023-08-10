@@ -697,7 +697,7 @@ void _tg_with_mg_helper_t::rewrite_data_locs_server(
     }
   };
 
-  vector<vector<id_memsto_t>> items;
+  vector<vector<id_memsto_t>> items(world_size);
   data_locs.clear();
   for(auto const& [id, memstoloc]: new_data_locs) {
     int loc = get_loc(memstoloc);

@@ -111,9 +111,6 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       if(apply.loc < colors.size()) {
         color = colors[apply.loc];
       }
-      if(apply.group == 0) {
-        color = "yellow";
-      }
     } else if(op.is_move()) {
       move_t const& move = op.get_move();
 
