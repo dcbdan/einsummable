@@ -31,9 +31,8 @@ void test_server(
     DOUT("printed to tg.gv");
   }
 
-  map<int, dbuffer_t> tg_out_data;
-  {
-    tg_manager_t manager(&mpi, settings.exec_tg);
+  auto process = [&](manager_base_t& manager) {
+    map<int, dbuffer_t> out_data;
 
     // partition gid_inn_data into the manager
     for(auto [gid, dbuffer]: gid_inn_data) {
@@ -45,6 +44,9 @@ void test_server(
 
       manager.partition_into(rel, dbuffer);
     }
+
+    // update the kernel manager
+    manager.update_kernel_manager(taskgraph);
 
     // execute the taskgraph
     manager.execute(taskgraph);
@@ -63,71 +65,28 @@ void test_server(
           .placement = placements[gid],
           .tids = save_gid_to_tids[gid]
         };
-        tg_out_data.insert({gid, manager.get_tensor(rel)});
+        out_data.insert({gid, manager.get_tensor(rel)});
       }
     }
 
     // shutdown so the client can stop!
     manager.shutdown();
+
+    return out_data;
+  };
+
+  map<int, dbuffer_t> tg_out_data;
+  {
+    tg_manager_t manager(&mpi, settings.exec_tg);
+
+    tg_out_data = process(manager);
   }
 
   map<int, dbuffer_t> mg_out_data;
   {
     mg_manager_t manager(&mpi, settings.exec_mg, settings.memgraph_buffer_size);
 
-    // partition gid_inn_data into the manager
-    for(auto [gid, dbuffer]: gid_inn_data) {
-      relation_t rel {
-        .dtype = dbuffer.dtype,
-        .placement = placements[gid],
-        .tids = inn_gid_to_tids[gid]
-      };
-
-      manager.partition_into(rel, dbuffer);
-    }
-
-    // unlike the taskgraph manager, kernels are not implicitly compiled
-    manager.update_kernel_manager(taskgraph);
-
-    // execute the taskgraph
-    {
-      std::shared_ptr<memgraph_t> mg;
-      {
-        gremlin_t gremlin("executing the taskgraph as memgraph");
-        mg = std::make_shared<memgraph_t>(manager.execute(taskgraph));
-      }
-      std::ofstream f("mg.gv");
-      mg->print_graphviz(f);
-      DOUT("printed to mg.gv");
-    }
-
-    //for(auto const& [tid, loc]: manager.data_locs) {
-    //  if(loc.is_sto()) {
-    //    DOUT("tid " << tid << " with sum " <<
-    //      dbuffer_t(default_dtype(), manager.storage.read(loc.get_sto())).sum());
-    //  } else {
-    //    auto const& [offset, size] = loc.get_mem();
-    //    buffer_t b = make_buffer_reference(manager.mem->data + offset, size);
-    //    DOUT("tid " << tid << " with sum " <<
-    //      dbuffer_t(default_dtype(), b).sum());
-    //  }
-    //}
-
-    // get all the outputs
-    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      auto const& node = graph.nodes[gid];
-      if(node.op.is_save()) {
-        relation_t rel {
-          .dtype = node.op.out_dtype(),
-          .placement = placements[gid],
-          .tids = save_gid_to_tids[gid]
-        };
-        mg_out_data.insert({gid, manager.get_tensor(rel)});
-      }
-    }
-
-    // shutdown so the client can stop!
-    manager.shutdown();
+    mg_out_data = process(manager);
   }
 
   for(auto const& [gid, tdata]: tg_out_data) {
@@ -298,7 +257,7 @@ int main(int argc, char** argv) {
       .num_recv_runner = 2
     },
     .alloc = allocator_settings_t::default_settings(),
-    .memgraph_buffer_size = buffer_size // ngb*GB
+    .memgraph_buffer_size = ngb*GB // buffer_size
   };
 
   if(mpi.this_rank == 0) {

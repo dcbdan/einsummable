@@ -19,6 +19,13 @@ void tg_manager_t::listen() {
     if(cmd == cmd_t::execute) {
       taskgraph_t tg = taskgraph_t::from_wire(mpi->recv_str(0));
       _execute(tg);
+    } else if(cmd == cmd_t::update_km) {
+      string str = mpi->recv_str(0);
+      es_proto::EinsummableList es;
+      if(!es.ParseFromString(str)) {
+        throw std::runtime_error("could not parse einsummable list!");
+      }
+      _update_km(es);
     } else if(cmd == cmd_t::unpartition) {
       map<int, buffer_t> tmp = data;
       auto remap = remap_relations_t::from_wire(mpi->recv_str(0));
@@ -36,7 +43,7 @@ void tg_manager_t::listen() {
       mpi->send_int(max_tid_here, 0, 0);
     } else if(cmd == cmd_t::registered_cmd) {
       string key = mpi->recv_str(0);
-      listeners.at(key)(*this);
+      listeners.at(key)(this);
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
@@ -44,14 +51,20 @@ void tg_manager_t::listen() {
 }
 
 void tg_manager_t::register_listen(
-  string key, std::function<void(tg_manager_t&)> f)
+  string key, std::function<void(manager_base_t*)> f)
 {
+  if(!mpi || mpi->this_rank == 0) {
+    throw std::runtime_error("rank zero should not call register_listen method");
+  }
+  if(listeners.count(key) > 0) {
+    throw std::runtime_error("this key has already been set");
+  }
   listeners.insert({key, f});
 }
 
 void tg_manager_t::execute(taskgraph_t const& taskgraph)
 {
-  gremlin_t gremlin("execute from manager");
+  gremlin_t gremlin("execute from tg manager");
   broadcast_cmd(cmd_t::execute);
   broadcast_str(taskgraph.to_wire());
   _execute(taskgraph);
@@ -107,6 +120,66 @@ void tg_manager_t::remap(remap_relations_t const& remap) {
   repartition(mpi, remap, data);
 }
 
+void tg_manager_t::update_kernel_manager(taskgraph_t const& tg) {
+  int world_size = bool(mpi) ? mpi->world_size : 1;
+  vector<std::unordered_set<einsummable_t>> es(world_size);
+  for(auto const& node: tg.nodes) {
+    auto const& op = node.op;
+    if(op.is_apply()) {
+      int loc = op.out_loc();
+      auto const& e = op.get_apply().einsummable;
+      es[loc].insert(e.merge_adjacent_dims());
+    }
+  }
+
+  broadcast_cmd(cmd_t::update_km);
+  _broadcast_es(es);
+  _update_km(es[0]);
+}
+
+void tg_manager_t::custom_command(string key) {
+  broadcast_cmd(cmd_t::registered_cmd);
+  broadcast_str(key);
+}
+
+void tg_manager_t::_broadcast_es(
+  vector<std::unordered_set<einsummable_t>> const& einsummables)
+{
+  for(int loc = 1; loc != einsummables.size(); ++loc) {
+    es_proto::EinsummableList es;
+    for(auto const& einsummable: einsummables[loc]) {
+      es_proto::Einsummable* e = es.add_es();
+      einsummable.to_proto(*e);
+    }
+    string ret;
+    es.SerializeToString(&ret);
+    mpi->send_str(ret, loc);
+  }
+}
+
+void tg_manager_t::_update_km(
+  std::unordered_set<einsummable_t> const& es)
+{
+  for(auto const& e: es) {
+    auto maybe = kernel_manager.build(e);
+    if(!maybe) {
+      throw std::runtime_error("tg manager: could not build a kernel");
+    }
+  }
+}
+
+void tg_manager_t::_update_km(es_proto::EinsummableList const& es) {
+  int n = es.es_size();
+  for(int i = 0; i != n; ++i) {
+    es_proto::Einsummable const& e = es.es(i);
+    einsummable_t einsummable = einsummable_t::from_proto(e);
+    auto maybe = kernel_manager.build(einsummable);
+    if(!maybe) {
+      throw std::runtime_error("tg manager: could not build a kernel");
+    }
+  }
+}
+
 int tg_manager_t::get_max_tid() {
   int ret = data.size() == 0 ? -1 : data.rbegin()->first;
 
@@ -147,7 +220,6 @@ tg_manager_t::cmd_t tg_manager_t::recv_cmd() {
 
 void tg_manager_t::_execute(taskgraph_t const& taskgraph)
 {
-  update_kernel_manager(kernel_manager, taskgraph);
   execute_taskgraph(taskgraph, settings, kernel_manager, mpi, data);
 }
 
@@ -212,10 +284,25 @@ void mg_manager_t::listen() {
     } else if(cmd == cmd_t::max_tid) {
       int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
       mpi->send_int(max_tid_here, 0, 0);
+    } else if(cmd == cmd_t::registered_cmd) {
+      string key = mpi->recv_str(0);
+      listeners.at(key)(this);
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
   }
+}
+
+void mg_manager_t::register_listen(
+  string key, std::function<void(manager_base_t*)> f)
+{
+  if(!mpi || mpi->this_rank == 0) {
+    throw std::runtime_error("rank zero should not call register_listen method");
+  }
+  if(listeners.count(key) > 0) {
+    throw std::runtime_error("this key has already been set");
+  }
+  listeners.insert({key, f});
 }
 
 void mg_manager_t::update_kernel_manager(taskgraph_t const& tg) {
@@ -251,6 +338,11 @@ void mg_manager_t::update_kernel_manager(memgraph_t const& mg) {
   broadcast_cmd(cmd_t::update_km);
   _broadcast_es(es);
   _update_km(es[0]);
+}
+
+void mg_manager_t::custom_command(string key) {
+  broadcast_cmd(cmd_t::registered_cmd);
+  broadcast_str(key);
 }
 
 void mg_manager_t::_broadcast_es(
@@ -309,9 +401,10 @@ void mg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
 }
 
-memgraph_t mg_manager_t::execute(taskgraph_t const& taskgraph) {
+void mg_manager_t::execute(taskgraph_t const& taskgraph) {
+  gremlin_t gremlin("execute taskgraph from mg manager");
   broadcast_cmd(cmd_t::execute_tg);
-  return execute_taskgraph_as_memgraph_server(
+  execute_taskgraph_as_memgraph_server(
     taskgraph, exec_settings, kernel_manager, alloc_settings,
     mpi, data_locs, mem, storage);
 }

@@ -5,6 +5,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <fstream> // TODO remove
+
 using std::thread;
 using std::queue;
 
@@ -739,7 +741,7 @@ _tg_with_mg_helper_t::create_storage_remaps(
   return storage_remaps;
 }
 
-memgraph_t execute_taskgraph_as_memgraph_server(
+void execute_taskgraph_as_memgraph_server(
   taskgraph_t const& taskgraph,
   execute_memgraph_settings_t const& exec_settings,
   kernel_manager_t const& kernel_manager,
@@ -764,6 +766,13 @@ memgraph_t execute_taskgraph_as_memgraph_server(
       taskgraph, which_storage, mem_sizes,
       full_data_locs, alloc_settings, true);
 
+  // TODO
+  {
+    std::ofstream f("mg.gv");
+    memgraph.print_graphviz(f);
+    DOUT("printed mg.gv");
+  }
+
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
   vector<vector<std::array<int, 2>>> storage_remaps =
@@ -781,8 +790,6 @@ memgraph_t execute_taskgraph_as_memgraph_server(
     mpi, mem, storage);
 
   helper.rewrite_data_locs_server(out_tg_to_loc);
-
-  return memgraph;
 }
 
 void execute_taskgraph_as_memgraph_client(

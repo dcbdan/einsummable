@@ -8,16 +8,58 @@
 #include "../../einsummable/relation.h"
 #include "einsummable.pb.h"
 
+struct manager_base_t {
+  virtual void listen() = 0;
+
+  // Note: this should only be called on ranks not equal to zero.
+  virtual void register_listen(string key, std::function<void(manager_base_t*)> f) = 0;
+
+  // Should only be called by rank zero and when all other
+  // ranks are listening {{{
+  virtual void execute(taskgraph_t const& taskgraph) = 0;
+
+  // Get a relation broadcast across the cluster and put it
+  // onto node zero.
+  virtual dbuffer_t get_tensor(relation_t const& src_relation) = 0;
+
+  // Get a tensor here and partition it across the cluster
+  // into managed data
+  virtual void partition_into(
+    relation_t const& dst_relation,
+    dbuffer_t src_tensor) = 0;
+
+  // repartitions the relations stored in managed data
+  // Note: anything not in the dst remap may get
+  //       deleted!
+  virtual void remap(remap_relations_t const& remap) = 0;
+
+  // Update the kernel manager across all nodes
+  virtual void update_kernel_manager(taskgraph_t const& tg) = 0;
+
+  virtual void custom_command(string key) = 0;
+
+  // Get the max tid across all data objects on all ranks.
+  // Useful for creating new relations that won't overwrite
+  // existing data
+  virtual int get_max_tid() = 0;
+
+  virtual void shutdown() = 0;
+  // }}}
+};
+
+// TODO: There is a lot code duplication in the implementation of tg_manager_t
+//       and mg_manager_t. When it becomes clear how these managers will be used,
+//       consolidate into manager_base_t.
+
 // A tg manager updates a map<int, buffer_t> state
 // from a client node at rank zero. All the other nodes
 // cooperate to do the various updates.
-struct tg_manager_t {
+struct tg_manager_t : public manager_base_t {
   tg_manager_t(mpi_t* mpi, execute_taskgraph_settings_t const& settings);
 
-  // this should be called by all non-zero rank locations
   void listen();
 
-  void register_listen(string key, std::function<void(tg_manager_t&)> f);
+  void register_listen(string key, std::function<void(manager_base_t*)> f);
 
   // Should only be called by rank zero and when all other
   // ranks are listening {{{
@@ -38,6 +80,10 @@ struct tg_manager_t {
   // Note: anything not in the dst remap may get
   //       deleted!
   void remap(remap_relations_t const& remap);
+
+  void update_kernel_manager(taskgraph_t const& tg);
+
+  void custom_command(string key);
 
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
@@ -62,6 +108,7 @@ private:
 
   enum class cmd_t {
     execute = 0,
+    update_km,
     unpartition,
     partition_into,
     remap,
@@ -72,7 +119,7 @@ private:
 
   static vector<string> const& cmd_strs() {
     static vector<string> ret {
-      "execute", "unpartition", "partition_into",
+      "execute", "update_km", "unpartition", "partition_into",
       "remap", "max_tid", "registered_cmd", "shutdown"
     };
     return ret;
@@ -89,17 +136,21 @@ private:
 
   void _execute(taskgraph_t const& tg);
 
+  void _broadcast_es(vector<std::unordered_set<einsummable_t>> const& es);
+  void _update_km(std::unordered_set<einsummable_t> const& es);
+  void _update_km(es_proto::EinsummableList const& es);
+
   void copy_into_data(
     map<int, buffer_t>& tmp,
     remap_relations_t const& remap);
 
-  map<string, std::function<void(tg_manager_t&)>> listeners;
+  map<string, std::function<void(manager_base_t*)>> listeners;
 };
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c);
 std::istream& operator>>(std::istream& inn, tg_manager_t::cmd_t& c);
 
-struct mg_manager_t {
+struct mg_manager_t : public manager_base_t {
   mg_manager_t(
     mpi_t* mpi,
     execute_memgraph_settings_t const& exec_sts,
@@ -109,12 +160,14 @@ struct mg_manager_t {
   // this should be called by all non-zero rank locations
   void listen();
 
+  void register_listen(string key, std::function<void(manager_base_t*)> f);
+
   // Should only be called by rank zero and when all other
   // ranks are listening {{{
 
   // Compile a taskgraph into a memgraph and execute the
   // memgraph
-  memgraph_t execute(taskgraph_t const& taskgraph);
+  void execute(taskgraph_t const& taskgraph);
   // (returning the memgraph for debugging)
 
   void execute(memgraph_t  const& memgraph);
@@ -132,6 +185,8 @@ struct mg_manager_t {
 
   void update_kernel_manager(taskgraph_t const& tg);
   void update_kernel_manager(memgraph_t const& mg);
+
+  void custom_command(string key);
 
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
@@ -160,6 +215,7 @@ private:
     partition_into,
     remap,
     max_tid,
+    registered_cmd,
     shutdown
   };
 
@@ -167,7 +223,7 @@ private:
     static vector<string> ret {
       "execute_tg", "execute_mg", "update_km",
       "unpartition", "partition_into",
-      "remap", "max_tid", "shutdown"
+      "remap", "max_tid", "registered_cmd", "shutdown"
     };
     return ret;
   }
@@ -192,6 +248,8 @@ private:
   map<int, buffer_t> _unpartition(remap_relations_t const& remap);
 
   void _remap_into_here(remap_relations_t const& remap, map<int, buffer_t> data);
+
+  map<string, std::function<void(manager_base_t*)>> listeners;
 };
 
 std::ostream& operator<<(std::ostream& out, mg_manager_t::cmd_t const& c);
