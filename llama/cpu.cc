@@ -160,8 +160,8 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
-int num_threads_per_node = 8;
-int num_real_threads_per_node = 12;
+int num_threads_per_node = 1;
+int num_real_threads_per_node = 4;
 int num_steps = 300000;
 int nlocs = -1;
 double beta = 10000.0;
@@ -207,12 +207,15 @@ vector<placement_t> autoplace(graph_t const& graph) {
   return mcmc.get_best_placements();
 }
 
-void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
+void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
   {
     int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
     set_seed(seed);
   }
+
+  string register_cmd = manager.get_registered_cmd();
+  mpi_t* mpi = manager.get_mpi();
 
   set_default_dtype(dtype_t::f16);
 
@@ -252,16 +255,30 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
 
   DLINEOUT("getting the embedding matrix");
 
-  dbuffer_t embedding_matrix = [&] {
+  auto read_into_manager = [&](string name, vector<uint64_t> shape) {
     int starting_tid = manager.get_max_tid() + 1;
-    vector<uint64_t> shape{ args.vocab_size, args.dim };
+    map<int, buffer_t> data;
     relation_t relation = reader(
-      manager.get_registered_cmd(), manager.mpi, manager.data,
-      "tok_embeddings.weight", shape, starting_tid);
-    buffer_t ret = convert_f16_to_default(manager.get_tensor(relation).data);
-    for(auto const& tid: relation.tids.get()) {
-      manager.data.erase(tid);
+      register_cmd, mpi, data,
+      name, shape, starting_tid);
+
+    // reader reads in only f16s
+    if(default_dtype() != dtype_t::f16) {
+      for(auto& [i,b]: data) {
+        // copy b into itself but with the default dtype
+        b = dbuffer_t(dtype_t::f16, b).copy(default_dtype()).data;
+      }
     }
+
+    manager.insert_tensors(data);
+    return relation;
+  };
+
+  dbuffer_t embedding_matrix = [&] {
+    vector<uint64_t> shape{ args.vocab_size, args.dim };
+    relation_t relation = read_into_manager("tok_embeddings.weight", shape);
+    buffer_t ret = convert_f16_to_default(manager.get_tensor(relation).data);
+    manager.erase_tensors(relation.tids.get());
     return dbuffer_t(default_dtype(), ret);
   }();
 
@@ -280,10 +297,6 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
   DOUT("total touch bytes: " << (double(total)*1.0e-9) << " GB");
   DOUT("taskgraph number of locs " << builder.taskgraph.num_locs());
 
-  // TODO: tensor_reader_t reads everything in f16. Support when
-  //       f16 isn't the default dtype by converting f16 read tensors
-  //       into different default dtype then remapping the relations
-
   // need all weights, mask, freqcis, embeddings
 
   {
@@ -292,17 +305,18 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
     DLINEOUT("getting weights");
     for(auto const& [name, usage_tinfo]: builder.weights) {
       auto shape = usage_tinfo.placement.total_shape();
-      int starting_tid = manager.get_max_tid() + 1;
       init_remap.insert(
-        reader(manager.get_registered_cmd(), manager.mpi, manager.data,
-               name, shape, starting_tid),
+        read_into_manager(name, shape),
         usage_tinfo);
     }
 
     DLINEOUT("got weights");
     auto insert_local = [&](relation_t const& tinfo, buffer_t buffer) {
+      // TODO: this is inefficient with mg_maanger since it creates a new
+      //       allocator on ever insert_tensors call, all to insert just
+      //       one item
       int id = manager.get_max_tid() + 1;
-      manager.data.insert({ id, buffer });
+      manager.insert_tensors({ {id, buffer} });
       init_remap.insert(
         tinfo.as_singleton(id),
         tinfo);
@@ -336,14 +350,21 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
   }
 
   // all data has been read, so shut down the reader
-  reader.shutdown(manager.get_registered_cmd(), manager.mpi);
+  reader.shutdown(register_cmd, mpi);
 
-  int world_size = bool(manager.mpi) ? manager.mpi->world_size : 1;
+  int world_size = bool(mpi) ? mpi->world_size : 1;
   if(builder.taskgraph.num_locs() > world_size) {
     throw std::runtime_error("the taskgraph has more locs than mpi rank");
   }
 
+  manager.update_kernel_manager(builder.taskgraph);
+
   DOUT("---");
+  {
+    std::ofstream f("tg.gv");
+    builder.taskgraph.print_graphviz(f);
+    DOUT("printed tg.gv");
+  }
   manager.execute(builder.taskgraph);
 
   {
@@ -375,6 +396,8 @@ void main_(tg_manager_t& manager, tensor_reader_t& reader, string filename) {
       manager.partition_into(builder.embeddings, embeddings);
     }
 
+    manager.update_kernel_manager(builder.taskgraph);
+
     DOUT("---");
     manager.execute(builder.taskgraph);
 
@@ -404,37 +427,82 @@ int main(int argc, char** argv) {
   //  DOUT("");
   //}
 
-  auto settings = execute_taskgraph_settings_t::default_settings();
-  settings.num_apply_runner = num_real_threads_per_node;
-
   mpi_t mpi(argc, argv);
   nlocs = mpi.world_size;
 
-  tg_manager_t manager(&mpi, settings);
+  bool with_tg = false;
+  bool with_mg = true;
 
-  if(argc != 3) {
-    throw std::runtime_error("usage: base_filename n_files");
+  if(with_tg) {
+    auto settings = execute_taskgraph_settings_t::default_settings();
+    settings.num_apply_runner = num_real_threads_per_node;
+
+    tg_manager_t manager(&mpi, settings);
+
+    if(argc != 3) {
+      throw std::runtime_error("usage: base_filename n_files");
+    }
+
+    // reader holds data by reference
+    tensor_reader_t reader(
+      mpi.this_rank, mpi.world_size,
+      argv[1], parse_with_ss<int>(argv[2]));
+
+    if(mpi.this_rank != 0) {
+      manager.register_listen(reader.read_cmd(),
+        [&](manager_base_t* base_m) {
+          tg_manager_t* m = static_cast<tg_manager_t*>(base_m);
+          reader.listen_read(m->mpi, m->data);
+        }
+      );
+      manager.register_listen(reader.shutdown_cmd(),
+        [&](manager_base_t* base_m) {
+          reader.listen_shutdown();
+        }
+      );
+      manager.listen();
+    } else {
+      main_(manager, reader, argv[1]);
+      manager.shutdown();
+    }
   }
 
-  // reader holds data by reference
-  tensor_reader_t reader(
-    mpi.this_rank, mpi.world_size,
-    argv[1], parse_with_ss<int>(argv[2]));
+  if(with_mg) {
+    auto settings = execute_memgraph_settings_t::default_settings();
+    settings.num_apply_runner = num_real_threads_per_node;
 
-  if(mpi.this_rank != 0) {
-    manager.register_listen(reader.read_cmd(),
-      [&](tg_manager_t& m) {
-        reader.listen_read(m.mpi, m.data);
-      }
-    );
-    manager.register_listen(reader.shutdown_cmd(),
-      [&](tg_manager_t& m) {
-        reader.listen_shutdown();
-      }
-    );
-    manager.listen();
-  } else {
-    main_(manager, reader, argv[1]);
-    manager.shutdown();
+    uint64_t ngb = 24;
+    uint64_t GB = 1000000000;
+
+    mg_manager_t manager(&mpi, settings, ngb*GB);
+
+    if(argc != 3) {
+      throw std::runtime_error("usage: base_filename n_files");
+    }
+
+    // reader holds data by reference
+    tensor_reader_t reader(
+      mpi.this_rank, mpi.world_size,
+      argv[1], parse_with_ss<int>(argv[2]));
+
+    if(mpi.this_rank != 0) {
+      manager.register_listen(reader.read_cmd(),
+        [&](manager_base_t* base_m) {
+          map<int, buffer_t> data;
+          mg_manager_t* m = static_cast<mg_manager_t*>(base_m);
+          reader.listen_read(m->mpi, data);
+          m->insert_tensors(data);
+        }
+      );
+      manager.register_listen(reader.shutdown_cmd(),
+        [&](manager_base_t* base_m) {
+          reader.listen_shutdown();
+        }
+      );
+      manager.listen();
+    } else {
+      main_(manager, reader, argv[1]);
+      manager.shutdown();
+    }
   }
 }

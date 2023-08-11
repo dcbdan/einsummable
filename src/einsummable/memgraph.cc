@@ -992,7 +992,7 @@ memgraph_make_state_t::memgraph_make_state_t(
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     } else if(memstoloc.is_stoloc()) {
       auto const& [storage_loc, storage_id] = memstoloc.get_stoloc();
-      _sto_id = 1 + storage_id;
+      _sto_id = std::max(_sto_id, 1 + storage_id);
 
       inputsto_t input {
         .loc = memgraph.get_loc_from_storage_loc(storage_loc),

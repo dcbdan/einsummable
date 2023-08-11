@@ -36,8 +36,6 @@ struct manager_base_t {
   // Update the kernel manager across all nodes
   virtual void update_kernel_manager(taskgraph_t const& tg) = 0;
 
-  virtual void custom_command(string key) = 0;
-
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
   // existing data
@@ -45,6 +43,14 @@ struct manager_base_t {
 
   virtual void shutdown() = 0;
   // }}}
+
+  virtual mpi_t* get_mpi() = 0;
+  virtual string get_registered_cmd() const = 0;
+
+  // it is error if any of the tids in these methods do not live on
+  // _this_ rank.
+  virtual void insert_tensors(map<int, buffer_t> data) = 0;
+  virtual void erase_tensors(vector<int> const& tids) = 0;
 };
 
 // TODO: There is a lot code duplication in the implementation of tg_manager_t
@@ -83,8 +89,6 @@ struct tg_manager_t : public manager_base_t {
 
   void update_kernel_manager(taskgraph_t const& tg);
 
-  void custom_command(string key);
-
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
   // existing data
@@ -93,9 +97,14 @@ struct tg_manager_t : public manager_base_t {
   void shutdown();
   // }}}
 
-  static string get_registered_cmd() {
+  mpi_t* get_mpi() { return mpi; }
+
+  string get_registered_cmd() const {
     return write_with_ss(cmd_t::registered_cmd);
   }
+
+  void insert_tensors(map<int, buffer_t> data);
+  void erase_tensors(vector<int> const& tids);
 
   map<int, buffer_t> data;
 
@@ -186,8 +195,6 @@ struct mg_manager_t : public manager_base_t {
   void update_kernel_manager(taskgraph_t const& tg);
   void update_kernel_manager(memgraph_t const& mg);
 
-  void custom_command(string key);
-
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
   // existing data
@@ -195,6 +202,15 @@ struct mg_manager_t : public manager_base_t {
 
   void shutdown();
   // }}}
+
+  mpi_t* get_mpi() { return mpi; }
+
+  string get_registered_cmd() const {
+    return write_with_ss(cmd_t::registered_cmd);
+  }
+
+  void insert_tensors(map<int, buffer_t> data);
+  void erase_tensors(vector<int> const& tids);
 
   map<int, memsto_t> data_locs;
 

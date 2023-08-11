@@ -137,11 +137,6 @@ void tg_manager_t::update_kernel_manager(taskgraph_t const& tg) {
   _update_km(es[0]);
 }
 
-void tg_manager_t::custom_command(string key) {
-  broadcast_cmd(cmd_t::registered_cmd);
-  broadcast_str(key);
-}
-
 void tg_manager_t::_broadcast_es(
   vector<std::unordered_set<einsummable_t>> const& einsummables)
 {
@@ -196,6 +191,22 @@ int tg_manager_t::get_max_tid() {
 
 void tg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
+}
+
+void tg_manager_t::insert_tensors(map<int, buffer_t> d) {
+  for(auto const& [k,v]: d) {
+    data.insert({k,v});
+  }
+}
+
+void tg_manager_t::erase_tensors(vector<int> const& tids) {
+  for(auto const& k: tids) {
+    auto iter = data.find(k);
+    if(iter == data.end()) {
+      throw std::runtime_error("could not erase this tid");
+    }
+    data.erase(iter);
+  }
 }
 
 void tg_manager_t::broadcast_cmd(tg_manager_t::cmd_t const& cmd) {
@@ -340,11 +351,6 @@ void mg_manager_t::update_kernel_manager(memgraph_t const& mg) {
   _update_km(es[0]);
 }
 
-void mg_manager_t::custom_command(string key) {
-  broadcast_cmd(cmd_t::registered_cmd);
-  broadcast_str(key);
-}
-
 void mg_manager_t::_broadcast_es(
   vector<std::unordered_set<einsummable_t>> const& einsummables)
 {
@@ -399,6 +405,52 @@ int mg_manager_t::get_max_tid() {
 
 void mg_manager_t::shutdown() {
   broadcast_cmd(cmd_t::shutdown);
+}
+
+void mg_manager_t::insert_tensors(map<int, buffer_t> ds) {
+  // create an allocator that represents the current utilization
+  // of this buffer
+  allocator_t allocator(mem->size, alloc_settings);
+  for(auto const& [_, memsto]: data_locs) {
+    if(memsto.is_mem()) {
+      auto const& [offset, size] = memsto.get_mem();
+      allocator.allocate_at_without_deps(offset, size);
+    }
+  }
+
+  int _sto_id = storage.get_max_id() + 1;
+
+  for(auto const& [tid,buffer]: ds) {
+    uint64_t const& size = buffer->size;
+    auto maybe = allocator.try_to_allocate_without_deps(size);
+    if(maybe) {
+      uint64_t offset = maybe.value();
+      data_locs.insert({tid, memsto_t(mem_t{ offset, size })});
+      std::copy(buffer->data, buffer->data + size, mem->data + offset);
+    } else {
+      int new_sto_id = _sto_id++;
+      data_locs.insert({tid, memsto_t(new_sto_id)});
+      storage.write(buffer, new_sto_id);
+    }
+  }
+}
+
+void mg_manager_t::erase_tensors(vector<int> const& tids) {
+  for(auto const& tid: tids) {
+    auto iter = data_locs.find(tid);
+    if(iter == data_locs.end()) {
+      throw std::runtime_error("tid not in mg manager; cannot erase");
+    }
+    auto const& memsto = iter->second;
+    if(memsto.is_mem()) {
+      // nothing to do other than remove from data_locs
+    } else {
+      int const& sto_id = memsto.get_sto();
+      storage.remove(sto_id);
+    }
+
+    data_locs.erase(iter);
+  }
 }
 
 void mg_manager_t::execute(taskgraph_t const& taskgraph) {
@@ -527,44 +579,8 @@ void mg_manager_t::_remap_into_here(
   remap_relations_t const& remap,
   map<int, buffer_t> data)
 {
-  int this_rank = bool(mpi) ? mpi->this_rank : 0;
-
   repartition(mpi, remap, data);
-
-  // create an allocator that represents the current utilization
-  // of this buffer
-  allocator_t allocator(mem->size, alloc_settings);
-  for(auto const& [_, memsto]: data_locs) {
-    if(memsto.is_mem()) {
-      auto const& [offset, size] = memsto.get_mem();
-      allocator.allocate_at_without_deps(offset, size);
-    }
-  }
-
-  int _sto_id = storage.get_max_id() + 1;
-
-  for(auto const& [_, rel]: remap.remap) {
-    auto const& locs = rel.placement.locations.get();
-    auto const& tids = rel.tids.get();
-    for(int bid = 0; bid != locs.size(); ++bid) {
-      int const& loc = locs[bid];
-      int const& tid = tids[bid];
-      if(loc == this_rank) {
-        auto& buffer = data.at(tid);
-        uint64_t const& size = buffer->size;
-        auto maybe = allocator.try_to_allocate_without_deps(size);
-        if(maybe) {
-          uint64_t offset = maybe.value();
-          data_locs.insert({tid, memsto_t(mem_t{ offset, size })});
-          std::copy(buffer->data, buffer->data + size, mem->data + offset);
-        } else {
-          int new_sto_id = _sto_id++;
-          data_locs.insert({tid, memsto_t(new_sto_id)});
-          storage.write(buffer, new_sto_id);
-        }
-      }
-    }
-  }
+  insert_tensors(data);
 }
 
 std::ostream& operator<<(std::ostream& out, tg_manager_t::cmd_t const& c) {
