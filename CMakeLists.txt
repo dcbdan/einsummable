@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")# -DMKL_DIRECT_CALL_SEQ_JIT")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -112,6 +112,8 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
   add_cpu_application("cpumanager"      "exps" "cpumanager")
+  add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
+  add_cpu_application("cpumms"          "exps" "cpumms")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
