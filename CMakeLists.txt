@@ -71,6 +71,13 @@ if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
     set(MKL_THREADING sequential)
   endif()
+  
+  # Tell MKL to use the best instructions; if
+  # this instruction set it goes to the next best
+  # and so on...
+  # (MKL is bad at finding the right instruction set and
+  #  this helps empirically)
+  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
   find_package(MPI REQUIRED)
 

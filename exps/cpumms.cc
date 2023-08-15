@@ -211,6 +211,40 @@ int test03(int argc, char** argv) {
   return 0;
 }
 
+int test04(int argc, char** argv) {
+  if(argc != 7) {
+    std::cout << "Usage: sz_i sz_jk n npart_i npart_jk nrunner" << std::endl;
+    return 1;
+  }
+
+  uint64_t sz_i  = parse_with_ss<uint64_t>(argv[1]);
+  uint64_t sz_jk = parse_with_ss<uint64_t>(argv[2]);
+
+  int n          = parse_with_ss<int>(argv[3]);
+
+  vector<dbuffer_t> data;
+  data.push_back(make_dbuffer(default_dtype(), sz_i * sz_jk));
+  for(int i = 0; i != n; ++i) {
+    data.push_back(make_dbuffer(default_dtype(), sz_jk*sz_jk));
+    data.back().random("-0.1", "0.1");
+  }
+
+  {
+    gremlin_t gremlin("mm test04 with enable_instructions");
+    for(int i = 1; i != n+1; ++i) {
+      dbuffer_t out = make_dbuffer(default_dtype(), sz_i*sz_jk);
+      matrix_multiply(
+	default_dtype(),
+	sz_i, sz_jk, sz_jk, false, false,
+        reinterpret_cast<float*>(out.raw()),
+        reinterpret_cast<float*>(data[0].raw()),
+        reinterpret_cast<float*>(data[i].raw()));
+      data[0] = out;
+    }
+  }
+
+  return 0;
+}
 int main01(int argc, char** argv) {
   if(argc != 5) {
     std::cout << "Usage: sz n npart nrunner" << std::endl;
@@ -274,6 +308,4 @@ int main(int argc, char** argv) {
     gremlin_t _("execute");
     execute_taskgraph(taskgraph, settings, kernel_manager, nullptr, data);
   }
-
-  test03(argc, argv);
 }
