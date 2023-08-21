@@ -1077,7 +1077,7 @@ void node_t::increment_holes(int incr) {
 void node_t::remap_holes(map<int, int> const& fmap) {
   if(op.is_hole()) {
     int& arg = std::get<op_t::hole>(op.op).arg;
-    arg += fmap.at(arg);
+    arg = fmap.at(arg);
   } else {
     for(auto& child: children) {
       child.remap_holes(fmap);
