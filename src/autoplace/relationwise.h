@@ -14,6 +14,8 @@ struct kernel_coster_t {
 
   double flops; // floating points per second
 
+  double rw;
+
   double compute_start;
   double touch_start;
   double move_start;

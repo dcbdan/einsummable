@@ -172,7 +172,10 @@ vector<placement_t> autoplace(graph_t const& graph) {
   }
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-  kernel_coster.touch_start = 1e-2;
+  kernel_coster.flops = 1e10;
+  kernel_coster.rw = 1e9;
+  kernel_coster.compute_start = 5e-4;
+  kernel_coster.touch_start = 5e-4
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -430,18 +433,20 @@ int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
   nlocs = mpi.world_size;
 
-  bool with_tg = false;
-  bool with_mg = true;
+  bool with_tg = true;
+  bool with_mg = false;
 
   if(with_tg) {
+    if(argc != 4) {
+      throw std::runtime_error("usage: base_filename n_files n_plan");
+    }
+    num_threads_per_node = parse_with_ss<int>(argv[3]);
+
     auto settings = execute_taskgraph_settings_t::default_settings();
     settings.num_apply_runner = num_real_threads_per_node;
 
     tg_manager_t manager(&mpi, settings);
 
-    if(argc != 3) {
-      throw std::runtime_error("usage: base_filename n_files");
-    }
 
     // reader holds data by reference
     tensor_reader_t reader(
@@ -467,42 +472,42 @@ int main(int argc, char** argv) {
     }
   }
 
-  if(with_mg) {
-    auto settings = execute_memgraph_settings_t::default_settings();
-    settings.num_apply_runner = num_real_threads_per_node;
+  //if(with_mg) {
+  //  auto settings = execute_memgraph_settings_t::default_settings();
+  //  settings.num_apply_runner = num_real_threads_per_node;
 
-    uint64_t ngb = 24;
-    uint64_t GB = 1000000000;
+  //  uint64_t ngb = 24;
+  //  uint64_t GB = 1000000000;
 
-    mg_manager_t manager(&mpi, settings, ngb*GB);
+  //  mg_manager_t manager(&mpi, settings, ngb*GB);
 
-    if(argc != 3) {
-      throw std::runtime_error("usage: base_filename n_files");
-    }
+  //  if(argc != 3) {
+  //    throw std::runtime_error("usage: base_filename n_files");
+  //  }
 
-    // reader holds data by reference
-    tensor_reader_t reader(
-      mpi.this_rank, mpi.world_size,
-      argv[1], parse_with_ss<int>(argv[2]));
+  //  // reader holds data by reference
+  //  tensor_reader_t reader(
+  //    mpi.this_rank, mpi.world_size,
+  //    argv[1], parse_with_ss<int>(argv[2]));
 
-    if(mpi.this_rank != 0) {
-      manager.register_listen(reader.read_cmd(),
-        [&](manager_base_t* base_m) {
-          map<int, buffer_t> data;
-          mg_manager_t* m = static_cast<mg_manager_t*>(base_m);
-          reader.listen_read(m->mpi, data);
-          m->insert_tensors(data);
-        }
-      );
-      manager.register_listen(reader.shutdown_cmd(),
-        [&](manager_base_t* base_m) {
-          reader.listen_shutdown();
-        }
-      );
-      manager.listen();
-    } else {
-      main_(manager, reader, argv[1]);
-      manager.shutdown();
-    }
-  }
+  //  if(mpi.this_rank != 0) {
+  //    manager.register_listen(reader.read_cmd(),
+  //      [&](manager_base_t* base_m) {
+  //        map<int, buffer_t> data;
+  //        mg_manager_t* m = static_cast<mg_manager_t*>(base_m);
+  //        reader.listen_read(m->mpi, data);
+  //        m->insert_tensors(data);
+  //      }
+  //    );
+  //    manager.register_listen(reader.shutdown_cmd(),
+  //      [&](manager_base_t* base_m) {
+  //        reader.listen_shutdown();
+  //      }
+  //    );
+  //    manager.listen();
+  //  } else {
+  //    main_(manager, reader, argv[1]);
+  //    manager.shutdown();
+  //  }
+  //}
 }

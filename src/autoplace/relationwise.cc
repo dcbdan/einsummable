@@ -8,6 +8,8 @@ kernel_coster_t::for_cpu_cluster(int nlocs)
   // 100 Mbps=1e8
   double bw = 1e9;
 
+  double rw = 1e9;
+
   double fl = 1e10;
 
   double startup = 5e-4; // this many seconds to start doing anything
@@ -15,6 +17,7 @@ kernel_coster_t::for_cpu_cluster(int nlocs)
   return kernel_coster_t {
     .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
     .flops = fl,
+    .rw = rw,
     .compute_start = startup,
     .touch_start = startup,
     .move_start = startup
@@ -22,7 +25,13 @@ kernel_coster_t::for_cpu_cluster(int nlocs)
 }
 
 double kernel_coster_t::compute(einsummable_t const& e) const {
-  return compute_start + double(product(e.join_shape)) / flops;
+  uint64_t elem = e.out_nelem();
+  for(auto const& inn_shape: e.inn_shapes()) {
+    elem += product(inn_shape);
+  }
+  return compute_start + \
+    double(elem) / rw + \
+    double(product(e.join_shape)) / flops;
 }
 
 double kernel_coster_t::move(uint64_t n, int src, int dst) const {

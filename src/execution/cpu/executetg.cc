@@ -136,6 +136,11 @@ void state_t::apply_runner(int runner_id)
   tuple<which_touch_t, bool> which_touch_is_first;
   bool doing_touch;
 
+  double total_apply = 0.0;
+  double total_touch = 0.0;
+  int n_apply = 0;
+  int n_touch = 0;
+
   while(true) {
     {
       unique_lock lk(m_apply);
@@ -161,9 +166,17 @@ void state_t::apply_runner(int runner_id)
 
       if(num_apply_remaining == 0) {
         //DLINEOUT("exiting apply runner");
+        DLINEOUT("n apply:     " << n_apply);
+        DLINEOUT("total apply: " << total_apply);
+
+        DLINEOUT("n touch:     " << n_touch);
+        DLINEOUT("total touch: " << total_touch);
+
         return;
       }
     }
+
+    using namespace std::chrono;
 
     if(doing_touch) {
       auto const& [which_touch, is_first] = which_touch_is_first;
@@ -186,7 +199,11 @@ void state_t::apply_runner(int runner_id)
       buffer_t& inn_buffer = _is[0];
 
       //DOUT("TOUCH " << which_touch);
+      auto start = clock_now();
       kernel_manager(touch_op, out_buffer->data, inn_buffer->data);
+      auto end = clock_now();
+      total_touch += duration<double>(end-start).count();
+      n_touch++;
 
       {
         unique_lock lk(m_notify);
@@ -220,7 +237,13 @@ void state_t::apply_runner(int runner_id)
       }
 
       //DOUT("EINSUMMABLE " << which_apply);
+      auto start = clock_now();
       kernel_manager(einsummable, out_buffer->data, raw_inputs, workspace);
+      auto end = clock_now();
+      //DOUT(which_apply << ": " << duration<double>(end-start).count());
+      total_apply += duration<double>(end-start).count();
+      n_apply++;
+
       workspace_manager.release(which_workspace);
 
       // Note: Even if out_buffer was donated, this is fine. When
