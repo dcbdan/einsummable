@@ -49,6 +49,8 @@ struct autopart_t {
 
   vector<placement_t> get_placements() const;
 
+  void print_graphviz(std::ostream& out) const;
+
   vector<ginfo_t> ginfos;
   graph_t const& graph;
   int const nworkers;
@@ -77,9 +79,9 @@ struct autopart_mcmc_t {
     return current_cost;
   }
 
-private:
   autopart_t autopart;
 
+private:
   int max_blocks;
 
   int64_t current_cost;

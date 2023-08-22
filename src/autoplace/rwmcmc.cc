@@ -132,7 +132,7 @@ relationwise_mcmc_t::random_op() const
   int prob_change_partition = 80;
   int gid = runif(gwise.ginfos.size());
   if(runif(100) < prob_change_partition) {
-    int prob_set_notouch = 90;
+    int prob_set_notouch = 10;
     bool can_no_touch = bool(gwise.ginfos[gid].refinement_partition);
     if(can_no_touch && runif(100) < prob_set_notouch) {
       auto maybe_pp = notouch_partition(gid);

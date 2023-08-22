@@ -1,6 +1,8 @@
 #include "autopart.h"
 #include "../einsummable/taskgraph.h"
 
+#include <fstream> // TODO: remove
+
 optional<partition_t> make_finer_via_doubling(partition_t const& p) {
   auto const& pds = p.partdims;
 
@@ -400,6 +402,55 @@ vector<placement_t> autopart_t::get_placements() const
   return ret;
 }
 
+void autopart_t::print_graphviz(std::ostream& out) const {
+  using std::endl;
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  for(int id = 0; id != graph.nodes.size(); ++id) {
+    auto const& node = graph.nodes[id];
+    auto const& op = node.op;
+
+    string label;
+
+    string color = "";
+    if(op.is_input()) {
+      label = "input";
+    } else if(op.is_formation()) {
+      label = "form";
+    } else if(op.is_complexer()) {
+      label = "complexer";
+    } else if(op.is_einsummable()) {
+      auto const& e = op.get_einsummable();
+      string ss = einsummable_t::make_str(e.inns, e.out_rank);
+      label = "einsummable" + write_with_ss(node.inns) + "|" + ss;
+      if(e.is_contraction()) {
+        color = "pink";
+      }
+    } else if(op.is_concat()) {
+      label = "concat";
+    } else if(op.is_subset()) {
+      label = "subset";
+    } else {
+      throw std::runtime_error("printgraphviz missing graph node type");
+    }
+    label =  write_with_ss(op.shape()) + "\n" +
+      write_with_ss(id) + ": " + write_with_ss(ginfos[id].partition) + "\n" + label;
+    out << tab
+      << "n" << id
+      << " [style=filled,label=\"" << label << "\"";
+    if(color != "") {
+      out << ",color=\"" << color << "\"";
+    }
+    out << "]" << endl;
+
+    for(auto const& inn: node.get_inns_set()) {
+      out << tab << "n" << inn << " -> " << "n" << id << endl;
+    }
+  }
+  out << "}" << endl;
+}
+
 int64_t autopart_t::update_inn_cost(int gid, int which_inn) {
   ginfo_t& ginfo = ginfos[gid];
   auto const& node = graph.nodes[gid];
@@ -474,19 +525,39 @@ autopart_mcmc_t::autopart_mcmc_t(
 bool autopart_mcmc_t::step(double beta) {
   auto const& graph = autopart.graph;
   int gid = runif(graph.nodes.size());
-  auto shape = graph.nodes[gid].op.shape();
-  int rank = shape.size();
-  int dim = runif(rank);
-  int v = vector_random(vector<int>{1,2});
-
-  if(v > shape[dim]) {
-    return false;
-  }
+  auto const& node = graph.nodes[gid];
 
   vector<int> old_part = autopart.ginfos[gid].partition;
 
-  vector<int> new_part = old_part;
-  new_part[dim] = v;
+  vector<int> new_part;
+  if(node.op.is_einsummable() && runif(100) < 0) {
+    auto const& e = node.op.get_einsummable();
+    new_part = old_part;
+    int which_inn = runif(node.inns.size());
+    vector<int> const& inns = e.inns[which_inn];
+    vector<int> const& inn_part = autopart.ginfos[node.inns[which_inn]].partition;
+    for(int i = 0; i != inns.size(); ++i) {
+      int const& j = inns[i];
+      new_part[j] = inn_part[i];
+    }
+  } else if(node.op.is_formation() && runif(100) < 0) {
+    int rank = old_part.size();
+    int const& inn_gid = node.inns[0];
+    auto iter = autopart.ginfos[inn_gid].partition.begin();
+    new_part = vector<int>(iter, iter + rank);
+  } else {
+    auto shape = graph.nodes[gid].op.shape();
+    int rank = graph.nodes[gid].op.out_shape().size(); // shape.size();
+    int dim = runif(rank);
+    int v = vector_random(vector<int>{1,2,4,8,16});
+
+    if(v > shape[dim]) {
+      return false;
+    }
+
+    new_part = old_part;
+    new_part[dim] = v;
+  }
 
   if(product(new_part) > max_blocks) {
     return false;
@@ -505,11 +576,15 @@ bool autopart_mcmc_t::step(double beta) {
     if(current_cost < best_cost) {
       best_cost = current_cost;
       best_placements = autopart.get_placements();
+      {
+        std::ofstream f("gg.gv");
+        autopart.print_graphviz(f);
+      }
     }
     return true;
   }
 
-  if(runif(100) < 10) {
+  if(runif(100) < 0) {
     current_cost += delta;
     return true;
   }

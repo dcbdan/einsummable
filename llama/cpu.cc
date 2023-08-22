@@ -160,22 +160,22 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
-int num_threads_per_node = 1;
+int num_threads_per_node = 4;
 int num_real_threads_per_node = 4;
 int num_steps = 300000;
 int nlocs = -1;
 double beta = 10000.0;
 
-vector<placement_t> autoplace(graph_t const& graph) {
+vector<placement_t> autoplace_(graph_t const& graph) {
   if(nlocs == -1) {
     throw std::runtime_error("need to set nlocs");
   }
   DOUT("num threads per node " << num_threads_per_node)
   auto kernel_coster = kernel_coster_t::for_cpu_cluster(nlocs);
-  kernel_coster.flops = 1e10;
-  kernel_coster.rw = 1e9;
-  kernel_coster.compute_start = 5e-4;
-  kernel_coster.touch_start = 5e-4
+  //kernel_coster.flops = 1e10;
+  //kernel_coster.rw = 1e9;
+  //kernel_coster.compute_start = 5e-4;
+  //kernel_coster.touch_start = 5e-4
 
   int max_blocks = num_threads_per_node * nlocs * 2;
 
@@ -208,6 +208,47 @@ vector<placement_t> autoplace(graph_t const& graph) {
 
   DOUT(num_steps << " / " << num_steps << "   " << mcmc.get_best_cost() );
   return mcmc.get_best_placements();
+}
+
+vector<placement_t> autoplace(graph_t const& graph) {
+  if(nlocs != 1) {
+    throw std::runtime_error("nlocs must be one for this autoplace");
+  }
+
+  autopart_t autopart(graph, 88);
+  auto& ginfos = autopart.ginfos;
+
+  for(auto& ginfo: ginfos) {
+    auto& p = ginfo.partition;
+    p[0] = 1;
+    p[1] = 1;
+    for(int i = 2; i != p.size(); ++i) {
+      p[i] = 1;
+    }
+  }
+
+  // set all inputs to an einsummable to whatever it is
+  for(int gid = 0; gid != ginfos.size(); ++gid) {
+    auto& ginfo = ginfos[gid];
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_einsummable()) {
+      auto const& e = node.op.get_einsummable();
+      for(int i = 0; i != node.inns.size(); ++i) {
+        int const& inn_gid = node.inns[i];
+        auto const& inn_node = graph.nodes[inn_gid];
+        if(inn_node.op.is_input()) {
+          auto& inn_ginfo = ginfos[inn_gid];
+          inn_ginfo.partition = e.get_input_from_join(ginfo.partition, i);
+        }
+      }
+    }
+  }
+
+  std::ofstream f("gg.gv");
+  autopart.print_graphviz(f);
+  DOUT("printed gg.gv");
+
+  return autopart.get_placements();
 }
 
 void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {

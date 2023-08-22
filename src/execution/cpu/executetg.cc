@@ -166,11 +166,11 @@ void state_t::apply_runner(int runner_id)
 
       if(num_apply_remaining == 0) {
         //DLINEOUT("exiting apply runner");
-        DLINEOUT("n apply:     " << n_apply);
-        DLINEOUT("total apply: " << total_apply);
+        //DLINEOUT("n apply:     " << n_apply);
+        //DLINEOUT("total apply: " << total_apply);
 
-        DLINEOUT("n touch:     " << n_touch);
-        DLINEOUT("total touch: " << total_touch);
+        //DLINEOUT("n touch:     " << n_touch);
+        //DLINEOUT("total touch: " << total_touch);
 
         return;
       }
