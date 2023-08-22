@@ -22,6 +22,16 @@ vector<uint64_t> divide_evenly(int num_parts, uint64_t n) {
   return ret;
 }
 
+uint64_t ceil_divide(int num_parts, uint64_t n) {
+  uint64_t d = n % num_parts;
+  return (n / num_parts) + (n % num_parts ? 1 : 0);
+}
+
+int64_t ceil_divide(int num_parts, int64_t n) {
+  int64_t d = n % num_parts;
+  return (n / num_parts) + (n % num_parts ? 1 : 0);
+}
+
 void set_seed(int seed) {
   random_gen() = std::mt19937(seed);
 }

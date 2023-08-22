@@ -121,6 +121,9 @@ uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg);
 
 vector<uint64_t> divide_evenly(int num_parts, uint64_t n);
 
+uint64_t ceil_divide(int num_parts, uint64_t n);
+int64_t ceil_divide(int num_parts, int64_t n);
+
 template <typename T, typename U>
 vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
   return vector_from_each_tuple(xys, T, 0);
@@ -550,6 +553,11 @@ T vector_random_pop(vector<T>& xs) {
   T ret = *iter;
   xs.erase(iter);
   return ret;
+}
+
+template <typename T>
+T vector_random(vector<T> const& xs){
+  return xs[runif(xs.size())];
 }
 
 template <typename T>

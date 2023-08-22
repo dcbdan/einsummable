@@ -3,6 +3,24 @@
 
 #include "twolayer.h"
 
+//struct kernel_coster_t {
+//  static kernel_coster_t for_cpu_cluster(int nlocs);
+//
+//  double compute(einsummable_t const& e) const;
+//  double move(uint64_t n_bytes, int src, int dst) const;
+//  double touch(uint64_t n_bytes) const;
+//
+//  vector<vector<double>> bandwidths; // bytes per second
+//
+//  double flops; // floating points per second
+//
+//  double rw;
+//
+//  double compute_start;
+//  double touch_start;
+//  double move_start;
+//};
+
 struct kernel_coster_t {
   static kernel_coster_t for_cpu_cluster(int nlocs);
 
@@ -12,14 +30,9 @@ struct kernel_coster_t {
 
   vector<vector<double>> bandwidths; // bytes per second
 
-  double flops; // floating points per second
-
-  double rw;
-
-  double compute_start;
-  double touch_start;
-  double move_start;
+  double bw;
 };
+
 // TODO: maybe put kernel_coster in it's own file
 
 // Inside relationwise_t, each compute node is given some number

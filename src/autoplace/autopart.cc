@@ -306,3 +306,219 @@ vector<partition_t> autopartition(
   return ret;
 }
 
+autopart_t::autopart_t(graph_t const& gg, int nw)
+  : graph(gg), nworkers(nw)
+{
+  ginfos.reserve(graph.nodes.size());
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    ginfos.push_back(ginfo_t {
+      .partition = vector<int>(node.op.shape().size(), 1),
+      .cost = int64_t(product(node.op.out_shape())),
+      .inn_costs = vector<int64_t>(node.inns.size(), 0)
+    });
+  }
+}
+
+int64_t autopart_t::operator()(int gid, vector<int> const& new_partition)
+{
+  int64_t ret = 0;
+
+  auto const& node = graph.nodes[gid];
+  ginfo_t& ginfo = ginfos[gid];
+
+  if(new_partition.size() != ginfo.partition.size()) {
+    throw std::runtime_error("invalid new partition");
+  }
+
+  ginfo.partition = new_partition;
+
+  // update ginfo.cost
+  ret -= ginfo.cost;
+  {
+    auto out_shape = node.op.out_shape();
+    int nblock = product(new_partition);
+    int64_t nbatch = ceil_divide(nworkers, int64_t(nblock));
+    int64_t nelem = 1;
+    for(int d = 0; d != out_shape.size(); ++d) {
+      nelem *= int64_t(ceil_divide(new_partition[d], out_shape[d]));
+    }
+    ginfo.cost = nbatch * nelem;
+  }
+  ret += ginfo.cost;
+
+  for(int i = 0; i != node.inns.size(); ++i) {
+    ret += update_inn_cost(gid, i);
+  }
+
+  for(auto const& out_gid: node.outs) {
+    auto const& out_node = graph.nodes[out_gid];
+    for(int i = 0; i != out_node.inns.size(); ++i) {
+      if(out_node.inns[i] == gid) {
+        ret += update_inn_cost(out_gid, i);
+      }
+    }
+  }
+
+  return ret;
+}
+
+int64_t autopart_t::get_current_cost() const
+{
+  int64_t ret = 0;
+  for(auto const& [_, cost, inn_costs]: ginfos) {
+    ret += cost;
+    for(auto const& ic: inn_costs) {
+      ret += ic;
+    }
+  }
+  return ret;
+}
+
+vector<placement_t> autopart_t::get_placements() const
+{
+  vector<placement_t> ret;
+  ret.reserve(ginfos.size());
+
+  for(int gid = 0; gid != ginfos.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    vector<int> const& parts = ginfos[gid].partition;
+    auto shape = node.op.shape();
+
+    if(parts.size() != shape.size()) {
+      throw std::runtime_error("parts size does not equal shape size");
+    }
+
+    vector<partdim_t> pds;
+    for(int d = 0; d != shape.size(); ++d) {
+      pds.push_back(partdim_t::split(shape[d], parts[d]));
+    }
+    ret.emplace_back(partition_t(pds));
+  }
+
+  return ret;
+}
+
+int64_t autopart_t::update_inn_cost(int gid, int which_inn) {
+  ginfo_t& ginfo = ginfos[gid];
+  auto const& node = graph.nodes[gid];
+
+  int const& inn_gid = node.inns[which_inn];
+  ginfo_t const& inn_ginfo = ginfos[inn_gid];
+  auto const& inn_node = graph.nodes[inn_gid];
+
+  int64_t ret = 0;
+  ret -= ginfo.inn_costs[which_inn];
+
+  auto _update = [&](
+    vector<int> const& inn_part,
+    vector<int> const& out_part,
+    vector<uint64_t> const& shape)
+  {
+    if(vector_equal(inn_part, out_part)) {
+      ginfo.inn_costs[which_inn] = 0;
+    } else {
+      int nblock = product(ginfo.partition);
+      int64_t nbatch = ceil_divide(nworkers, int64_t(nblock));
+      int64_t nelem = 1;
+      for(int d = 0; d != shape.size(); ++d) {
+        nelem *= int64_t(ceil_divide(out_part[d], shape[d]));
+      }
+      ginfo.inn_costs[which_inn] = nbatch * nelem;
+    }
+  };
+
+  if(node.op.is_input()) {
+    throw std::runtime_error("cannot have an input node here");
+  } else if(node.op.is_formation()) {
+    vector<int> const& out_part = ginfo.partition;
+    int rank = out_part.size();
+    auto iter = inn_ginfo.partition.begin();
+    vector<int> inn_part(iter, iter + rank);
+    _update(inn_part, out_part, node.op.out_shape());
+  } else if(node.op.is_complexer()) {
+    // TODO: implement
+  } else if(node.op.is_concat()) {
+    // TODO: implement
+  } else if(node.op.is_subset()) {
+    // TODO: implement
+  } else if(node.op.is_einsummable()) {
+    auto e = node.op.get_einsummable();
+    vector<int> out_part = e.get_input_from_join(ginfo.partition, which_inn);
+    int rank = out_part.size();
+    auto iter = inn_ginfo.partition.begin();
+    vector<int> inn_part(iter, iter + rank);
+    vector<uint64_t> shape = inn_node.op.out_shape();
+    _update(inn_part, out_part, shape);
+  } else {
+    throw std::runtime_error("missing graph type");
+  }
+
+  ret += ginfo.inn_costs[which_inn];
+  return ret;
+}
+
+autopart_mcmc_t::autopart_mcmc_t(
+  graph_t const& graph,
+  int nworkers,
+  int mbs)
+  : autopart(graph, nworkers), max_blocks(mbs)
+{
+  current_cost = autopart.get_current_cost();
+
+  best_cost = current_cost;
+  best_placements = autopart.get_placements();
+}
+
+bool autopart_mcmc_t::step(double beta) {
+  auto const& graph = autopart.graph;
+  int gid = runif(graph.nodes.size());
+  auto shape = graph.nodes[gid].op.shape();
+  int rank = shape.size();
+  int dim = runif(rank);
+  int v = vector_random(vector<int>{1,2});
+
+  if(v > shape[dim]) {
+    return false;
+  }
+
+  vector<int> old_part = autopart.ginfos[gid].partition;
+
+  vector<int> new_part = old_part;
+  new_part[dim] = v;
+
+  if(product(new_part) > max_blocks) {
+    return false;
+  }
+
+  int64_t delta = autopart(gid, new_part);
+
+  if(delta <= 0) {
+    current_cost += delta;
+
+    //if(current_cost != autopart.get_current_cost()) {
+    //  DOUT(current_cost << " vs actual " << autopart.get_current_cost());
+    //  throw std::runtime_error("delta not lining up!");
+    //}
+
+    if(current_cost < best_cost) {
+      best_cost = current_cost;
+      best_placements = autopart.get_placements();
+    }
+    return true;
+  }
+
+  if(runif(100) < 10) {
+    current_cost += delta;
+    return true;
+  }
+
+  // TODO: use beta; just doing greedy for now
+  delta += autopart(gid, old_part);
+  if(delta != 0) {
+    throw std::runtime_error("delta should be zero after undoing!");
+  }
+
+  return false;
+}

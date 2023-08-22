@@ -34,3 +34,59 @@ optional<partition_t> make_coarser_via_halving(partition_t const& p);
 optional<partition_t> make_finer_via_increment(partition_t const& p);
 optional<partition_t> make_coarser_via_decrement(partition_t const& p);
 
+struct autopart_t {
+  autopart_t(graph_t const& graph, int nworkers);
+
+  struct ginfo_t {
+    vector<int> partition;
+    int64_t cost;
+    vector<int64_t> inn_costs;
+  };
+
+  int64_t operator()(int gid, vector<int> const& new_partition);
+
+  int64_t get_current_cost() const;
+
+  vector<placement_t> get_placements() const;
+
+  vector<ginfo_t> ginfos;
+  graph_t const& graph;
+  int const nworkers;
+
+private:
+  int64_t update_inn_cost(int gid, int which_inn);
+};
+
+struct autopart_mcmc_t {
+  autopart_mcmc_t(
+    graph_t const& graph,
+    int nworkers,
+    int max_blocks);
+
+  bool step(double beta);
+
+  vector<placement_t> const& get_best_placements() const {
+    return best_placements;
+  }
+
+  int64_t const& get_best_cost() const {
+    return best_cost;
+  }
+
+  int64_t const& get_current_cost() const {
+    return current_cost;
+  }
+
+private:
+  autopart_t autopart;
+
+  int max_blocks;
+
+  int64_t current_cost;
+
+  int64_t best_cost;
+  vector<placement_t> best_placements;
+
+private:
+  //
+};

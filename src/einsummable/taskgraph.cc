@@ -2624,6 +2624,48 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
   return ret;
 }
 
+taskgraph_t::stats_t taskgraph_t::stats() const {
+  stats_t ret {
+    .input_bytes        = 0,
+    .form_bytes         = 0,
+    .move_bytes         = 0,
+    .save_bytes         = 0,
+    .touch_bytes        = 0,
+    .contraction_blocks = 0,
+    .ew_blocks          = 0
+  };
+
+  for(int i = 0; i != nodes.size(); ++i) {
+    auto const& node = nodes[i];
+    uint64_t num_bytes = node.op.out_size();
+
+    if(node.op.is_input()) {
+      ret.input_bytes += num_bytes;
+    } else if(node.op.is_apply()) {
+      ret.form_bytes += num_bytes;
+      auto e = node.op.get_apply().einsummable;
+      if(e.is_contraction()) {
+        ret.contraction_blocks++;
+      }
+      if(!e.has_aggregation()) {
+        ret.ew_blocks++;
+      }
+    } else if(node.op.is_move()) {
+      ret.move_bytes += num_bytes;
+      ret.form_bytes += num_bytes;
+    } else if(node.op.is_partialize()) {
+      ret.form_bytes += num_bytes;
+      ret.touch_bytes += num_bytes;
+    }
+
+    if(node.is_save) {
+      ret.save_bytes += num_bytes;
+    }
+  }
+
+  return ret;
+}
+
 int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 

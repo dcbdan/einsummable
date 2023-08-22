@@ -126,6 +126,18 @@ struct taskgraph_t {
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
   int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
+  struct stats_t {
+    uint64_t input_bytes;
+    uint64_t form_bytes;
+    uint64_t move_bytes;
+    uint64_t save_bytes;
+    uint64_t touch_bytes;
+
+    int contraction_blocks;
+    int ew_blocks;
+  };
+  stats_t stats() const;
+
 private:
   struct input_t {
     int loc;

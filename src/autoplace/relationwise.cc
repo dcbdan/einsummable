@@ -2,45 +2,70 @@
 #include "../base/copyregion.h"
 #include "../einsummable/taskgraph.h" // double_last_dim_inplace
 
+//kernel_coster_t
+//kernel_coster_t::for_cpu_cluster(int nlocs)
+//{
+//  // 100 Mbps=1e8
+//  double bw = 1e9;
+//
+//  double rw = 1e9;
+//
+//  double fl = 1e10;
+//
+//  double startup = 5e-4; // this many seconds to start doing anything
+//
+//  return kernel_coster_t {
+//    .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
+//    .flops = fl,
+//    .rw = rw,
+//    .compute_start = startup,
+//    .touch_start = startup,
+//    .move_start = startup
+//  };
+//}
+//
+//double kernel_coster_t::compute(einsummable_t const& e) const {
+//  uint64_t elem = e.out_nelem();
+//  for(auto const& inn_shape: e.inn_shapes()) {
+//    elem += product(inn_shape);
+//  }
+//  return compute_start + \
+//    double(elem) / rw + \
+//    double(product(e.join_shape)) / flops;
+//}
+//
+//double kernel_coster_t::move(uint64_t n, int src, int dst) const {
+//  return move_start + double(n) / bandwidths[src][dst];
+//}
+//
+//double kernel_coster_t::touch(uint64_t n) const {
+//  return touch_start + double(n) / flops;
+//}
+
 kernel_coster_t
 kernel_coster_t::for_cpu_cluster(int nlocs)
 {
   // 100 Mbps=1e8
   double bw = 1e9;
-
-  double rw = 1e9;
-
-  double fl = 1e10;
-
-  double startup = 5e-4; // this many seconds to start doing anything
+  double start = 1e-4;
 
   return kernel_coster_t {
-    .bandwidths = vector<vector<double>>(nlocs, vector<double>(nlocs, bw)),
-    .flops = fl,
-    .rw = rw,
-    .compute_start = startup,
-    .touch_start = startup,
-    .move_start = startup
+    .bw = bw
   };
 }
 
 double kernel_coster_t::compute(einsummable_t const& e) const {
-  uint64_t elem = e.out_nelem();
-  for(auto const& inn_shape: e.inn_shapes()) {
-    elem += product(inn_shape);
-  }
-  return compute_start + \
-    double(elem) / rw + \
-    double(product(e.join_shape)) / flops;
+  return double(e.out_size()) / bw;
 }
 
 double kernel_coster_t::move(uint64_t n, int src, int dst) const {
-  return move_start + double(n) / bandwidths[src][dst];
+  return double(n) / bw;
 }
 
 double kernel_coster_t::touch(uint64_t n) const {
-  return touch_start + double(n) / flops;
+  return double(n) / bw;
 }
+
 
 threads_costs_t::threads_costs_t(int n_threads)
   : max_cost(0), cnt(0), n_threads(n_threads)
