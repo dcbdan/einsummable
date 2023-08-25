@@ -151,6 +151,8 @@ struct graph_t {
 
   // }}}
 
+  vector<int> backprop(int out, vector<int> weights);
+
   // create a partition where every node is unpartitioned
   vector<partition_t> make_singleton_partition() const;
   // create a placement where every node is unpartitioned
@@ -270,7 +272,29 @@ public:
     int num_distinct_inputs() const {
       return get_inns_set().size();
     }
+    int get_other_input(int id) const;
   };
+
+  // In case that one node has multiple edges 
+  // We need to sum all of its contributions to output function
+  // Let's say that we have f(u,v) where u = u(x,y)  and v = v(x,y)
+  // Then df/dx = (df/du)*(du/dx) + (df/dv)*(dv/dx) 
+  // And in the more complex case of f(u1, u2, ... , un) where 
+  // u1 = u1(x1, x2, ... , xm) , ... , un = un(x1, x2, ... , xm)
+  // df/dxi = sum(df/duj * duj/dxi) where j = 1..n and i= 1..m
+  int insert_adds(vector<int> items) {
+    if(items.size() < 2) {
+      throw std::runtime_error("Invalid insert_adds input");
+    }
+
+    // TO DO - Implement the addition algorithm
+    throw std::runtime_error("Inesrt adds - not implemented yet");
+  }
+
+  set<int> compute_nodeset(
+    vector<int> const& outs,
+    vector<int> const& inns,
+    bool include_inns_outs) const;
 
   struct backprop_state_t {
     // get the gradient of this id
@@ -287,9 +311,19 @@ public:
       int out;
       int which_inn;
     };
-    vector<out_edge_t> get_out_edges(int id) const;
 
+    vector<out_edge_t> get_out_edges(int id) const;
   };
+
+  int build_grad_term(int id, int out_node_id, int which_inn, int node_grad);
+  int build_grad_term_mul_lhs(int node_grad, int other); // Y = A * B => dY/dA = grad * B.T
+  int build_grad_term_mul_rhs(int other, int node_grad); // dY/dB = A.T * grad
+
+  int build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad); // dY/dA = out_grad x deri_op(node), where x is hadammard product
+
+  int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
+  int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
+  int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
 
   vector<node_t> nodes;
 

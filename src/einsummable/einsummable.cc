@@ -19,7 +19,6 @@ einsummable_t::einsummable_t(
   if(join.num_inputs() != inns.size()) {
     throw std::runtime_error("einsummable inns size not same as scalarop join");
   }
-
   // Consider batched matrix multiply into
   // the same output:
   //   bij,bjk->ik
@@ -267,10 +266,23 @@ einsummable_t _einsummable_matmul_helper(
   string str)
 {
   auto [inns,_] = einsummable_t::parse_str(str);
-  return einsummable_t(
+
+  auto const& einsum = einsummable_t(
     {di, dk, dj}, inns, 2,
     scalarop_t::make_mul(dtype),
     castable_t::add);
+
+  std::cout << "\t This is join_shape for the created einsumm " << std::endl << "\t\t";
+
+  for(auto i = einsum.join_shape.begin(); i != einsum.join_shape.end(); i++) {
+    std::cout << (*i) << " ";
+  } 
+
+  std::cout << std::endl;
+  if (einsum.join.is_mul()) std::cout << "IT'S A MULLLLLL" << std::endl;
+  std::cout << einsum.str() << std::endl;
+
+  return einsum;
 }
 
 einsummable_t einsummable_t::from_matmul(
@@ -413,7 +425,7 @@ string einsummable_t::make_str(
   }
   join_rank++;
 
-  vector<char> letters(join_rank);
+  vector<char> letters(join_rank); // How many different letters are there 
   std::iota(letters.begin(), letters.end(), 'a');
 
   auto words = get_inputs_from_join_(inns, letters);
@@ -429,6 +441,68 @@ string einsummable_t::make_str(
   ss << "->" << string(outword.begin(), outword.end());
 
   return ss.str();
+}
+
+string
+einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape)
+{
+  auto identity = identity_permutation(argument_shape.size());
+  std::cout << "ARGUSHAPE: " << argument_shape << std::endl;
+  std::cout << "IDE: " << identity << std::endl;
+  auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};  
+  return make_str(permuted_inns, argument_shape.size());
+}
+
+string 
+einsummable_t::create_unary_vjp_string(vector<int> inn, int rank)
+{
+  auto identity = identity_permutation(rank);
+  auto inverse = find_permutation(identity, inn); 
+  return make_str({inverse, identity}, rank);
+}
+
+string 
+einsummable_t::create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs) 
+{
+  int nl = lhs_rank;
+  int nr = rhs_rank;
+  if(nl < 2 || nr < 2) {
+    throw std::runtime_error("graph writer matmul: must have atleast rank 2");
+  }
+
+  auto make_header = [](int n) {
+    string ret(n, ' ');
+    std::iota(ret.begin(), ret.end(), 'd');
+    return ret;
+  };
+
+  string sl = t_lhs ? "ba" : "ab";
+  string sr = t_rhs ? "cb" : "bc";
+  string so;
+
+  if(nl == 2 && nr == 2) {
+    so = "ac";
+  } else if(nl == 2)  {
+    int n = nr-2;
+    string header = make_header(n);
+    sr = header + sr;
+    so = header + "ac";
+  } else if(nr == 2)  {
+    int n = nl-2;
+    string header = make_header(n);
+    sl = header + sl;
+    so = header + "ac";
+  } else if(nl == nr) {
+    int n = nl-2;
+    string header = make_header(n);
+    sl = header + sl;
+    sr = header + sr;
+    so = header + "ac";
+  } else {
+    throw std::runtime_error("graph writer matmul: invalid inputs");
+  }
+
+  return sl + "," + sr + "->" + so;
 }
 
 string
@@ -631,6 +705,8 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   out << "]";
 
   out << e.str();
+
+  out << e.join.to_cppstr();
 
   return out;
 }

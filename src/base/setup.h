@@ -846,6 +846,42 @@ Iter binary_search_find(Iter beg, Iter end, F evaluate)
 
 uint64_t uint64_log2(uint64_t val);
 
+vector<int> identity_permutation(int rank);
+
+vector<int> inverse_permute(
+  vector<int> const& inn);
+
+template <typename T>
+vector<int> find_permutation(
+  vector<T> const& inn,
+  vector<T> const& out
+)
+{
+  set<T> inn_set(inn.begin(), inn.end());
+  set<T> out_set(out.begin(), out.end());
+
+  if (inn_set.size() != out_set.size()) {
+    std::runtime_error("Input and out must be the same size");
+  }
+
+  if (inn_set != out_set) {
+    std::runtime_error("Input and out sets are not equal");
+  }
+
+  map<int, int> out_map; 
+  vector<int> ret;
+
+  for (int i = 0; i < out.size(); i++) {
+    out_map.insert({out[i], i});
+  }
+
+  for (int i = 0; i < inn.size(); i++) {
+    ret.push_back(out_map[inn[i]]);
+  }
+
+  return ret;
+}
+
 // out_perm = {2,0,1} implies we have ijk->kij
 vector<int> as_out_perm(
   vector<int> const& inn,

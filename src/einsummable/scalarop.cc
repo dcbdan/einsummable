@@ -1077,7 +1077,7 @@ void node_t::increment_holes(int incr) {
 void node_t::remap_holes(map<int, int> const& fmap) {
   if(op.is_hole()) {
     int& arg = std::get<op_t::hole>(op.op).arg;
-    arg += fmap.at(arg);
+    arg = fmap.at(arg);
   } else {
     for(auto& child: children) {
       child.remap_holes(fmap);
@@ -1457,6 +1457,14 @@ scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
   string h0 = op_t::h_str(0, src);
   string dst_s = write_with_ss(dst);
   return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_vjp(scalarop_t deri_op, dtype_t d)
+{
+  return scalarop_t::combine(
+    scalarop_t::make_mul(),
+    {scalarop_t::make_identity(default_dtype()), deri_op}
+  );
 }
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {

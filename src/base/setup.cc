@@ -86,6 +86,26 @@ uint64_t uint64_log2(uint64_t val) {
   return ret;
 }
 
+vector<int> identity_permutation(int rank) {
+  vector<int> identity(rank, 0);
+  std::iota(identity.begin(), identity.end(), 0);
+
+  return identity;
+}
+
+vector<int> inverse_permute(
+  vector<int> const& inn)
+{
+  vector<int> ret(inn.size(), 0);
+    
+  for (int i = 0; i < inn.size(); i++) {
+      int a = inn[i];
+      ret[a] = i;
+  }
+    
+  return ret;
+}
+
 vector<int> as_out_perm(
   vector<int> const& inn,
   vector<int> const& out)

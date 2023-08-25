@@ -463,7 +463,7 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
     }
   }
 
-  std::cout << "Inserting node in the memgraph: " << op.get_name() << std::endl;
+  //std::cout << "Inserting node in the memgraph: " << op.get_name() << std::endl;
 
   nodes.push_back(node_t {
     .op = op,
