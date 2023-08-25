@@ -113,12 +113,11 @@ void ff(
 
   gremlin_t gg;
   for(int i = 0; i != niter;  ++i) {
-    std::cout << "Executing taskgraph..." << std::endl;
     execute_taskgraph(taskgraph, settings, kernel_manager, &mpi, buffers);
 
     if(i % 10 == 0) {
       scalar_t loss = dbuffer_t(dtype, buffers.at(sqdiff)).sum();
-      std::cout << "loss: " << loss.str() << std::endl;
+      std::cout << "loss: " << loss.f64() / dbuffer_t(dtype, buffers.at(sqdiff)).nelem() << std::endl;
     }
 
     for(int i = 0; i != ws.size(); ++i) {

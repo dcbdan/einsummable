@@ -74,6 +74,43 @@ int main(int argc, char** argv) {
     }),
     join);
 
+  int rhs2 = g.insert_input({7, 20});
+
+  int join2 = g.insert_einsummable(
+    einsummable_t::from_matmul(10, 7, 20),
+    {out, rhs2}
+  );
+
+  for (int i = 0; i < g.graph.nodes.size(); i++) {
+    auto const& node = g.graph.nodes[i];
+    if (node.op.is_einsummable()) {
+      auto const& einsum = node.op.get_einsummable();
+      std::cout << "=====================================================" << std::endl;
+      std::cout << "These are input nodes" << std::endl << "\t";
+      for (int j = 0; j < node.inns.size(); j++) {
+        std::cout << node.inns[j] << " ";
+      }
+      std::cout << std::endl;
+      std::cout << "This is join shape: " << std::endl << "\t";
+      for (auto const& shape : einsum.join_shape) {
+        std::cout << shape << " ";
+      }
+      std::cout << std::endl;
+      std::cout << "=====================================================" << std::endl;
+    }
+    if (node.op.is_formation()) {
+      auto const& formation = node.op.get_formation();
+      std::cout << "=====================================================" << std::endl;
+      std::cout << "This is a formation node" << std::endl;
+      std::cout << "This is the shape: " << std::endl << "\t";
+      for (auto const& shape : formation.shape) {
+        std::cout << shape << " ";
+      }
+      std::cout << std::endl;
+      std::cout << "=====================================================" << std::endl;
+    }
+  }
+
   graph_t const& graph = g.graph;
 
   taskgraph_t taskgraph;
