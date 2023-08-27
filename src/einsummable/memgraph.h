@@ -14,10 +14,31 @@ struct mem_t {
   memloc_t as_memloc(int loc) const;
 };
 
+// This does not use std::variant so that it can be sent over the wire.
+struct memsto_t {
+  memsto_t() {}
+  memsto_t(mem_t const& m): _is_mem(true), info { .mem = m } {}
+  memsto_t(int sto_id): _is_mem(false), info { .sto_id = sto_id } {}
+
+  bool is_mem() const { return  _is_mem; }
+  bool is_sto() const { return !_is_mem; }
+
+  mem_t const& get_mem() const;
+  int const& get_sto() const;
+
+  bool _is_mem;
+  union {
+    mem_t mem;
+    int sto_id;
+  } info;
+};
+
 struct memloc_t {
   uint64_t offset;
   uint64_t size;
   int loc;
+
+  memsto_t as_memsto() const { return memsto_t(as_mem()); }
 
   mem_t as_mem() const;
 };
@@ -25,6 +46,8 @@ struct memloc_t {
 struct stoloc_t {
   int loc; // this storage location
   int id;  // with this id
+
+  memsto_t as_memsto() const { return memsto_t(id); }
 };
 
 struct memstoloc_t {
@@ -38,6 +61,10 @@ struct memstoloc_t {
 
   memloc_t const& get_memloc() const { return std::get<memloc_t>(data); }
   stoloc_t const& get_stoloc() const { return std::get<stoloc_t>(data); }
+
+  memsto_t as_memsto() const {
+    return is_memloc() ? get_memloc().as_memsto() : get_stoloc().as_memsto() ;
+  }
 
   std::variant<memloc_t, stoloc_t> data;
 };
@@ -63,6 +90,9 @@ struct memgraph_t {
     int num_compute_locs,
     int num_storage_locs,
     vector<int> const& storage_locs);
+
+  memgraph_t(
+    memgraph_t const& other);
 
   // Create a memgraph without any memory-size constraints.
   // Return also mappings
@@ -94,8 +124,9 @@ struct memgraph_t {
     memgraph_t>
   make(
     taskgraph_t const& graph,
-    vector<int> const& which_storage,
+    vector<int> which_storage = {},
     vector<uint64_t> mem_sizes = {},
+    map<int, memstoloc_t> init_input_tid_to_data = {},
     allocator_settings_t settings = allocator_settings_t::default_settings(),
     bool use_storage = true);
 
@@ -121,6 +152,14 @@ struct memgraph_t {
   // Example: Four gpu node, with ram as the storage, then
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
   vector<int> const storage_locs;
+
+  // TODO TODO TODO
+  // This method is very dirty. A single sto_loc may map into
+  // multiple locations, yet this function returns the first location!
+  // This is fine whenever there is a one-to-one mapping.
+  //
+  // As a larger design point, storage locs may need to be changed...
+  int get_loc_from_storage_loc(int sto_loc) const;
 
 public:
   struct inputmem_t {
@@ -321,6 +360,9 @@ public:
     memloc_t    get_output_memloc() const;
     mem_t       get_output_mem() const;
 
+    // get the single stoloc touched by this operation
+    stoloc_t    get_stoloc() const;
+
     bool is_local_to(int loc) const;
   private:
     _op_t op;
@@ -384,6 +426,8 @@ struct allocator_t {
   optional<uint64_t>
   try_to_allocate_without_deps(uint64_t size);
 
+  void allocate_at_without_deps(uint64_t offset, uint64_t size);
+
   void set_strategy(allocator_strat_t s) { strat = s; };
   allocator_strat_t get_strategy() const { return strat; }
 
@@ -392,6 +436,14 @@ struct allocator_t {
   void free(uint64_t offset, int del);
 
   void print() const;
+
+  // chcek that no memory is being taken up
+  bool is_empty() const;
+
+  // If the memory at offset is occupied, return the corresponding
+  // occupied interval. Else return None.
+  optional<tuple<uint64_t, uint64_t>>
+  get_allocated_region(uint64_t offset) const;
 
 private:
   struct block_t {
@@ -449,7 +501,8 @@ struct memgraph_make_state_t {
   memgraph_make_state_t(
     taskgraph_t const& taskgraph,
     vector<int> const& which_storage,
-    vector<allocator_t> const& as,
+    vector<allocator_t> const& empty_allocators,
+    map<int, memstoloc_t>& input_tid_to_data,
     int num_compute,
     int num_storage,
     bool use_storage);
@@ -462,6 +515,8 @@ struct memgraph_make_state_t {
   using partialize_t = memgraph_t::partialize_t;
   using alloc_t      = memgraph_t::alloc_t;
   using del_t        = memgraph_t::del_t;
+  using evict_t      = memgraph_t::evict_t;
+  using load_t       = memgraph_t::load_t;
 
   void initialize_input(int inn);
 
@@ -470,18 +525,76 @@ struct memgraph_make_state_t {
   void add_to_memgraph(
     std::variant<_which_node_t, _which_touch_t> const& which_op);
 
+  // This calls add to memgraph for every op, but also sets up all metadata
+  // for eviction and loading
+  void process(
+    vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops);
+
   int get_group_at(int task_id, int unit_id);
 
   // At the end of this call, these tensors should be in memory. If they can't
   // all be in memory, then an error is thrown. If the tensor isn't yet created,
-  // a tensor of the correct size is allocated. It is up to the caller to make
-  // sure that newly created tensors make it into task_tensor_to_mem_node
+  // a tensor of the correct size is allocated.
   vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
+
+  // Load as many tensors as possible, with a maximum number of bytes
+  // loaded at hint.
+  // The algorihtm is:
+  //   1. find all tensors in storage less than size hint and will
+  //      be used again
+  //   2. load the tensor that is used earliest
+  //   3. decrement hint and recurse
+  // If allocation fails or there are no tensors smaller than
+  // hint, stop.
+  void load_tensors_until(int loc, uint64_t hint);
+
+  // find the tid that
+  // 1. is bigger than size and
+  // 2. not in `cannot_evict` and
+  // 3. will be used latest into the future among tids that
+  //    satisfy 1 and 2
+  optional<int> find_victim(int loc, uint64_t size, vector<int> cannot_evict = {});
+  // If not tensors satisfy 1 and 2, return None.
+
+  // Insert an allocate node and return the alloc_t mem id
+  int allocate_with_evict(
+    int loc, uint64_t size,
+    vector<int> cannot_evict = {});
+
+  optional<int> allocate_without_evict(int loc, uint64_t size);
+
+  // push this tensor onto memory
+  void evict_tensor(int tid);
+
+  // load tid into memory, possibly evicting tensors.
+  // Don't evict any items in cannot_evict
+  void load_tensor_with_evict(int tid, vector<int> cannot_evict = {});
+
+  // if this cannot allocate memory, will return false
+  bool load_tensor_without_evict(int tid);
+
+  void _load_tensor_helper(int tid, int alloc_mid);
 
   // TODO: where should tensor donation occur?
 
   // this tensor was used, see if you can free the memory
   void register_usage(int task_id);
+
+  // A bunch of helper methods to modify
+  //   task_tensor_to_mem_node,
+  //   tensors_on_memory,
+  //   tensors_on_storage
+  void task_tensor_to_mem_node_insert_on_storage(int tid, int mid);
+  void task_tensor_to_mem_node_insert_on_memory(int tid, int mid);
+  void _task_tensor_to_mem_node_insert(int tid, int mid);
+
+  void task_tensor_to_mem_node_update_on_storage(int tid, int mid);
+  void task_tensor_to_mem_node_update_on_memory(int tid, int mid);
+  void _task_tensor_to_mem_node_update(int tid, int mid);
+
+  void task_tensor_to_mem_node_erase_on_storage(int tid);
+  void task_tensor_to_mem_node_erase_on_memory(int tid);
+  void _task_tensor_to_mem_node_erase(int tid);
 
   taskgraph_t const& taskgraph;
 
@@ -497,10 +610,19 @@ struct memgraph_make_state_t {
   // A mapping from partialize id to all apply memids doing a touch
   map<int, vector<int>> partializes_in_progress;
 
+  // These objects should tend to be updated together {{{
   // Mappings from the taskgraph tensor to the corresponding
   // mem graph node. This gets updated as tensors get evicted,
   // and fully computed.
   map<int, int> task_tensor_to_mem_node;
+
+  // these are all the tensors (represented as tids) that are in storage
+  set<int> tensors_on_storage;
+
+  // tensors_on_memory is a map from tid to all of the mids that have used
+  // that tensor while it has been in memory.
+  map<int, set<int>> tensors_on_memory;
+  // }}}
 
   // A mapping from (apply || move) taskgraph node to the corresponding
   // apply or move
@@ -517,7 +639,22 @@ struct memgraph_make_state_t {
   int _sto_id;
 
   // A mapping from input tid to where it's stored initially
-  map<int, memstoloc_t> input_tid_to_data;
+  map<int, memstoloc_t>& input_tid_to_data;
+
+  struct order_state_t {
+    // For each tid, when is it used
+    vector<set<int>> when_used;
+
+    // any usage less than this may get removed
+    int threshold;
+
+    // Return the next time a tensor is "used".
+    // An tid is "used" at each t in when_used[tid] provided t >= threshold.
+    int get(int tid);
+    // This method may update when_used; it is assumed that threshold is only
+    // increased.
+  };
+  optional<order_state_t> order_state;
 };
 // Some notes about nodes in the taskgraph vs nodes in the memgraph
 // and how that relates to tensors.

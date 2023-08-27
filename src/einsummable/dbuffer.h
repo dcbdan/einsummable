@@ -49,6 +49,8 @@ struct dbuffer_t {
   buffer_t data;
 };
 
+double dbuffer_squared_distance(dbuffer_t lhs, dbuffer_t rhs);
+
 dbuffer_t make_dbuffer(dtype_t, uint64_t num_elems);
 
 template <typename T>

@@ -1083,6 +1083,26 @@ void rotate_sections(
   }
 }
 
+tuple<
+  vector<tuple<int,int>>,
+  graph_constructor_t>
+create_remap_graph_constructor(
+  remap_relations_t const& _remap)
+{
+  auto const& remap = _remap.remap;
+
+  graph_constructor_t g;
+
+  vector<tuple<int,int>> remap_gid;
+  for(auto const& [src,dst]: remap) {
+    int gid_src = g.insert_input(src.placement, src.dtype);
+    int gid_dst = g.insert_formation(dst.placement, gid_src, true);
+    remap_gid.emplace_back(gid_src, gid_dst);
+  }
+
+  return {remap_gid, g};
+}
+
 tuple<uint64_t, uint64_t>
 graph_writer_t::idx_t::get(uint64_t d) const {
   if(std::holds_alternative<rng>(op)) {

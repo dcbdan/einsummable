@@ -68,9 +68,10 @@ namespace executetg_ns {
   // (here working == in pending_applys or being executed)
   struct touch_unit_state_t {
     touch_unit_state_t()
-      : busy(false)
+      : is_first(true), busy(false)
     {}
 
+    bool is_first;
     bool busy;
     queue<int> waiting;
   };
@@ -102,6 +103,10 @@ namespace executetg_ns {
     void apply_runner(int runner_id);
     void send_runner(int runner_id);
     void recv_runner(int runner_id);
+
+    // Mark an input of this apply for donation. If something is marked for donation,
+    // return the corresponding input to the apply.
+    optional<int> get_donate(int apply_id);
 
     int const& get_inn_from_which_touch(which_touch_t const& info) const;
     tuple<int, touch_t> const& get_touch_info(which_touch_t const&) const;
@@ -144,7 +149,7 @@ namespace executetg_ns {
 
     queue<int> pending_sends;
     queue<int> pending_applys;
-    queue<which_touch_t> pending_touches;
+    queue<tuple<which_touch_t, bool>> pending_touches;
 
     map<touch_unit_t, touch_unit_state_t> units_in_progress;
     // ^ any touch unit with multiple touches must have a key
@@ -156,6 +161,9 @@ namespace executetg_ns {
     // for offloading did things into the event loop
     queue<int> here_nodes;
     queue<which_touch_t> here_touches;
+
+    // these tensors have been donated, so do not delete them
+    set<int> donated;
 
     // for tensors
     mutex m_tensors;
@@ -182,6 +190,9 @@ namespace executetg_ns {
     // for num_recv_post_remaining
     mutex m_recv;
     condition_variable cv_recv;
+
+    // for donated
+    mutex m_donate;
 
     // State only updated by the event loop:
     //   num_remaining

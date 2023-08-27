@@ -74,6 +74,9 @@ int relationwise_mcmc_t::op_t::candidate_gid() const {
   if(is_crement()) {
     return get_crement().gid;
   }
+  if(is_set_notouch()) {
+    return get_set_notouch().gid;
+  }
   throw std::runtime_error("candidate_gid should not reach");
 }
 
@@ -85,7 +88,6 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
       if(gids.size() == 1) {
         greedy_solve(candidate_gid);
       } else {
-        // TODO
         throw std::runtime_error("not implemented: placement constraints");
       }
     } else {
@@ -102,6 +104,17 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
     }
     partition_t pp = crement_partition(c);
     current_cost += gwise(c.gid, pp);
+  } else if(op.is_set_notouch()) {
+    auto const& gid = op.get_set_notouch().gid;
+    if(equal_gids.has(gid)) {
+      set<int> const& gids = equal_gids.get_at(gid);
+      if(gids.size() != 1) {
+        // TODO
+        throw std::runtime_error("not implemented: placement constraints");
+      }
+    }
+    partition_t pp = notouch_partition(gid).value();
+    current_cost += gwise(gid, pp);
   } else if(op.is_set_directly()) {
     int64_t cd = 0;
     int64_t md = 0;
@@ -116,30 +129,45 @@ void relationwise_mcmc_t::change(relationwise_mcmc_t::op_t const& op) {
 relationwise_mcmc_t::op_t
 relationwise_mcmc_t::random_op() const
 {
-  int prob_change_partition = 90;
+  int prob_change_partition = 80;
   int gid = runif(gwise.ginfos.size());
   if(runif(100) < prob_change_partition) {
-    auto const& partition = gwise.ginfos[gid].partition;
-    int rank = partition.partdims.size();
-    int d = runif(rank);
-    int nn = partition.partdims[d].spans.size();
-    uint64_t total = partition.partdims[d].total();
-    bool incr = (runif(5) < 3);
-    if(incr) {
-      int nparts = partition.num_parts();
-      int nparts_after = (nparts / nn) * (nn + 1);
-      if(nparts_after > max_blocks) {
-        return op_t(op_t::greedy_t { gid } );
-      }
-      if(uint64_t(nn) == total) {
-        return op_t(op_t::greedy_t { gid } );
+    int prob_set_notouch = 90;
+    bool can_no_touch = bool(gwise.ginfos[gid].refinement_partition);
+    if(can_no_touch && runif(100) < prob_set_notouch) {
+      auto maybe_pp = notouch_partition(gid);
+      if(!maybe_pp || (maybe_pp && maybe_pp.value().num_parts() > max_blocks)) {
+        return op_t(op_t::greedy_t { gid });
+      } else {
+        if(maybe_pp.value() == gwise.ginfos[gid].partition) {
+          return op_t(op_t::greedy_t { gid });
+        } else {
+          return op_t(op_t::set_notouch_t { gid });
+        }
       }
     } else {
-      if(nn == 1) {
-        return op_t(op_t::greedy_t { gid } );
+      auto const& partition = gwise.ginfos[gid].partition;
+      int rank = partition.partdims.size();
+      int d = runif(rank);
+      int nn = partition.partdims[d].spans.size();
+      uint64_t total = partition.partdims[d].total();
+      bool incr = (runif(5) < 3);
+      if(incr) {
+        int nparts = partition.num_parts();
+        int nparts_after = (nparts / nn) * (nn + 1);
+        if(nparts_after > max_blocks) {
+          return op_t(op_t::greedy_t { gid } );
+        }
+        if(uint64_t(nn) == total) {
+          return op_t(op_t::greedy_t { gid } );
+        }
+      } else {
+        if(nn == 1) {
+          return op_t(op_t::greedy_t { gid } );
+        }
       }
+      return op_t(op_t::crement_t { gid, d, incr });
     }
-    return op_t(op_t::crement_t { gid, d, incr });
   } else {
     return op_t(op_t::greedy_t { gid } );
   }
@@ -206,4 +234,11 @@ relationwise_mcmc_t::crement_partition(op_t::crement_t const& crement) const
   }
   return ret;
 }
+
+optional<partition_t>
+relationwise_mcmc_t::notouch_partition(int gid) const
+{
+  return gwise.notouch_partition(gid);
+}
+
 

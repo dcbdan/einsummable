@@ -4,6 +4,7 @@
 #include "../base/placement.h"
 #include "einsummable.h"
 #include "touch.h" // only for subset_t::as_touch
+#include "relation.h"
 
 struct concat_t {
   concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
@@ -368,6 +369,12 @@ struct graph_constructor_t {
   graph_t graph;
   map<int, placement_t> placements;
 };
+
+tuple<
+  vector<tuple<int,int>>,
+  graph_constructor_t>
+create_remap_graph_constructor(
+  remap_relations_t const& _remap);
 
 // Construct a 3D matmul graph, (ij,jk->ik)
 //   shape lhs: di*pi x dj*pj

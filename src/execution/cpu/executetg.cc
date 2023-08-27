@@ -133,7 +133,7 @@ state_t::state_t(
 void state_t::apply_runner(int runner_id)
 {
   int which_apply;
-  which_touch_t which_touch;
+  tuple<which_touch_t, bool> which_touch_is_first;
   bool doing_touch;
 
   while(true) {
@@ -146,7 +146,7 @@ void state_t::apply_runner(int runner_id)
         }
         if(pending_touches.size() > 0) {
           doing_touch = true;
-          which_touch = pending_touches.front();
+          which_touch_is_first = pending_touches.front();
           pending_touches.pop();
           return true;
         }
@@ -166,7 +166,14 @@ void state_t::apply_runner(int runner_id)
     }
 
     if(doing_touch) {
-      auto const& [inn_id, touch_op] = get_touch_info(which_touch);
+      auto const& [which_touch, is_first] = which_touch_is_first;
+
+      auto [inn_id, touch_op] = get_touch_info(which_touch);
+
+      if(is_first) {
+        // The first touch must be turned into a copy
+        touch_op.castable = std::nullopt;
+      }
 
       int const& partialize_id = which_touch.partialize_id;
       uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
@@ -197,10 +204,12 @@ void state_t::apply_runner(int runner_id)
 
       // Can we donate one of the input buffers to
       // this computation?
-      // TODO
-
-      // If not, allocate.
-      if(!out_buffer) {
+      auto maybe_donate_inn = get_donate(which_apply);
+      if(maybe_donate_inn) {
+        int const& which_inn = maybe_donate_inn.value();
+        out_buffer = inputs[which_inn];
+      } else {
+        // No donation is happening, allocate new memory
         out_buffer = make_buffer(node.op.out_size());
       }
 
@@ -322,6 +331,43 @@ void state_t::recv_runner(int runner_id) {
     }
     cv_notify.notify_one();
   }
+}
+
+optional<int> state_t::get_donate(int apply_id) {
+  auto const& node  = taskgraph.nodes[apply_id];
+  auto const& apply = node.op.get_apply();
+  auto const& e     = apply.einsummable;
+  auto const& inns  = apply.inns;
+
+  // Get all inputs that the kernel manager says can be used as
+  // both an input and an output.
+  vector<int> donatables = kernel_manager.donatables(e);
+
+  // Now make sure that the input is only used once.
+  // (It might be better to instead make sure that this is the _last_ usage of the
+  //  input, but that would require more concurrency management.)
+  optional<int> ret;
+  int donate_inn_id;
+  for(int const& which_inn: donatables) {
+    auto const& inn_id = inns[which_inn];
+    auto const& inn_node = taskgraph.nodes[inn_id];
+    if(inn_node.outs.size() == 1) {
+      donate_inn_id = inn_id;
+      ret = which_inn;
+      break;
+    }
+  }
+
+  if(!ret) {
+    return ret;
+  }
+
+  {
+    unique_lock lk(m_donate);
+    donated.insert(donate_inn_id);
+  }
+  //DLINEOUT("num donated: " << donated.size());
+  return ret;
 }
 
 void state_t::event_loop()
@@ -453,7 +499,10 @@ void state_t::event_loop_did_touch(which_touch_t const& info)
       //  << (which_touch_t { partialize_id, unit_id, next_touch_id }));
       {
         unique_lock lk(m_apply);
-        pending_touches.push(which_touch_t { partialize_id, unit_id, next_touch_id });
+        pending_touches.push({
+          which_touch_t { partialize_id, unit_id, next_touch_id },
+          false
+        });
       }
       cv_apply.notify_one();
     } else {
@@ -491,7 +540,10 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
       if(inn_id == touch_inn) {
         {
           unique_lock lk(m_apply);
-          pending_touches.push(which_touch_t { partialize_id, unit_id, 0 });
+          pending_touches.push({
+            which_touch_t { partialize_id, unit_id, 0 },
+            true
+          });
         }
         cv_apply.notify_one();
       }
@@ -510,10 +562,14 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
             //    (which_touch_t { partialize_id, unit_id, touch_id}));
             {
               unique_lock lk(m_apply);
-              pending_touches.push(which_touch_t { partialize_id, unit_id, touch_id });
+              pending_touches.push({
+                which_touch_t { partialize_id, unit_id, touch_id },
+                unit_state.is_first
+              });
             }
             cv_apply.notify_one();
             unit_state.busy = true;
+            unit_state.is_first = false;
           }
         }
       }
@@ -532,10 +588,22 @@ void state_t::event_loop_register_usage(int id) {
 
   if(cnt == 0) {
     bool const& is_save = taskgraph.nodes[id].is_save;
-    if(!is_save) {
+
+    bool was_donated;
+    {
+      unique_lock lk(m_donate);
+      auto iter = donated.find(id);
+      was_donated = iter != donated.end();
+      if(was_donated) {
+        donated.erase(iter);
+      }
+    }
+
+    if(!is_save && !was_donated) {
       unique_lock lk(m_tensors);
       tensors.erase(id);
     }
+
     num_usage_remaining.erase(id);
   } else if(cnt < 0) {
     throw std::runtime_error("usage count should not be less than zero");

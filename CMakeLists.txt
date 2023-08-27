@@ -68,6 +68,17 @@ add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
 if(${CPU_EXECUTION_ENGINE})
+  if(NOT MKL_THREADING)
+    set(MKL_THREADING sequential)
+  endif()
+  
+  # Tell MKL to use the best instructions; if
+  # this instruction set it goes to the next best
+  # and so on...
+  # (MKL is bad at finding the right instruction set and
+  #  this helps empirically)
+  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
+
   find_package(MPI REQUIRED)
 
   find_package(MKL REQUIRED)
@@ -107,6 +118,9 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+  add_cpu_application("cpumanager"      "exps" "cpumanager")
+  add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
+  add_cpu_application("cpumms"          "exps" "cpumms")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

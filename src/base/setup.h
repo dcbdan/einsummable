@@ -10,6 +10,7 @@
 #include <tuple>
 #include <set>
 #include <map>
+#include <array>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -401,6 +402,29 @@ tuple<vector<T1>, vector<T2>> vector_unzip(
   }
 
   return {lhs,rhs};
+}
+
+template <typename T, typename F>
+void vector_filter_inplace(vector<T>& xs, F f)
+{
+  auto iter = std::copy_if(xs.begin(), xs.end(), xs.begin(), f);
+  xs.resize(std::distance(xs.begin(), iter));
+}
+
+template <typename T, typename F>
+void vector_sort_inplace(vector<T>& xs, F f)
+{
+  std::sort(xs.begin(), xs.end(), f);
+}
+
+template <typename K, typename V>
+vector<K> map_get_keys(map<K, V> const& xys) {
+  vector<K> ret;
+  ret.reserve(xys.size());
+  for(auto const& [x,_]: xys) {
+    ret.push_back(x);
+  }
+  return ret;
 }
 
 template <typename T, typename F>

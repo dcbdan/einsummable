@@ -92,7 +92,7 @@ local_tensor_reader_t::read_next_weight_info() {
 tensor_reader_t::tensor_reader_t(
   int this_rank, int world_size,
   string const& base_filename, int n)
-  : n_total_files(n)
+  : world_size(world_size), n_total_files(n)
 {
   for(int i = this_rank; i < n; i += world_size) {
     string si = write_with_ss(i);
