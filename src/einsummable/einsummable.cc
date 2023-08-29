@@ -170,10 +170,6 @@ vector<tuple<int,int>> build_adjacents(
 }
 
 einsummable_t einsummable_t::merge_adjacent_dims() const {
-  // TODO: if there is a broadcast, what changes about this method?
-  if(has_broadcast()) {
-    return *this;
-  }
   int join_rank = join_shape.size();
 
   auto _inns = inns;
