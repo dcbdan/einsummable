@@ -1,5 +1,38 @@
 #include "einsummable.h"
 
+int _compute_join_rank(
+  vector<vector<int>> const& inns,
+  int out_rank)
+{
+  int almost_join_rank = 0;
+  for(auto const& inn: inns) {
+    if(inn.size() == 0) {
+      throw std::runtime_error("compute_join_rank: empty inn given");
+    }
+
+    almost_join_rank = std::max(
+      almost_join_rank,
+      *std::max_element(inn.begin(), inn.end()));
+  }
+  almost_join_rank++;
+
+  // Example:
+  //   ij->ijk
+  //   01->012
+  //
+  //   alomst_join_rank = 2
+  //   out_rank = 3
+  //   join_rank = 3
+  //
+  //   ij->ik
+  //   02->01
+  //
+  //   almost_join_rank = 3
+  //   out_rank = 2
+  //   join_rank = 3
+  return std::max(almost_join_rank, out_rank);
+}
+
 einsummable_t::einsummable_t(
   vector<uint64_t> join_shape,
   vector<vector<int>> inns,
@@ -43,14 +76,15 @@ einsummable_t::einsummable_t(
     }
   }
 
-  int join_rank = 0;
-  for(auto const& inn: inns) {
-    join_rank = std::max(join_rank, *std::max_element(inn.begin(), inn.end()));
-  }
-  join_rank += 1;
-
+  int join_rank = _compute_join_rank(inns, out_rank);
   if(join_rank != join_shape.size()) {
     throw std::runtime_error("invalid join shape size");
+  }
+
+  for(uint64_t const& d: join_shape) {
+    if(d == 0) {
+      throw std::runtime_error("einsummable: cannot have zero join size");
+    }
   }
 
   if(!valid_inns_out(inns, out_rank)) {
@@ -136,6 +170,10 @@ vector<tuple<int,int>> build_adjacents(
 }
 
 einsummable_t einsummable_t::merge_adjacent_dims() const {
+  // TODO: if there is a broadcast, what changes about this method?
+  if(has_broadcast()) {
+    return *this;
+  }
   int join_rank = join_shape.size();
 
   auto _inns = inns;
@@ -407,11 +445,7 @@ string einsummable_t::make_str(
   vector<vector<int>> const& inns,
   int out_rank)
 {
-  int join_rank = 0;
-  for(auto const& inn: inns) {
-    join_rank = std::max(join_rank, *std::max_element(inn.begin(), inn.end()));
-  }
-  join_rank++;
+  int join_rank = _compute_join_rank(inns, out_rank);
 
   vector<char> letters(join_rank);
   std::iota(letters.begin(), letters.end(), 'a');
@@ -442,57 +476,44 @@ bool einsummable_t::valid_inns_out(
   vector<vector<int>> const& inns,
   int out_rank)
 {
+  // scalars are not supported
   if(out_rank == 0) {
-    // output scalars not supported
     return false;
   }
-
-  set<int> all_ids;
-
-  int join_rank = -1;
-  for(vector<int> const& inn: inns) {
+  for(auto const& inn: inns) {
     if(inn.size() == 0) {
-      // scalars not supported
-      return false;
-    }
-
-    all_ids.insert(inn.begin(), inn.end());
-
-    {
-      set<int> _inns(inn.begin(), inn.end());
-      if(_inns.size() != inn.size()) {
-        // inn index cannot contain duplicates
-        return false;
-      }
-    }
-    for(int const& i: inn) {
-      join_rank = std::max(join_rank, i);
-      if(i < 0) {
-        // inn index out of range
-        return false;
-      }
-    }
-  }
-  join_rank += 1;
-
-  for(int i = 0; i != join_rank; ++i) {
-    if(all_ids.count(i) == 0) {
-      // all index from 0, ... join rank - 1 must be included
       return false;
     }
   }
 
-  int agg_cnt = out_rank - 1;
-  for(vector<int> const& inn: inns) {
-    for(int const& i: inn) {
-      if(i >= out_rank) {
-        if(i == agg_cnt + 1) {
-          agg_cnt += 1;
-        } else if(i <= agg_cnt) {
-          // good
-        } else {
-          // the aggs must be in order!
-          return false;
+  // can't have any duplicates in the inns
+  for(auto const& inn: inns) {
+    int n_unique = set<int>(inn.begin(), inn.end()).size();
+    if(n_unique != inn.size()) {
+      return false;
+    }
+  }
+
+  // 2. the aggs must occur in order and be contigous
+  //
+  //    so 013->01 is illegal and should be
+  //       012->01
+  //
+  //    and 021,012->0 is illegal and should be
+  //        012,021->0
+  {
+    int agg_cnt = out_rank;
+    for(auto const& inn: inns) {
+      for(int const& i: inn) {
+        if(i >= out_rank) {
+          if(i == agg_cnt) {
+            agg_cnt += 1;
+          } else if(i < agg_cnt) {
+            // fine, just another occurence of a previously seen agg
+          } else {
+            // uh oh, the aggs must be in order
+            return false;
+          }
         }
       }
     }
@@ -507,7 +528,18 @@ einsummable_t::construct_join_shape(
   vector<vector<uint64_t>> const& inn_shapes)
 {
   uint64_t d = 0;
-  return construct_join_shape_(inns, inn_shapes, d, std::equal_to<>());
+  auto ret = construct_join_shape_(inns, inn_shapes, d, std::equal_to<>());
+  if(ret) {
+    auto const& xs = ret.value();
+    for(auto const& x: xs) {
+      if(x == 0) {
+        return std::nullopt;
+      }
+    }
+    return ret;
+  }
+
+  return std::nullopt;
 }
 
 vector<uint64_t> einsummable_t::out_shape() const {
@@ -599,16 +631,10 @@ bool einsummable_t::is_straight_elementwise() const {
 }
 
 bool einsummable_t::is_permutation() const {
-  if(inns.size() != 1) {
-    return false;
-  }
-  if(has_aggregation()) {
-    return false;
-  }
-  if(join != scalarop_t::make_identity(out_dtype())) {
-    return false;
-  }
-  return true;
+  return inns.size() == 1 &&
+    !has_aggregation()    &&
+    !has_broadcast()      &&
+    join.is_identity()    ;
 }
 
 bool einsummable_t::has_aggregation() const {
@@ -618,8 +644,52 @@ bool einsummable_t::has_aggregation() const {
 bool einsummable_t::is_contraction() const {
   return inns.size() == 2               &&
     has_aggregation()                   &&
+    !has_broadcast()                    &&
     castable.value() == castable_t::add &&
-    join.is_mul();
+    join.is_mul()                       ;
+}
+
+bool einsummable_t::has_broadcast() const {
+  set<int> normal_modes;
+  for(auto const& inn: inns) {
+    for(auto const& i: inn) {
+      if(i < out_rank) {
+        normal_modes.insert(i);
+      }
+    }
+  }
+  // Example:
+  //   ijkm->ijkl
+  //   0124->0123
+  //
+  //   ijk: normal modes
+  //   m:   agg mode
+  //   l:   broadcast mode
+  return normal_modes.size() != out_rank;
+}
+
+bool einsummable_t::is_broadcast() const {
+  return inns.size() == 1 &&
+    has_broadcast()       &&
+    !has_aggregation()    &&
+    join.is_identity()    ;
+}
+
+bool einsummable_t::is_straight_broadcast() const {
+  if(!is_broadcast()) {
+    return false;
+  }
+
+  vector<int> const& inn = inns[0];
+  int inn_rank = inn.size();
+  int n_broadcast = out_rank - inn_rank;
+  for(int i = 0; i != inn_rank; ++i) {
+    if(inn[i] != n_broadcast + i) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {

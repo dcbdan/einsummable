@@ -76,6 +76,7 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     int out_rank);
 
+  // will return None if has_broadcast
   static optional<vector<uint64_t>> construct_join_shape(
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
@@ -117,6 +118,20 @@ struct einsummable_t {
   bool has_aggregation() const;
 
   bool is_contraction() const;
+
+  // is broadcast means this op is just doing a broadcast on a single
+  // element and nothing else
+  bool is_broadcast() const;
+
+  // is_broadcast includes permutation style broadcasts like
+  // ijk->kjil. straight broadcast must include all broadcast
+  // dims followed by the input without any permutation:
+  //   so 123->0123 is a straight broadcast but
+  //      012->0123 is not
+  bool is_straight_broadcast() const;
+
+  // has broadcast is true if there are any broadcast modes
+  bool has_broadcast() const;
 
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
