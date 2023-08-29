@@ -58,6 +58,11 @@ private:
     std::function<void(uint64_t, uint64_t, void*, void const*)> f;
   };
 
+  struct broadcast_b_ab_t {
+    uint64_t sz_a;
+    uint64_t sz_b;
+  };
+
   // kernel_t is a misc catchall that can just wrap a lambda
   using kernel_t = std::function<void(void*, vector<void const*>)>;
 
@@ -99,7 +104,7 @@ public:
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, binary_212_ew_t, tensor_permute_t,
-    reduction_ab_a_t,
+    reduction_ab_a_t, broadcast_b_ab_t,
     kernel_t>;
 
   kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;
@@ -225,4 +230,8 @@ void execute_touch(
   void* out,
   void const* inn);
 
-
+void broadcast_b_ab_kernel(
+  uint64_t sz_a,
+  uint64_t sz_b,
+  void* out,
+  void const* inn);
