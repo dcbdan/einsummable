@@ -805,12 +805,16 @@ void graph_t::print_graphviz(std::ostream& out) const {
     string color = "";
     if(op.is_input()) {
       label = "input" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.shape());
     } else if(op.is_formation()) {
       label = "form" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.out_shape());
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
       label = "einsummable" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.get_einsummable());
+      label += "\ninput_ids" + write_with_ss(node.inns);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {

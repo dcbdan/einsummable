@@ -1,0 +1,4 @@
+cd tblis
+mkdir build
+./configure --prefix=$(pwd)/build
+make -j && make install

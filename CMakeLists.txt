@@ -22,6 +22,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")# -DMKL_DIRECT_CALL_SEQ_JIT")
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
 include_directories(${PROJECT_SOURCE_DIR}/thirdparty/half-2.2.0/include)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/include)
 include_directories(${Protobuf_INCLUDE_DIRS})
 
 add_subdirectory(src/proto)
@@ -71,7 +72,7 @@ if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
     set(MKL_THREADING sequential)
   endif()
-  
+
   # Tell MKL to use the best instructions; if
   # this instruction set it goes to the next best
   # and so on...
@@ -100,6 +101,12 @@ if(${CPU_EXECUTION_ENGINE})
     ${CP_FILES}
   )
 
+  add_library(tblis SHARED IMPORTED)
+  set_target_properties(tblis PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/lib/libtblis.so)
+
+  add_library(tci SHARED IMPORTED)
+  set_target_properties(tci PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/lib/libtci.so)
+
   function(add_cpu_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
@@ -107,20 +114,23 @@ if(${CPU_EXECUTION_ENGINE})
     proto
     ${Protobuf_LIBRARIES}
     ${MPI_CXX_LIBRARIES}
-    MKL::MKL)
+    MKL::MKL
+    tblis
+    tci)
   endfunction()
 
-  add_cpu_application("cpuexec"         "exps" "cpuexec")
-  add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
-  add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-  add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
-  add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
-  add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
-  add_cpu_application("cpumanager"      "exps" "cpumanager")
-  add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
-  add_cpu_application("cpumms"          "exps" "cpumms")
+  add_cpu_application("cpuexec"              "exps" "cpuexec")
+  add_cpu_application("cpuexec_3d"           "exps" "cpuexec_3d")
+  add_cpu_application("cpuexec_ff"           "exps" "cpuexec_ff")
+  add_cpu_application("cpuexec_mm"           "exps" "cpuexec_mm")
+  add_cpu_application("cpuexec_touch"        "exps" "cpuexec_touch")
+  add_cpu_application("cpuexec_permute"      "exps" "cpuexec_permute")
+  add_cpu_application("cpuexec_kernels"      "exps" "cpuexec_kernels")
+  add_cpu_application("cpuexec_gen"          "exps" "cpuexec_gen")
+  add_cpu_application("cpuexec_attention"    "exps" "cpuexec_attention")
+  add_cpu_application("cpumanager"           "exps" "cpumanager")
+  add_cpu_application("cpukerneltime"        "exps" "cpukerneltime")
+  add_cpu_application("cpumms"               "exps" "cpumms")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
@@ -130,7 +140,9 @@ if(${CPU_EXECUTION_ENGINE})
       proto
       ${Protobuf_LIBRARIES}
       ${MPI_CXX_LIBRARIES}
-      MKL::MKL)
+      MKL::MKL
+      tblis
+      tci)
   endfunction()
 
   add_cpu_llama_application("llama_cpu" "cpu")
