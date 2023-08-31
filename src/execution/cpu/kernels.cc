@@ -5,6 +5,171 @@
 
 #include "permute.h"
 
+_tblis_tensor_handle_t::_tblis_tensor_handle_t(
+  string const& str_,
+  vector<uint64_t> const& shape_)
+  : stride(shape_.size()), str(str_)
+{
+  shape.reserve(shape_.size());
+  for(auto const& s: shape_) {
+    shape.push_back(s);
+  }
+
+  tblis::stride_type s = 1;
+  for(int i = shape.size() - 1; i >= 0; --i) {
+    stride[i] = s;
+    s *= shape[i];
+  }
+}
+
+// Note: for all these tblis_init_x functions, the handle's lifetime must cover
+//       the lifetime of the tensor being initialized
+// Also, const_cast's, so be aware
+void tblis_init_f32(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& _h,
+  void* raw)
+{
+  _tblis_tensor_handle_t& h = const_cast<_tblis_tensor_handle_t&>(_h);
+  tblis_init_tensor_s(
+    &t, h.shape.size(), h.shape.data(),
+    reinterpret_cast<float*>(raw),
+    h.stride.data());
+}
+
+void tblis_init_f32(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& h,
+  void const* raw)
+{
+  tblis_init_f32(t, h, const_cast<void*>(raw));
+}
+
+void tblis_init_f64(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& _h,
+  void* raw)
+{
+  _tblis_tensor_handle_t& h = const_cast<_tblis_tensor_handle_t&>(_h);
+  tblis_init_tensor_d(
+    &t, h.shape.size(), h.shape.data(),
+    reinterpret_cast<double*>(raw),
+    h.stride.data());
+}
+
+void tblis_init_f64(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& h,
+  void const* raw)
+{
+  tblis_init_f64(t, h, const_cast<void*>(raw));
+}
+
+void tblis_init_c64(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& _h,
+  void* raw)
+{
+  _tblis_tensor_handle_t& h = const_cast<_tblis_tensor_handle_t&>(_h);
+  tblis_init_tensor_c(
+    &t, h.shape.size(), h.shape.data(),
+    reinterpret_cast<std::complex<float>*>(raw),
+    h.stride.data());
+}
+
+void tblis_init_c64(
+  tblis::tblis_tensor& t,
+  _tblis_tensor_handle_t const& h,
+  void const* raw)
+{
+  tblis_init_c64(t, h, const_cast<void*>(raw));
+}
+
+#define _tblis_tensor_init_llrroo(err_header) \
+  tblis::tblis_tensor t_ll, t_rr, t_oo; \
+  \
+  if(dtype == dtype_t::f32) { \
+    tblis_init_f32(t_ll, lhs, ll); \
+    tblis_init_f32(t_rr, rhs, rr); \
+    tblis_init_f32(t_oo, out, oo); \
+  } else if(dtype == dtype_t::f64) { \
+    tblis_init_f64(t_ll, lhs, ll); \
+    tblis_init_f64(t_rr, rhs, rr); \
+    tblis_init_f64(t_oo, out, oo); \
+  } else if(dtype == dtype_t::c64) { \
+    tblis_init_c64(t_ll, lhs, ll); \
+    tblis_init_c64(t_rr, rhs, rr); \
+    tblis_init_c64(t_oo, out, oo); \
+  } else { \
+    throw std::runtime_error(string(err_header) + ": invalid dtype found"); \
+  }
+
+#define _tblis_tensor_init_iioo(err_header) \
+  tblis::tblis_tensor t_ii, t_oo; \
+  \
+  if(dtype == dtype_t::f32) { \
+    tblis_init_f32(t_ii, inn, ii); \
+    tblis_init_f32(t_oo, out, oo); \
+  } else if(dtype == dtype_t::f64) { \
+    tblis_init_f64(t_ii, inn, ii); \
+    tblis_init_f64(t_oo, out, oo); \
+  } else if(dtype == dtype_t::c64) { \
+    tblis_init_c64(t_ii, inn, ii); \
+    tblis_init_c64(t_oo, out, oo); \
+  } else { \
+    throw std::runtime_error(string(err_header) + ": invalid dtype found"); \
+  }
+
+void kernel_manager_t::tblis_mult_t::operator()(
+  void* oo, void const* ll, void const* rr) const
+{
+  _tblis_tensor_init_llrroo("tblis_mult_t");
+
+  tblis::tblis_tensor_mult(
+    tci_single, NULL,
+    &t_ll, lhs.str.data(),
+    &t_rr, rhs.str.data(),
+    &t_oo, out.str.data());
+}
+
+void kernel_manager_t::tblis_add_t::operator()(
+  void* oo, void const* ll, void const* rr) const
+{
+  _tblis_tensor_init_llrroo("tblis_add_t");
+
+  // 1. initialize the output to all zeros
+  // 2. out = lhs + out
+  // 3. out = rhs + out
+
+  std::memset(oo, 0, dtype_size(dtype) * product(out.shape));
+
+  tblis::tblis_tensor_add(
+    tci_single, NULL,
+    &t_ll, lhs.str.data(),
+    &t_oo, out.str.data());
+
+  tblis::tblis_tensor_add(
+    tci_single, NULL,
+    &t_rr, rhs.str.data(),
+    &t_oo, out.str.data());
+}
+
+void kernel_manager_t::tblis_permute_t::operator()(
+  void* oo, void const* ii) const
+{
+  _tblis_tensor_init_iioo("tblis_permute_t");
+
+  // 1. initialize the output to all zeros
+  // 2. out = inn + out
+
+  std::memset(oo, 0, dtype_size(dtype) * product(out.shape));
+
+  tblis::tblis_tensor_add(
+    tci_single, NULL,
+    &t_ii, inn.str.data(),
+    &t_oo, out.str.data());
+}
+
 kernel_manager_t::kernel_manager_t()
 {
   auto fix = einsummable_t::normalize_str;
@@ -53,6 +218,68 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
 
   if(kernels.count(einsummable) > 0) {
     return workspace_size(einsummable);
+  }
+
+  // first match anything that can be computed by tblis
+  // (tblis does not compute with half floats, so execlude those)
+  if(einsummable.out_dtype() != dtype_t::f16) {
+    auto const& e = einsummable;
+
+    if(e.is_permutation()) {
+      auto [out_word, inn_words] = e.str_terms();
+      auto out_shape = e.out_shape();
+      auto inn_shapes = e.inn_shapes();
+
+      kernels.insert({e,
+        tblis_permute_t {
+          .dtype = e.out_dtype(),
+          .inn = _tblis_tensor_handle_t(inn_words[0], inn_shapes[0]),
+          .out = _tblis_tensor_handle_t(out_word, out_shape)
+        }
+      });
+
+      return 0;
+    }
+
+    if(e.join.is_mul() &&
+       e.inns.size() == 2 &&
+       (!e.has_aggregation() || e.castable.value() == castable_t::add))
+    {
+      auto [out_word, inn_words] = e.str_terms();
+      auto out_shape = e.out_shape();
+      auto inn_shapes = e.inn_shapes();
+
+      kernels.insert({e,
+        tblis_mult_t {
+          .dtype = e.out_dtype(),
+          .lhs = _tblis_tensor_handle_t(inn_words[0], inn_shapes[0]),
+          .rhs = _tblis_tensor_handle_t(inn_words[1], inn_shapes[1]),
+          .out = _tblis_tensor_handle_t(out_word, out_shape)
+        }
+      });
+
+      return 0;
+    }
+
+    if(e.join.is_add() &&
+       e.inns.size() == 2 &&
+       !e.has_aggregation())
+    {
+      auto [out_word, inn_words] = e.str_terms();
+      auto out_shape = e.out_shape();
+      auto inn_shapes = e.inn_shapes();
+
+      kernels.insert({e,
+        tblis_add_t {
+          .dtype = e.out_dtype(),
+          .lhs = _tblis_tensor_handle_t(inn_words[0], inn_shapes[0]),
+          .rhs = _tblis_tensor_handle_t(inn_words[1], inn_shapes[1]),
+          .out = _tblis_tensor_handle_t(out_word, out_shape)
+        }
+      });
+
+      return 0;
+    }
   }
 
   if(einsummable.is_permutation()) {
@@ -345,6 +572,18 @@ void kernel_manager_t::call(
     assert_num_inputs(1);
     auto const& [sz_a,sz_b] = get<broadcast_b_ab_t>(kernel);
     broadcast_b_ab_kernel(sz_a, sz_b, out, inns[0]);
+  } else if(holds_alternative<tblis_mult_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& op = get<tblis_mult_t>(kernel);
+    op(out, inns[0], inns[1]);
+  } else if(holds_alternative<tblis_add_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& op = get<tblis_add_t>(kernel);
+    op(out, inns[0], inns[1]);
+  } else if(holds_alternative<tblis_permute_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& op = get<tblis_permute_t>(kernel);
+    op(out, inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     auto const& f = get<kernel_t>(kernel);
     f(out, inns);

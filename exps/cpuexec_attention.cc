@@ -470,7 +470,7 @@ void tblis_exp01() {
 
 int main() {
   uint64_t batch_size = 16;
-  uint64_t start_pos  = 117;
+  uint64_t start_pos  = 1170;
   uint64_t dim        = 4096;
   uint64_t n_heads    = 32;
 
@@ -491,14 +491,14 @@ int main() {
   //  DOUT(ret);
   //}
 
-  //execute_tblis(batch_size, start_pos, dim, n_heads);
-  //execute_tblis(batch_size, start_pos, dim, n_heads);
-  //execute_direct(batch_size, start_pos, dim, n_heads);
-  //execute_direct(batch_size, start_pos, dim, n_heads);
+  execute_tblis(batch_size, start_pos, dim, n_heads);
+  execute_tblis(batch_size, start_pos, dim, n_heads);
+  execute_direct(batch_size, start_pos, dim, n_heads);
+  execute_direct(batch_size, start_pos, dim, n_heads);
 
-  for(uint64_t sp = 1; sp != 400; ++sp) {
-    execute_tblis(batch_size, sp, dim, n_heads);
-  }
+  //for(uint64_t sp = 1; sp != 400; ++sp) {
+  //  execute_tblis(batch_size, sp, dim, n_heads);
+  //}
 
   //tblis_exp01();
   //DLINEOUT("???????????????????????????????????");

@@ -68,6 +68,9 @@ struct einsummable_t {
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
+  static tuple<string, vector<string>>
+  make_str_terms(vector<vector<int>> const& inns, int out_rank);
+
   static string make_str(vector<vector<int>> const& inns, int out_rank);
 
   static string normalize_str(string const& str);
@@ -98,6 +101,8 @@ struct einsummable_t {
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
   string str() const;
+
+  tuple<string, vector<string>> str_terms() const;
 
   std::size_t hash() const;
 

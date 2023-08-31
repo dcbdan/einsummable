@@ -9,6 +9,18 @@
 
 #include <thread>
 
+#include "tblis/tblis.h"
+
+struct _tblis_tensor_handle_t {
+  _tblis_tensor_handle_t(
+    string const& s,
+    vector<uint64_t> const& shape);
+
+  vector<tblis::stride_type> stride;
+  vector<tblis::len_type> shape;
+  string str;
+};
+
 struct kernel_manager_t {
 private:
   struct binfo_t {
@@ -18,6 +30,7 @@ private:
     bool batched_lhs;
     bool batched_rhs;
   };
+
   struct batch_matmul_t {
     dtype_t dtype;
     binfo_t info;
@@ -63,6 +76,37 @@ private:
     uint64_t sz_b;
   };
 
+  // this includes contractions but also elementwise multiply
+  struct tblis_mult_t {
+    dtype_t dtype;
+    _tblis_tensor_handle_t lhs;
+    _tblis_tensor_handle_t rhs;
+    _tblis_tensor_handle_t out;
+
+    void operator()(void* out, void const* lhs, void const* rhs) const;
+  };
+
+  // this is implemented as
+  //   out <- zeros
+  //   out += lhs
+  //   out += rhs
+  struct tblis_add_t {
+    dtype_t dtype;
+    _tblis_tensor_handle_t lhs;
+    _tblis_tensor_handle_t rhs;
+    _tblis_tensor_handle_t out;
+
+    void operator()(void* out, void const* lhs, void const* rhs) const;
+  };
+
+  struct tblis_permute_t {
+    dtype_t dtype;
+    _tblis_tensor_handle_t inn;
+    _tblis_tensor_handle_t out;
+
+    void operator()(void* out, void const* inn) const;
+  };
+
   // kernel_t is a misc catchall that can just wrap a lambda
   using kernel_t = std::function<void(void*, vector<void const*>)>;
 
@@ -105,6 +149,7 @@ public:
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, binary_212_ew_t, tensor_permute_t,
     reduction_ab_a_t, broadcast_b_ab_t,
+    tblis_mult_t, tblis_add_t, tblis_permute_t,
     kernel_t>;
 
   kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;

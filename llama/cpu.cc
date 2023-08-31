@@ -255,7 +255,7 @@ void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
   model_args_t args = model_args_t::llama(reader.num_files(), bsz);
   //args.n_layers = 60;
 
-  int niter = 256-seqlen-1;
+  int niter = 8; // 256-seqlen-1;
 
   DLINEOUT("getting the embedding matrix");
 
@@ -434,8 +434,8 @@ int main(int argc, char** argv) {
   mpi_t mpi(argc, argv);
   nlocs = mpi.world_size;
 
-  bool with_tg = false;
-  bool with_mg = true;
+  bool with_tg = true;
+  bool with_mg = false;
 
   if(with_tg) {
     auto settings = execute_taskgraph_settings_t::default_settings();

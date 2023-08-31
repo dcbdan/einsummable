@@ -437,7 +437,8 @@ einsummable_t::parse_str(string str)
   return {ret, out.size()};
 }
 
-string einsummable_t::make_str(
+tuple<string, vector<string>>
+einsummable_t::make_str_terms(
   vector<vector<int>> const& inns,
   int out_rank)
 {
@@ -448,15 +449,31 @@ string einsummable_t::make_str(
 
   auto words = get_inputs_from_join_(inns, letters);
 
-  std::ostringstream ss;
-  ss << string(words[0].begin(), words[0].end());
-  for(int i = 1; i != words.size(); ++i) {
-    auto const& word = words[i];
-    ss << "," << string(word.begin(), word.end());
+  vector<char> outword(letters.begin(), letters.begin() + out_rank);
+
+  vector<string> ret;
+  ret.reserve(words.size());
+  for(auto const& word: words) {
+    ret.emplace_back(word.begin(), word.end());
   }
 
-  vector<char> outword(letters.begin(), letters.begin() + out_rank);
-  ss << "->" << string(outword.begin(), outword.end());
+  return {string(outword.begin(), outword.end()), ret};
+}
+
+string einsummable_t::make_str(
+  vector<vector<int>> const& inns,
+  int out_rank)
+{
+  auto [outword, words] = make_str_terms(inns, out_rank);
+
+  std::ostringstream ss;
+  ss << string(words[0]);
+  for(int i = 1; i != words.size(); ++i) {
+    auto const& word = words[i];
+    ss << "," << word;
+  }
+
+  ss << "->" << outword;
 
   return ss.str();
 }
@@ -593,6 +610,10 @@ einsummable_t::input_idxs(vector<int> const& join_idx) const
 
 string einsummable_t::str() const {
   return make_str(inns, out_rank);
+}
+
+tuple<string, vector<string>> einsummable_t::str_terms() const {
+  return make_str_terms(inns, out_rank);
 }
 
 std::size_t einsummable_t::hash() const {
