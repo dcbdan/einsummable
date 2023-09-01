@@ -2,6 +2,7 @@
 #include "../../base/setup.h"
 #include "../../einsummable/memgraph.h"
 #include "../../einsummable/reference.h"
+#include "utility.h"
 #include "cutensor.h"
 #include "kernels.h"
 #include "gpu_kernel_manager.h"
@@ -15,31 +16,13 @@ using memgraph_t = memgraph_t;
 // file defined:
 // (https://docs.nvidia.com/cuda/cutensor/getting_started.html#determine-algorithm-and-workspace)
 #define HANDLE_ERROR(x)                                                        \
-  {                                                                            \
+{                                                                            \
     const auto err = x;                                                        \
     if (err != CUTENSOR_STATUS_SUCCESS) {                                      \
       printf("Error: %s in line %d\n", cutensorGetErrorString(err), __LINE__); \
       exit(-1);                                                                \
     }                                                                          \
-  }
-
-void test();
-
-// return a memory pointer that is allocated on the gpu
-// uses cudaMalloc
-void *gpu_allocate_memory(size_t size);
-
-// debugging; set all the values in the memory to a specific value
-void init_value(float *ptr, int count, float value);
-
-// all debugging print functions
-
-void printFloatCPU(const float *cpu_ptr, int count);
-void printFloatGPU(const float *gpu_ptr, int count);
-void *offset_increment(const void *ptr, int offset);
-float *float_increment(float *ptr, int offset);
-
-cudaStream_t cuda_create_stream();
+}
 
 struct gpu_execute_state_t {
   memgraph_t const &memgraph;

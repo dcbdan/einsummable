@@ -351,7 +351,9 @@ public:
       if (is_touch())       std::cout << "touch";
     }
 
-    int get_apply_loc() const { return get_apply().loc; }
+    int get_apply_loc() const { 
+      if (!is_apply()) throw std::runtime_error("trying to get apply loc for a non-apply op");
+      return get_apply().loc; }
 
     // get all the memlocs touched by this operation
     vector<memloc_t> get_memlocs() const;

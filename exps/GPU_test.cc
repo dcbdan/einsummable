@@ -1,9 +1,9 @@
 #include "../src/einsummable/memgraph.h"
-
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/scalarop.h"
 #include "../src/execution/gpu/execute.h"
+// #include "../src/execution/gpu/execute_multi_gpu.h"
 #include "GPU_correctness.cc"
 
 #include <cstdint>
@@ -128,6 +128,82 @@ int main_matmul(int argc, char **argv) {
   return 0;
 }
 
+// testing 3d matmul on a multiple GPUs
+int main_matmul_multi_gpu(int argc, char **argv) {
+
+  if (argc != 8) {
+    usage();
+    return 1;
+  }
+
+  int pi, pj, pk;
+  uint64_t di, dj, dk;
+  int np;
+  try {
+    pi = parse_with_ss<int>(argv[1]);
+    pj = parse_with_ss<int>(argv[2]);
+    pk = parse_with_ss<int>(argv[3]);
+    di = parse_with_ss<uint64_t>(argv[4]);
+    dj = parse_with_ss<uint64_t>(argv[5]);
+    dk = parse_with_ss<uint64_t>(argv[6]);
+    np = parse_with_ss<int>(argv[7]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    usage();
+    return 1;
+  }
+
+  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+  // it could be the case that not all locs are actually used,
+  // for example 1 1 2 100 100 100 88
+  // Here only 2 locs will really be used, not all 88...
+  np = taskgraph.num_locs();
+
+  // have everyone share the same cache
+  vector<int> compute_loc_to_cache(np, 0);
+
+  size_t allocator_size = 4lu * 1024lu * 1024lu * 1024lu;
+
+  vector<uint64_t> mem_sizes;
+
+  for (int i = 0; i < np; ++i){
+    mem_sizes.push_back(allocator_size);
+  }
+
+  {
+    tuple<map<int, mem_t>, // input -> mem
+          map<int, mem_t>, // save -> mem
+          memgraph_t>
+        _info1 = memgraph_t::make_without_evict(
+            taskgraph, mem_sizes,
+            {allocator_strat_t::lowest_dependency, 4});
+    auto const &[_2, _3, memgraph] = _info1;
+
+    std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
+    std::ofstream f("mm3d_mem_lowest_dep.gv");
+    memgraph.print_graphviz(f);
+
+    // Do some checks before we execute
+    for (int i = 0; i < np; ++i){
+      // check if the sizes of the memgraph is lower than what we have given
+      if (memgraph.mem_sizes()[i] > allocator_size) {
+        std::cout << "Error: the size of the memgraph is larger than the size "
+                    "given to the allocator"
+                  << std::endl;
+        exit(1);
+      }
+
+      check_bounds(memgraph, memgraph.mem_sizes()[i]);
+    }
+    
+    execute_multi_gpu_test(memgraph);
+  }
+
+  return 0;
+}
+
 // testing on how contraction works
 int main_contraction() {
   //contractionTest(5, 5, 10);
@@ -205,14 +281,15 @@ int main_ff() {
   mem_check(memgraph);
   std::cout << "Starting execution" << std::endl;
 
-  execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0]));
+  execute(memgraph, gpu_allocate_memory(memgraph.mem_sizes()[0], 0));
   // check_correctness(memgraph, false);
   return 0;
 }
 
 int main(int argc, char **argv) {
   // main_ff();
-  main_matmul(argc, argv);
+  // main_matmul(argc, argv);
+  main_matmul_multi_gpu(argc, argv);
   // contractionTest2();
   return 0;
 }

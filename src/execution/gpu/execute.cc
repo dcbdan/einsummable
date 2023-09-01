@@ -1,65 +1,5 @@
 #include "execute.h"
 #include <cuda_runtime_api.h>
-#include <mutex>
-
-cudaStream_t cuda_create_stream() {
-  cudaStream_t ret;
-  auto cudaError = cudaStreamCreate(&ret);
-  if (cudaError != cudaSuccess) {
-    // print error message and error code
-    printf("cudaStreamCreate failed with error code %d\n", cudaError);
-    throw std::runtime_error("cuda_create_stream");
-  }
-  return ret;
-}
-
-// increment the pointer by the byte offset
-// ONLY USE IF THE UNIT OF OFFSET IS BYTE
-void *offset_increment(const void *ptr, int offset) {
-  return (void *)((char *)ptr + offset);
-}
-
-// USE THIS IF THE UNIT OF OFFSET IS FLOAT
-float *float_increment(float *ptr, int offset) { return ptr + offset; }
-
-// prints float starting from ptr with count number of elements
-void printFloatCPU(const float *cpu_ptr, int count) {
-  for (int i = 0; i < count; ++i) {
-    printf("%.2f ", cpu_ptr[i]);
-  }
-  printf("\n");
-}
-void printFloatGPU(const void *gpu_ptr, int count) {
-  float *cpu_ptr = (float *)malloc(count * sizeof(float));
-  cudaMemcpy(cpu_ptr, gpu_ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
-  printFloatCPU(cpu_ptr, count);
-  free(cpu_ptr);
-}
-
-void checkAlignment(cutensorHandle_t *handle, float *ptr,
-                    cutensorTensorDescriptor_t desc) {
-  uint32_t alignmentRequirement;
-  HANDLE_ERROR(cutensorGetAlignmentRequirement(handle, ptr, &desc,
-                                               &alignmentRequirement));
-
-  if (alignmentRequirement != 16) {
-    // print the alignment requirement
-    std::cout << "*** Alignment requirement mismatch; alignment: "
-              << alignmentRequirement << std::endl;
-  }
-}
-
-void init_value(float *ptr, int count, float value) {
-  // malloc memory on cpu and cudamemcpy to gpu
-  float *tmp = (float *)malloc(count * sizeof(float));
-  float *check = (float *)malloc(count * sizeof(float));
-  for (int i = 0; i < count; ++i) {
-    tmp[i] = value;
-  }
-  cudaMemcpy(ptr, tmp, count * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(tmp, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(check, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
-}
 
 vector<int> gpu_execute_state_t::node_update(int node_idx) {
   // TODO: hard coded index 0 since we only have 1 device
@@ -110,16 +50,17 @@ void gpu_execute_state_t::printContractionInfo(int node_idx, int num_elems) {
   std::cout << "Offset 1: " << memory_vector[1].offset << std::endl;
   std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
   // print inputs
+  auto input1_ptr = offset_increment(memory_base_ptr, memory_vector[1].offset);
+  auto input2_ptr = offset_increment(memory_base_ptr, memory_vector[2].offset);
+  auto output_ptr = offset_increment(memory_base_ptr, memory_vector[0].offset);
   std::cout << "Input 1: ";
-  printFloatGPU(offset_increment(memory_base_ptr, memory_vector[1].offset),
-                num_elems);
+  printFloatGPU(static_cast<float*>(input1_ptr), num_elems);
   std::cout << "Input 2: ";
-  printFloatGPU(offset_increment(memory_base_ptr, memory_vector[2].offset),
-                num_elems);
+  printFloatGPU(static_cast<float*>(input2_ptr), num_elems);
   std::cout << "Output: ";
-  printFloatGPU(offset_increment(memory_base_ptr, memory_vector[0].offset),
-                num_elems);
+  printFloatGPU(static_cast<float*>(output_ptr), num_elems);
 }
+
 void gpu_execute_state_t::checkContractionOffset(int node_idx) {
   auto node = memgraph.nodes[node_idx];
   auto memory_vector = node.op.get_apply().mems;
@@ -178,17 +119,6 @@ bool gpu_execute_state_t::is_complete() {
                              "are still nodes in the queue.");
   }
   return true;
-}
-
-// calling cuda malloc to allocate memory for a given size
-void *gpu_allocate_memory(size_t size) {
-  void *ret;
-  if (cudaMalloc(&ret, size) != cudaSuccess) {
-    // print an error message and the error code
-    std::cout << "Error code: " << cudaGetLastError() << std::endl;
-    throw std::runtime_error("cuda_malloc");
-  }
-  return ret;
 }
 
 // helper function to get the input memory pointers from a vector of mem_t
@@ -691,13 +621,13 @@ void gpu_execute_state_t::run() {
               size = km.workspace_size(my_einsummable,
               offset_increment(memory_base_ptr, memory_vector[0].offset),
               get_input_mem_ptrs(memory_vector, memory_base_ptr), handle);
-              work = gpu_allocate_memory(size);
+              work = gpu_allocate_memory(size, 0);
             }else if((uint64_t)*wsz>0){ //if wsz(worksize) is larger than 0, we need to allocate workspace
               size = *wsz;
-              work = gpu_allocate_memory(size);
+              work = gpu_allocate_memory(size, 0);
             }
 
-            //create the worspace
+            //create the workspace
             optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
             work, size };
 
