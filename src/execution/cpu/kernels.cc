@@ -125,6 +125,8 @@ void kernel_manager_t::tblis_mult_t::operator()(
 {
   _tblis_tensor_init_llrroo("tblis_mult_t");
 
+  std::memset(oo, 0, dtype_size(dtype) * product(out.shape));
+
   tblis::tblis_tensor_mult(
     tci_single, NULL,
     &t_ll, lhs.str.data(),
@@ -499,6 +501,9 @@ void kernel_manager_t::operator()(
   execute_touch(touch.simplify(), out, inn);
 }
 
+// TODO: put this somewhere appropriate
+std::mutex times_mutex;
+
 void kernel_manager_t::operator()(
   einsummable_t const& e,
   void* out,
@@ -506,7 +511,25 @@ void kernel_manager_t::operator()(
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
   auto const& info = get_built_kernel_info(e);
+
+  auto start = clock_now();
   call(info, out, inns, maybe_workspace);
+  auto end = clock_now();
+
+  std::chrono::duration<double, std::milli> duration = end - start;
+
+  auto& times_ =
+    const_cast<
+      std::unordered_map<
+        einsummable_t,
+        tuple<double, int>
+      > &
+    >(times);
+
+  std::lock_guard guard(times_mutex);
+  auto& [total,count] = times_[e.merge_adjacent_dims()];
+  total += duration.count();
+  count += 1;
 }
 
 void kernel_manager_t::call(

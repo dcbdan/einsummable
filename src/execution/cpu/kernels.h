@@ -160,6 +160,7 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt);
 
+  std::unordered_map<einsummable_t, tuple<double, int>> times;
 private:
 
   std::unordered_map<einsummable_t, kernel_info_t> kernels;

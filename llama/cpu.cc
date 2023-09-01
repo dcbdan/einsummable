@@ -255,7 +255,7 @@ void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
   model_args_t args = model_args_t::llama(reader.num_files(), bsz);
   //args.n_layers = 60;
 
-  int niter = 8; // 256-seqlen-1;
+  int niter = 4; // 256-seqlen-1;
 
   DLINEOUT("getting the embedding matrix");
 
@@ -464,6 +464,14 @@ int main(int argc, char** argv) {
     } else {
       main_(manager, reader, argv[1]);
       manager.shutdown();
+    }
+
+    for(auto const& [e,info]: manager.kernel_manager.times) {
+      auto const& [total,count] = info;
+      std::cout <<
+        "join[" << e.join << "],castable[" << e.castable <<
+        "] " << e.join_shape << " " << e.str() << " " <<
+        total << " " << count << std::endl;
     }
   }
 
