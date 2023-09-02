@@ -161,6 +161,7 @@ public:
     optional<tuple<void*, uint64_t>> workspace = std::nullopt);
 
   std::unordered_map<einsummable_t, tuple<double, int>> times;
+  bool use_tblis;
 private:
 
   std::unordered_map<einsummable_t, kernel_info_t> kernels;

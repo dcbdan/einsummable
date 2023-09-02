@@ -210,7 +210,10 @@ vector<placement_t> autoplace(graph_t const& graph) {
   return mcmc.get_best_placements();
 }
 
-void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
+void main_(
+  manager_base_t& manager, tensor_reader_t& reader, string filename,
+  uint64_t bsz, uint64_t seqlen)
+{
   {
     int seed = 99;//runif(10000);
     DOUT("Seed: " << seed);
@@ -229,6 +232,31 @@ void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
     return buffer;
   };
 
+  vector<int> _tokens {
+    306, 4658, 278, 6593, 310, 2834, 338,
+    17166, 263, 4700, 508, 367, 2309, 297, 29871, 29896, 29900, 2560, 6576, 29901, 13,
+    4103, 9632, 4223, 304, 5176, 29901, 13, 268, 7205, 4932, 357, 1149, 301, 449, 276,
+    316, 2778, 13, 268, 715, 1878, 330, 3055, 1725, 1149, 330, 3055, 1725, 4639, 28754,
+    13, 268, 923, 968, 1149 };
+
+  vector<int> ts = {1};
+  {
+    auto iter = _tokens.begin();
+    while(ts.size() < seqlen) {
+      ts.push_back(*iter);
+      iter++;
+      if(iter == _tokens.end()) {
+        iter = _tokens.begin();
+      }
+    }
+  }
+  vector<vector<int>> tts;
+  while(tts.size() != bsz) {
+    tts.push_back(ts);
+  }
+
+  token_maker_t token_maker(tts);
+
   // prompts = [
   //   # For these prompts, the expected answer is the natural continuation of the prompt
   //   "I believe the meaning of life is",
@@ -239,23 +267,20 @@ void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
   //      plush girafe => girafe peluche
   //      cheese =>"""
   // ]
-  token_maker_t token_maker({
-    {1, 306, 4658, 278, 6593, 310, 2834, 338}
-    //{1, 3439, 17632, 1925, 29892, 278, 6368, 310, 14215, 537, 5922, 393, 29871},
-    //{1, 17166, 263, 4700, 508, 367, 2309, 297, 29871, 29896, 29900, 2560, 6576, 29901, 13},
-    //{1, 4103, 9632, 4223, 304, 5176, 29901, 13, 268, 7205, 4932, 357, 1149, 301, 449, 276, 316, 2778, 13, 268, 715, 1878, 330, 3055, 1725, 1149, 330, 3055, 1725, 4639, 28754, 13, 268, 923, 968, 1149}
-  });
+  //token_maker_t token_maker({
+  //  {1, 306, 4658, 278, 6593, 310, 2834, 338}
+  //  //{1, 3439, 17632, 1925, 29892, 278, 6368, 310, 14215, 537, 5922, 393, 29871},
+  //  //{1, 17166, 263, 4700, 508, 367, 2309, 297, 29871, 29896, 29900, 2560, 6576, 29901, 13},
+  //  //{1, 4103, 9632, 4223, 304, 5176, 29901, 13, 268, 7205, 4932, 357, 1149, 301, 449, 276, 316, 2778, 13, 268, 715, 1878, 330, 3055, 1725, 1149, 330, 3055, 1725, 4639, 28754, 13, 268, 923, 968, 1149}
+  //});
 
   vtensor_t<int> init_tokens = token_maker.get_tokens();
   DOUT(init_tokens.get());
 
-  uint64_t bsz    = init_tokens.get_shape()[0];
-  uint64_t seqlen = init_tokens.get_shape()[1];
-
   model_args_t args = model_args_t::llama(reader.num_files(), bsz);
   //args.n_layers = 60;
 
-  int niter = 4; // 256-seqlen-1;
+  int niter = 0; // 256-seqlen-1;
 
   DLINEOUT("getting the embedding matrix");
 
@@ -424,12 +449,15 @@ void main_(manager_base_t& manager, tensor_reader_t& reader, string filename) {
 }
 
 int main(int argc, char** argv) {
-  if(argc != 5) {
-    throw std::runtime_error("usage: base_filename n_files num_plan num_real");
+  if(argc != 7) {
+    throw std::runtime_error("usage: base_filename n_files num_plan num_real bsz seqlen");
   }
 
   num_threads_per_node = parse_with_ss<int>(argv[3]);
   num_real_threads_per_node = parse_with_ss<int>(argv[4]);
+
+  uint64_t bsz    = parse_with_ss<uint64_t>(argv[5]);
+  uint64_t seqlen = parse_with_ss<uint64_t>(argv[6]);
 
   mpi_t mpi(argc, argv);
   nlocs = mpi.world_size;
@@ -462,7 +490,7 @@ int main(int argc, char** argv) {
       );
       manager.listen();
     } else {
-      main_(manager, reader, argv[1]);
+      main_(manager, reader, argv[1], bsz, seqlen);
       manager.shutdown();
     }
 
@@ -505,7 +533,7 @@ int main(int argc, char** argv) {
       );
       manager.listen();
     } else {
-      main_(manager, reader, argv[1]);
+      main_(manager, reader, argv[1], bsz, seqlen);
       manager.shutdown();
     }
   }

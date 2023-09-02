@@ -173,6 +173,7 @@ void kernel_manager_t::tblis_permute_t::operator()(
 }
 
 kernel_manager_t::kernel_manager_t()
+  : use_tblis(false)
 {
   auto fix = einsummable_t::normalize_str;
 
@@ -224,7 +225,7 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
 
   // first match anything that can be computed by tblis
   // (tblis does not compute with half floats, so execlude those)
-  if(einsummable.out_dtype() != dtype_t::f16) {
+  if(use_tblis && einsummable.out_dtype() != dtype_t::f16) {
     auto const& e = einsummable;
 
     if(e.is_permutation()) {

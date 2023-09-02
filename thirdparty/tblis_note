@@ -1,3 +1,4 @@
+git submodule update --init
 cd tblis
 mkdir build
 ./configure --prefix=$(pwd)/build
