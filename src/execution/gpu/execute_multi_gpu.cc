@@ -663,9 +663,29 @@ void multi_gpu_execute_state_t::run() {
         // get the src and dst information
         auto [src_loc, src_offset] = move_op.src;
         auto [dst_loc, dst_offset] = move_op.dst;
+        // we should switch to the src location for memcpy
+        cudaSetDevice(src_loc);
+        cudaStream_t stream = stream_pool[src_loc].front();
+        stream_pool[src_loc].pop();
         gpu_comm.send(offset_increment(memory_base_ptrs[dst_loc], dst_offset),
                       offset_increment(memory_base_ptrs[src_loc], src_offset),
-                      move_op.size);
+                      move_op.size, stream);
+
+        // add the callback
+        callback_data_t *data = new callback_data_t;
+        data->m_ptr = &m;
+        data->cv_ptr = &cv;
+        data->node_idx = node_idx;
+        data->my_state = this;
+        cudaStreamAddCallback(
+            stream,
+            [](CUstream_st *, cudaError, void *raw_data) {
+              callback_data_t *data = static_cast<callback_data_t *>(raw_data);
+              callback_data_t &f = *data;
+              f();
+              delete data;
+            },
+            static_cast<void *>(data), 0);
       } 
       else {
         // print a message saying that the operation is not supported and this

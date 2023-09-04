@@ -143,6 +143,7 @@ if(${GPU_EXECUTION_ENGINE})
   find_package(CUDA 11.0 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
+  include_directories(${PROJECT_SOURCE_DIR}/src/execution/gpu)
 
   # set the right architecture
   include(FindCUDA/select_compute_arch)
@@ -190,7 +191,6 @@ if(${GPU_EXECUTION_ENGINE})
   ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
   add_gpu_application("test_alignment"  "exps" "test_alignment")
 
-  
   add_gpu_application("basicTest" "exps" "GPU_test")
   # add_gpu_application("ffTest" "exps" "GPU_ff_test")
 endif()

@@ -11,6 +11,6 @@ struct gpu_comm_t {
   gpu_comm_t();
   ~gpu_comm_t();
 
-  void recv(void* dst, void* src, size_t size);
-  void send(void* dst, void* src, size_t size);
+  void recv(void* dst, void* src, size_t size, cudaStream_t stream);
+  void send(void* dst, void* src, size_t size, cudaStream_t stream);
 };
