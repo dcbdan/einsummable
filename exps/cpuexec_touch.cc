@@ -107,9 +107,8 @@ void test_touch(touch_t const& touch) {
   }
 
   {
-    auto built = build_touch(touch);
     raii_print_time_elapsed_t gremlin("built       ");
-    built(out2.ptr(), inn.ptr());
+    execute_touch(touch, out2.ptr(), inn.ptr());
   }
 
   if(out1 != out2) {
@@ -118,7 +117,7 @@ void test_touch(touch_t const& touch) {
 
 }
 
-int main() {
+void main01() {
   int n = 20;
 
   std::cout << "dim 1" << std::endl;
@@ -139,5 +138,21 @@ int main() {
   std::cout << "dim 4" << std::endl;
   for(int i = 0; i != n; ++i) {
     test_touch(random_touch(4));
+  }
+}
+
+int main() {
+  auto [inns, out_rank] = einsummable_t::parse_str("ab->cdab");
+  einsummable_t e(
+    {10,20,30,40},
+    inns, out_rank,
+    scalarop_t::make_identity());
+  DOUT(e);
+  DOUT(e.merge_adjacent_dims());
+
+  kernel_manager_t km;
+  auto success = km.build(e);
+  if(!success) {
+    throw std::runtime_error("could not compile straight broadcast kernel");
   }
 }

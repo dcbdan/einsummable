@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
   if(with_memgraph) {
     execute_memgraph_settings_t execute_settings {
       .num_apply_runner = num_threads_per_node,
-      .num_cache_runner = 0,
+      .num_storage_runner = 0,
       .num_send_runner = num_send_and_recv_threads,
       .num_recv_runner = num_send_and_recv_threads
     };

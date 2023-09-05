@@ -68,9 +68,10 @@ namespace executetg_ns {
   // (here working == in pending_applys or being executed)
   struct touch_unit_state_t {
     touch_unit_state_t()
-      : busy(false)
+      : is_first(true), busy(false)
     {}
 
+    bool is_first;
     bool busy;
     queue<int> waiting;
   };
@@ -148,7 +149,7 @@ namespace executetg_ns {
 
     queue<int> pending_sends;
     queue<int> pending_applys;
-    queue<which_touch_t> pending_touches;
+    queue<tuple<which_touch_t, bool>> pending_touches;
 
     map<touch_unit_t, touch_unit_state_t> units_in_progress;
     // ^ any touch unit with multiple touches must have a key

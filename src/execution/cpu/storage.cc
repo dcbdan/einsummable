@@ -1,157 +1,165 @@
 #include "storage.h"
 
-storage_t::storage_t(string filename)
+#include <stdlib.h>
+
+// stolen from
+//   https://stackoverflow.com/questions/499636/
+//     how-to-create-a-stdofstream-to-a-temp-file
+string open_temp(string path, std::fstream& f)
 {
-	file_name = filename;
-	open_file();
+  path += "/es_XXXXXX";
+  std::vector<char> dst_path(path.begin(), path.end());
+  dst_path.push_back('\0');
+
+  int fd = mkstemp(&dst_path[0]);
+  if(fd != -1) {
+    path.assign(dst_path.begin(), dst_path.end() - 1);
+    f.open(path.c_str(),
+           std::ios_base::in | std::ios_base::out | std::ios_base::binary );
+    close(fd);
+  }
+  return path;
 }
 
-void storage_t::open_file()
+storage_t::storage_t()
 {
-	file.open(file_name, std::ios::binary | std::ios::out | std::ios::in);
-	std::cout << "File has been opened..." << std::endl;
-	if (!file || !file.is_open())
-	{
-		throw std::runtime_error("Failed to open the file: " + file_name + ".");
-	}
+  filename = open_temp("/tmp", file);
 }
 
-void storage_t::write(const buffer_t& buffer, int id)
-{
-	std::unique_lock<std::shared_mutex> ul(mtx);
-	auto const& block = find_first_available(buffer->size);
-	uint64_t position;
+storage_t::stoalloc_t::stoalloc_t()
+  : allocator(
+      std::numeric_limits<uint64_t>::max(),
+      allocator_settings_t {
+        .strat = allocator_strat_t::first,
+        .alignment_power = 0
+      })
+{}
 
-	if (!file.is_open()) {
-		std::cout << "File is !open" << std::endl;
-	}
-
-	if (file.fail())
-	{
-		throw std::runtime_error("Failbit error. Wrong input for write.");
-	}
-
-	if (block == blocks.end())
-	{
-		std::cout << "There are no blocks.. Writing to EOF" << std::endl;
-		file.seekp(0, std::ios::end);
-	} 
-	else
-	{
-		std::cout << "Writing to free block: [" << block->beg << ", " << block->end << "]" << std::endl;
-		file.seekp(block->beg, std::ios::beg);
-		allocate_block(block, buffer->size);
-	}
-	
-	position = file.tellp();
-	file.write((char*)buffer->raw(), buffer->size);
-
-	tensors[id] = {position, position + buffer->size};
+uint64_t storage_t::stoalloc_t::allocate(uint64_t sz) {
+  return std::get<0>(allocator.allocate(sz));
 }
 
-void storage_t::read(const buffer_t& buffer, int id)
-{
-	std::shared_lock<std::shared_mutex> ul(mtx);
-  block_t tensor = tensors[id];
-  file.seekg(tensor.beg, std::ios::beg);
-
-  file.read((char*)buffer->raw(), buffer->size);
-  if (file.fail()) 
-	{
-		throw std::runtime_error("Loading data from disk unsuccessful.");
-	}
-
-	std::cout << "Reading data... " << std::endl;
-  tensors.erase(id);
-  create_free_space(tensor.beg, buffer->size);
+void storage_t::stoalloc_t::free(uint64_t offset) {
+  allocator.free(offset, 0);
 }
 
-void storage_t::remove(int id)
-{
-	block_t tensor = tensors[id];
-	tensors.erase(id);
-	create_free_space(tensor.beg, tensor.size());
+uint64_t storage_t::stoalloc_t::get_size_at(uint64_t offset) const {
+  auto maybe = allocator.get_allocated_region(offset);
+  if(!maybe) {
+    throw std::runtime_error("get_size_at: this memory not allocated");
+  }
+  auto const& [beg,end] = maybe.value();
+  if(beg != offset) {
+    throw std::runtime_error("get_size_at: offset provided in middle of allocated region");
+  }
+  return end-beg;
 }
 
-vector<storage_t::block_t>::iterator storage_t::find_first_available(uint64_t size)
+void storage_t::write(buffer_t buffer, int id)
 {
-  iter_t ret = blocks.end(); // just to make sure it has initial value
+  std::unique_lock lk(m);
 
-  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter)
-  {
-    ret = iter;
-    if (size <= iter->size()) 
-	  {
-	    break;
-	  }
-	}
+  auto iter = offsets.find(id);
+  if(iter != offsets.end()) {
+    throw std::runtime_error("id already in storage; try removing first");
+  }
 
-	return ret;
+  uint64_t offset = allocator.allocate(buffer->size);
+  offsets.insert({id, offset});
+
+  file.seekp(offset, std::ios::beg);
+  char* data = reinterpret_cast<char*>(buffer->data);
+  file.write(data, buffer->size);
+
+  file.flush();
 }
 
-void storage_t::create_free_space(uint64_t position, uint64_t size)
-{
-	if(try_merge_blocks(position, size)) { return; }
+void storage_t::read(buffer_t buffer, int id) {
+  std::unique_lock lk(m);
 
-	std::cout << "Creating a new block: [" << position << ", " << position+size << "]" << std::endl;
-	block_t block = {position, position + size};
-	blocks.emplace_back(block);
+  auto iter = offsets.find(id);
+  if(iter == offsets.end()) {
+    throw std::runtime_error("read: id not in storage");
+  }
+  uint64_t const& offset = iter->second;
+  uint64_t sz = allocator.get_size_at(offset);
+  if(sz != buffer->size) {
+    throw std::runtime_error("storage read: incorrect size for input buffer");
+  }
+  _read(buffer, offset);
 }
 
-/*
-	Method that checks for adjacent blocks of currently loaded block and 
-	merges them in one bigger block if possible 
+buffer_t storage_t::read(int id) {
+  std::unique_lock lk(m);
 
-	So if we have |_______|xxxxxxx|___| this situation where x is memory to be freed, 
-	this would become |_________________| -> one bigger block
-*/
-bool storage_t::try_merge_blocks(uint64_t position, uint64_t size)
-{
-	for (auto iter = blocks.begin(); iter != blocks.end(); ++iter)
-	{
-		auto preceding = iter;
-		auto following = iter + 1;
-		if (can_be_merged(preceding->end, position))
-		{
-			std::cout << "Creating a new block with preceding merge: [" << preceding->beg << ", " << position+size << "]" << std::endl;
-			preceding->end = position+size;
-			return true;
-		}
-		
-		if (following == blocks.end()) { return false; }
-		
-		if (can_be_merged(following->beg, position+size))
-		{
-			std::cout << "Creating a new block with following merge: [" << position << ", " << following->end << "]" << std::endl;
-			following->beg = position;
-			return true;
-		}
+  auto iter = offsets.find(id);
+  if(iter == offsets.end()) {
+    throw std::runtime_error("read: id not in storage");
+  }
+  uint64_t const& offset = iter->second;
+  uint64_t sz = allocator.get_size_at(offset);
+  buffer_t buffer = make_buffer(sz);
+  _read(buffer, offset);
 
-		if (can_be_merged(preceding->end, position) && can_be_merged(following->end, position + size))
-		{
-			std::cout << "Creating a new block with double merge: [" << preceding->beg << ", " << following->end << "]" << std::endl;
-			preceding->end = following->end;
-			blocks.erase(following);
-			return true;
-		}
-	}
-
-	return false;
+  return buffer;
 }
 
-bool storage_t::can_be_merged(int64_t first_position, uint64_t last_position)
-{
-	return first_position == last_position;
-} 
-
-
-
-void storage_t::allocate_block(vector<block_t>::iterator block, uint64_t size)
-{
-	if (size == block->size()) {
-		blocks.erase(block);
-		return;
-	}
-
-	block->beg += size;
+void storage_t::_read(buffer_t buffer, uint64_t offset) {
+  file.seekg(offset, std::ios::beg);
+  char* data = reinterpret_cast<char*>(buffer->data);
+  file.read(data, buffer->size);
+  file.flush();
 }
+
+void storage_t::remove(int id) {
+  std::unique_lock lk(m);
+  _remove(id);
+}
+
+void storage_t::_remove(int id) {
+  auto iter = offsets.find(id);
+  if(iter == offsets.end()) {
+    throw std::runtime_error("storage remove: id not in storage");
+  }
+  uint64_t const& offset = iter->second;
+  allocator.free(offset);
+  offsets.erase(iter);
+}
+
+void storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
+  map<int, int> items;
+  for(auto const& old_new: old_to_new_stoids) {
+    items.insert({old_new[0], old_new[1]});
+  }
+  remap(items);
+}
+
+void storage_t::remap(map<int, int> const& mm) {
+  std::unique_lock lk(m);
+
+  map<int, uint64_t> new_offsets;
+  set<int> will_remove;
+
+  for(auto const& [id, offset]: offsets) {
+    auto iter = mm.find(id);
+    if(iter == mm.end()) {
+      will_remove.insert(id);
+    } else {
+      new_offsets.insert({iter->second, offset});
+    }
+  }
+
+  for(int const& id: will_remove) {
+    _remove(id);
+  }
+
+  offsets = new_offsets;
+}
+
+int storage_t::get_max_id() const {
+  if(offsets.size() == 0) {
+    return -1;
+  }
+  return offsets.rbegin()->first;
+}
+

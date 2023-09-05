@@ -6,11 +6,11 @@
 #include <fstream>
 
 void usage() {
-  DOUT("pi pj pk di dj dk np");
+  DOUT("pi pj pk di dj dk np memsize");
 }
 
 void main_mm(int argc, char** argv) {
-  if(argc != 8) {
+  if(argc != 9) {
     usage();
     return;
   }
@@ -18,6 +18,7 @@ void main_mm(int argc, char** argv) {
   int pi, pj, pk;
   uint64_t di, dj, dk;
   int np;
+  uint64_t mem_size;
   try {
     pi = parse_with_ss<int>(     argv[1]);
     pj = parse_with_ss<int>(     argv[2]);
@@ -26,6 +27,8 @@ void main_mm(int argc, char** argv) {
     dj = parse_with_ss<uint64_t>(argv[5]);
     dk = parse_with_ss<uint64_t>(argv[6]);
     np = parse_with_ss<int>(     argv[7]);
+
+    mem_size = parse_with_ss<uint64_t>(argv[8]);
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -47,14 +50,22 @@ void main_mm(int argc, char** argv) {
   // Here only 2 locs will really be used, not all 88...
   np = taskgraph.num_locs();
 
+  // just use the default
+  vector<int> which_storage = {};
+  vector<uint64_t> mem_sizes(np, mem_size);
+
   tuple<
-    map<int, mem_t>, // input -> mem
-    map<int, mem_t>, // save -> mem
+    map<int, memstoloc_t>, // input -> mem
+    map<int, memstoloc_t>, // save -> mem
     memgraph_t>
-    _info1 = memgraph_t::make_without_evict(
+    _info1 = memgraph_t::make(
       taskgraph,
+      which_storage,
+      mem_sizes,
       {},
-      { allocator_strat_t::lowest_dependency, 1 } );
+      allocator_settings_t { allocator_strat_t::lowest_dependency, 1 },
+      true
+    );
   auto const& [_2, _3, m1] = _info1;
 
   {
@@ -85,7 +96,6 @@ void main01() {
     partition_t({ partdim_t::repeat(2, 10) }),
     bbb);
 
-
   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
 
   auto np = taskgraph.num_locs();
@@ -102,5 +112,4 @@ void main01() {
 
 int main(int argc, char** argv) {
   main_mm(argc, argv);
-  main01();
 }

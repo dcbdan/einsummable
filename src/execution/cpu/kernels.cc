@@ -147,6 +147,24 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
     return 0;
   }
 
+  if(estr == "b->ab") {
+    if(!einsummable.join.is_identity()) {
+      return std::nullopt;
+    }
+
+    uint64_t dsz = dtype_size(einsummable.out_dtype());
+    uint64_t sz_a = dsz * einsummable.join_shape[0];
+    uint64_t sz_b = dsz * einsummable.join_shape[1];
+
+    kernels.insert({einsummable,
+      broadcast_b_ab_t {
+        .sz_a = sz_a,
+        .sz_b = sz_b
+      }
+    });
+    return 0;
+  }
+
   if(estr == "abcd,bd->abcd")
   {
     if(einsummable.join.is_mul() && dtype_t::c64 == einsummable.out_dtype())
@@ -323,6 +341,10 @@ void kernel_manager_t::call(
     assert_num_inputs(1);
     auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
     f(na,nb,out,inns[0]);
+  } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
+    assert_num_inputs(1);
+    auto const& [sz_a,sz_b] = get<broadcast_b_ab_t>(kernel);
+    broadcast_b_ab_kernel(sz_a, sz_b, out, inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     auto const& f = get<kernel_t>(kernel);
     f(out, inns);
@@ -1339,4 +1361,16 @@ void permute_kernel(
   }
 }
 
-
+void broadcast_b_ab_kernel(
+  uint64_t sz_a,
+  uint64_t sz_b,
+  void* _out,
+  void const* inn)
+{
+  uint8_t* out = reinterpret_cast<uint8_t*>(_out);
+  for(uint64_t i = 0; i != sz_a; ++i) {
+    std::memcpy(
+      reinterpret_cast<void*>(out), inn, sz_b);
+    out += sz_b;
+  }
+}

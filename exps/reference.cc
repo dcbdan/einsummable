@@ -269,6 +269,141 @@ taskgraph_t test_make_taskgraph(
   return test_make_taskgraph(graph.graph, graph.get_placements(), full_inns);
 }
 
+
+void test_make_memgraph_with_evict(
+  graph_t const& graph,
+  vector<placement_t> const& placements,
+  map<int, dbuffer_t> full_inns,
+  vector<int> const& which_storage,
+  vector<uint64_t> mem_sizes)
+{
+  // graph.print();
+  // for(int i = 0; i != graph.nodes.size(); ++i) {
+  //  DOUT(i << ": " << placements[i].partition);
+  // }
+
+  tuple<
+    map<int, vtensor_t<int> >,
+    map<int, vtensor_t<int> >,
+    taskgraph_t>
+    _info0 = taskgraph_t::make(graph, placements);
+  auto const& [inn_to_blocks, out_to_blocks, taskgraph] = _info0;
+
+  {
+   std::cout << "Printing to exp_reference_taskgraph.gv" << std::endl;
+   std::ofstream f("exp_reference_taskgraph.gv");
+   taskgraph.print_graphviz(f);
+  }
+
+  int num_locs = taskgraph.num_locs();
+
+  tuple<
+    map<int, memstoloc_t>, // input -> data
+    map<int, memstoloc_t>, // save  -> data
+    memgraph_t>
+    _info1 = memgraph_t::make(taskgraph, which_storage, mem_sizes);
+  auto const& [task_inn_to_mem, task_out_to_mem, memgraph] = _info1;
+
+  DOUT("After memgraph make...");
+
+  // verify that deduced mem_sizes match with provided mem sizes
+  {
+    auto mem_sizes_ = memgraph.mem_sizes();
+    if(mem_sizes.size() != mem_sizes_.size()) {
+      throw std::runtime_error("mem_sizes invalid");
+    }
+    for(int i = 0; i != mem_sizes.size(); ++i) {
+      if(mem_sizes_[i] > mem_sizes[i]) {
+        throw std::runtime_error("memory allocated past provided mem_sizes");
+      }
+    }
+  }
+
+  // allocate a blob of memory at each compute location
+  vector<buffer_t> loc_buffers;
+  for(uint64_t const& mem_sz: mem_sizes) {
+    loc_buffers.push_back(std::make_shared<buffer_holder_t>(mem_sz));
+  }
+
+  // Declare a vector that stores buffer in each storage location
+  vector<map<int, buffer_t>> sto_buffers(num_locs);
+
+  // Initialize the taskgraph inputs and then
+  // copy into the location wise buffers
+  {
+    map<int, dbuffer_t> task_inns;
+    for(auto [gid, full_buffer]: full_inns) {
+      vtensor_t<dbuffer_t> pbuffer = partition_buffer(
+        placements.at(gid).partition,
+        full_buffer);
+      fill_buffer_map(task_inns, inn_to_blocks.at(gid), pbuffer);
+    }
+
+    for(auto const& [tid, dbuffer]: task_inns) {
+      memstoloc_t inn_memstoloc = task_inn_to_mem.at(tid);
+      if (inn_memstoloc.is_stoloc()) {
+        auto const& [sto_loc, sto_id] = inn_memstoloc.get_stoloc();
+        sto_buffers[sto_loc][sto_id] = dbuffer.data;
+      } else if (inn_memstoloc.is_memloc()) {
+        auto buffer = dbuffer.data;
+        auto const& [offset, size, loc] = inn_memstoloc.get_memloc();
+        if(size != buffer->size) {
+          throw std::runtime_error("maybe invalid task_inn_to_mem");
+        }
+        std::copy(
+          buffer->data, buffer->data + size,
+          loc_buffers[loc]->data + offset);
+      }
+    }
+  }
+
+  // compute the reference implementation
+  map<int, dbuffer_t> full_outs = reference_compute_graph(graph, full_inns);
+
+  {
+   std::cout << "Printing to exp_reference_memgraph.gv" << std::endl;
+   std::ofstream f("exp_reference_memgraph.gv");
+   memgraph.print_graphviz(f);
+  }
+
+  reference_compute_memgraph(memgraph, loc_buffers, sto_buffers);
+
+
+  for(auto const& [gid, full_buffer]: full_outs) {
+    vtensor_t<dbuffer_t> part_buffer =
+      partition_buffer(placements.at(gid).partition, full_buffer);
+
+    auto const& tids = out_to_blocks.at(gid).get();
+    auto const& vec  = part_buffer.get();
+    for(int i = 0; i != vec.size(); ++i) {
+      int       const& tid = tids[i];
+      dbuffer_t const& from_graph = vec[i];
+
+      // where in the loc_buffers/sto_buffers the result is
+      int loc = taskgraph.nodes[tid].op.out_loc();
+      memstoloc_t out_memstoloc = task_out_to_mem.at(tid);
+      dbuffer_t from_memgraph;
+      if (out_memstoloc.is_memloc()) {
+        auto const& [offset, size, loc] = out_memstoloc.get_memloc();
+        from_memgraph = dbuffer_t(
+          from_graph.dtype,
+          make_buffer_reference(loc_buffers[loc]->data + offset, size));
+      } else {
+        auto const& [sto_loc, sto_id] = out_memstoloc.get_stoloc();
+        from_memgraph = dbuffer_t(
+          from_graph.dtype,
+          make_buffer_reference(sto_buffers[sto_loc].at(sto_id)->data, sto_buffers[sto_loc].at(sto_id)->size));
+      }
+      if(!is_close(from_graph, from_memgraph)) {
+        std::cout << "expected: " << from_graph    << std::endl;
+        std::cout << "actual:   " << from_memgraph << std::endl;
+        throw std::runtime_error("make memgraph without evict test fail");
+      }
+    }
+  }
+
+}
+
 void test_make_memgraph_without_evict(
   graph_t const& graph,
   vector<placement_t> const& placements,
@@ -488,6 +623,58 @@ void test_obvious_random_loc_matmul(int pi, int pj, int pk, int nloc) {
 
   map<int, dbuffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
   test_make_memgraph_without_evict(graph, inns);
+}
+
+void test_obvious_matmul_with_evict(int pi, int pj, int pk,
+  uint64_t ni = 20, uint64_t nj = 20, uint64_t nk = 20,
+  uint64_t mem_size = 2000)
+{
+  graph_constructor_t graph;
+
+  partdim_t pdi = partdim_t::split(ni, pi);
+  partdim_t pdj = partdim_t::split(nj, pj);
+  partdim_t pdk = partdim_t::split(nk, pk);
+
+  int id_lhs = graph.insert_input(partition_t({pdi,pdj}));
+  int id_rhs = graph.insert_input(partition_t({pdj,pdk}));
+
+  einsummable_t matmul = einsummable_t::from_matmul(ni, nj, nk);
+  // Be careful: matmul (ij,jk->ik) has indices {0: i, 1: k, 2: j}
+
+  int id_join = graph.insert_einsummable(
+    partition_t({pdi, pdk, pdj}),
+    matmul,
+    {id_lhs, id_rhs});
+
+  int id_save = graph.insert_formation(
+    partition_t({pdi, pdk}),
+    id_join,
+    true);
+
+  dbuffer_t buffer_lhs = make_dbuffer(default_dtype(), ni*nj);
+  buffer_lhs.random("-0.001", "0.002");
+
+  dbuffer_t buffer_rhs = make_dbuffer(default_dtype(), nj*nk);
+  buffer_rhs.random("-0.001", "0.001");
+
+  map<int, dbuffer_t> inns{ {id_lhs, buffer_lhs}, {id_rhs, buffer_rhs} };
+
+  int n_compute_locs = 0;
+  vector<placement_t> placements = graph.get_placements();
+  for (auto const& placement: placements) {
+    for (auto const& location: placement.locations.get()) {
+      if (location >= n_compute_locs) {
+        n_compute_locs = location + 1;
+      }
+    }
+  }
+
+  vector<int> which_storage(n_compute_locs);
+  std::iota(which_storage.begin(), which_storage.end(), 0);
+
+  vector<uint64_t> mem_sizes(n_compute_locs, mem_size);
+
+  test_make_memgraph_with_evict(graph.graph, graph.get_placements(), inns, which_storage, mem_sizes);
 }
 
 void test_random_matmul() {
@@ -872,6 +1059,16 @@ void main14() {
   }
 }
 
+void main15(int argc, char** argv) {
+  if(argc != 4) {
+    throw std::runtime_error("usage: pi pj pk");
+  }
+  int pi = parse_with_ss<int>(argv[1]);
+  int pj = parse_with_ss<int>(argv[2]);
+  int pk = parse_with_ss<int>(argv[3]);
+  test_obvious_matmul_with_evict(pi, pj, pk);
+}
+
 void test_random_goofy_ff() {
   graph_writer_t writer;
   using id_t = graph_writer_t::tensor_t;
@@ -1204,7 +1401,9 @@ int main(int argc, char** argv) {
   //   }
   // }
   // main06(argc, argv);
-  main08(argc, argv);
+  //main08(argc, argv);
+
+  test_obvious_matmul_with_evict(2, 2, 2, 40, 40, 40, 20*20*4*3 * 2);
 }
 
 

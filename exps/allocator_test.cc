@@ -160,7 +160,22 @@ int main03() {
   return 0;
 }
 
+int main04() {
+  auto settings = allocator_settings_t::default_settings();
+  allocator_t alo = allocator_t(100, settings);
+
+  alo.allocate_at_without_deps(75, 25);
+  alo.allocate_at_without_deps(50, 25);
+  alo.allocate_at_without_deps(25, 25);
+  alo.allocate_at_without_deps(0, 25);
+
+  alo.print();
+
+  return 0;
+}
+
 int main(int argc, char** argv) {
-  main_(argc, argv);
+  //main_(argc, argv);
   //main03();
+  main04();
 }

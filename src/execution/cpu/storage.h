@@ -1,45 +1,79 @@
-#pragma once 
-#include <unordered_map>
-#include <fstream>
+#pragma once
 #include "../../base/setup.h"
-#include "../../base/buffer.h"
-#include "../../einsummable/memgraph.h"
-#include <shared_mutex>
-#include <mutex>
 
-struct storage_t 
+#include "../../base/buffer.h"
+
+// for allocator_t
+#include "../../einsummable/memgraph.h"
+
+#include <mutex>
+#include <fstream>
+
+struct storage_t
 {
-	void write(const buffer_t& buffer, int id);
-	void read (const buffer_t& buffer, int id);
+  storage_t();
+
+	void write(buffer_t buffer, int id);
+
+	void read(buffer_t buffer, int id);
+
+  buffer_t read(int id);
+
+  // same as read but removes the id from the
+  // storage
+  buffer_t load(int id) {
+    buffer_t ret = read(id);
+    remove(id);
+    return ret;
+  }
+
+  void load(buffer_t ret, int id) {
+    read(ret, id);
+    remove(id);
+  }
+
 	void remove(int id);
 
-	storage_t(const string filename);
-	storage_t(const storage_t& other);
-private: 
-	
-	void open_file();
+  // for each [old,new] in old_to_new_stoids,
+  //   convert the storage id at old to new
+  // If an old isn't a storage id here, throw an error
+  // If a storage id isn't an old, delete it
+  void remap(vector<std::array<int, 2>> const& old_to_new_stoids);
+  void remap(map<int, int> const& old_to_new_stoids);
+  // before: 3,5,60,9,10
+  // remap: {3,8}, {5,60}
+  // after: 8,60
+  // (the before 60,9,10 would get removed)
 
-	struct block_t {
-		uint64_t beg;
-		uint64_t end;
+  int get_max_id() const;
 
-		uint64_t size() const { return end - beg; }
-		block_t() {}
-		block_t(uint64_t begin, uint64_t end) : beg(begin), end(end) {}
-	};
+private:
+  // allocator_t from the memgraph does everything
+  // we need, except that it also has this dependency mechanism.
+  // This wrapper gets rid of that and makes the allocator_t
+  // settings appropriate for this uue case.
+  struct stoalloc_t {
+    stoalloc_t();
+    uint64_t allocate(uint64_t sz);
+    void free(uint64_t offset);
 
-	std::unordered_map<int, block_t> tensors;
-	std::fstream file;
-	string file_name;
-	std::shared_mutex mtx;
+    uint64_t get_size_at(uint64_t offset) const;
 
-	vector<block_t> blocks;
-	using iter_t = vector<block_t>::iterator;
-	
-	vector<block_t>::iterator find_first_available(uint64_t size);
+  private:
+    allocator_t allocator;
+  };
 
-	bool try_merge_blocks(uint64_t position, uint64_t size);
-	void create_free_space(uint64_t position, uint64_t size);
-	void allocate_block(vector<block_t>::iterator block, uint64_t size);
-	bool can_be_merged(int64_t first_position, uint64_t last_position);
+  // these don't have grab a mutex
+  void _read(buffer_t buffer, uint64_t offset);
+  void _remove(int id);
+private:
+  std::mutex m;
+
+  std::string filename;
+  std::fstream file;
+
+  map<int, uint64_t> offsets;
+
+  stoalloc_t allocator;
 };
+

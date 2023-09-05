@@ -6,10 +6,30 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <fstream> // TODO remove
+
 using std::thread;
 using std::queue;
 
 #define RLINEOUT(x) // if(mpi->this_rank == 0) { DLINEOUT(x); }
+
+void update_kernel_manager(
+  kernel_manager_t& ret,
+  memgraph_t const& memgraph)
+{
+  for(auto const& node: memgraph.nodes) {
+    if(node.op.is_apply()) {
+      auto const& apply = node.op.get_apply();
+      if(apply.is_einsummable()) {
+        auto const& e = apply.get_einsummable();
+        if(!ret.build(e)) {
+          throw std::runtime_error(
+            "could not build a kernel for " + write_with_ss(e));
+        }
+      }
+    }
+  }
+}
 
 struct cpu_mg_exec_state_t {
   cpu_mg_exec_state_t(
@@ -17,10 +37,14 @@ struct cpu_mg_exec_state_t {
     memgraph_t const& memgraph,
     kernel_manager_t const& kernel_manager,
     buffer_t& buffer,
+<<<<<<< HEAD
     storage_t& storage);
+=======
+    storage_t* storage);
+>>>>>>> main
 
   void apply_runner(int runner_id);
-  void cache_runner(int runner_id);
+  void storage_runner(int runner_id);
   void send_runner(int runner_id);
   void recv_runner(int runner_id);
 
@@ -30,7 +54,7 @@ struct cpu_mg_exec_state_t {
 
   void completed(int node_id, int group_id = -1);
 
-  void run(int n_apply, int n_cache, int n_send, int n_recv);
+  void run(int n_apply, int n_sto, int n_send, int n_recv);
 
   void* get_raw(mem_t const& m) {
     return reinterpret_cast<void*>(buffer->data + m.offset);
@@ -46,6 +70,7 @@ struct cpu_mg_exec_state_t {
   memgraph_t const& memgraph;
   kernel_manager_t const& kernel_manager;
   buffer_t& buffer;
+  storage_t* storage;
 
   // this holds the kernel_manager and queries it
   workspace_manager_t workspace_manager;
@@ -70,7 +95,7 @@ struct cpu_mg_exec_state_t {
   // the recv here can proceed
   queue<int> can_recv_ready;
 
-  queue<int> cache_ready;
+  queue<int> sto_ready;
 
   int num_remaining;
 
@@ -80,15 +105,24 @@ struct cpu_mg_exec_state_t {
   int num_recv_can_recv_remaining;
 
   set<int> busy_groups;
+
+  // group id -> is it first
+  std::unordered_map<int, bool> is_firsts;
 };
 
-void execute_memgraph(
+void _execute_memgraph(
   memgraph_t const& memgraph,
   execute_memgraph_settings_t const& settings,
   kernel_manager_t const& kernel_manager,
+<<<<<<< HEAD
   mpi_t* mpi,
   buffer_t memory,
   storage_t& storage)
+=======
+  mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
+  buffer_t memory,
+  storage_t* storage)
+>>>>>>> main
 {
   // TODO: For shared storage, the memgraph execution engine will need
   // inform the load at dst that the evict at src has happened on the
@@ -110,20 +144,41 @@ void execute_memgraph(
 
   state.run(
     settings.num_apply_runner,
-    settings.num_cache_runner,
+    bool(storage) ? settings.num_storage_runner : 0,
     world_size > 1 ? settings.num_send_runner : 0,
     world_size > 1 ? settings.num_recv_runner : 0);
 }
 
-void cpu_mg_exec_state_t::run(int n_apply, int n_cache, int n_send, int n_recv)
+void execute_memgraph(
+  memgraph_t const& memgraph,
+  execute_memgraph_settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
+  mpi_t* mpi,
+  buffer_t memory)
+{
+  _execute_memgraph(memgraph, settings, kernel_manager, mpi, memory, nullptr);
+}
+
+void execute_memgraph(
+  memgraph_t const& memgraph,
+  execute_memgraph_settings_t const& settings,
+  kernel_manager_t const& kernel_manager,
+  mpi_t* mpi, // if this is nullptr, the memgraph must be single-node
+  buffer_t memory,
+  storage_t& storage)
+{
+  _execute_memgraph(memgraph, settings, kernel_manager, mpi, memory, &storage);
+}
+
+void cpu_mg_exec_state_t::run(int n_apply, int n_sto, int n_send, int n_recv)
 {
   vector<thread> runners;
-  runners.reserve(n_apply + n_cache + n_send + n_recv + 2);
+  runners.reserve(n_apply + n_sto + n_send + n_recv + 2);
   for(int i = 0; i != n_apply; ++i) {
     runners.emplace_back([this, i](){ return this->apply_runner(i); });
   }
-  for(int i = 0; i != n_cache; ++i) {
-    runners.emplace_back([this, i](){ return this->cache_runner(i); });
+  for(int i = 0; i != n_sto; ++i) {
+    runners.emplace_back([this, i](){ return this->storage_runner(i); });
   }
   for(int i = 0; i != n_send; ++i) {
     runners.emplace_back([this, i](){ return this->send_runner(i); });
@@ -147,13 +202,21 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
   memgraph_t const& mg,
   kernel_manager_t const& km,
   buffer_t& b,
+<<<<<<< HEAD
   storage_t& sm)
+=======
+  storage_t* ss)
+>>>>>>> main
   : mpi(mpi),
     memgraph(mg),
     kernel_manager(km),
     buffer(b),
     workspace_manager(km),
+<<<<<<< HEAD
     storage(sm)
+=======
+    storage(ss)
+>>>>>>> main
 {
   // set num_remaining, num_deps_remaining and the move notification setup variables
   vector<int> readys; 
@@ -211,6 +274,14 @@ cpu_mg_exec_state_t::cpu_mg_exec_state_t(
         can_recv_ready.push(id);
       } else {
         readys.push_back(id);
+      }
+    }
+
+    // fill in is_firsts
+    if(node.op.is_apply()) {
+      int const& group = node.op.get_apply().group;
+      if(group >= 0) {
+        is_firsts.insert({group, true});
       }
     }
   }
@@ -274,7 +345,7 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
               can_recv_ready.push(out);
             }
           } else if(node.op.is_evict() || node.op.is_load()) {
-            cache_ready.push(out);
+            sto_ready.push(out);
           } else if(node.op.is_inputmem() || node.op.is_inputsto()
                  || node.op.is_partialize() || node.op.is_alloc()
                  || node.op.is_del())
@@ -297,12 +368,17 @@ void cpu_mg_exec_state_t::completed(int _node_id, int group_id)
 
 void cpu_mg_exec_state_t::apply_runner(int runner_id) {
   int which;
+  bool is_first;
   while(true)
   {
     {
       std::unique_lock lk(m);
+<<<<<<< HEAD
       cv.wait(lk, [&which, this]() {
         std::cout << "Waiting for apply node..." << std::endl;
+=======
+      cv.wait(lk, [&which, &is_first, this]() {
+>>>>>>> main
         if(num_remaining == 0) {
           return true;
         }
@@ -312,8 +388,18 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
           auto const& group_id = memgraph.nodes[id].op.get_apply().group;
           if(group_id < 0 || busy_groups.count(group_id) == 0) {
             which = id;
+
+            if(group_id >= 0) {
+              bool& f = is_firsts.at(group_id);
+              is_first = f;
+              f = false;
+            } else {
+              is_first = false;
+            }
+
             apply_ready.erase(iter);
             busy_groups.insert(group_id);
+
             return true;
           }
         }
@@ -342,7 +428,11 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
 
       workspace_manager.release(which_workspace);
     } else if(apply.is_touch()) {
-      auto const& touch = apply.get_touch();
+      auto touch = apply.get_touch();
+      if(is_first) {
+        touch.castable = std::nullopt;
+      }
+
       kernel_manager(touch, get_raw(mems[0]), get_raw(mems[1]));
     } else {
       throw std::runtime_error("missing apply op type impl");
@@ -352,12 +442,26 @@ void cpu_mg_exec_state_t::apply_runner(int runner_id) {
   }
 }
 
+<<<<<<< HEAD
 void cpu_mg_exec_state_t::cache_runner(int runner_id) {
+=======
+void cpu_mg_exec_state_t::storage_runner(int runner_id) {
+  if(runner_id > 0) {
+    throw std::runtime_error("only one storage runner allowed");
+  }
+  if(!storage) {
+    throw std::runtime_error("must have storage ptr");
+  }
+
+  storage_t& sto = *storage;
+
+>>>>>>> main
   int node_id;
   while(true)
   {
     {
       std::unique_lock lk(m);
+<<<<<<< HEAD
       cv.wait(lk, [&node_id, this]() {
         std::cout << "Waiting for cache node..." << std::endl;
 
@@ -395,6 +499,41 @@ void cpu_mg_exec_state_t::cache_runner(int runner_id) {
     else 
     {
       throw std::runtime_error("Error in cache_runner method. Node not recognized.");
+=======
+      cv.wait(lk, [&node_id, this](){
+        if(num_remaining == 0) {
+          return true;
+        }
+        if(sto_ready.size() > 0) {
+          node_id = sto_ready.front();
+          sto_ready.pop();
+          return true;
+        }
+        return false;
+      });
+
+      if(num_remaining == 0) {
+        return;
+      }
+    }
+    auto const& node = memgraph.nodes[node_id];
+    if(!node.op.is_local_to(this_rank)) {
+      throw std::runtime_error("node given to storage runner is not local");
+    }
+
+    if(node.op.is_evict()) {
+      auto const& evict = node.op.get_evict();
+      buffer_t data = get_buffer_reference(evict.src.as_mem());
+      int tensor_id = evict.dst.id;
+      sto.write(data, tensor_id);
+    } else if(node.op.is_load()) {
+      auto const& load = node.op.get_load();
+      buffer_t data = get_buffer_reference(load.dst.as_mem());
+      int tensor_id = load.src.id;
+      sto.load(data, tensor_id);
+    } else {
+      throw std::runtime_error("storage runner must have evict or load node");
+>>>>>>> main
     }
 
     completed(node_id);
@@ -516,3 +655,241 @@ void cpu_mg_exec_state_t::send_can_recv_runner() {
     mpi->send_int(recv_id, move.get_src_loc(), mpi->max_tag);
   }
 }
+
+////////////////////////
+
+_tg_with_mg_helper_t::_tg_with_mg_helper_t(
+  mpi_t* a,
+  map<int, memsto_t>& b,
+  buffer_t& c,
+  storage_t& d,
+  int e)
+  : mpi(a), data_locs(b), mem(c), storage(d), server_rank(e)
+{
+  if(mpi) {
+    this_rank  = mpi->this_rank;
+    world_size = mpi->world_size;
+  } else {
+    this_rank = 0;
+    world_size = 1;
+    if(server_rank != 0) {
+      throw std::runtime_error("invalid server rank");
+    }
+  }
+}
+
+vector<uint64_t> _tg_with_mg_helper_t::recv_mem_sizes() {
+  vector<uint64_t> mem_sizes;
+  mem_sizes.reserve(world_size);
+  for(int src = 0; src != world_size; ++src) {
+    if(src == this_rank) {
+      mem_sizes.push_back(mem->size);
+    } else {
+      vector<uint64_t> singleton = mpi->recv_vector<uint64_t>(src);
+      mem_sizes.push_back(singleton[0]);
+    }
+  }
+  return mem_sizes;
+}
+
+void _tg_with_mg_helper_t::send_mem_size() {
+  vector<uint64_t> singleton{mem->size};
+  mpi->send_vector(singleton, server_rank);
+}
+
+map<int, memstoloc_t> _tg_with_mg_helper_t::recv_full_data_locs() {
+  auto fix = [](memsto_t const& memsto, int loc) {
+    if(memsto.is_mem()) {
+      return memstoloc_t(memsto.get_mem().as_memloc(loc));
+    } else {
+      int const& sto_id = memsto.get_sto();
+      return memstoloc_t(stoloc_t { loc, sto_id });
+    }
+  };
+
+  map<int, memstoloc_t> ret;
+  for(int src = 0; src != world_size; ++src) {
+    if(src == this_rank) {
+      for(auto const& [id, memsto]: data_locs) {
+        ret.insert({id, fix(memsto, src)});
+      }
+    } else {
+      auto src_data_locs = mpi->recv_vector<id_memsto_t>(src);
+      for(auto const& [id, memsto]: src_data_locs) {
+        ret.insert({id, fix(memsto, src)});
+      }
+    }
+  }
+
+  return ret;
+}
+
+void _tg_with_mg_helper_t::send_data_locs() {
+  vector<id_memsto_t> items;
+  for(auto const& [id, memsto]: data_locs) {
+    items.push_back(id_memsto_t { id, memsto });
+  }
+  mpi->send_vector(items, server_rank);
+}
+
+void _tg_with_mg_helper_t::storage_remap_server(
+  vector<vector<std::array<int, 2>>> const& storage_remaps)
+{
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst == this_rank) {
+      storage.remap(storage_remaps[this_rank]);
+    } else {
+      mpi->send_vector(storage_remaps[dst], dst);
+    }
+  }
+}
+
+void _tg_with_mg_helper_t::storage_remap_client() {
+  auto storage_remap = mpi->recv_vector<std::array<int, 2>>(server_rank);
+  storage.remap(storage_remap);
+}
+
+void _tg_with_mg_helper_t::broadcast_memgraph(memgraph_t const& mg) {
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst != this_rank) {
+      mpi->send_str(mg.to_wire(), dst);
+    }
+  }
+}
+
+memgraph_t _tg_with_mg_helper_t::recv_memgraph() {
+  return memgraph_t::from_wire(mpi->recv_str(server_rank));
+}
+
+void _tg_with_mg_helper_t::rewrite_data_locs_server(
+  map<int, memstoloc_t> const& new_data_locs)
+{
+  auto get_loc = [](memstoloc_t const& x) {
+    if(x.is_memloc()) {
+      return x.get_memloc().loc;
+    } else {
+      // Note: stoloc_t::loc is a storage location, but we are
+      //       assuming that storage loc == compute loc in this directory!
+      return x.get_stoloc().loc;
+    }
+  };
+
+  vector<vector<id_memsto_t>> items(world_size);
+  data_locs.clear();
+  for(auto const& [id, memstoloc]: new_data_locs) {
+    int loc = get_loc(memstoloc);
+    if(loc == this_rank) {
+      data_locs.insert({ id, memstoloc.as_memsto() });
+    } else {
+      items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
+    }
+  }
+
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst != this_rank) {
+      mpi->send_vector(items[dst], dst);
+    }
+  }
+}
+
+void _tg_with_mg_helper_t::rewrite_data_locs_client() {
+  data_locs.clear();
+  auto new_data_locs = mpi->recv_vector<id_memsto_t>(server_rank);
+  for(auto const& [id, memsto]: new_data_locs) {
+    data_locs.insert({id, memsto});
+  }
+}
+
+vector<vector<std::array<int, 2>>>
+_tg_with_mg_helper_t::create_storage_remaps(
+  map<int, memstoloc_t> const& full_data_locs,
+  map<int, memstoloc_t> const& inn_tg_to_loc)
+{
+  vector<vector<std::array<int, 2>>> storage_remaps(world_size);
+  for(auto const& [id, mg_memstoloc]: inn_tg_to_loc) {
+    if(mg_memstoloc.is_stoloc()) {
+      auto const& [loc, new_sto_id] = mg_memstoloc.get_stoloc();
+      auto const& [_, old_sto_id] = full_data_locs.at(id).get_stoloc();
+      storage_remaps[loc].push_back({new_sto_id, old_sto_id});
+    }
+  }
+  return storage_remaps;
+}
+
+void execute_taskgraph_as_memgraph_server(
+  taskgraph_t const& taskgraph,
+  execute_memgraph_settings_t const& exec_settings,
+  kernel_manager_t const& kernel_manager,
+  allocator_settings_t const& alloc_settings,
+  mpi_t* mpi,
+  map<int, memsto_t>& data_locs,
+  buffer_t mem,
+  storage_t& storage)
+{
+  int this_rank  = bool(mpi) ? 0 : mpi->this_rank;
+  _tg_with_mg_helper_t helper(mpi, data_locs, mem, storage, this_rank);
+
+  vector<uint64_t> mem_sizes = helper.recv_mem_sizes();
+
+  map<int, memstoloc_t> full_data_locs = helper.recv_full_data_locs();
+
+  vector<int> which_storage(helper.world_size);
+  std::iota(which_storage.begin(), which_storage.end(), 0);
+
+  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
+    memgraph_t::make(
+      taskgraph, which_storage, mem_sizes,
+      full_data_locs, alloc_settings, true);
+
+  // TODO
+  {
+    std::ofstream f("mg.gv");
+    memgraph.print_graphviz(f);
+    DOUT("printed mg.gv");
+  }
+
+  // memgraph now uses wtvr storage ids it chooses... So for each input,
+  // figure out what the remap is
+  vector<vector<std::array<int, 2>>> storage_remaps =
+    helper.create_storage_remaps(full_data_locs, inn_tg_to_loc);
+
+  // this is not need anymore
+  full_data_locs.clear();
+
+  helper.storage_remap_server(storage_remaps);
+
+  helper.broadcast_memgraph(memgraph);
+
+  execute_memgraph(
+    memgraph, exec_settings, kernel_manager,
+    mpi, mem, storage);
+
+  helper.rewrite_data_locs_server(out_tg_to_loc);
+}
+
+void execute_taskgraph_as_memgraph_client(
+  execute_memgraph_settings_t const& exec_settings,
+  kernel_manager_t const& kernel_manager,
+  int server_rank,
+  mpi_t* mpi,
+  map<int, memsto_t>& data_locs,
+  buffer_t mem,
+  storage_t& storage)
+{
+  _tg_with_mg_helper_t helper(mpi, data_locs, mem, storage, server_rank);
+
+  helper.send_mem_size();
+
+  helper.send_data_locs();
+
+  helper.storage_remap_client();
+
+  memgraph_t memgraph = helper.recv_memgraph();
+
+  execute_memgraph(
+    memgraph, exec_settings, kernel_manager,
+    mpi, mem, storage);
+
+  helper.rewrite_data_locs_client();
+}
+

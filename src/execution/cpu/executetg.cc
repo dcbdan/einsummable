@@ -133,7 +133,7 @@ state_t::state_t(
 void state_t::apply_runner(int runner_id)
 {
   int which_apply;
-  which_touch_t which_touch;
+  tuple<which_touch_t, bool> which_touch_is_first;
   bool doing_touch;
 
   while(true) {
@@ -146,7 +146,7 @@ void state_t::apply_runner(int runner_id)
         }
         if(pending_touches.size() > 0) {
           doing_touch = true;
-          which_touch = pending_touches.front();
+          which_touch_is_first = pending_touches.front();
           pending_touches.pop();
           return true;
         }
@@ -166,7 +166,14 @@ void state_t::apply_runner(int runner_id)
     }
 
     if(doing_touch) {
-      auto const& [inn_id, touch_op] = get_touch_info(which_touch);
+      auto const& [which_touch, is_first] = which_touch_is_first;
+
+      auto [inn_id, touch_op] = get_touch_info(which_touch);
+
+      if(is_first) {
+        // The first touch must be turned into a copy
+        touch_op.castable = std::nullopt;
+      }
 
       int const& partialize_id = which_touch.partialize_id;
       uint64_t partialize_size = taskgraph.nodes[partialize_id].op.out_size();
@@ -492,7 +499,10 @@ void state_t::event_loop_did_touch(which_touch_t const& info)
       //  << (which_touch_t { partialize_id, unit_id, next_touch_id }));
       {
         unique_lock lk(m_apply);
-        pending_touches.push(which_touch_t { partialize_id, unit_id, next_touch_id });
+        pending_touches.push({
+          which_touch_t { partialize_id, unit_id, next_touch_id },
+          false
+        });
       }
       cv_apply.notify_one();
     } else {
@@ -530,7 +540,10 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
       if(inn_id == touch_inn) {
         {
           unique_lock lk(m_apply);
-          pending_touches.push(which_touch_t { partialize_id, unit_id, 0 });
+          pending_touches.push({
+            which_touch_t { partialize_id, unit_id, 0 },
+            true
+          });
         }
         cv_apply.notify_one();
       }
@@ -549,10 +562,14 @@ void state_t::event_loop_launch_touch(int inn_id, int partialize_id) {
             //    (which_touch_t { partialize_id, unit_id, touch_id}));
             {
               unique_lock lk(m_apply);
-              pending_touches.push(which_touch_t { partialize_id, unit_id, touch_id });
+              pending_touches.push({
+                which_touch_t { partialize_id, unit_id, touch_id },
+                unit_state.is_first
+              });
             }
             cv_apply.notify_one();
             unit_state.busy = true;
+            unit_state.is_first = false;
           }
         }
       }
