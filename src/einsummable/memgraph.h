@@ -6,7 +6,7 @@
 struct memloc_t;
 
 struct mem_t {
-  uint64_t offset;
+  uint64_t offset;  // |________||xxxxxxxx|
   uint64_t size;
 
   memloc_t as_memloc(int loc) const;

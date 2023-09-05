@@ -1131,196 +1131,46 @@ int graph_t::build_grad_term_mul_rhs(int other, int node_grad) {
 
 int graph_t::build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad) {
 
-  auto deri_op = einsummable.join.derivative(0);
-  auto string = einsummable.str();
-  auto grad_node = nodes[node_grad];
-  auto inn_node = nodes[inn];
-
-  if (deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
+  auto const& grad = einsummable.derivative(0);
+  if (!grad.has_value()) {
     return node_grad;
   }
 
-  if (deri_op.is_constant()) {
-    scalar_t val = deri_op.eval({});
-    scalarop_t scale = scalarop_t::make_scale(val);
-    einsummable_t grad(
-      einsummable.join_shape,
-      {inverse_permute(einsummable.inns[0])},
-      einsummable.out_rank,
-      scale
-    );
-    return insert_einsummable(grad, {node_grad});
+  auto const& grad_val = grad.value().front();
+
+  if (grad_val.join.is_unary()) {
+    return insert_einsummable(grad_val, {node_grad});
   }
 
-  scalarop_t vjp = scalarop_t::make_vjp(deri_op);
-
-  auto const& vjp_string = einsummable_t::create_unary_vjp_string(einsummable.inns[0], einsummable.out_rank);
-
-  auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
-
-  auto const& join_shape = einsummable_t::construct_join_shape(inns, {grad_node.op.out_shape(), inn_node.op.out_shape()});
-
-  if (!join_shape.has_value()) {
-    std::runtime_error("Invalid join shape.");
-  }
-
-  einsummable_t grad(
-    join_shape.value(),
-    inns,
-    out_rank,
-    vjp
-  );
-
-  return insert_einsummable(grad, {node_grad, inn});
-}
-
-int graph_t::build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other) {
-  return build_grad_term_ewb_arg(einsummable, node_grad, arg, other, 0);
-}
-
-int graph_t::build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other) {
-  return build_grad_term_ewb_arg(einsummable, node_grad, arg, other, 1);
+  return insert_einsummable(grad_val, {node_grad, inn});
 }
 
 int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {
 
-  /*std::cout << "Calculating ewb derivative for operation: " << einsummable.join << std::endl;
-  std::cout << "Node grad_id: " << node_grad << " Arg id: " << arg << " Other operand id: " << other << std::endl;*/
-  auto deri_op = einsummable.join.derivative(which_inn);
-  auto const& grad_node = nodes[node_grad];
-  vector<int> arg_inn = einsummable.inns[which_inn];
-  vector<int> jacobian_inn;
-
-  std::cout << deri_op << std::endl;
-
-  // If deri_op is identity matrix (Which would happen in the case of addition), we can propagate before calculated VJP  
-  if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
-    std::cout << "IS CONSTANT OF ONE " << std::endl;
+  auto const& grad_opt = einsummable.derivative(which_inn);
+  
+  if (!grad_opt.has_value()) {
     return node_grad;
   }
+  auto const& grad_vec = grad_opt.value();
 
-  // If deri_op is a constant, then we have to propagate same node grad, but scaled for deri_op value
-  // If we had abcd,cadb -> abcd, and we calculate VJP wrt to node B, then we have to go for abcd->cadb permutation (Which is inverse permutation to needed shape) 
-  if(deri_op.is_constant()) {
-    scalar_t val = deri_op.eval({});
-    einsummable_t grad(
-      einsummable.join_shape,
-      {inverse_permute(einsummable.inns[which_inn])},
-      einsummable.out_rank,
-      scalarop_t::make_scale(val)
-    );
-    return insert_einsummable(grad, {node_grad});
-  }
+  if (grad_vec.size() == 1) {
+    auto const& grad = grad_vec.front();
 
-  set<int> which_inputs = deri_op.which_inputs();
-
-  if (which_inputs.size() > 2) {
-    std::runtime_error("Invalid input size");
-  }
-
-  // If input size is 1, we need to determine wheter first or second argument influences derivative
-  if (which_inputs.size() == 1) {
-
-    int const& which_input = *(which_inputs.begin());
-    int inn; 
-    scalarop_t deri_fixed = deri_op;
-
-    if (which_input == which_inn) {
-      inn = arg;
-      jacobian_inn = arg_inn;
-    } else {
-      inn = other;
-      jacobian_inn = einsummable.inns[which_inn == 0 ? 1 : 0];
-      deri_fixed.remap_inputs({ { 1, 0 } });
+    if (grad.join.is_unary()) {
+      return insert_einsummable(grad, {node_grad});
     }
 
-    // What do I need to create einsummable for VJP of binary operation?
-    // 
-    scalarop_t vjp = scalarop_t::make_vjp(deri_fixed);
+    int inn = einsummable.deri_depends_on(which_inn) ? arg : other;
+    
+    return insert_einsummable(grad, {node_grad, inn});
+  }
 
-    auto const& vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, jacobian_inn);
-    auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
-    auto const& vjp_node = nodes[inn];
-    auto const& join_shape = einsummable_t::construct_join_shape(inns, {vjp_node.op.out_shape(), einsummable.out_shape()});
-
-    if (!join_shape.has_value()) {
-      std::runtime_error("Invalid join shape.");
-    }
-
-    einsummable_t grad (
-      join_shape.value(),
-      inns,
-      out_rank,
-      vjp
-    );
-
-    return insert_einsummable(grad, {inn, node_grad});
-  } 
-  // A(abcd), B(bacd) -> abcd
-  // This will create 
-  // (abcd->bacd), abcd -> abcd :::: where B(abcd) = B(bacd)
-  // if deri_op depends on both variables, we need to first create a node that will have deri op with input of both variables 
-  // Then we need to create vjp node that will have deri_op node and out_node_grad
-  // To create that, deri_op node must be of shape same as node by which we are calculating VJP because VJP must be the same shape as that node
-  // Suppose we have (A bin_op B) && VJP with respect to A where deri op depends both on A and B
-  // - We can take as an example (A - B)^2 with einstein notation cbad,badc->abcd
-  // - Derivative of this operation would be 2*(A - B), deri_op depends on both input even though we are calculating gradient with respect to A
-  // - First we need to create einsummable node that will have deri_op and A.node_id and B.node_id as inns, but we need to take in consideration that it 
-  // should be of shape A because we will need to feed that into VJP einsummable node
-  // - So what we have to do is make einsum notation string that will have B permuted to shape of A, so we would have something like this: 
-  //    1. Find permutation badc->cbad ::: which would be exact same thing as bcda -> abcd or inns would be: {1, 2, 3, 0}
-  //    2. This will result in an einsummable string of bcda, abcd -> abcd (Because we want to keep the shape of A)
-  // - Then, we would have to create another einsummable node which would have VJP and take as an input already calculated node_grad for out node of A 
-  // and before mentioned deri_op node. Because VJP of node A, should be of same shape as node A, we need to find permutation from abcd->cbad and then multiply 
-  // node_grad and deri_op node
-  jacobian_inn = einsummable.inns[which_inn == 0 ? 1 : 0];
-  auto identity = identity_permutation(jacobian_inn.size());
-  auto inverse = find_permutation(jacobian_inn, identity);
-  auto vjp_string = einsummable_t::make_str({inverse, identity}, jacobian_inn.size());
-  auto const& [inns1, out_rank1] = einsummable_t::parse_str(vjp_string);
-  auto const& arg_node = nodes[arg];
-  auto const& other_node = nodes[other];
-  std::cout << "ARG NODE OUT SHAPE: " << arg_node.op.out_shape() << std::endl;
-  std::cout << "OUTHER NODE OUT SHAPE: " << other_node.op.out_shape() << std::endl;
-  auto const& join_shape1 = einsummable_t::construct_join_shape(inns1, {other_node.op.out_shape(), arg_node.op.out_shape()});
-
-  std::cout << "VJP STRING: " << vjp_string << std::endl;
-  
-
-  if (!join_shape1.has_value()) {
-    std::runtime_error("Invalid join shape.");
-  } 
-
-  std::cout << "JOIN SHAPE 1: " << join_shape1.value() << std::endl;
-
-  einsummable_t tmp (
-    join_shape1.value(),
-    inns1, 
-    out_rank1,
-    deri_op
-  );
+  auto const& tmp = grad_vec.front();
+  auto const& grad = grad_vec.back();
 
   int temp_id = insert_einsummable(tmp, {other, arg});
-
-  vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, arg_inn);
-
-  std::cout << "SECOND VJP STRING: " << vjp_string << std::endl;
-
-  std::cout << einsummable.out_shape() << std::endl;
-
-  auto const& [inns2, out_rank2] = einsummable_t::parse_str(vjp_string);
-  auto const& join_shape2 = einsummable_t::construct_join_shape(inns2, {join_shape1.value(), einsummable.out_shape()});
-
-  std::cout << "NEW JOIN SHAPE: " << join_shape2.value() << std::endl;
-
-  einsummable_t grad (
-    join_shape2.value(),
-    inns2, 
-    out_rank2, 
-    scalarop_t::make_mul()
-  );
-
-  return insert_einsummable(grad, {temp_id, node_grad});
+  return insert_einsummable(grad, {node_grad, temp_id});
 }
 
 // Construct a 3D matmul graph, (ij,jk->ik)

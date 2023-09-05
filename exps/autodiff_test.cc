@@ -244,6 +244,78 @@ void test_VJP() {
 
 }
 
+void test_mm() {
+
+  vector<uint64_t> input_shape1 = {4, 5, 2, 3};
+  vector<uint64_t> input_shape2 = {4, 5, 3, 5};
+
+  graph_t graph; 
+
+  graph.insert_input(
+    input_shape1
+  );
+
+  graph.insert_input(
+    input_shape2
+  );
+
+  auto const& notation  = einsummable_t::create_batch_matmul_string(4, 4, false, false);
+  auto const& [inns, out_rank] = einsummable_t::parse_str(notation);
+
+  auto join_shape1 = einsummable_t::construct_join_shape(inns, {input_shape1, input_shape2}).value();
+
+  einsummable_t mm(
+    join_shape1,
+    inns,
+    out_rank,
+    scalarop_t::make_mul(),
+    castable_t::add
+  );
+
+  std::cout << mm.join_shape << std::endl;
+  std::cout << mm.out_shape() << std::endl;
+
+  std::cout << mm.inn_shapes() << std::endl;
+}
+
+void contraction_test() {
+
+  vector<uint64_t> input_shape1 = {4, 5, 2, 3};
+  vector<uint64_t> input_shape2 = {4, 5, 3, 5};
+  vector<uint64_t> input_shape3 = {6, 7};
+
+  graph_t graph; 
+
+  graph.insert_input(
+    input_shape1
+  );
+
+  graph.insert_input(
+    input_shape3
+  );
+
+  string einsum = "ijkl,mn->ijmn";
+  auto const& [inns, out_rank] = einsummable_t::parse_str(einsum);
+  auto const& join_shape = einsummable_t::construct_join_shape(inns, {input_shape1, input_shape3});
+
+  einsummable_t cc(
+    join_shape.value(),
+    inns, 
+    out_rank,
+    scalarop_t::make_mul(),
+    castable_t::add
+  );
+
+  std::cout << cc.join_shape << std::endl;
+  std::cout << cc.out_shape() << std::endl;
+  std::cout << cc.inn_shapes() << std::endl;
+  std::cout << cc.inns << std::endl;
+  std::cout << cc.get_input_from_join(join_shape.value(), 0) << std::endl;
+  std::cout << cc.get_input_from_join(join_shape.value(), 1) << std::endl;
+}
+
 int main() {
-  mul_derivative();
+  //mul_derivative();
+  contraction_test();
+  //test_mm();
 }

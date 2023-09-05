@@ -44,19 +44,20 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
-add_base_application("reference"        "exps" "reference")
-add_base_application("copyregion"       "exps" "copyregion")
-add_base_application("scalarop"         "exps" "scalarop")
-add_base_application("forwardsim"       "exps" "forwardsim")
-add_base_application("allocator_test"   "exps" "allocator_test")
-add_base_application("gwriter"          "exps" "gwriter")
-add_base_application("deepff"           "exps" "deepff")
-add_base_application("base_test"        "exps" "base_test")
-add_base_application("einsummable_test" "exps" "einsummable_test")
-add_base_application("memgraph_test"    "exps" "memgraph_test")
-add_base_application("gwise"            "exps" "gwise")
+#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+#add_base_application("reference"        "exps" "reference")
+# add_base_application("copyregion"       "exps" "copyregion")
+#add_base_application("scalarop"         "exps" "scalarop")
+#add_base_application("forwardsim"       "exps" "forwardsim")
+#add_base_application("allocator_test"   "exps" "allocator_test")
+#add_base_application("gwriter"          "exps" "gwriter")
+#add_base_application("deepff"           "exps" "deepff")
+#add_base_application("base_test"        "exps" "base_test")
+#add_base_application("einsummable_test" "exps" "einsummable_test")
+# add_base_application("memgraph_test"    "exps" "memgraph_test")
+#add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
+add_base_application("autodiff_test"    "exps" "autodiff_test")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -67,65 +68,65 @@ endfunction()
 add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
-if(${CPU_EXECUTION_ENGINE})
-  if(NOT MKL_THREADING)
-    set(MKL_THREADING sequential)
-  endif()
+# if(${CPU_EXECUTION_ENGINE})
+#   if(NOT MKL_THREADING)
+#     set(MKL_THREADING sequential)
+#   endif()
 
-  find_package(MPI REQUIRED)
+#   find_package(MPI REQUIRED)
 
-  find_package(MKL REQUIRED)
+#   find_package(MKL REQUIRED)
 
-  include_directories(${MKL_INCLUDE})
+#   include_directories(${MKL_INCLUDE})
 
-  include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+#   include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
 
-  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
+#   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
 
-  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
-  #       have to be rebuilt?
-  add_library(cpu_execution_engine
-    STATIC
-    ${BA_FILES}
-    ${ES_FILES}
-    ${MG_FILES}
-    ${AP_FILES}
-    ${CP_FILES}
-  )
+#   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
+#   #       have to be rebuilt?
+#   add_library(cpu_execution_engine
+#     STATIC
+#     ${BA_FILES}
+#     ${ES_FILES}
+#     ${MG_FILES}
+#     ${AP_FILES}
+#     ${CP_FILES}
+#   )
 
-  function(add_cpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
-  target_link_libraries(${exec}
-    cpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
-    ${MPI_CXX_LIBRARIES}
-    MKL::MKL)
-  endfunction()
+#   function(add_cpu_application exec dir filename)
+#   add_executable(${exec} ${dir}/${filename}.cc)
+#   target_link_libraries(${exec}
+#     cpu_execution_engine
+#     proto
+#     ${Protobuf_LIBRARIES}
+#     ${MPI_CXX_LIBRARIES}
+#     MKL::MKL)
+#   endfunction()
 
-  add_cpu_application("cpuexec"         "exps" "cpuexec")
-  add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
-  add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-  add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
-  add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
-  add_cpu_application("dummy_evict_mg"  "exps" "dummy_evict_mg")
+#   add_cpu_application("cpuexec"         "exps" "cpuexec")
+#   add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
+#   add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
+#   add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
+#   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
+#   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+#   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+#   add_cpu_application("dummy_evict_mg"  "exps" "dummy_evict_mg")
 
-  function(add_cpu_llama_application exec filename)
-    add_executable(${exec} llama/${filename}.cc
-      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
-    target_link_libraries(${exec}
-      cpu_execution_engine
-      proto
-      ${Protobuf_LIBRARIES}
-      ${MPI_CXX_LIBRARIES}
-      MKL::MKL)
-  endfunction()
+#   function(add_cpu_llama_application exec filename)
+#     add_executable(${exec} llama/${filename}.cc
+#       llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+#     target_link_libraries(${exec}
+#       cpu_execution_engine
+#       proto
+#       ${Protobuf_LIBRARIES}
+#       ${MPI_CXX_LIBRARIES}
+#       MKL::MKL)
+#   endfunction()
 
-  add_cpu_llama_application("llama_cpu" "cpu")
+#   add_cpu_llama_application("llama_cpu" "cpu")
 
-endif()
+# endif()
 
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)

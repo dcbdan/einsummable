@@ -215,6 +215,13 @@ struct einsummable_t {
 
     return join_shape;
   }
+
+  optional<vector<einsummable_t>> derivative(int which_inn);
+  bool deri_depends_on(int which_inn);
+
+private:
+  optional<vector<einsummable_t>> ewu_derivative(int which_inn);
+  optional<vector<einsummable_t>> ewb_derivative(int which_inn);
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);
