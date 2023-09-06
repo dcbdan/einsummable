@@ -9,6 +9,8 @@
 #include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/autopart.h"
 
+#include <fstream>
+
 struct cluster_settings_t {
   int num_nodes;
   int num_threads_per_node;
@@ -126,10 +128,11 @@ void add_kernels(taskgraph_t const& tg, std::unordered_set<einsummable_t>& ops)
 int main() {
   set_default_dtype(dtype_t::f16);
 
-  uint64_t bsz    = 4;
-  uint64_t seqlen = 8;
+  uint64_t bsz    = 1;
+  uint64_t seqlen = 1337;
 
-  auto args = model_args_t::llama_13B(bsz);
+  auto args = model_args_t::llama_7B(bsz);
+  args.n_layers = 2;
 
   //auto autoplace = [&](graph_t const& graph) {
   //  return graph.make_singleton_placement();
@@ -149,7 +152,7 @@ int main() {
 
   int num_nodes = 8;
   int num_threads_per_node = 12;
-  int num_steps = 100000;
+  int num_steps = 0; // 100000;
 
   double beta = 10000.0;
 
@@ -165,6 +168,11 @@ int main() {
   };
 
   builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+
+  string fname = "llama_7B_2layer_seqlen1337.gv";
+  std::ofstream f(fname);
+  builder.graph.print_graphviz(f);
+  DOUT(fname);
 
   for(auto const& stat: stats) {
     stat.print_line(std::cout);
