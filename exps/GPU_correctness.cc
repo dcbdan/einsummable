@@ -155,6 +155,11 @@ void execute_multi_gpu_test(memgraph_t memgraph) {
   // auto cpu_ptr = b->data;
   // auto size = b->size;
 
+  // std::unordered_map<int, int> gpu_mapping;
+  // gpu_mapping[0] = 0;
+  // gpu_mapping[1] = 2;
+  // gpu_mapping[2] = 3;
+
   // print the number of nodes in the graph
   std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
             << std::endl;

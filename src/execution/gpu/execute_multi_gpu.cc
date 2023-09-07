@@ -1,6 +1,16 @@
 #include "execute_multi_gpu.h"
 #include <cuda_runtime_api.h>
 
+
+bool multi_gpu_execute_state_t::has_stream() {
+  for (auto &stream : stream_pool) {
+    if (stream.size() != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 vector<int> multi_gpu_execute_state_t::node_update(int node_idx) {
   // TODO: hard coded index 0 since we only have 1 device
   // print a update message
@@ -144,7 +154,9 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(memgraph_t const& input_mem
 
   int num_gpus = memory_base_ptrs.size();
   int num_streams = 200;
+
   // create a cutensor handle for each device
+  // NOTE: change this when we have all GPUs at disposal
   for (int gpu = 0; gpu < num_gpus; ++gpu) {
     cudaSetDevice(gpu);  // Set the current GPU device
     cutensorHandle_t* handle;
@@ -161,8 +173,6 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(memgraph_t const& input_mem
     group_id_executing.push_back(std::set<int>());
     all_group_ids.push_back(std::set<int>());
     groupID_to_nodeIDX.push_back(std::map<int, std::queue<int>>());
-    node_idx_waiting_for_stream.push_back(std::queue<int>());
-    finished_streams.push_back(std::queue<cudaStream_t>());
   }
   dependency_count = get_dependencies();
   // get the number of nodes remaining for each device
@@ -199,298 +209,51 @@ void execute_multi_gpu(const memgraph_t &memgraph, std::vector<void*> mem_ptrs) 
   gpu_execute_state.run();
 }
 
-// ---------------- Calling streams from a stream pool version ----------------
-// struct callback_data_t {
-//   std::mutex *m_ptr;
-//   std::condition_variable *cv_ptr;
-//   multi_gpu_execute_state_t *my_state;
-//   int node_idx;
-//   cudaStream_t stream;
-//   bool debug = true;
-
-//   void operator()() {
-//     std::mutex &m = *m_ptr;
-//     auto &cv = *cv_ptr;
-//     {
-//       std::unique_lock lk(m);
-//       // update the queues since this node is finished
-//       if (debug){
-//         printf("Callback: Node %d finished execution.\n", node_idx);
-//       }
-//       my_state->finished_queue.push(node_idx);
-//       my_state->finished_streams.push(stream);
-//     }
-//     cv.notify_all();
-//   }
-// };
-
-// // function definition of multi_gpu_execute_state_t.run()
-// void multi_gpu_execute_state_t::run() {
-
-//   bool debug = true;
-
-//   while (true) {
-
-//     if (is_complete()) {
-//       std::cout << "All nodes finished execution." << std::endl;
-//       break;
-//     }
-
-//     std::unique_lock lk(m);
-
-//     while (finished_queue.size() != 0) {
-//       // get the node index
-//       int node_idx = finished_queue.front();
-//       // pop the node index
-//       finished_queue.pop();
-//       // update the queue since this node is finished
-//       auto new_nodes = node_update(node_idx);
-//       // print node_idx and new_nodes
-//       if (debug){
-//         printf("Node %d finished execution. New nodes added: ", node_idx);
-//         for (auto n : new_nodes) {
-//           printf("%d ", n);
-//         }
-//         printf("\n");
-//       }
-//       add_to_pending_queue(new_nodes);
-//     }
-
-//     // int num_added = finished_streams.size();
-
-//     while (true) {
-//       if (node_idx_waiting_for_stream.size() == 0) {
-//         break;
-//       }
-//       int node_idx = node_idx_waiting_for_stream.front();
-//       node_idx_waiting_for_stream.pop();
-//       pending_queue.push(node_idx);
-//     }
-
-//     while (finished_streams.size() != 0) {
-//       cudaStream_t stream = finished_streams.front();
-//       finished_streams.pop();
-//       stream_pool.push(stream);
-//     }
-// 		lk.unlock();
-
-//     // execute things that are in the apply_queue until the queue is empty
-//     while (true) {
-//       std::unique_lock lk(m);
-//       if (pending_queue.size() == 0) {
-//         lk.unlock();
-//         break;
-//       }
-//       // print all node indices from the pending queue
-//       if (debug){
-//         std::cout << "Pending queue: ";
-//         std::queue<int> temp_queue = pending_queue;
-//         while (temp_queue.size() != 0) {
-//           std::cout << temp_queue.front() << " ";
-//           temp_queue.pop();
-//         }
-//         std::cout << std::endl;
-//       }
-//       // get the first element in the queue
-//       auto node_idx = pending_queue.front();
-//       auto node = memgraph.nodes[node_idx];
-//       // remove the first element from the queue
-//       pending_queue.pop();
-//       lk.unlock();
-//       // std::cout << "Executing node: " << node_idx << std::endl;
-//       // execute the node
-//       if (node.op.is_inputmem() || node.op.is_inputsto() || node.op.is_del() ||
-//           node.op.is_partialize() || node.op.is_alloc()) {
-//         // do nothing but update the memgraph execution since that
-//         // node is finished
-//         std::unique_lock lk(m);
-//         finished_queue.push(node_idx);
-//         lk.unlock();
-//       } else if (node.op.is_apply()) {
-//         // getting stream from the pool instead of creating a new one
-//         std::unique_lock lk(m);
-//         if (stream_pool.size() == 0) {
-//           // we can't do anything since we don't have any streams
-//           // available
-//           // add this node to the pending queue and wait for a
-//           // stream to be available
-//           if (debug){
-//             std::cout << "No streams available. Waiting for a stream to be available." 
-// 						  << std::endl;
-//           }
-//           node_idx_waiting_for_stream.push(node_idx);
-//           lk.unlock();
-//           continue;
-//         }
-//         cudaStream_t stream = stream_pool.front();
-//         if (debug){
-//           std::cout << "Node " << node_idx 
-// 				    << " got a stream from the pool" << std::endl; 
-//         }
-// 				stream_pool.pop();
-//         lk.unlock();
-//         // get the memory offsets
-//         auto memory_vector = node.op.get_apply().mems;
-//         // CASE: TOUCH
-//         if (node.op.is_touch()) {
-//           // std::cout << "Got a touch node" << std::endl;
-//           // TODO: doing a lock; see where is the best place to put
-//           // this lock
-//           auto touch = node.op.get_touch();
-//           auto group_id = node.op.get_apply().group;
-//           // if we have found this group id in the list, we can't
-//           // execute until the previous one is done
-//           if (group_id_executing.count(group_id) != 0) {
-//             // we can't execute this node since some other node
-//             // is executing with the same group id
-//             // add this node to the map
-//             groupID_to_nodeIDX[group_id].push(node_idx);
-//             // give the stream back to the pool since don't need it
-//             stream_pool.push(stream);
-//             // print a message
-//             if (debug){
-//               std::cout << "Node " << node_idx << " returned stream to pool" << std::endl;
-//             }
-//             continue;
-//           } else {
-//             // else we are free to run this
-//             // see this is the first time seeing this group id
-//             if (all_group_ids.count(group_id) == 0) {
-//               // set the castable to nullopt
-//               touch.castable = std::nullopt;
-//             } else if (group_id < 0) {
-//               // set the castable to nullopt
-//               touch.castable = std::nullopt;
-//             } else {
-//               if (touch.castable == std::nullopt) {
-//                 throw std::runtime_error(
-//                     "Error: Castable is not set for a touch node.");
-//               }
-//             }
-//             // add this group id to the executing set
-//             group_id_executing.insert(group_id);
-//             all_group_ids.insert(group_id);
-//             auto touch_kernel = build_touch(touch);
-//             touch_kernel(
-//                 stream,
-//                 offset_increment(memory_base_ptr, memory_vector[0].offset),
-//                 offset_increment(memory_base_ptr, memory_vector[1].offset));
-//           }
-//         } else {
-//           auto my_einsummable = node.op.get_einsummable();
-//           // CASE: CONTRACTION
-//           if (my_einsummable.is_contraction()) {
-//             // do a check of the offsets
-//             checkContractionOffset(node_idx);
-//             // merge the adjacent dims
-//             // std::cout << "Got a contraction node" << std::endl;
-//             einsummable_t my_einsum_merged =
-//                 my_einsummable.merge_adjacent_dims();
-//             // print an error if we didn't find my_einsum_merged
-//             // in the map
-//             auto einsum_iter = einsum_to_contraction.find(my_einsum_merged);
-//             if (einsum_iter == einsum_to_contraction.end()) {
-//               throw std::runtime_error(
-//                   "Error: contraction descriptor not found in the map of "
-//                   "contraction plans.");
-//             }
-//             // print the memory_vector offsets and sizes
-//             // std::cout << "Offset 1: " << memory_vector[1].offset << std::endl;
-//             // std::cout << "Offset 2: " << memory_vector[2].offset << std::endl;
-//             // std::cout << "Offset 3: " << memory_vector[0].offset << std::endl;
-//             // std::cout << "Size 1: " << memory_vector[1].size << std::endl;
-//             // std::cout << "Size 2: " << memory_vector[2].size << std::endl;
-//             // std::cout << "Size 3: " << memory_vector[0].size << std::endl;
-
-//             auto contraction_descriptor = einsum_iter->second;
-//             execute_contraction(
-//                 stream, handle, &contraction_descriptor,
-//                 offset_increment(memory_base_ptr, memory_vector[0].offset),
-//                 offset_increment(memory_base_ptr, memory_vector[1].offset),
-//                 offset_increment(memory_base_ptr, memory_vector[2].offset));
-//           }
-//           // CASE: OTHER EINSUMMABLE
-//           else {
-//             // std::cout << "Got a other einsummable node" <<
-//             // std::endl;
-//             auto cutensor_kernel = build_einsummable(my_einsummable);
-//             cutensor_kernel(
-//                 stream, handle,
-//                 offset_increment(memory_base_ptr, memory_vector[0].offset),
-//                 get_input_mem_ptrs(memory_vector, memory_base_ptr));
-//           }
-//         }
-
-//         // after execution, we attach the stream with a callback
-//         // function
-//         // get all the metadata needed for the callback
-//         callback_data_t *data = new callback_data_t;
-//         data->m_ptr = &m;
-//         data->cv_ptr = &cv;
-//         data->node_idx = node_idx;
-//         data->my_state = this;
-//         data->stream = stream;
-//         // add the callback
-//         cudaStreamAddCallback(
-//             stream,
-//             [](CUstream_st *, cudaError, void *raw_data) {
-//               callback_data_t *data = static_cast<callback_data_t *>(raw_data);
-//               callback_data_t &f = *data;
-//               f();
-//               delete data;
-//             },
-//             static_cast<void *>(data), 0);
-//       } else {
-//         // print a message saying that the operation is not supported
-//         // and this operation's type
-//         throw std::runtime_error("Error: Operation not supported");
-//       }
-//     }
-
-// 		// locking the mutex until the queue has new things to execute
-//     {
-//       std::unique_lock lk(m);
-//       cv.wait(lk, [&] {
-//         // wake up if there are possible updates or new nodes to run
-//         return finished_queue.size() > 0 || pending_queue.size() > 0
-//         || finished_streams.size() > 0 || stream_pool.size() > 0;
-//       });
-//     }
-
-//   }
-// }
-
-// ------------------------ No stream pool version ------------------------
-
-// get a callback data struct that keeps track of the current node that finished
-// execution Has all the data structures required to update things
-
+// Callback struct that updates execution when a node (with a stream attached)
+// finishes execution
 struct callback_data_t {
   std::mutex *m_ptr;
   std::condition_variable *cv_ptr;
   multi_gpu_execute_state_t *my_state;
   int node_idx;
   bool debug = true;
+  cudaStream_t stream;
 
   void operator()() {
     std::mutex &m = *m_ptr;
     auto &cv = *cv_ptr;
     {
       std::unique_lock lk(m);
+      auto node_loc = my_state->memgraph.nodes[node_idx].op.get_apply_loc();
       // update the queues since this node is finished
       my_state->finished_queue.push(node_idx);
+      my_state->finished_streams[stream] = node_loc;
       if (debug){
         printf("Callback: Node %d finished execution.\n", node_idx);
       }
     }
     cv.notify_all();
   }
+
+  callback_data_t (std::mutex *m_ptr, std::condition_variable *cv_ptr, 
+    multi_gpu_execute_state_t *my_state, int node_idx, cudaStream_t stream) {
+    this->m_ptr = m_ptr;
+    this->cv_ptr = cv_ptr;
+    this->my_state = my_state;
+    this->node_idx = node_idx;
+    this->stream = stream;
+  }
+
+  callback_data_t() {}
 };
 
+// ---------------- Calling streams from a stream pool version ----------------
+
+// function definition of multi_gpu_execute_state_t.run()
 void multi_gpu_execute_state_t::run() {
 
   bool debug = true;
-  
+
   while (true) {
 
     if (is_complete()) {
@@ -498,24 +261,51 @@ void multi_gpu_execute_state_t::run() {
       break;
     }
 
-    // locking the mutex until the queue has new things to execute
-    {
-      std::unique_lock lk(m);
-      cv.wait(lk, [&] {
-        // wake up if there are possible updates or new nodes to run
-        return finished_queue.size() > 0 || pending_queue.size() > 0;
-      });
+    std::unique_lock lk(m);
+
+    while (finished_queue.size() != 0) {
+      // get the node index
+      int node_idx = finished_queue.front();
+      // pop the node index
+      finished_queue.pop();
+      // update the queue since this node is finished
+      auto new_nodes = node_update(node_idx);
+      // print node_idx and new_nodes
+      if (debug){
+        printf("Node %d finished execution. New nodes added: ", node_idx);
+        for (auto n : new_nodes) {
+          printf("%d ", n);
+        }
+        printf("\n");
+      }
+      add_to_pending_queue(new_nodes);
     }
 
+    // int num_added = finished_streams.size();
+
+    while (true) {
+      if (node_idx_waiting_for_stream.size() == 0) {
+        break;
+      }
+      int node_idx = node_idx_waiting_for_stream.front();
+      node_idx_waiting_for_stream.pop();
+      pending_queue.push(node_idx);
+    }
+
+    for (auto it = finished_streams.begin(); it != finished_streams.end(); it++) {
+      stream_pool[it->second].push(it->first);
+    }
+    
+    finished_streams.clear();
+		lk.unlock();
+
     // execute things that are in the apply_queue until the queue is empty
-    while (pending_queue.size() != 0) {
-			std::unique_lock lk(m);
-      // print out the pending queue
-      // get the first element in the queue
-      auto node_idx = pending_queue.front();
-      auto node = memgraph.nodes[node_idx];
-      // remove the first element from the queue
-      pending_queue.pop();
+    while (true) {
+      std::unique_lock lk(m);
+      if (pending_queue.size() == 0) {
+        lk.unlock();
+        break;
+      }
       // print all node indices from the pending queue
       if (debug){
         std::cout << "Pending queue: ";
@@ -526,37 +316,67 @@ void multi_gpu_execute_state_t::run() {
         }
         std::cout << std::endl;
       }
-			lk.unlock();
+      // get the first element in the queue
+      auto node_idx = pending_queue.front();
+      auto node = memgraph.nodes[node_idx];
+      // remove the first element from the queue
+      pending_queue.pop();
+      lk.unlock();
       // std::cout << "Executing node: " << node_idx << std::endl;
       // execute the node
       if (node.op.is_inputmem() || node.op.is_inputsto() || node.op.is_del() ||
           node.op.is_partialize() || node.op.is_alloc()) {
-        // do nothing but update the memgraph execution since that node is
-        // finished
+        // do nothing but update the memgraph execution since that
+        // node is finished
         std::unique_lock lk(m);
         finished_queue.push(node_idx);
         lk.unlock();
       } else if (node.op.is_apply()) {
+        // getting stream from the pool instead of creating a new one
+        std::unique_lock lk(m);
         int node_loc = node.op.get_apply_loc();
         cudaSetDevice(node_loc); 
-        // getting stream from the pool instead of creating a new one
+        if (stream_pool[node_loc].size() == 0) {
+          // can't do anything if no stream aviailable
+          // add this node to the pending queue and wait for a
+          // stream to be available
+          if (debug){
+            std::cout << "No streams available. Waiting for a stream to be available." 
+						  << std::endl;
+          }
+          node_idx_waiting_for_stream.push(node_idx);
+          lk.unlock();
+          continue;
+        }
         cudaStream_t stream = stream_pool[node_loc].front();
-        stream_pool[node_loc].pop();
+        if (debug){
+          std::cout << "Node " << node_idx 
+				    << " got a stream from the pool" << std::endl; 
+        }
+				stream_pool[node_loc].pop();
+        lk.unlock();
         // get the memory offsets
         auto memory_vector = node.op.get_apply().mems;
         // CASE: TOUCH
         if (node.op.is_touch()) {
           // std::cout << "Got a touch node" << std::endl;
-          // TODO: doing a lock; see where is the best place to put this lock
+          // TODO: doing a lock; see where is the best place to put
+          // this lock
           auto touch = node.op.get_touch();
           auto group_id = node.op.get_apply().group;
-          // if we have found this group id in the list, we can't execute until
-          // the previous one is done
+          // if we have found this group id in the list, we can't
+          // execute until the previous one is done
           if (group_id_executing[node_loc].count(group_id) != 0) {
-            // we can't execute this node since some other node is executing
-            // with the same group id add this node to the map
+            // we can't execute this node since some other node
+            // is executing with the same group id
+            // add this node to the map
             groupID_to_nodeIDX[node_loc][group_id].push(node_idx);
-            // skipping the callback since this node didn't execute
+            // give the stream back to the pool since don't need it
+            stream_pool[node_loc].push(stream);
+            // print a message
+            if (debug){
+              std::cout << "Node " << node_idx << " returned stream to pool" << std::endl;
+            }
             continue;
           } else {
             // else we are free to run this
@@ -564,17 +384,9 @@ void multi_gpu_execute_state_t::run() {
             if (all_group_ids[node_loc].count(group_id) == 0) {
               // set the castable to nullopt
               touch.castable = std::nullopt;
-              if (debug){
-                std::cout << "Touch node " << node_idx 
-                  << "'s castable is set to nullopt" << std::endl;
-              }
             } else if (group_id < 0) {
               // set the castable to nullopt
               touch.castable = std::nullopt;
-              if (debug){
-                std::cout << "Touch node " << node_idx 
-                  << "'s castable is set to nullopt" << std::endl;
-              }
             } else {
               if (touch.castable == std::nullopt) {
                 throw std::runtime_error(
@@ -584,7 +396,8 @@ void multi_gpu_execute_state_t::run() {
             // add this group id to the executing set
             group_id_executing[node_loc].insert(group_id);
             all_group_ids[node_loc].insert(group_id);
-
+            auto touch_kernel = build_touch(touch);
+            
             // use the operator of kernel_manager to run touch
             km(touch,
             stream,
@@ -592,7 +405,9 @@ void multi_gpu_execute_state_t::run() {
             offset_increment(memory_base_ptrs[node_loc], memory_vector[1].offset));
           }
         } else {
+          // else it's other einsummables like a contraction
           auto my_einsummable = node.op.get_einsummable();
+          // CASE: CONTRACTION
           if (my_einsummable.is_contraction()) {
             // do a check of the offsets
             checkContractionOffset(node_idx);
@@ -642,11 +457,7 @@ void multi_gpu_execute_state_t::run() {
         std::cout << "Node " << node_idx << " has been scheduled to a stream" << std::endl;
         // after execution, we attach the stream with a callback function
         // get all the metadata needed for the callback
-        callback_data_t *data = new callback_data_t;
-        data->m_ptr = &m;
-        data->cv_ptr = &cv;
-        data->node_idx = node_idx;
-        data->my_state = this;
+        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, stream);
         // add the callback
         cudaStreamAddCallback(
             stream,
@@ -657,8 +468,7 @@ void multi_gpu_execute_state_t::run() {
               delete data;
             },
             static_cast<void *>(data), 0);
-      }
-      else if (node.op.is_move()) {
+      } else if (node.op.is_move()) {
         auto move_op = node.op.get_move();
         // get the src and dst information
         auto [src_loc, src_offset] = move_op.src;
@@ -672,11 +482,7 @@ void multi_gpu_execute_state_t::run() {
                       move_op.size, stream);
 
         // add the callback
-        callback_data_t *data = new callback_data_t;
-        data->m_ptr = &m;
-        data->cv_ptr = &cv;
-        data->node_idx = node_idx;
-        data->my_state = this;
+        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, stream);
         cudaStreamAddCallback(
             stream,
             [](CUstream_st *, cudaError, void *raw_data) {
@@ -686,32 +492,245 @@ void multi_gpu_execute_state_t::run() {
               delete data;
             },
             static_cast<void *>(data), 0);
-      } 
+      }
       else {
-        // print a message saying that the operation is not supported and this
-        // operation's type
         throw std::runtime_error("Error: Operation not supported: Type is "
                                  "among the following - evict, load");
       }
     }
 
-    std::unique_lock lk(m);
-    while (finished_queue.size() != 0) {
-      // get the node index
-      int node_idx = finished_queue.front();
-      // pop the node index
-      finished_queue.pop();
-      // update the queue since this node is finished
-      auto new_nodes = node_update(node_idx);
-      add_to_pending_queue(new_nodes);
-      if (debug){
-        printf("Node %d finished execution. New nodes added: ", node_idx);
-        for (auto n : new_nodes) {
-          printf("%d ", n);
-        }
-        printf("\n");
-      }
+		// locking the mutex until the queue has new things to execute
+    {
+      std::unique_lock lk(m);
+      cv.wait(lk, [&] {
+        // wake up if there are possible updates or new nodes to run
+        return finished_queue.size() > 0 || pending_queue.size() > 0
+        || finished_streams.size() > 0 || has_stream();
+      });
     }
-    lk.unlock();
+
   }
 }
+
+// ------------------------ No stream pool version ------------------------
+
+// void multi_gpu_execute_state_t::run() {
+
+//   bool debug = true;
+  
+//   while (true) {
+
+//     if (is_complete()) {
+//       std::cout << "All nodes finished execution." << std::endl;
+//       break;
+//     }
+
+//     // locking the mutex until the queue has new things to execute
+//     {
+//       std::unique_lock lk(m);
+//       cv.wait(lk, [&] {
+//         // wake up if there are possible updates or new nodes to run
+//         return finished_queue.size() > 0 || pending_queue.size() > 0;
+//       });
+//     }
+
+//     // execute things that are in the apply_queue until the queue is empty
+//     while (pending_queue.size() != 0) {
+// 			std::unique_lock lk(m);
+//       // print out the pending queue
+//       // get the first element in the queue
+//       auto node_idx = pending_queue.front();
+//       auto node = memgraph.nodes[node_idx];
+//       // remove the first element from the queue
+//       pending_queue.pop();
+//       // print all node indices from the pending queue
+//       if (debug){
+//         std::cout << "Pending queue: ";
+//         std::queue<int> temp_queue = pending_queue;
+//         while (temp_queue.size() != 0) {
+//           std::cout << temp_queue.front() << " ";
+//           temp_queue.pop();
+//         }
+//         std::cout << std::endl;
+//       }
+// 			lk.unlock();
+//       // std::cout << "Executing node: " << node_idx << std::endl;
+//       // execute the node
+//       if (node.op.is_inputmem() || node.op.is_inputsto() || node.op.is_del() ||
+//           node.op.is_partialize() || node.op.is_alloc()) {
+//         // do nothing but update the memgraph execution since that node is
+//         // finished
+//         std::unique_lock lk(m);
+//         finished_queue.push(node_idx);
+//         lk.unlock();
+//       } else if (node.op.is_apply()) {
+//         int node_loc = node.op.get_apply_loc();
+//         cudaSetDevice(node_loc); 
+//         // getting stream from the pool instead of creating a new one
+//         cudaStream_t stream = stream_pool[node_loc].front();
+//         stream_pool[node_loc].pop();
+//         // get the memory offsets
+//         auto memory_vector = node.op.get_apply().mems;
+//         // CASE: TOUCH
+//         if (node.op.is_touch()) {
+//           // std::cout << "Got a touch node" << std::endl;
+//           // TODO: doing a lock; see where is the best place to put this lock
+//           auto touch = node.op.get_touch();
+//           auto group_id = node.op.get_apply().group;
+//           // if we have found this group id in the list, we can't execute until
+//           // the previous one is done
+//           if (group_id_executing[node_loc].count(group_id) != 0) {
+//             // we can't execute this node since some other node is executing
+//             // with the same group id add this node to the map
+//             groupID_to_nodeIDX[node_loc][group_id].push(node_idx);
+//             // skipping the callback since this node didn't execute
+//             continue;
+//           } else {
+//             // else we are free to run this
+//             // see this is the first time seeing this group id
+//             if (all_group_ids[node_loc].count(group_id) == 0) {
+//               // set the castable to nullopt
+//               touch.castable = std::nullopt;
+//               if (debug){
+//                 std::cout << "Touch node " << node_idx 
+//                   << "'s castable is set to nullopt" << std::endl;
+//               }
+//             } else if (group_id < 0) {
+//               // set the castable to nullopt
+//               touch.castable = std::nullopt;
+//               if (debug){
+//                 std::cout << "Touch node " << node_idx 
+//                   << "'s castable is set to nullopt" << std::endl;
+//               }
+//             } else {
+//               if (touch.castable == std::nullopt) {
+//                 throw std::runtime_error(
+//                     "Error: Castable is not set for a touch node.");
+//               }
+//             }
+//             // add this group id to the executing set
+//             group_id_executing[node_loc].insert(group_id);
+//             all_group_ids[node_loc].insert(group_id);
+
+//             // use the operator of kernel_manager to run touch
+//             km(touch,
+//             stream,
+//             offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
+//             offset_increment(memory_base_ptrs[node_loc], memory_vector[1].offset));
+//           }
+//         } else {
+//           auto my_einsummable = node.op.get_einsummable();
+//           if (my_einsummable.is_contraction()) {
+//             // do a check of the offsets
+//             checkContractionOffset(node_idx);
+//           }
+
+//           auto einsum_iter = einsum_build_results.find(my_einsummable);
+//           if (einsum_iter == einsum_build_results.end()) {
+//             throw std::runtime_error(
+//                 "Error: Einsummable not found");
+//           }
+//           //Get the is_built and worksize for corresponding build_result 
+//           auto [is_built, wsz] = einsum_iter->second;
+
+//           // is_built - can the kernel manager handle this particular einsum
+//           if(is_built){
+//             uint64_t size = 0;
+//             void* work;
+
+//             //If einsum is built but does not have workspace
+//             //then it's a reduction; called workspace_size()
+//             //to get the worksize needed
+//             if(!wsz){
+//               size = km.workspace_size(my_einsummable,
+//               offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
+//               get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]), handles[node_loc]);
+//               work = gpu_allocate_memory(size, node_loc);
+//             }else if((uint64_t)*wsz>0){ //if wsz(worksize) is larger than 0, we need to allocate workspace
+//               size = *wsz;
+//               work = gpu_allocate_memory(size, node_loc);
+//             }
+
+//             //create the worspace
+//             optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+//             work, size };
+
+
+//             //use kernel_manager operator to run einsum
+//             km(my_einsummable,stream,
+//               offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
+//               get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]),workspace);
+//           }
+//           //TODO: Implement solution if kernel_manager can't handle einsum
+//           else{
+//             throw std::runtime_error("Error: Einsummable not built; kernel_manager can't handle this einsum");
+//           }
+//         }
+//         std::cout << "Node " << node_idx << " has been scheduled to a stream" << std::endl;
+//         // after execution, we attach the stream with a callback function
+//         // get all the metadata needed for the callback
+//         callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx);
+//         // add the callback
+//         cudaStreamAddCallback(
+//             stream,
+//             [](CUstream_st *, cudaError, void *raw_data) {
+//               callback_data_t *data = static_cast<callback_data_t *>(raw_data);
+//               callback_data_t &f = *data;
+//               f();
+//               delete data;
+//             },
+//             static_cast<void *>(data), 0);
+//       }
+//       else if (node.op.is_move()) {
+//         auto move_op = node.op.get_move();
+//         // get the src and dst information
+//         auto [src_loc, src_offset] = move_op.src;
+//         auto [dst_loc, dst_offset] = move_op.dst;
+//         // we should switch to the src location for memcpy
+//         cudaSetDevice(src_loc);
+//         cudaStream_t stream = stream_pool[src_loc].front();
+//         stream_pool[src_loc].pop();
+//         gpu_comm.send(offset_increment(memory_base_ptrs[dst_loc], dst_offset),
+//                       offset_increment(memory_base_ptrs[src_loc], src_offset),
+//                       move_op.size, stream);
+
+//         // add the callback
+//         callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx);
+//         cudaStreamAddCallback(
+//             stream,
+//             [](CUstream_st *, cudaError, void *raw_data) {
+//               callback_data_t *data = static_cast<callback_data_t *>(raw_data);
+//               callback_data_t &f = *data;
+//               f();
+//               delete data;
+//             },
+//             static_cast<void *>(data), 0);
+//       } 
+//       else {
+//         // print a message saying that the operation is not supported and this
+//         // operation's type
+//         throw std::runtime_error("Error: Operation not supported: Type is "
+//                                  "among the following - evict, load");
+//       }
+//     }
+
+//     std::unique_lock lk(m);
+//     while (finished_queue.size() != 0) {
+//       // get the node index
+//       int node_idx = finished_queue.front();
+//       // pop the node index
+//       finished_queue.pop();
+//       // update the queue since this node is finished
+//       auto new_nodes = node_update(node_idx);
+//       add_to_pending_queue(new_nodes);
+//       if (debug){
+//         printf("Node %d finished execution. New nodes added: ", node_idx);
+//         for (auto n : new_nodes) {
+//           printf("%d ", n);
+//         }
+//         printf("\n");
+//       }
+//     }
+//     lk.unlock();
+//   }
+// }

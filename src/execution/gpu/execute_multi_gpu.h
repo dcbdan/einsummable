@@ -10,7 +10,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <cuda_runtime.h>
-#include <unordered_map>
 
 using memgraph_t = memgraph_t;
 
@@ -60,8 +59,9 @@ struct multi_gpu_execute_state_t {
   std::vector<cutensorHandle_t*> handles;
   // create a pool of streams for each device
   std::vector<std::queue<cudaStream_t>> stream_pool;
-  std::vector<std::queue<int>> node_idx_waiting_for_stream;
-  std::vector<std::queue<cudaStream_t>> finished_streams;
+  // value: device id -> look up which device it belongs
+  std::queue<int> node_idx_waiting_for_stream;
+  std::unordered_map<cudaStream_t, int> finished_streams;
 
   // pointer pointing to the start of the GPU memory
   std::vector<void*> memory_base_ptrs;
@@ -69,6 +69,10 @@ struct multi_gpu_execute_state_t {
   std::unordered_map<einsummable_t, build_result_t> einsum_build_results;
 
   gpu_comm_t gpu_comm;
+
+  // gpu has mappings from gpu id to device id
+  // this is here bc the machine's GPUs are shared
+  // std::unordered_map<int, int> gpu_mapping;
 
   // synchronization variables used by the callback function
   std::mutex m;
@@ -96,6 +100,7 @@ struct multi_gpu_execute_state_t {
 
   void printContractionInfo(int node_idx, int num_elems);
   void checkContractionOffset(int node_idx);
+  bool has_stream();
 
   // execute the memgraph
   void run();
