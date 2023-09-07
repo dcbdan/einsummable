@@ -288,8 +288,8 @@ int main_ff() {
 
 int main(int argc, char **argv) {
   // main_ff();
-  // main_matmul(argc, argv);
-  main_matmul_multi_gpu(argc, argv);
+  main_matmul(argc, argv);
+  // main_matmul_multi_gpu(argc, argv);
   // contractionTest2();
   return 0;
 }

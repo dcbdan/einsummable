@@ -12,6 +12,8 @@ gpu_comm_t::~gpu_comm_t() {
 void gpu_comm_t::send(void* dst, void* src, size_t size, cudaStream_t stream){
   cudaError_t err = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
   if (err != cudaSuccess) {
+    // print the error code and error string
+    printf("Memcpy Error code: %d\n", err);
     throw std::runtime_error("cudaMemcpy failed");
   }
 }
@@ -20,6 +22,8 @@ void gpu_comm_t::send(void* dst, void* src, size_t size, cudaStream_t stream){
 void gpu_comm_t::recv(void* dst, void* src, size_t size, cudaStream_t stream){
   cudaError_t err = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
   if (err != cudaSuccess) {
+    // print the error code and error string
+    printf("Memcpy Error code: %d\n", err);
     throw std::runtime_error("cudaMemcpy failed");
   }
 }
