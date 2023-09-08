@@ -17,7 +17,7 @@ cudaStream_t cuda_create_stream() {
   auto cudaError = cudaStreamCreate(&ret);
   if (cudaError != cudaSuccess) {
     // print error message and error code
-    printf("cudaStreamCreate failed with error code %d\n", cudaError);
+    fprintf(stderr, "cudaStreamCreate failed with error: %s\n", cudaGetErrorString(cudaError));
     throw std::runtime_error("cuda_create_stream");
   }
   return ret;
@@ -47,9 +47,12 @@ void printFloatGPU(const void *gpu_ptr, int count) {
 void* gpu_allocate_memory(size_t size, int device_id) {
   cudaSetDevice(device_id);
   void* ret;
-  if (cudaMalloc(&ret, size) != cudaSuccess) {
+  auto cudaError = cudaMalloc(&ret, size);
+  if (cudaError != cudaSuccess) {
     // print an error message and the error code
-    std::cout << "Error code: " << cudaGetLastError() << std::endl;
+    fprintf(stderr, "cudaStreamCreate failed with error: %s\n", cudaGetErrorString(cudaError));
+    // printing the size and device id
+    fprintf(stderr, "size: %zu, device_id: %d\n", size, device_id);
     throw std::runtime_error("cuda_malloc");
   }
   return ret;

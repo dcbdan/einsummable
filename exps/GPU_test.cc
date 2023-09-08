@@ -164,7 +164,7 @@ int main_matmul_multi_gpu(int argc, char **argv) {
   // have everyone share the same cache
   vector<int> compute_loc_to_cache(np, 0);
 
-  size_t allocator_size = 4lu * 1024lu * 1024lu * 1024lu;
+  size_t allocator_size = 6lu * 1024lu * 1024lu * 1024lu;
 
   vector<uint64_t> mem_sizes;
 
@@ -194,6 +194,9 @@ int main_matmul_multi_gpu(int argc, char **argv) {
                   << std::endl;
         exit(1);
       }
+
+      // print the memgraph sizes on all gpus
+      std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
 
       check_bounds(memgraph, memgraph.mem_sizes()[i]);
     }
@@ -288,8 +291,8 @@ int main_ff() {
 
 int main(int argc, char **argv) {
   // main_ff();
-  main_matmul(argc, argv);
-  // main_matmul_multi_gpu(argc, argv);
+  // main_matmul(argc, argv);
+  main_matmul_multi_gpu(argc, argv);
   // contractionTest2();
   return 0;
 }

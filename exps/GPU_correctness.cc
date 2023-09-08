@@ -42,9 +42,13 @@ void print_memgraph(memgraph_t memgraph){
 void mem_t_check(std::vector<mem_t> mems, int bound) {
   for (auto mem : mems) {
     if (mem.offset > bound) {
+      // print the offset and bound
+      std::cout << "Offset: " << mem.offset << " Bound: " << bound << std::endl;
       throw std::runtime_error("Error: offset is greater than the bound.");
     }
     if (mem.offset + mem.size > bound) {
+      // print the offset and bound
+      std::cout << "Offset: " << mem.offset << " Bound: " << bound << std::endl;
       throw std::runtime_error("Error: offset + size is greater than the bound.");
     }
   }  
@@ -52,6 +56,8 @@ void mem_t_check(std::vector<mem_t> mems, int bound) {
 
 // check if all nodes in the memgraph are within the memory bound
 void check_bounds(memgraph_t memgraph, size_t bound){
+  // print the bound 
+  std::cout << "Memory bound: " << bound << std::endl;
   for (auto node: memgraph.nodes){
     if (node.op.is_inputmem()){
       auto op = node.op.get_inputmem();
@@ -173,7 +179,7 @@ void execute_multi_gpu_test(memgraph_t memgraph) {
   std::vector<void*> gpu_ptrs;
   for (int i = 0; i < num_gpu; ++i){
     gpu_ptrs.push_back(gpu_allocate_memory(memgraph.mem_sizes()[i], i));
-    std::cout << "Memgraph size on gpu " << i << " : " << memgraph.mem_sizes()[i] << std::endl;
+    // std::cout << "Memgraph size on gpu " << i << " : " << memgraph.mem_sizes()[i] << std::endl;
   }
   // copy data from CPU to GPU
   // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=

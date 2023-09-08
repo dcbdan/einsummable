@@ -153,7 +153,7 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(memgraph_t const& input_mem
     : memgraph(input_memgraph), memory_base_ptrs(mem_ptr) {
 
   int num_gpus = memory_base_ptrs.size();
-  int num_streams = 200;
+  int num_streams = 5000;
 
   // create a cutensor handle for each device
   // NOTE: change this when we have all GPUs at disposal
@@ -263,7 +263,6 @@ struct callback_data_t {
 
 // ---------------- Calling streams from a stream pool version ----------------
 
-// function definition of multi_gpu_execute_state_t.run()
 // void multi_gpu_execute_state_t::run() {
 
 //   bool debug = false;
@@ -585,6 +584,7 @@ void multi_gpu_execute_state_t::run() {
         // getting stream from the pool instead of creating a new one
         cudaStream_t stream = stream_pool[node_loc].front();
         stream_pool[node_loc].pop();
+        // cudaStream_t stream = cuda_create_stream();
         // get the memory offsets
         auto memory_vector = node.op.get_apply().mems;
         // CASE: TOUCH

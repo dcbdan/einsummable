@@ -10,20 +10,20 @@ gpu_comm_t::~gpu_comm_t() {
 }
 
 void gpu_comm_t::send(void* dst, void* src, size_t size, cudaStream_t stream){
-  cudaError_t err = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
-  if (err != cudaSuccess) {
+  cudaError_t cudaError = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
+  if (cudaError != cudaSuccess) {
     // print the error code and error string
-    printf("Memcpy Error code: %d\n", err);
+    fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
     throw std::runtime_error("cudaMemcpy failed");
   }
 }
 
 // RIGHT NOW SEND AND RECV ARE THE SAME
 void gpu_comm_t::recv(void* dst, void* src, size_t size, cudaStream_t stream){
-  cudaError_t err = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
-  if (err != cudaSuccess) {
+  cudaError_t cudaError = cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice, stream);
+  if (cudaError != cudaSuccess) {
     // print the error code and error string
-    printf("Memcpy Error code: %d\n", err);
+    fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
     throw std::runtime_error("cudaMemcpy failed");
   }
 }

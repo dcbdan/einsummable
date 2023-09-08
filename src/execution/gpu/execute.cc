@@ -186,7 +186,7 @@ gpu_execute_state_t::gpu_execute_state_t(memgraph_t const &input_memgraph,
     }
   }
 
-  int num_streams = 200;
+  int num_streams = 5000;
   // create a pool of streams
   for (int i = 0; i < num_streams; i++) {
     stream_pool.push(cuda_create_stream());
@@ -537,9 +537,10 @@ void gpu_execute_state_t::run() {
         finished_queue.push(node_idx);
         lk.unlock();
       } else if (node.op.is_apply()) {
-        // getting stream from the pool instead of creating a new one
-        cudaStream_t stream = stream_pool.front();
-        stream_pool.pop();
+        // // getting stream from the pool instead of creating a new one
+        // cudaStream_t stream = stream_pool.front();
+        // stream_pool.pop();
+        cudaStream_t stream = cuda_create_stream();
         // get the memory offsets
         auto memory_vector = node.op.get_apply().mems;
         // CASE: TOUCH
