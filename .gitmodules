@@ -1,0 +1,3 @@
+[submodule "thirdparty/tblis"]
+	path = thirdparty/tblis
+	url = https://github.com/devinamatthews/tblis

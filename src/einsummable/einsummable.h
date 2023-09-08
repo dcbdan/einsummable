@@ -75,6 +75,8 @@ struct einsummable_t {
   static string create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs);
 
   static string create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape);
+  static tuple<string, vector<string>>
+  make_str_terms(vector<vector<int>> const& inns, int out_rank);
 
   static string make_str(vector<vector<int>> const& inns, int out_rank);
 
@@ -106,6 +108,8 @@ struct einsummable_t {
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
   string str() const;
+
+  tuple<string, vector<string>> str_terms() const;
 
   std::size_t hash() const;
 

@@ -29,7 +29,7 @@ model_args_t model_args_t::llama_7B(uint64_t batch_size) {
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,
-    .max_seq_len     = 512,
+    .max_seq_len     = 2048,
     .vocab_size      = 32000,
   };
 }
@@ -43,7 +43,7 @@ model_args_t model_args_t::llama_13B(uint64_t batch_size) {
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,
-    .max_seq_len     = 512,
+    .max_seq_len     = 2048,
     .vocab_size      = 32000,
   };
 }
@@ -56,7 +56,7 @@ model_args_t model_args_t::llama_30B(uint64_t batch_size) {
     .multiple_of     = 256,
     .norm_eps        = 1e-6,
     .batch_size      = batch_size,
-    .max_seq_len     = 512,
+    .max_seq_len     = 2048,
     .vocab_size      = 32000,
   };
 }
@@ -69,7 +69,7 @@ model_args_t model_args_t::llama_65B(uint64_t batch_size) {
     .multiple_of     = 256,
     .norm_eps        = 1e-5,
     .batch_size      = batch_size,
-    .max_seq_len     = 512,
+    .max_seq_len     = 2048,
     .vocab_size      = 32000,
   };
 }
