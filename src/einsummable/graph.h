@@ -317,8 +317,8 @@ public:
   };
 
   int build_grad_term(int id, int out_node_id, int which_inn, int node_grad);
-  int build_grad_term_mul_lhs(int node_grad, int other); // Y = A * B => dY/dA = grad * B.T
-  int build_grad_term_mul_rhs(int other, int node_grad); // dY/dB = A.T * grad
+  int build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int other); // Y = A * B => dY/dA = grad * B.T
+  int build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_grad); // dY/dB = A.T * grad
 
   int build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad); // dY/dA = out_grad x deri_op(node), where x is hadammard product
 

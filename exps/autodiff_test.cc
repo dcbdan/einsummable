@@ -278,6 +278,48 @@ void test_mm() {
   std::cout << mm.inn_shapes() << std::endl;
 }
 
+string get_deri_einsum(einsummable_t einsum, int which_inn) {
+
+  map<int, int> mapz;
+  vector<vector<int>> inns;
+  vector<int> tmp;
+  int ctr = 0;
+
+  for (auto i : einsum.inns[which_inn]) {
+    mapz.insert({i, ctr++});
+  }
+
+  vector<int> tmp2;
+
+  for (auto i : einsum.inns[which_inn == 0 ? 1 : 0]) {
+    auto it = mapz.find(i);
+    if (it == mapz.end()) {
+      mapz.insert({i, ctr});
+      tmp2.push_back(ctr++);
+    } else {
+      tmp2.push_back(it->second);
+    }
+  }
+
+  std::cout << tmp2 << std::endl;
+
+  for (int i = 0; i < einsum.out_rank; i++) {
+    tmp.push_back(mapz.at(i));
+  }
+
+  std::cout << tmp << std::endl;
+
+  inns.push_back(tmp);
+  inns.push_back(tmp2);
+
+  std::cout << inns << std::endl;
+
+  auto stringy = einsummable_t::make_str(inns, einsum.inns[which_inn].size());
+  std::cout << stringy << std::endl;
+
+  return stringy;
+}
+
 void contraction_test() {
 
   vector<uint64_t> input_shape1 = {4, 5, 2, 3};
@@ -312,7 +354,51 @@ void contraction_test() {
   std::cout << cc.inns << std::endl;
   std::cout << cc.get_input_from_join(join_shape.value(), 0) << std::endl;
   std::cout << cc.get_input_from_join(join_shape.value(), 1) << std::endl;
+
+  auto const& [deri_inns, deri_out_rank] = einsummable_t::parse_str("ijmn,mn->ijkl");
+  std::cout << deri_inns << std::endl;
+
+  //{4,6,7,8},{7,5,2,8}
+
+  auto const& [mm_inns, mm_or] = einsummable_t::parse_str("ij,i->i");
+  auto const& join_shape_mm = einsummable_t::construct_join_shape(mm_inns, {{4,6},{4}});
+  std::cout << join_shape_mm.value() << std::endl;
+  einsummable_t mm(
+    join_shape_mm.value(),
+    mm_inns,
+    mm_or,
+    scalarop_t::make_mul(),
+    castable_t::add
+  );
+
+  if (mm.is_contraction()) {
+    std::cout << "contract" << std::endl;
+  }
+
+
+
+  std::cout << join_shape_mm.value() << std::endl;
+
+  auto const& stringovic = get_deri_einsum(mm, 0);
+
+  auto const& [dinns, dor] = einsummable_t::parse_str(stringovic); 
+  auto const& djs = einsummable_t::construct_join_shape(dinns, {mm.out_shape(), mm.inn_shapes()[1]});
+  std::cout << mm.out_shape() << " " << mm.inn_shapes()[1] << std::endl;
+  std::cout << djs.value() << std::endl;
+
+  einsummable_t derija(
+    djs.value(),
+    dinns,
+    dor,
+    scalarop_t::make_mul(),
+    castable_t::add
+  );
+
+  std::cout << "AJDEEE" << std::endl;
+  std::cout << derija << std::endl;
 }
+
+
 
 int main() {
   //mul_derivative();

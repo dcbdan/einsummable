@@ -68,6 +68,8 @@ struct einsummable_t {
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
+  string create_contraction_vjp_string(int which_inn);
+
   static string create_unary_vjp_string(vector<int> inn, int rank);
 
   static string create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs);

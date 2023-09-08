@@ -474,11 +474,47 @@ string einsummable_t::make_str(
 }
 
 string
+einsummable_t::create_contraction_vjp_string(int which_inn)
+{
+  map<int, int> mapz;
+  vector<vector<int>> innz;
+  vector<int> tmp;
+  vector<int> tmp2;
+  int ctr = 0;
+
+  for (auto i : inns[which_inn]) {
+    mapz.insert({i, ctr++});
+  }
+
+  for (auto i : inns[which_inn == 0 ? 1 : 0]) {
+    auto it = mapz.find(i);
+    if (it == mapz.end()) {
+      mapz.insert({i, ctr});
+      tmp2.push_back(ctr++);
+    } else {
+      tmp2.push_back(it->second);
+    }
+  }
+
+  for (int i = 0; i < out_rank; i++) {
+    tmp.push_back(mapz.at(i));
+  }
+
+  if (which_inn == 0) {
+    innz.push_back(tmp);
+    innz.push_back(tmp2);
+  } else {
+    innz.push_back(tmp2);
+    innz.push_back(tmp);
+  }
+  
+  return make_str(innz, inns[which_inn].size());
+}
+
+string
 einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape)
 {
   auto identity = identity_permutation(argument_shape.size());
-  std::cout << "ARGUSHAPE: " << argument_shape << std::endl;
-  std::cout << "IDE: " << identity << std::endl;
   auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};  
   return make_str(permuted_inns, argument_shape.size());
 }

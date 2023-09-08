@@ -1060,13 +1060,13 @@ int graph_t::build_grad_term(
   }
 
   if (op.is_einsummable()) {
-    auto const& einsummable = op.get_einsummable();
+    auto einsummable = op.get_einsummable();
     if (einsummable.is_contraction()) {
       int other = out_node.get_other_input(id);
       if (which_inn == 0) {
-        return build_grad_term_mul_lhs(node_grad, other); // out_grad "*" OTHER.T
+        return build_grad_term_mul_lhs(einsummable, node_grad, other); // out_grad "*" OTHER.T
       } else {
-        return build_grad_term_mul_rhs(other, node_grad); // OTHER.T "*" out_grad
+        return build_grad_term_mul_rhs(einsummable, other, node_grad); // OTHER.T "*" out_grad
       }
     } else if (einsummable.join.is_unary()) {
         return build_grad_term_ewu(einsummable, id, node_grad);
@@ -1081,19 +1081,27 @@ int graph_t::build_grad_term(
   How can I incoroprate find_permutation to this case?
 
 */
-int graph_t::build_grad_term_mul_lhs(int node_grad, int other) {
+int graph_t::build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int other) {
 
-  auto const& lhs = nodes[node_grad];
+  /*auto const& lhs = nodes[node_grad];
   auto const& rhs = nodes[other];
 
   int lhsrank = lhs.op.out_rank();
-  int rhsrank = rhs.op.out_rank();
+  int rhsrank = rhs.op.out_rank();*/
 
-  auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, false, true);
-  auto const& [inns, out_rank] = einsummable_t::parse_str(notation);
-  auto join_shape = einsummable_t::construct_join_shape(inns, {lhs.op.out_shape(), rhs.op.out_shape()});
+  auto const& notationies = einsum.create_contraction_vjp_string(0);
 
-  einsummable_t einsum(
+  std::cout << einsum.str() << std::endl;
+  std::cout << notationies << std::endl;
+
+  // auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, false, true);
+  auto const& [inns, out_rank] = einsummable_t::parse_str(notationies);
+
+  std::cout << einsum.inn_shapes()[1] << ", " << einsum.out_shape() << std::endl;
+
+  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]});
+
+  einsummable_t einsumz(
     join_shape.value(),
     inns,
     out_rank,
@@ -1102,23 +1110,32 @@ int graph_t::build_grad_term_mul_lhs(int node_grad, int other) {
   );
   // sve ovo da zamenim sa: 
 
-  return insert_einsummable(einsum, {node_grad, other});
+  std::cout << "Kreirao sam einsummable objekat" << std::endl;
+
+  return insert_einsummable(einsumz, {node_grad, other});
 }
 
-int graph_t::build_grad_term_mul_rhs(int other, int node_grad) {
+int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_grad) {
 
-  auto const& lhs = nodes[other];
+  /*auto const& lhs = nodes[other];
   auto const& rhs = nodes[node_grad];
 
   int lhsrank = lhs.op.out_rank();
-  int rhsrank = rhs.op.out_rank();
+  int rhsrank = rhs.op.out_rank();*/
 
-  auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, true, false);
-  auto const& [inns, out_rank] = einsummable_t::parse_str(notation);
+  auto const& notationies = einsum.create_contraction_vjp_string(1);
 
-  auto join_shape = einsummable_t::construct_join_shape(inns, {lhs.op.out_shape(), rhs.op.out_shape()}).value();
+  std::cout << einsum.str() << std::endl;
+  std::cout << notationies << std::endl;
 
-  einsummable_t einsum(
+  // auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, true, false);
+  auto const& [inns, out_rank] = einsummable_t::parse_str(notationies);
+
+  std::cout << einsum.inn_shapes()[0] << ", " << einsum.out_shape() << std::endl;
+
+  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
+
+  einsummable_t einsumz(
     join_shape,
     inns,
     out_rank,
@@ -1126,7 +1143,9 @@ int graph_t::build_grad_term_mul_rhs(int other, int node_grad) {
     castable_t::add
   );
 
-  return insert_einsummable(einsum, {other, node_grad});
+  std::cout << "Kreirao sam einsummable objekat" << std::endl;
+
+  return insert_einsummable(einsumz, {other, node_grad});
 }
 
 int graph_t::build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad) {
