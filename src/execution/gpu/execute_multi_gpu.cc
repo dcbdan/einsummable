@@ -1,4 +1,5 @@
 #include "execute_multi_gpu.h"
+#include "utility.h"
 #include <cuda_runtime_api.h>
 
 
@@ -218,7 +219,7 @@ struct callback_data_t {
   std::condition_variable *cv_ptr;
   multi_gpu_execute_state_t *my_state;
   int node_idx;
-  bool debug = false;
+  bool debug = true;
   cudaStream_t stream;
 
   void operator()() {
@@ -266,7 +267,7 @@ struct callback_data_t {
 
 void multi_gpu_execute_state_t::run() {
 
-  bool debug = false;
+  bool debug = true;
 
   while (true) {
 
@@ -532,7 +533,7 @@ void multi_gpu_execute_state_t::run() {
 
 void multi_gpu_execute_state_t::run_create_stream() {
 
-  bool debug = false;
+  bool debug = true;
   
   while (true) {
 
@@ -716,8 +717,9 @@ void multi_gpu_execute_state_t::run_create_stream() {
         auto [dst_loc, dst_offset] = move_op.dst;
         // we should switch to the src location for memcpy
         cudaSetDevice(src_loc);
-        cudaStream_t stream = stream_pool[src_loc].front();
-        stream_pool[src_loc].pop();
+        // cudaStream_t stream = stream_pool[src_loc].front();
+        // stream_pool[src_loc].pop();
+        cudaStream_t stream = cuda_create_stream();
         // print dst_loc and dst_offset, src_loc and src_offset
         if (debug){
           std::cout << "dst_loc: " << dst_loc << std::endl;

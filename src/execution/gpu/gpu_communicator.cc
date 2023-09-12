@@ -1,4 +1,5 @@
 #include "gpu_communicator.h"
+#include "utility.h"
 #include <cuda_runtime_api.h>
 
 gpu_comm_t::gpu_comm_t() {

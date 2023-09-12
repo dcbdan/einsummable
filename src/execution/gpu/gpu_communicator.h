@@ -1,5 +1,5 @@
 #include "../../base/setup.h"
-#include "cutensor.h"
+#include "utility.h"
 #include <cuda_runtime.h>
 
 // At this point we are doing single machine multi gpu
