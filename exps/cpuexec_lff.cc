@@ -43,7 +43,9 @@ graph_t make_graph_ff_simple(
 
   tensor_t c = writer.mul(a, b);
 
-  writer.matmul(c, w2t);
+  tensor_t z = writer.matmul(c, w2t);
+
+  z.save_inplace();
 
   return writer.get_graph();
 }
@@ -62,6 +64,8 @@ graph_t make_graph_mm(
   tensor_t w1t = w1.transpose(0, 1);
 
   tensor_t a = writer.matmul(x, w1t);
+
+  a.save_inplace();
 
   return writer.get_graph();
 }
@@ -262,6 +266,54 @@ random_partition_solve(graph_t const& g, int niter, cluster_settings_t const& st
   return {ret_p, ret_tg};
 }
 
+struct adj_random_partition_t {
+  adj_random_partition_t(graph_t const& graph) {
+    int ngid = graph.nodes.size();
+    info.resize(ngid);
+    // detect all of the following type of edges:
+    //   input->einsummable
+    //   einsummable->formation
+    //   formation->einsummable
+    for(int dst_gid = 0; dst_gid != ngid; ++dst_gid) {
+      auto const& dst_node = graph.nodes[dst_gid];
+      auto const& inns = dst_node.inns;
+      for(int which_inn = 0; which_inn != inns.size(); ++which_inn) {
+        int const& src_gid = inns[which_inn];
+        auto const& src_node = graph.nodes[src_gid];
+        if(src_node.op.is_input() && dst_node.op.is_einsummable()) {
+          auto const& e = dst_node.op.get_einsummable();
+          info[src_gid].emplace_back(dst_gid, e.inns[which_inn]);
+        } else if(src_node.op.is_einsummable() && dst_node.op.is_formation()) {
+          int rank = dst_node.op.shape().size();
+          vector<int> idxs(rank);
+          std::iota(idxs.begin(), idxs.end(), 0);
+          info[dst_gid].emplace_back(src_gid, idxs);
+        } else if(src_node.op.is_formation() && dst_node.op.is_einsummable()) {
+          auto const& e = dst_node.op.get_einsummable();
+          info[src_gid].emplace_back(dst_gid, e.inns[which_inn]);
+        }
+      }
+    }
+  }
+
+  optional<partition_t> operator()(int gid, vector<partition_t> const& ps) {
+    auto const& is = info[gid];
+    if(is.size() == 0) {
+      return std::nullopt;
+    }
+    int which = runif(is.size());
+    auto const& [other_gid, idxs] = is[which];
+    vector<partdim_t> pds;
+    for(int const& i: idxs) {
+      pds.push_back(ps[other_gid].partdims[i]);
+    }
+    return partition_t(pds);
+  }
+
+  // gid -> [ gid, which index ]
+  vector<vector<tuple<int, vector<int>>>> info;
+};
+
 tuple<vector<partition_t>, taskgraph_t>
 random_step_partition_solve(
   graph_t const& g,
@@ -270,9 +322,21 @@ random_step_partition_solve(
   int max_distance)
 {
   DOUT("random_step_partition_solve; max distance " << max_distance);
-  random_partition_t rnd { .splits = {1,4,8,16} };//,16,32} };
+  random_partition_t rnd { .splits = {1,2,4, 8,12,16} }; // ,24,32,48,64} };
+  adj_random_partition_t adj_rnd(g);
 
   vector<partition_t> current_ps;
+
+  auto random_partition = [&](int gid) {
+    if(runif(100) < 50) {
+      auto maybe = adj_rnd(gid, current_ps);
+      if(maybe) {
+        return maybe.value();
+      }
+    }
+    return rnd(g.nodes[gid].op.shape());
+  };
+
   for(auto const& node: g.nodes) {
     current_ps.push_back(partition_t::singleton(node.op.shape()));
   }
@@ -304,7 +368,7 @@ random_step_partition_solve(
 
     int which = vector_random(choices);
     auto const& node = g.nodes[which];
-    current_ps[which] = rnd(node.op.shape());
+    current_ps[which] = random_partition(which);
 
     vector<placement_t> pls = load_balanced_placement(g, current_ps, 1, false);
     auto [_0, _1, tg] = taskgraph_t::make(g, pls);
@@ -406,10 +470,10 @@ int main(int argc, char** argv) {
 
 
     //vector<partition_t> parts = {
-    //  make_p(g.nodes[ 0].op.shape(), {1,1}),
-    //  make_p(g.nodes[ 1].op.shape(), {nrunner,1}),
-    //  make_p(g.nodes[ 2].op.shape(), {1,nrunner,1}),
-    //  make_p(g.nodes[ 3].op.shape(), {1,nrunner}),
+    //  make_p(g.nodes[ 0].op.shape(), {2,1}),
+    //  make_p(g.nodes[ 1].op.shape(), {4,1}),
+    //  make_p(g.nodes[ 2].op.shape(), {2,4,1}),
+    //  make_p(g.nodes[ 3].op.shape(), {3,3}),
     //};
     //vector<partition_t> parts = {
     //  make_p(g.nodes[ 0].op.shape(), {1,nrunner}),
@@ -423,7 +487,11 @@ int main(int argc, char** argv) {
       DOUT(p);
     }
     //vector<placement_t> pls = load_balanced_placement(g, parts, 1, false);
-    //auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
+    //auto [iiss, saves, tg_] = taskgraph_t::make(g, pls);
+    //DOUT("? " << iiss.size() << " " << saves.size() << " ?");
+    //for(auto const& [save_gid, vtensor]: saves) {
+    //  DOUT(save_gid << ": " << vtensor);
+    //}
     //tg = tg_;
   }
 
