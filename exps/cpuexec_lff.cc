@@ -10,6 +10,8 @@
 #include "../src/autoplace/autopart.h"
 #include "../src/autoplace/loadbalanceplace.h"
 
+#include "../src/autoplace/bcost.h"
+
 #include <fstream>
 
 using tensor_t     = graph_writer_t::tensor_t;
@@ -42,6 +44,24 @@ graph_t make_graph_ff_simple(
   tensor_t c = writer.mul(a, b);
 
   writer.matmul(c, w2t);
+
+  return writer.get_graph();
+}
+
+graph_t make_graph_mm(
+  uint64_t batch,
+  uint64_t hidden,
+  uint64_t dim)
+{
+  graph_writer_t writer;
+
+  tensor_t x = writer.input({batch, dim});
+
+  tensor_t w1 = writer.input({hidden, dim});
+
+  tensor_t w1t = w1.transpose(0, 1);
+
+  tensor_t a = writer.matmul(x, w1t);
 
   return writer.get_graph();
 }
@@ -104,6 +124,31 @@ double execute_direct(
   return duration.count();
 }
 
+double execute_direct_mm(
+  uint64_t batch,
+  uint64_t hidden,
+  uint64_t dim)
+{
+  kernel_manager_t km;
+
+  buffer_t x = make_data({batch, dim});
+  buffer_t w1 = make_data({hidden, dim});
+
+  einsummable_t e1 = einsummable_t::from_matmul_st(batch,dim,hidden);
+
+  km.build(e1);
+
+  auto start = clock_now();
+
+  buffer_t z0 = make_out({batch,hidden});
+  km(e1, z0->raw(), {x->raw(), w1->raw()});
+
+  auto end = clock_now();
+
+  std::chrono::duration<double, std::milli> duration = end - start;
+  return duration.count();
+}
+
 double execute_tg(
   taskgraph_t const& tg,
   int num_apply_runner)
@@ -154,6 +199,19 @@ double vector_median(vector<double> xs) {
   return *(xs.begin() + (n/2));
 }
 
+partition_t make_p(vector<uint64_t> const& ds, vector<int> const& xs) {
+  if(ds.size() != xs.size()) {
+    throw std::runtime_error("make_p: incorect input sizes");
+  }
+  vector<partdim_t> pds;
+  for(int i = 0; i != ds.size(); ++i) {
+    uint64_t const& d = ds[i]; 
+    int const& x = xs[i];
+    pds.push_back(partdim_t::split(d, x));
+  }
+  return partition_t(pds);
+}
+
 int main(int argc, char** argv) {
   args_t pargs(argc, argv);
 
@@ -163,28 +221,40 @@ int main(int argc, char** argv) {
   pargs.set_default<uint64_t>("multiple_of", 256 );
   pargs.set_default<int>     ("nrep",        10  );
   pargs.set_default<int>     ("nrunner",     1   );
+  pargs.set_default<bool>    ("mm",         true );
+  pargs.set_default<bool>    ("direct",     false);
 
   uint64_t batch       = pargs.get<uint64_t>("batch");
   uint64_t seqlen      = pargs.get<uint64_t>("seqlen");
   uint64_t dim         = pargs.get<uint64_t>("dim");
   uint64_t multiple_of = pargs.get<uint64_t>("multiple_of");
 
+  bool mm = pargs.get<bool>("mm");
+  bool direct = pargs.get<bool>("direct");
+
   uint64_t hidden = compute_hidden(dim, multiple_of);
 
   int nrep = pargs.get<int>("nrep");
   int nrunner = pargs.get<int>("nrunner");
 
-  graph_t g = make_graph_ff_simple(batch * seqlen, hidden, dim);
+  graph_t g = mm                                      ?
+    make_graph_mm(       batch * seqlen, hidden, dim) : 
+    make_graph_ff_simple(batch * seqlen, hidden, dim) ;
 
   std::ofstream f("g.gv");
   g.print_graphviz(f);
   DOUT("printed g.gv");
 
-  {
+  if(direct) {
     vector<double> ts;
     for(int i = 0; i != nrep; ++i) {
-      ts.push_back(execute_direct(batch * seqlen, hidden, dim));
+      if(mm) {
+        ts.push_back(execute_direct_mm(batch * seqlen, hidden, dim));
+      } else {
+        ts.push_back(execute_direct(batch * seqlen, hidden, dim));
+      }
     }
+    DOUT(ts);
     DOUT("execute direct: " << vector_median(ts));
   }
 
@@ -198,9 +268,24 @@ int main(int argc, char** argv) {
     auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
     tg = tg_;
   } else {
-    uint64_t min_sizing = 1;
-    ps = autopartition(g, min_sizing, nrunner);
-    vector<placement_t> pls = load_balanced_placement(g, ps, 1, false);
+    vector<partition_t> parts = {
+      make_p(g.nodes[ 0].op.shape(), {1,1}),  
+      make_p(g.nodes[ 1].op.shape(), {nrunner,1}),  
+      make_p(g.nodes[ 2].op.shape(), {1,nrunner,1}),  
+      make_p(g.nodes[ 3].op.shape(), {1,nrunner}),  
+    };
+    //vector<partition_t> parts = {
+    //  make_p(g.nodes[ 0].op.shape(), {1,nrunner}),  
+    //  make_p(g.nodes[ 1].op.shape(), {1,nrunner}),  
+    //  make_p(g.nodes[ 2].op.shape(), {1,1,nrunner}),  
+    //  make_p(g.nodes[ 3].op.shape(), {1,1}),  
+    //};    
+    //uint64_t min_sizing = 1;
+    //auto parts = autopartition(g, min_sizing, nrunner);
+    for(auto const& p: parts) {
+      DOUT(p);
+    }
+    vector<placement_t> pls = load_balanced_placement(g, parts, 1, false);
     auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
     tg = tg_;
   }
@@ -212,10 +297,14 @@ int main(int argc, char** argv) {
     DOUT("printed " << name);
   }
 
+  cluster_settings_t sts(1, nrunner);
+  DOUT("tg cost: " << bytes_cost(tg, sts));
+
   vector<double> ts;
   for(int i = 0; i != nrep; ++i) {
     ts.push_back(execute_tg(tg, nrunner));
   }
+  DOUT(ts);
   DOUT("execute with nrunner " << nrunner << ": " << vector_median(ts))
 }
 

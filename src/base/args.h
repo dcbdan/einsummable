@@ -43,6 +43,8 @@ struct args_t {
       return d_double.at(key);
     } else if constexpr (std::is_same<T, string>::value) {
       return d_string.at(key);
+    } else if constexpr (std::is_same<T, bool>::value) {
+      return d_bool.at(key);
     } else {
       throw std::runtime_error("unsupported default type");
     }
@@ -62,6 +64,8 @@ struct args_t {
       d_double.insert({key, value});
     } else if constexpr (std::is_same<T, string>::value) {
       d_string.insert({key, value});
+    } else if constexpr (std::is_same<T, bool>::value) {
+      d_bool.insert({key, value});
     } else {
       throw std::runtime_error("unsupported default type");
     }
@@ -76,6 +80,7 @@ private:
   map<string, float    > d_float;
   map<string, double   > d_double;
   map<string, string   > d_string;
+  map<string, bool     > d_bool;
 };
 
 

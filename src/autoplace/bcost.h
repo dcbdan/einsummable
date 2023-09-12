@@ -4,6 +4,8 @@
 #include "../einsummable/taskgraph.h"
 
 struct cluster_settings_t {
+  cluster_settings_t(int n_node, int n_worker_per);
+
   vector<vector<double>> speed_per_byte;
   vector<int> nworkers_per_node;
 

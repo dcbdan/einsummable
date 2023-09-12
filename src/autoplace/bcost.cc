@@ -1,5 +1,13 @@
 #include "bcost.h"
 
+cluster_settings_t::cluster_settings_t(int n_node, int n_worker_per) {
+  speed_per_byte = vector<vector<double>>(n_node, vector<double>(n_node, 1e9));
+  for(int i = 0; i != n_node; ++i) {
+    speed_per_byte[i][i] *= 3;
+  }
+  nworkers_per_node = vector<int>(n_node, n_worker_per);
+}
+
 double bytes_cost(
   taskgraph_t const& taskgraph,
   cluster_settings_t const& settings)
@@ -115,13 +123,13 @@ double bytes_cost_state_t::get_cost(taskgraph_t::op_t const& op)
 
     int const& loc = apply.loc;
 
-    return double(total) * settings.speed_per_byte[loc][loc];
+    return double(total) / settings.speed_per_byte[loc][loc];
   } else if(op.is_move()) {
     // touch the bytes on the input side and on the output side
     auto const& [src,dst,_,total] = op.get_move();
     return
-      double(total) * settings.speed_per_byte[src][src] +
-      double(total) * settings.speed_per_byte[src][dst];
+      double(total) / settings.speed_per_byte[src][src] +
+      double(total) / settings.speed_per_byte[src][dst];
   } else if(op.is_partialize()) {
     auto const& partialize = op.get_partialize();
     uint64_t total = 0;
@@ -134,7 +142,7 @@ double bytes_cost_state_t::get_cost(taskgraph_t::op_t const& op)
     total *= dtype_size(partialize.dtype);
 
     int const& loc = partialize.loc;
-    return double(total) * settings.speed_per_byte[loc][loc];
+    return double(total) / settings.speed_per_byte[loc][loc];
   } else if(op.is_input()) {
     throw std::runtime_error("should not be getting cost for input op");
     return 0.0;
@@ -142,3 +150,8 @@ double bytes_cost_state_t::get_cost(taskgraph_t::op_t const& op)
     throw std::runtime_error("should not reach: bcost");
   }
 }
+
+bool operator>(bytes_cost_busy_t const& lhs, bytes_cost_busy_t const& rhs) {
+  return lhs.finish > rhs.finish;
+}
+
