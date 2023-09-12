@@ -71,7 +71,7 @@ if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
     set(MKL_THREADING sequential)
   endif()
-  
+
   # Tell MKL to use the best instructions; if
   # this instruction set it goes to the next best
   # and so on...
@@ -114,6 +114,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
   add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
   add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
+  add_cpu_application("cpuexec_lff"     "exps" "cpuexec_lff")
   add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
