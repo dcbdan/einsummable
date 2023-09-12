@@ -104,6 +104,7 @@ struct multi_gpu_execute_state_t {
 
   // execute the memgraph
   void run();
+  void run_create_stream();
 };
 
 void execute_multi_gpu(memgraph_t const &memgraph, std::vector<void*> mem_ptrs);
