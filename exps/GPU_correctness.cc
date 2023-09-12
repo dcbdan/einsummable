@@ -31,6 +31,9 @@ void print_memgraph(memgraph_t memgraph){
     if (memgraph.nodes[i].op.is_touch()){
       // print the group id
       std::cout << " Group id: " << memgraph.nodes[i].op.get_apply().group;
+      auto mem_touch = memgraph.nodes[i].op.get_apply().mems[0];
+      // print the touch size
+      std::cout << " Touch size: " << mem_touch.size;
     }
     std::cout << std::endl;
   }
@@ -39,7 +42,7 @@ void print_memgraph(memgraph_t memgraph){
 // check if the offset in mems is greater than the bound
 // throw an error if it is
 // also check if the offset + size is greater than the bound
-void mem_t_check(std::vector<mem_t> mems, int bound) {
+void mem_t_check(std::vector<mem_t> mems, uint64_t bound) {
   for (auto mem : mems) {
     if (mem.offset > bound) {
       // print the offset and bound
@@ -55,13 +58,13 @@ void mem_t_check(std::vector<mem_t> mems, int bound) {
 }
 
 // check if all nodes in the memgraph are within the memory bound
-void check_bounds(memgraph_t memgraph, size_t bound){
+void check_bounds(memgraph_t memgraph, uint64_t bound){
   // print the bound 
-  std::cout << "Memory bound: " << bound << std::endl;
   for (auto node: memgraph.nodes){
     if (node.op.is_inputmem()){
       auto op = node.op.get_inputmem();
       if (op.offset + op.size > bound){
+        std::cout << "Offset: " << op.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: INPUTMEM");
       }
     }
@@ -72,39 +75,46 @@ void check_bounds(memgraph_t memgraph, size_t bound){
     else if (node.op.is_move()){
       auto op = node.op.get_move();
       if (std::get<1>(op.src) + op.size > bound){
+        std::cout << "Offset: " << std::get<1>(op.src) << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: MOVE");
       }
       if (std::get<1>(op.dst) + op.size > bound){
+        std::cout << "Offset: " << std::get<1>(op.dst) << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: MOVE");
       }
     }
     else if (node.op.is_evict()){
       memloc_t src = node.op.get_evict().src;
       if (src.offset + src.size > bound){
+        std::cout << "Offset: " << src.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: EVICT");
       }
     }
     else if (node.op.is_load()){
       memloc_t dst = node.op.get_load().dst;
       if (dst.offset + dst.size > bound){
+        std::cout << "Offset: " << dst.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: LOAD");
       }
     }
     else if (node.op.is_partialize()){
       auto op = node.op.get_partialize();
       if (op.offset + op.size > bound){
+        std::cout << "Offset: " << op.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: PARTIALIZE");
       }
     }
     else if (node.op.is_alloc()){
       auto op = node.op.get_alloc();
       if (op.offset + op.size > bound){
+        std::cout << "Offset: " << op.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: ALLOC");
       }
     }
     else if (node.op.is_del()){
       auto op = node.op.get_del();
       if (op.offset + op.size > bound){
+        std::cout << "Offset: " << op.offset << " Bound: " << bound << std::endl;
         throw std::runtime_error("Memory bound exceeded: DEL");
       }
     }
@@ -198,23 +208,7 @@ void execute_multi_gpu_test(memgraph_t memgraph) {
 // = 1
 void check_correctness(memgraph_t memgraph, bool debug = false) {
   if (debug) {
-    // print the number of nodes in the graph
-    std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
-              << std::endl;
-    // print the input and output of every node
-    for (int i = 0; i < memgraph.nodes.size(); ++i) {
-      std::cout << "Node " << i << " has input: ";
-      for (auto in : memgraph.nodes[i].inns) {
-        std::cout << in << " ";
-      }
-      std::cout << "and output: ";
-      for (auto out : memgraph.nodes[i].outs) {
-        std::cout << out << " ";
-      }
-      std::cout << "Node type: ";
-      memgraph.nodes[i].op.print_type();
-      std::cout << std::endl;
-    }
+    print_memgraph(memgraph);
   }
 
   // print a message

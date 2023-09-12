@@ -576,7 +576,16 @@ void multi_gpu_execute_state_t::run() {
         // do nothing but update the memgraph execution since that node is
         // finished
         std::unique_lock lk(m);
-        finished_queue.push(node_idx);
+        if (debug){
+          auto new_nodes = node_update(node_idx);
+          add_to_pending_queue(new_nodes);
+          printf("Node %d finished execution. New nodes added: ", node_idx);
+          for (auto n : new_nodes) {
+            printf("%d ", n);
+          }
+          printf("\n");
+        }
+        // finished_queue.push(node_idx);
         lk.unlock();
       } else if (node.op.is_apply()) {
         int node_loc = node.op.get_apply_loc();
@@ -706,6 +715,13 @@ void multi_gpu_execute_state_t::run() {
         cudaSetDevice(src_loc);
         cudaStream_t stream = stream_pool[src_loc].front();
         stream_pool[src_loc].pop();
+        // print dst_loc and dst_offset, src_loc and src_offset
+        if (debug){
+          std::cout << "dst_loc: " << dst_loc << std::endl;
+          std::cout << "dst_offset: " << dst_offset << std::endl;
+          std::cout << "src_loc: " << src_loc << std::endl;
+          std::cout << "src_offset: " << src_offset << std::endl;
+        }
         gpu_comm.send(offset_increment(memory_base_ptrs[dst_loc], dst_offset),
                       offset_increment(memory_base_ptrs[src_loc], src_offset),
                       move_op.size, stream);
