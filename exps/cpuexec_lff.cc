@@ -231,6 +231,7 @@ struct random_partition_t {
 tuple<vector<partition_t>, taskgraph_t>
 random_partition_solve(graph_t const& g, int niter, cluster_settings_t const& sts)
 {
+  DOUT("random_partition_solve");
   random_partition_t rnd { .splits = {1,4,8,16} };//,16,32} };
 
   auto gen = [&]() {
@@ -261,6 +262,76 @@ random_partition_solve(graph_t const& g, int niter, cluster_settings_t const& st
   return {ret_p, ret_tg};
 }
 
+tuple<vector<partition_t>, taskgraph_t>
+random_step_partition_solve(
+  graph_t const& g,
+  int niter,
+  cluster_settings_t const& sts,
+  int max_distance)
+{
+  DOUT("random_step_partition_solve; max distance " << max_distance);
+  random_partition_t rnd { .splits = {1,4,8,16} };//,16,32} };
+
+  vector<partition_t> current_ps;
+  for(auto const& node: g.nodes) {
+    current_ps.push_back(partition_t::singleton(node.op.shape()));
+  }
+
+  vector<partition_t> ret_p = current_ps;
+
+  taskgraph_t ret_tg;
+  double best_cost;
+  {
+    vector<placement_t> pls = load_balanced_placement(g, current_ps, 1, false);
+    auto [_0, _1, tg] = taskgraph_t::make(g, pls);
+    ret_tg = tg;
+    best_cost = bytes_cost(tg, sts);
+  }
+
+  vector<int> all_choices(g.nodes.size());
+  std::iota(all_choices.begin(), all_choices.end(), 0);
+
+  vector<int> choices = all_choices;
+  int distance = max_distance;
+  for(int iter = 0; iter != niter; ++iter) {
+    if((iter + 1) % 100 == 0) { DOUT(iter + 1 << " / " << niter); }
+
+    if(distance == 0) {
+      current_ps = ret_p;
+      choices = all_choices;
+      distance = max_distance;
+    }
+
+    int which = vector_random(choices);
+    auto const& node = g.nodes[which];
+    current_ps[which] = rnd(node.op.shape());
+
+    vector<placement_t> pls = load_balanced_placement(g, current_ps, 1, false);
+    auto [_0, _1, tg] = taskgraph_t::make(g, pls);
+    double cost = bytes_cost(tg, sts);
+    if(cost < best_cost) {
+      ret_p = current_ps;
+      ret_tg = tg;
+      best_cost = cost;
+      distance = max_distance;
+      choices.resize(0);
+      choices.push_back(which);
+      for(auto const& out: node.outs) {
+        choices.push_back(out);
+      }
+      set<int> inns(node.inns.begin(), node.inns.end());
+      for(auto const& inn: inns) {
+        choices.push_back(inn);
+      }
+      DOUT(best_cost);
+    } else {
+      distance--;
+    }
+  }
+
+  return {ret_p, ret_tg};
+}
+
 int main(int argc, char** argv) {
   args_t pargs(argc, argv);
 
@@ -272,6 +343,7 @@ int main(int argc, char** argv) {
   pargs.set_default<int>     ("nrunner",     1   );
   pargs.set_default<bool>    ("mm",         true );
   pargs.set_default<bool>    ("direct",     false);
+  pargs.set_default<bool>    ("withstep",   true );
 
   uint64_t batch       = pargs.get<uint64_t>("batch");
   uint64_t seqlen      = pargs.get<uint64_t>("seqlen");
@@ -280,6 +352,7 @@ int main(int argc, char** argv) {
 
   bool mm = pargs.get<bool>("mm");
   bool direct = pargs.get<bool>("direct");
+  bool with_step = pargs.get<bool>("withstep");
 
   uint64_t hidden = compute_hidden(dim, multiple_of);
 
@@ -319,8 +392,18 @@ int main(int argc, char** argv) {
     auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
     tg = tg_;
   } else {
-    auto [parts, tg_] = random_partition_solve(g, 2000, sts);
-    tg = tg_;
+    vector<partition_t> parts;
+    if(with_step) {
+      int max_distance = 10;
+      auto [parts_, tg_] = random_step_partition_solve(g, 2000, sts, max_distance);
+      parts = parts_;
+      tg = tg_;
+    } else {
+      auto [parts_, tg_] = random_partition_solve(g, 2000, sts);
+      parts = parts_;
+      tg = tg_;
+    }
+
 
     //vector<partition_t> parts = {
     //  make_p(g.nodes[ 0].op.shape(), {1,1}),

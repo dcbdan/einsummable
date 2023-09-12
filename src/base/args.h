@@ -24,7 +24,22 @@ struct args_t {
     if(iter_argstrs == argstrs.end()) {
       return get_default<T>(key);
     } else {
-      return parse_with_ss<T>(iter_argstrs->second);
+      string const& val = iter_argstrs->second;
+      if constexpr(std::is_same<T, bool>::value) {
+        if(val == "true") {
+          return true;
+        } else if(val == "false") {
+          return false;
+        } else if(val == "0") {
+          return false;
+        } else if(val == "1") {
+          return true;
+        } else {
+          throw std::runtime_error("could not parse bool value");
+        }
+      } else {
+        return parse_with_ss<T>(iter_argstrs->second);
+      }
     }
   }
 
