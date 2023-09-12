@@ -553,6 +553,11 @@ T vector_random_pop(vector<T>& xs) {
 }
 
 template <typename T>
+T vector_random(vector<T> const& xs) {
+  return xs[runif(xs.size())];
+}
+
+template <typename T>
 using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 // For priority_queue_least, the top most element is the smallest,
 // which is the opposite behaviour of priority_queue which puts the

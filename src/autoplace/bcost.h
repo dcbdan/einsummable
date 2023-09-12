@@ -6,6 +6,7 @@
 struct cluster_settings_t {
   cluster_settings_t(int n_node, int n_worker_per);
 
+  double start_cost;
   vector<vector<double>> speed_per_byte;
   vector<int> nworkers_per_node;
 

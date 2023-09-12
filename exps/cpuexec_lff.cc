@@ -205,11 +205,60 @@ partition_t make_p(vector<uint64_t> const& ds, vector<int> const& xs) {
   }
   vector<partdim_t> pds;
   for(int i = 0; i != ds.size(); ++i) {
-    uint64_t const& d = ds[i]; 
+    uint64_t const& d = ds[i];
     int const& x = xs[i];
     pds.push_back(partdim_t::split(d, x));
   }
   return partition_t(pds);
+}
+
+struct random_partition_t {
+  partition_t operator()(vector<uint64_t> const& total_shape) {
+    vector<partdim_t> partdims;
+    for(uint64_t const& n: total_shape) {
+      int p = vector_random(splits);
+      if(p > n) {
+        p = 1;
+      }
+      partdims.push_back(partdim_t::split(n, p));
+    }
+    return partition_t(partdims);
+  }
+
+  vector<int> splits;
+};
+
+tuple<vector<partition_t>, taskgraph_t>
+random_partition_solve(graph_t const& g, int niter, cluster_settings_t const& sts)
+{
+  random_partition_t rnd { .splits = {1,4,8,16} };//,16,32} };
+
+  auto gen = [&]() {
+    vector<partition_t> ret;
+    ret.reserve(g.nodes.size());
+    for(auto const& node: g.nodes) {
+      ret.push_back(rnd(node.op.shape()));
+    }
+    return ret;
+  };
+
+  double best_cost = -1.0;
+  vector<partition_t> ret_p;
+  taskgraph_t ret_tg;
+  for(int i = 0; i != niter; ++i) {
+    if((i + 1) % 100 == 0) { DOUT(i + 1 << " / " << niter); }
+    vector<partition_t> parts = gen();
+    vector<placement_t> pls = load_balanced_placement(g, parts, 1, false);
+    auto [_0, _1, tg] = taskgraph_t::make(g, pls);
+    double cost = bytes_cost(tg, sts);
+    if(best_cost < 0 || cost < best_cost) {
+      best_cost = cost;
+      ret_p  = parts;
+      ret_tg = tg;
+      DOUT(best_cost);
+    }
+  }
+  return {ret_p, ret_tg};
 }
 
 int main(int argc, char** argv) {
@@ -238,7 +287,7 @@ int main(int argc, char** argv) {
   int nrunner = pargs.get<int>("nrunner");
 
   graph_t g = mm                                      ?
-    make_graph_mm(       batch * seqlen, hidden, dim) : 
+    make_graph_mm(       batch * seqlen, hidden, dim) :
     make_graph_ff_simple(batch * seqlen, hidden, dim) ;
 
   std::ofstream f("g.gv");
@@ -258,6 +307,8 @@ int main(int argc, char** argv) {
     DOUT("execute direct: " << vector_median(ts));
   }
 
+  cluster_settings_t sts(1, nrunner);
+
   taskgraph_t tg;
   vector<partition_t> ps;
   if(nrunner == 1) {
@@ -268,26 +319,29 @@ int main(int argc, char** argv) {
     auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
     tg = tg_;
   } else {
-    vector<partition_t> parts = {
-      make_p(g.nodes[ 0].op.shape(), {1,1}),  
-      make_p(g.nodes[ 1].op.shape(), {nrunner,1}),  
-      make_p(g.nodes[ 2].op.shape(), {1,nrunner,1}),  
-      make_p(g.nodes[ 3].op.shape(), {1,nrunner}),  
-    };
+    auto [parts, tg_] = random_partition_solve(g, 2000, sts);
+    tg = tg_;
+
     //vector<partition_t> parts = {
-    //  make_p(g.nodes[ 0].op.shape(), {1,nrunner}),  
-    //  make_p(g.nodes[ 1].op.shape(), {1,nrunner}),  
-    //  make_p(g.nodes[ 2].op.shape(), {1,1,nrunner}),  
-    //  make_p(g.nodes[ 3].op.shape(), {1,1}),  
-    //};    
+    //  make_p(g.nodes[ 0].op.shape(), {1,1}),
+    //  make_p(g.nodes[ 1].op.shape(), {nrunner,1}),
+    //  make_p(g.nodes[ 2].op.shape(), {1,nrunner,1}),
+    //  make_p(g.nodes[ 3].op.shape(), {1,nrunner}),
+    //};
+    //vector<partition_t> parts = {
+    //  make_p(g.nodes[ 0].op.shape(), {1,nrunner}),
+    //  make_p(g.nodes[ 1].op.shape(), {1,nrunner}),
+    //  make_p(g.nodes[ 2].op.shape(), {1,1,nrunner}),
+    //  make_p(g.nodes[ 3].op.shape(), {1,1}),
+    //};
     //uint64_t min_sizing = 1;
     //auto parts = autopartition(g, min_sizing, nrunner);
     for(auto const& p: parts) {
       DOUT(p);
     }
-    vector<placement_t> pls = load_balanced_placement(g, parts, 1, false);
-    auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
-    tg = tg_;
+    //vector<placement_t> pls = load_balanced_placement(g, parts, 1, false);
+    //auto [_0, _1, tg_] = taskgraph_t::make(g, pls);
+    //tg = tg_;
   }
 
   {
@@ -297,7 +351,6 @@ int main(int argc, char** argv) {
     DOUT("printed " << name);
   }
 
-  cluster_settings_t sts(1, nrunner);
   DOUT("tg cost: " << bytes_cost(tg, sts));
 
   vector<double> ts;

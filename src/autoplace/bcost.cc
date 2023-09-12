@@ -1,6 +1,7 @@
 #include "bcost.h"
 
 cluster_settings_t::cluster_settings_t(int n_node, int n_worker_per) {
+  start_cost = 1e-4;
   speed_per_byte = vector<vector<double>>(n_node, vector<double>(n_node, 1e9));
   for(int i = 0; i != n_node; ++i) {
     speed_per_byte[i][i] *= 3;
@@ -123,11 +124,12 @@ double bytes_cost_state_t::get_cost(taskgraph_t::op_t const& op)
 
     int const& loc = apply.loc;
 
-    return double(total) / settings.speed_per_byte[loc][loc];
+    return settings.start_cost +
+      double(total) / settings.speed_per_byte[loc][loc];
   } else if(op.is_move()) {
     // touch the bytes on the input side and on the output side
     auto const& [src,dst,_,total] = op.get_move();
-    return
+    return settings.start_cost +
       double(total) / settings.speed_per_byte[src][src] +
       double(total) / settings.speed_per_byte[src][dst];
   } else if(op.is_partialize()) {
@@ -142,7 +144,8 @@ double bytes_cost_state_t::get_cost(taskgraph_t::op_t const& op)
     total *= dtype_size(partialize.dtype);
 
     int const& loc = partialize.loc;
-    return double(total) / settings.speed_per_byte[loc][loc];
+    return settings.start_cost +
+      double(total) / settings.speed_per_byte[loc][loc];
   } else if(op.is_input()) {
     throw std::runtime_error("should not be getting cost for input op");
     return 0.0;
