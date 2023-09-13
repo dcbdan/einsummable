@@ -41,13 +41,6 @@ touch_kernel_t build_touch(touch_t const& touch);
 //cutensor_kernel_t
 //build_einsummable(einsummable_t const& einsummable);
 
-// build a cutensor contraction description; throw an error if
-// the einsummable is not a contraction
-void build_contraction_desc(
-  cutensorContractionDescriptor_t& desc,
-  cutensorHandle_t const* handle,
-  einsummable_t const& einsummable);
-
 cutensor_kernel_t
 build_cutensor_reduction(
   vector<int> inn_modes, vector<uint64_t> inn_shape,
@@ -128,3 +121,8 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size);
 
 cutensor_elementwise_op_t make_mul_op(
   einsummable_t const& e);
+
+cudaDataType_t dtype_to_cudatype(dtype_t type);
+
+cutensorComputeType_t dtype_to_computetype(dtype_t type);
+

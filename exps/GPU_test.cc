@@ -128,38 +128,11 @@ void usage() { DOUT("pi pj pk di dj dk np"); }
 //  return 0;
 //}
 
-// testing 3d matmul on a multiple GPUs
-int main_matmul_multi_gpu(int argc, char **argv) {
-
-  if (argc != 8) {
-    usage();
-    return 1;
-  }
-
-  int pi, pj, pk;
-  uint64_t di, dj, dk;
-  int np;
-  try {
-    pi = parse_with_ss<int>(argv[1]);
-    pj = parse_with_ss<int>(argv[2]);
-    pk = parse_with_ss<int>(argv[3]);
-    di = parse_with_ss<uint64_t>(argv[4]);
-    dj = parse_with_ss<uint64_t>(argv[5]);
-    dk = parse_with_ss<uint64_t>(argv[6]);
-    np = parse_with_ss<int>(argv[7]);
-  } catch (...) {
-    std::cout << "Parse error." << std::endl << std::endl;
-    usage();
-    return 1;
-  }
-
-  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
-
-  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+void execute_compile_from_taskgraph(taskgraph_t const& taskgraph) {
   // it could be the case that not all locs are actually used,
   // for example 1 1 2 100 100 100 88
   // Here only 2 locs will really be used, not all 88...
-  np = taskgraph.num_locs();
+  int np = taskgraph.num_locs();
 
   // have everyone share the same cache
   vector<int> compute_loc_to_cache(np, 0);
@@ -203,10 +176,38 @@ int main_matmul_multi_gpu(int argc, char **argv) {
     
     execute_multi_gpu_test(memgraph);
   }
-
-  return 0;
 }
 
+// testing 3d matmul on a multiple GPUs
+void main_matmul_multi_gpu(int argc, char **argv) {
+  if (argc != 8) {
+    usage();
+    return;
+  }
+
+  int pi, pj, pk;
+  uint64_t di, dj, dk;
+  int np;
+  try {
+    pi = parse_with_ss<int>(argv[1]);
+    pj = parse_with_ss<int>(argv[2]);
+    pk = parse_with_ss<int>(argv[3]);
+    di = parse_with_ss<uint64_t>(argv[4]);
+    dj = parse_with_ss<uint64_t>(argv[5]);
+    dk = parse_with_ss<uint64_t>(argv[6]);
+    np = parse_with_ss<int>(argv[7]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    usage();
+    return;
+  }
+
+  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+
+  execute_compile_from_taskgraph(taskgraph);
+}
 // testing on how contraction works
 int main_contraction() {
   //contractionTest(5, 5, 10);
@@ -289,10 +290,168 @@ int main_alignment() {
 //  return 0;
 //}
 
+template <typename T>
+void slow_mm_(
+  uint64_t ni, uint64_t nj, uint64_t nk,
+  T* out, T const* lhs, T const* rhs)
+{
+  std::fill(out, out + ni*nk, 0);
+  for(uint64_t i = 0; i != ni; ++i) {
+  for(uint64_t j = 0; j != nj; ++j) {
+  for(uint64_t k = 0; k != nk; ++k) {
+    out[i*nk + k]   += 
+      lhs[i*nj + j]  * 
+      rhs[j*nk + k]  ;
+  }}}
+}
+
+void slow_mm(dtype_t const& dd, 
+  uint64_t ni, uint64_t nj, uint64_t nk,
+  void* out, void const* lhs, void const* rhs)
+{
+  if(dd == dtype_t::f16) {
+    slow_mm_(ni,nj,nk,
+      static_cast<float16_t*>(out),
+      static_cast<float16_t const*>(lhs),
+      static_cast<float16_t const*>(rhs));
+  } else if(dd == dtype_t::f32) {
+    slow_mm_(ni,nj,nk,
+      static_cast<float*>(out),
+      static_cast<float const*>(lhs),
+      static_cast<float const*>(rhs));
+  } else if(dd == dtype_t::f64) {
+    slow_mm_(ni,nj,nk,
+      static_cast<double*>(out),
+      static_cast<double const*>(lhs),
+      static_cast<double const*>(rhs));
+  } else {
+    throw std::runtime_error("not implemented");
+  }
+}
+
+void mm_test() {
+  dtype_t dtype = dtype_t::f32;
+
+  void* a;
+  void* b;
+  void* c;
+  void* w;
+
+  vector<tuple<uint64_t, uint64_t, uint64_t>> szs = {
+    {1024, 1024, 1024},
+    {2048, 1024, 1024},
+    {1024, 2048, 1024},
+    {1024, 1024, 2048},
+    {2048,2048,2048},
+    {4096,4096,4096},
+    {16384,16384,16384},
+    {20048, 20048, 20048}
+  };
+
+  bool test = false;
+
+  for(auto const& [ni,nj,nk]: szs) {
+    DOUT(ni << ", " << nj << ", " << nk);
+
+    handle_cuda_error(cudaMalloc(&a, ni*nj*dtype_size(dtype)));
+    handle_cuda_error(cudaMalloc(&b, nj*nk*dtype_size(dtype)));
+    handle_cuda_error(cudaMalloc(&c, ni*nk*dtype_size(dtype)));
+    DLINE;
+
+    dbuffer_t aa     = make_dbuffer(dtype, test ? ni*nj : 1);
+    dbuffer_t bb     = make_dbuffer(dtype, test ? nj*nk : 1);
+    dbuffer_t cc_cpu = make_dbuffer(dtype, test ? ni*nk : 1);
+    dbuffer_t cc_gpu = make_dbuffer(dtype, test ? ni*nk : 1);
+    DLINE;
+
+
+    if(test) {
+      aa.random("-0.000001","0.000001");
+      bb.random("-0.000001","0.000001");
+      DLINE;
+      handle_cuda_error(cudaMemcpy(a, aa.raw(), aa.size(), cudaMemcpyDefault));
+      DLINE;
+      handle_cuda_error(cudaMemcpy(b, bb.raw(), bb.size(), cudaMemcpyDefault));
+      DLINE;
+    }
+
+    // A  B   C
+    //ij,jk->ik
+    einsummable_t e = einsummable_t::from_matmul(ni, nj, nk, dtype);
+
+    //reference_einsummable_inplace(e, cc_cpu, {aa,bb});
+    if(test) {
+      slow_mm(dtype, ni, nj, nk, cc_cpu.raw(), aa.raw(), bb.raw());
+      DLINE;
+    }
+
+    DLINE;
+    kernel_manager_t km;
+ 
+    DLINE;
+    uint64_t wsz = km.build(e).value().value();
+    DOUT("wsz is " << wsz);
+    handle_cuda_error(cudaMalloc(&w, wsz));
+    DLINE;
+
+    cudaStream_t stream;
+    handle_cuda_error(cudaStreamCreate(&stream));
+    DLINE;
+
+    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
+    
+    DLINE;
+    handle_cuda_error(cudaStreamDestroy(stream));
+
+    DLINE;
+    handle_cuda_error(cudaDeviceSynchronize());
+
+    if(test) {
+      handle_cuda_error(cudaMemcpy(cc_gpu.raw(), c, cc_gpu.size(), cudaMemcpyDefault));
+      if(!is_close(cc_cpu, cc_gpu)) {
+        throw std::runtime_error("is not close!");
+      }
+    }
+
+    handle_cuda_error(cudaFree(a));
+    handle_cuda_error(cudaFree(b));
+    handle_cuda_error(cudaFree(c));
+    handle_cuda_error(cudaFree(w));
+  }
+}
+
+void dcb01() {
+  uint64_t sz = 10000;
+  graph_t graph;
+  {
+    graph_writer_t gwriter;
+    auto z = gwriter.input({sz,sz});
+    for(int i = 0; i != 4; ++i) {
+      auto w = gwriter.input({sz,sz});
+      if(i % 2 == 0) {
+        z = gwriter.matmul(z, w);
+      } else {
+        z = gwriter.matmul(w, z);
+      }
+    }
+
+    z.save_inplace();
+
+    graph = gwriter.get_graph();
+  }
+
+  auto const& [_0, _1, taskgraph] = 
+    taskgraph_t::make(graph, graph.make_singleton_placement());
+  
+  execute_compile_from_taskgraph(taskgraph);
+}
+
 int main(int argc, char **argv) {
-  // main_ff();
-  // main_matmul(argc, argv);
-  main_matmul_multi_gpu(argc, argv);
-  // contractionTest2();
-  return 0;
+//  // main_ff();
+//  // main_matmul(argc, argv);
+//  main_matmul_multi_gpu(argc, argv);
+//  // contractionTest2();
+//  return 0;
+
+  dcb01();
 }

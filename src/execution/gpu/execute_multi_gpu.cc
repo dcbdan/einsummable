@@ -162,7 +162,8 @@ multi_gpu_execute_state_t::get_input_mem_ptrs(
 
 multi_gpu_execute_state_t::multi_gpu_execute_state_t(
   memgraph_t const& input_memgraph, std::vector<void*> mem_ptr)
-    : memgraph(input_memgraph), memory_base_ptrs(mem_ptr) 
+    : memgraph(input_memgraph), memory_base_ptrs(mem_ptr),
+      workspaces(mem_ptr.size())
 {
   int num_gpus = memory_base_ptrs.size();
   int num_streams = 5;
@@ -227,44 +228,45 @@ struct callback_data_t {
   multi_gpu_execute_state_t *my_state;
   int node_idx;
   bool debug = true;
-  cudaStream_t stream;
+  void* workspace;
+  uint64_t workspace_size;
 
   void operator()() {
     std::mutex &m = *m_ptr;
     auto &cv = *cv_ptr;
+
+    if(workspace_size != 0) {
+      auto const& op = my_state->memgraph.nodes[node_idx].op;
+      int loc;
+      if(op.is_apply()) {
+        loc = op.get_apply().loc;
+      } else {
+        throw std::runtime_error("callback_data_t: op is not apply");
+      }
+      // return the workspace so it can be possibly reused and then deleted
+      my_state->workspace_manager.return_workspace(loc, workspace, workspace_size);
+    }
+
     {
       std::unique_lock lk(m);
-      auto node_op = my_state->memgraph.nodes[node_idx].op;
-      int node_loc = 0;
-      if (node_op.is_apply()){
-        node_loc = node_op.get_apply_loc();
-      }
-      else if (node_op.is_move()){
-        auto move_op = node_op.get_move();
-        auto [src_loc, src_offset] = move_op.src;
-        node_loc = src_loc;
-      }
-      else{
-        throw std::runtime_error("Error: Callback called on a non-apply/move node");
-      }
-
-      // update the queues since this node is finished
       my_state->finished_queue.push(node_idx);
-      my_state->finished_streams[stream] = node_loc;
-      //if (debug){
-      //  printf("Callback: Node %d finished execution.\n", node_idx);
-      //}
     }
     cv.notify_all();
   }
 
-  callback_data_t (std::mutex *m_ptr, std::condition_variable *cv_ptr, 
-    multi_gpu_execute_state_t *my_state, int node_idx, cudaStream_t stream) {
-    this->m_ptr = m_ptr;
-    this->cv_ptr = cv_ptr;
-    this->my_state = my_state;
-    this->node_idx = node_idx;
-    this->stream = stream;
+  callback_data_t (
+    std::mutex *m_ptr, std::condition_variable *cv_ptr, 
+    multi_gpu_execute_state_t *my_state, int node_idx,
+    optional<tuple<void*, uint64_t>> maybe_workspace)
+    : m_ptr(m_ptr), cv_ptr(cv_ptr), my_state(my_state), node_idx(node_idx)
+  {
+    if(maybe_workspace) {
+      auto const& [m,s] = maybe_workspace.value();
+      workspace = m;
+      workspace_size = s;
+    } else {
+      workspace_size == 0;
+    }
   }
 
   callback_data_t() {}
@@ -275,11 +277,8 @@ struct callback_data_t {
 // ------------------------ No stream pool version ------------------------
 
 void multi_gpu_execute_state_t::run_create_stream() {
-
   bool debug = true;
-  
   while (true) {
-
     if (is_complete()) {
       break;
     }
@@ -316,30 +315,19 @@ void multi_gpu_execute_state_t::run_create_stream() {
       // std::cout << "Executing node: " << node_idx << std::endl;
       // execute the node
       if (node.op.is_inputmem() || node.op.is_inputsto() || node.op.is_del() ||
-          node.op.is_partialize() || node.op.is_alloc()) {
-        // do nothing but update the memgraph execution since that node is
-        // finished
-        //std::unique_lock lk(m);
-        //auto new_nodes = node_update(node_idx);
-        //if (debug){
-        //  DOUT("node " << node_idx << " finished... adding " << new_nodes);
-        //  //printf("Node %d finished execution. New nodes added: ", node_idx);
-        //  //for (auto n : new_nodes) {
-        //  //  printf("%d ", n);
-        //  //}
-        //  //printf("\n");
-        //}
-        //add_to_pending_queue(new_nodes);
+          node.op.is_partialize() || node.op.is_alloc()) 
+      {
         finished_queue.push(node_idx);
       //} else if(node.op.is_touch()) {
       //  finished_queue.push(node_idx);
-      } else if(node_idx == 11) {
-        finished_queue.push(node_idx);
+      //} else if(node_idx == 11) {
+      //  finished_queue.push(node_idx);
       } else if (node.op.is_apply()) {
         DLINEOUT("is apply for node " << node_idx);
         int node_loc = node.op.get_apply_loc();
         cudaSetDevice(node_loc); 
-        cudaStream_t stream = cuda_create_stream();
+        cudaStream_t stream;
+        handle_cuda_error(cudaStreamCreate(&stream),  "creating apply stream");
         DLINE;
 
         auto memory_vector = node.op.get_apply().mems;
@@ -349,7 +337,7 @@ void multi_gpu_execute_state_t::run_create_stream() {
         vector<void const*> inn_mems =
           get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]);
 
-
+        optional<tuple<void*, uint64_t>> maybe_workspace;
         // CASE: TOUCH
         if (node.op.is_touch()) {
           // std::cout << "Got a touch node" << std::endl;
@@ -407,24 +395,20 @@ void multi_gpu_execute_state_t::run_create_stream() {
           }
           auto const& workspace_info = einsum_iter->second;
 
-          // TODO TODO: gpu allocated memory must be managed!
-
-          optional<tuple<void*, uint64_t>> maybe_workspace;
           if(workspace_info.known()) {
             uint64_t const& workspace_size = workspace_info.value();
+            DLINEOUT("WORKSPACE SIZE IS " << workspace_size);
             if(workspace_size > 0) {
               DLINE;
-              maybe_workspace = tuple<void*, uint64_t>(
-                gpu_allocate_memory(workspace_size, node_loc),
-                workspace_size);
+              maybe_workspace = 
+                workspace_manager.borrow_workspace(node_loc, workspace_size);
             }
           } else {
             // we don't know the workspace size
             DLINE;
-            // TODO
             uint64_t size = km.known_workspace_size(my_einsummable, out_mem, inn_mems);
-            void* work = gpu_allocate_memory(size, node_loc);
-            maybe_workspace = tuple<void*, uint64_t>(work, size);
+            maybe_workspace = 
+              workspace_manager.borrow_workspace(node_loc, size);
           }
 
           //use kernel_manager operator to run einsum
@@ -441,19 +425,22 @@ void multi_gpu_execute_state_t::run_create_stream() {
         //}
         // after execution, we attach the stream with a callback function
         // get all the metadata needed for the callback
-        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, stream);
+        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, maybe_workspace);
         // add the callback
         cudaStreamAddCallback(
             stream,
-            [](CUstream_st *, cudaError, void *raw_data) {
-              callback_data_t *data = static_cast<callback_data_t *>(raw_data);
+            [](CUstream_st*, cudaError, void *raw_data) {
+              callback_data_t *data = static_cast<callback_data_t*>(raw_data);
               callback_data_t &f = *data;
               f();
               delete data;
             },
             static_cast<void *>(data), 0);
-      }
-      else if (node.op.is_move()) {
+        // now the stream can be destoryed--note that this is asynchronous
+        handle_cuda_error(cudaStreamDestroy(stream), "destroying apply stream");
+      } else if (node.op.is_move()) {
+        // TODO: deal with stream accordingly!
+        
         auto move_op = node.op.get_move();
         // get the src and dst information
         auto [src_loc, src_offset] = move_op.src;
@@ -475,7 +462,7 @@ void multi_gpu_execute_state_t::run_create_stream() {
                       move_op.size, stream);
 
         // add the callback
-        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, stream);
+        callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, std::nullopt);
         cudaStreamAddCallback(
             stream,
             [](CUstream_st *, cudaError, void *raw_data) {
@@ -485,8 +472,7 @@ void multi_gpu_execute_state_t::run_create_stream() {
               delete data;
             },
             static_cast<void *>(data), 0);
-      } 
-      else {
+      } else {
         // print a message saying that the operation is not supported and this
         // operation's type
         throw std::runtime_error("Error: Operation not supported: Type is "

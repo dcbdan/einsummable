@@ -7,6 +7,7 @@
 #include "cutensor.h"
 #include "kernels.h"
 #include "gpu_kernel_manager.h"
+#include "workspace.h"
 #include <mutex>
 #include <condition_variable>
 #include <cuda_runtime.h>
@@ -47,13 +48,13 @@ struct multi_gpu_execute_state_t {
   // create a pool of streams for each device
   std::vector<std::queue<cudaStream_t>> stream_pool;
   // value: device id -> look up which device it belongs
-  std::queue<int> node_idx_waiting_for_stream;
-  std::unordered_map<cudaStream_t, int> finished_streams;
 
   // pointer pointing to the start of the GPU memory
   std::vector<void*> memory_base_ptrs;
 
   std::unordered_map<einsummable_t, workspace_info_t> einsum_worksizes;
+
+  workspace_manager_t workspace_manager;
 
   gpu_comm_t gpu_comm;
 
@@ -83,14 +84,13 @@ struct multi_gpu_execute_state_t {
   void add_to_pending_queue(std::vector<int> &nodes);
 
   std::vector<void const *> get_input_mem_ptrs(std::vector<mem_t> mem,
-                                              void *memory_base_ptr);
+                                               void *memory_base_ptr);
 
   void printContractionInfo(int node_idx, int num_elems);
   void checkContractionOffset(int node_idx);
   bool has_stream();
 
   // execute the memgraph
-  void run();
   void run_create_stream();
 };
 

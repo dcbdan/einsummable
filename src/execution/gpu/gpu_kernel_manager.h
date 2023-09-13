@@ -28,6 +28,9 @@ struct workspace_info_t {
 struct kernel_manager_t{
 private:
   struct contraction_t {
+    cutensorTensorDescriptor_t descA;
+    cutensorTensorDescriptor_t descB;
+    cutensorTensorDescriptor_t descC;
     cutensorContractionDescriptor_t desc;
     cutensorContractionFind_t find;
     cutensorContractionPlan_t plan;

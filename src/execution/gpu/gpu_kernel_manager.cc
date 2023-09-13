@@ -11,18 +11,24 @@ kernel_manager_t::kernel_manager_t() {
 optional<workspace_info_t> 
 kernel_manager_t::build(einsummable_t const& e_)
 {
+  DLINE;
   auto einsummable = e_.merge_adjacent_dims();
 
+  DLINE;
   auto iter = kernels.find(einsummable);
   if(iter != kernels.end()) { 
     return workspace_size(iter->second);
   }
 
+  DLINE;
   if(einsummable.is_contraction()) {
+    DLINE;
     auto c = make_contraction(einsummable);
+    DLINE;
     kernels.insert({einsummable,c});
     return workspace_info_t(c.worksize);
   }
+  DLINE;
 
   // Check for Reudctions
   if(einsummable.has_aggregation()) {
@@ -301,17 +307,107 @@ kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
 kernel_manager_t::contraction_t
 kernel_manager_t::make_contraction(einsummable_t const& einsummable)
 {
+  DLINEOUT("MAKE CONTRACTION");
+  auto const& e = einsummable; // an alias
   contraction_t c;
 
-  build_contraction_desc(c.desc, handle, einsummable);
+  DLINE;
+  std::vector<int> modeA = e.inns[0];
+  std::vector<int> modeB = e.inns[1];
+  std::vector<int> modeC;
+  for (int i = 0; i < e.out_rank; i++) {
+    modeC.push_back(i);
+  }
 
-  cutensorInitContractionFind(
+  int nmodeA = e.inns[0].size();
+  int nmodeB = e.inns[1].size();
+  int nmodeC = e.out_rank;
+
+  DLINE;
+  std::reverse(modeA.begin(), modeA.end());
+  std::reverse(modeB.begin(), modeB.end());
+  std::reverse(modeC.begin(), modeC.end());
+  dtype_t type = e.inn_dtype(0);
+  cudaDataType_t typeTensor = dtype_to_cudatype(type);
+
+  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
+  
+  DLINE;
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(e.join_shape[mode]);
+  }
+  vector<int64_t> extent_B;
+  for(auto const& mode: modeB) {
+    extent_B.push_back(e.join_shape[mode]);
+  }
+
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(e.join_shape[mode]);
+  }
+
+  // Set up Tensor Descriptors for A, B, and C
+  DLINE;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(
+      handle,
+      &c.descA,
+      nmodeA,
+      extent_A.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
+
+  DLINE;
+  cutensorTensorDescriptor_t descB;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(
+      handle,
+      &c.descB,
+      nmodeB,
+      extent_B.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
+
+  DLINE;
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(
+      handle,
+      &c.descC,
+      nmodeC,
+      extent_C.data(),
+      NULL,/*stride*/
+      typeTensor, CUTENSOR_OP_IDENTITY ) );
+
+  // get the memory pointers to the tensors
+  uint32_t alignmentRequirementA = 16;
+  uint32_t alignmentRequirementB = 16;
+  uint32_t alignmentRequirementC = 16;
+
+  // Init Contraction Descriptor need to be in the format of
+  // D = alpha * A * B + beta * C
+  // so we should probably use a C for both C and D
+  DLINE;
+  handle_cutensor_error(
+    cutensorInitContractionDescriptor(
+      handle,
+      &c.desc,
+      &c.descA, modeA.data(), alignmentRequirementA,
+      &c.descB, modeB.data(), alignmentRequirementB,
+      &c.descC, modeC.data(), alignmentRequirementC,
+      &c.descC, modeC.data(), alignmentRequirementC,
+      typeCompute) );
+
+  DLINE;
+  handle_cutensor_error(cutensorInitContractionFind(
     handle, 
     &c.find,
-    CUTENSOR_ALGO_DEFAULT);
+    CUTENSOR_ALGO_DEFAULT));
 
   c.worksize = 0;
   
+  DLINE;
   handle_cutensor_error(cutensorContractionGetWorkspaceSize(
      handle,
      &c.desc,
@@ -319,14 +415,15 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
      CUTENSOR_WORKSPACE_RECOMMENDED,
      &c.worksize));
 
-  handle_cutensor_error(
-    cutensorInitContractionPlan(
+  DLINEOUT("worksize is " << c.worksize);
+  handle_cutensor_error(cutensorInitContractionPlan(
       handle,
       &c.plan,
       &c.desc,
       &c.find,
-      c.worksize) );
+      c.worksize));
 
+  DLINE;
   return c;
 }
 
@@ -346,6 +443,13 @@ void kernel_manager_t::execute_contraction(
   static float               zero_float = 0.0f;
   static double              zero_double = 0.0;
   static std::complex<float> zero_complex(0.0f, 0.0f);
+
+  //// TODO: remove
+  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
+  //cudaStream_t s01;
+  //handle_cuda_error(cudaStreamCreate(&s01), "ec " + write_with_ss(__LINE__));
+  //handle_cuda_error(cudaStreamDestroy(s01), "ec " + write_with_ss(__LINE__));
+  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
 
   if(given_worksize < c.worksize) {
     throw std::runtime_error("not enough workspace given for this contraction");
@@ -382,6 +486,13 @@ void kernel_manager_t::execute_contraction(
       given_worksize, 
       stream),
     "contraction operator");
+
+  //// TODO: remove
+  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
+  //cudaStream_t s02;
+  //handle_cuda_error(cudaStreamCreate(&s02), "ec " + write_with_ss(__LINE__));
+  //handle_cuda_error(cudaStreamDestroy(s02), "ec " + write_with_ss(__LINE__));
+  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
 }
 
 bool kernel_manager_t::is_power_elementwise(einsummable_t e){
