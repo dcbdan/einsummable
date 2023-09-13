@@ -12,18 +12,6 @@
 
 using memgraph_t = memgraph_t;
 
-// we need to define HANDLE_ERROR properly since it's not included in the header
-// file defined:
-// (https://docs.nvidia.com/cuda/cutensor/getting_started.html#determine-algorithm-and-workspace)
-#define HANDLE_ERROR(x)                                                        \
-{                                                                            \
-    const auto err = x;                                                        \
-    if (err != CUTENSOR_STATUS_SUCCESS) {                                      \
-      printf("Error: %s in line %d\n", cutensorGetErrorString(err), __LINE__); \
-      exit(-1);                                                                \
-    }                                                                          \
-}
-
 struct gpu_execute_state_t {
   memgraph_t const &memgraph;
   // maintain a queue of tasks that are pending to be executed

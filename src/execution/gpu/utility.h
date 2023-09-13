@@ -15,3 +15,14 @@ void printFloatGPU(const void *gpu_ptr, int count);
 void init_value(float *ptr, int count, float value);
 void checkAlignment(cutensorHandle_t *handle, float *ptr,
                     cutensorTensorDescriptor_t desc);
+
+// we need to define HANDLE_ERROR properly since it's not included in the header
+// file defined:
+// (https://docs.nvidia.com/cuda/cutensor/getting_started.html#determine-algorithm-and-workspace)
+#define HANDLE_ERROR(x)                                                        \
+{                                                                            \
+    const auto err = x;                                                        \
+    if (err != CUTENSOR_STATUS_SUCCESS) {                                      \
+      throw std::runtime_error("HANLDE ERROR " + string(cutensorGetErrorString(err))); \
+    }                                                                          \
+}

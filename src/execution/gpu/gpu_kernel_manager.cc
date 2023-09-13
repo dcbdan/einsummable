@@ -1,6 +1,6 @@
 #include "gpu_kernel_manager.h"
 
-
+#include "utility.h"
 
 build_result_t kernel_manager_t::build(einsummable_t const& e_)
 {
@@ -255,7 +255,7 @@ void kernel_manager_t::call(
   using std::get;
 
   cutensorHandle_t* handle;
-  cutensorCreate(&handle);
+  HANDLE_ERROR(cutensorCreate(&handle));
 
   auto assert_num_inputs = [&inns](int n) {
     if(inns.size() != n) {
@@ -268,7 +268,7 @@ void kernel_manager_t::call(
     auto const& c = get<contraction_t>(kernel);
     if(c.worksize == 0) {
       execute_contraction(stream,handle,&c.desc,
-      out,inns[0],inns[1],c.dtype,nullptr,0);
+        out,inns[0],inns[1],c.dtype,nullptr,0);
     } else if(!maybe_workspace) {
       throw std::runtime_error("workspace required; none given");
     } else {
@@ -277,7 +277,7 @@ void kernel_manager_t::call(
         throw std::runtime_error("provided workspace is too small");
       }
       execute_contraction(stream,handle,&c.desc,
-      out,inns[0],inns[1],c.dtype,workspace,c.worksize);
+        out,inns[0],inns[1],c.dtype,workspace,c.worksize);
     }
   }else if(holds_alternative<reduction_t>(kernel)) {
     assert_num_inputs(1);

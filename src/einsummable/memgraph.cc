@@ -179,6 +179,12 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
     }
     label = write_with_ss(id) + " " + label;
 
+    for(int const& _id: {0,1,2,3,4,5,6,7,8,9,10,11,12,13}) {
+      if(id == _id) {
+        color = "pink";
+      }
+    }
+
     //auto memlocs = op.get_memlocs();
     //for(auto const& memloc: memlocs) {
     //  auto const& [offset, size] = memloc.as_mem();
@@ -2186,7 +2192,8 @@ allocator_t::get_allocated_region(uint64_t offset) const
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
-  out << "[" << mem.offset << "," << mem.offset+mem.size << ")";
+  uint64_t div = 10000000;
+  out << "[" << (mem.offset / div) << "," << ((mem.offset+mem.size) / div) << ")";
   return out;
 }
 std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {

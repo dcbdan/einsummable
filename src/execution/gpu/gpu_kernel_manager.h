@@ -14,7 +14,6 @@
 #include <cuda_runtime.h>
 #include <cutensor.h>
 
-
 struct build_result_t {
   bool built;
   optional<uint64_t> workspace_size;
@@ -77,37 +76,39 @@ public:
 
   optional<uint64_t> workspace_size(einsummable_t const& e) const;
 
-  uint64_t workspace_size(einsummable_t const& e, 
-  void* out, vector<void const*> inns,
-  cutensorHandle_t const* handle) const;
+  uint64_t workspace_size(
+    einsummable_t const& e, 
+    void* out, 
+    vector<void const*> inns,
+    cutensorHandle_t const* handle) const;
 
   void operator()(
-  touch_t const& touch,
-  cudaStream_t stream,
-  void* out,
-  void const* inn) const;
+    touch_t const& touch,
+    cudaStream_t stream,
+    void* out,
+    void const* inn) const;
 
   void operator()(
-  einsummable_t const& e,
-  cudaStream_t stream,
-  void* out,
-  vector<void const*> inns,
-  optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+    einsummable_t const& e,
+    cudaStream_t stream,
+    void* out,
+    vector<void const*> inns,
+    optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
-  using kernel_info_t = std::variant<contraction_t,
-  cutensor_kernel_t,scale_t,pow_and_elementwise_t,
-  custom_kernel_1_t,void_cuda_kernel_t,type_conversion_t,
-  touch_kernel_t,elementwise_t,power_t,reduction_t>;
+  using kernel_info_t = std::variant<
+    contraction_t, cutensor_kernel_t, scale_t, pow_and_elementwise_t,
+    custom_kernel_1_t, void_cuda_kernel_t, type_conversion_t,
+    touch_kernel_t, elementwise_t, power_t, reduction_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;
 
   static void call(
-  kernel_manager_t::kernel_info_t const& kernel,
-  cudaStream_t stream,
-  void* out,
-  vector<void const*> inns,
-  optional<tuple<void*, uint64_t>> maybe_workspace);
+    kernel_manager_t::kernel_info_t const& kernel,
+    cudaStream_t stream,
+    void* out,
+    vector<void const*> inns,
+    optional<tuple<void*, uint64_t>> maybe_workspace);
 
 
 private:
