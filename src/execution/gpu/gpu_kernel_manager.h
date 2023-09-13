@@ -14,28 +14,37 @@
 #include <cuda_runtime.h>
 #include <cutensor.h>
 
-struct build_result_t {
-  bool built;
+struct workspace_info_t {
+  workspace_info_t() {}
+  workspace_info_t(uint64_t sz): workspace_size(sz) {}
+
   optional<uint64_t> workspace_size;
+
+  uint64_t const& value() const { return workspace_size.value(); }
+
+  bool known() const { return bool(workspace_size); }
 };
-
-struct contraction_t{
-public:
-  uint64_t worksize;
-  cutensorContractionDescriptor_t desc;
-  dtype_t dtype;
-  static contraction_t make(einsummable_t const& e_);
-  
-};
-
-//*****************************
-// There are a lot of structs with only kernels as members
-// They exists for ease of developments, but should be optimized
-
-// TODO: Optimize redundant structs
 
 struct kernel_manager_t{
 private:
+  struct contraction_t {
+    cutensorContractionDescriptor_t desc;
+    cutensorContractionFind_t find;
+    cutensorContractionPlan_t plan;
+    dtype_t dtype;
+    uint64_t worksize;
+  };
+
+  contraction_t make_contraction(einsummable_t const& e);
+
+  void execute_contraction(
+    contraction_t const& c,
+    cudaStream_t stream,
+    void* out,
+    void const* lhs,
+    void const* rhs,
+    void* work,
+    uint64_t given_worksize) const;
 
   struct reduction_t{
     cutensor_kernel_t kernel;
@@ -69,18 +78,17 @@ private:
     cutensor_elementwise_kernel_t kernel;
   };
 
-
 public:
+  kernel_manager_t();
 
-  build_result_t build(einsummable_t const& e);
+  optional<workspace_info_t> build(einsummable_t const& e);
 
-  optional<uint64_t> workspace_size(einsummable_t const& e) const;
+  workspace_info_t workspace_size(einsummable_t const& e) const;
 
-  uint64_t workspace_size(
+  uint64_t known_workspace_size(
     einsummable_t const& e, 
     void* out, 
-    vector<void const*> inns,
-    cutensorHandle_t const* handle) const;
+    vector<void const*> inns) const;
 
   void operator()(
     touch_t const& touch,
@@ -95,6 +103,7 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
+private:
   using kernel_info_t = std::variant<
     contraction_t, cutensor_kernel_t, scale_t, pow_and_elementwise_t,
     custom_kernel_1_t, void_cuda_kernel_t, type_conversion_t,
@@ -103,17 +112,14 @@ public:
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;
 
-  static void call(
-    kernel_manager_t::kernel_info_t const& kernel,
+  workspace_info_t workspace_size(kernel_info_t const& kernel) const;
+
+  void call(
+    kernel_info_t const& kernel,
     cudaStream_t stream,
     void* out,
     vector<void const*> inns,
-    optional<tuple<void*, uint64_t>> maybe_workspace);
-
-
-private:
-
-  std::unordered_map<einsummable_t, kernel_info_t> kernels;
+    optional<tuple<void*, uint64_t>> maybe_workspace) const;
 
   static bool is_power_elementwise(einsummable_t e);
 
@@ -130,7 +136,8 @@ private:
   static bool is_scale_and_increment(einsummable_t e);
 
   static tuple<float, float> get_increment_scale(einsummable_t e);
-
-
+private:
+  std::unordered_map<einsummable_t, kernel_info_t> kernels;
+  cutensorHandle_t* handle;
 };
 

@@ -44,7 +44,6 @@ struct multi_gpu_execute_state_t {
   // for the previous touch with the same id to finish
   std::vector<std::map<int, std::queue<int>>> groupID_to_nodeIDX;
 
-  std::vector<cutensorHandle_t*> handles;
   // create a pool of streams for each device
   std::vector<std::queue<cudaStream_t>> stream_pool;
   // value: device id -> look up which device it belongs
@@ -54,7 +53,7 @@ struct multi_gpu_execute_state_t {
   // pointer pointing to the start of the GPU memory
   std::vector<void*> memory_base_ptrs;
 
-  std::unordered_map<einsummable_t, build_result_t> einsum_build_results;
+  std::unordered_map<einsummable_t, workspace_info_t> einsum_worksizes;
 
   gpu_comm_t gpu_comm;
 

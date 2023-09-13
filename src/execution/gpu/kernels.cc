@@ -222,22 +222,11 @@ cudaDataType_t dtype_to_elementwise_computetype(dtype_t type){
 }
 
 
-void build_contraction(
-  cutensorContractionDescriptor_t* desc,
+void build_contraction_desc(
+  cutensorContractionDescriptor_t& desc,
   cutensorHandle_t const* handle,
-  einsummable_t const& e_)
+  einsummable_t const& e)
 {
-  //printf("hererin\n");
-  //einsummable_t e = e_.merge_adjacent_dims();
-
-  einsummable_t e = e_;
-
-  //if(!e.is_contraction()) {
-  //  throw std::runtime_error("build_contraction must be given a contraction");
-  //}
-
-  //printf("here\n");
-
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeB = e.inns[1];
   std::vector<int> modeC;
@@ -252,15 +241,11 @@ void build_contraction(
   std::reverse(modeA.begin(), modeA.end());
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
-  //printf("here\n");
-  // CUDA types
   dtype_t type = e.inn_dtype(0);
   cudaDataType_t typeTensor = dtype_to_cudatype(type);
 
   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
   
-  //printf("here\n");
-  // extent = size of each dimension
   vector<int64_t> extent_A;
   for(auto const& mode: modeA) {
     extent_A.push_back(e.join_shape[mode]);
@@ -274,18 +259,6 @@ void build_contraction(
   for(auto const& mode: modeC) {
     extent_C.push_back(e.join_shape[mode]);
   }
-  //printf("here\n");
-
-  //int64_t one = 1;
-
-  //vector<int64_t> stride_A;stride_A.push_back(one);
-  //stride_A.push_back(extent_A[0]);
-  
-  //vector<int64_t> stride_B;stride_B.push_back(one);
-  //stride_B.push_back(extent_B[0]);
-  
-  //vector<int64_t> stride_C;stride_C.push_back(one);
-  //stride_C.push_back(extent_C[0]);
 
   // Set up Tensor Descriptors for A, B, and C
   cutensorTensorDescriptor_t descA;
@@ -298,7 +271,6 @@ void build_contraction(
       NULL,/*stride*/
       typeTensor, CUTENSOR_OP_IDENTITY ) );
 
-
   cutensorTensorDescriptor_t descB;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
@@ -309,7 +281,6 @@ void build_contraction(
       NULL,/*stride*/
       typeTensor, CUTENSOR_OP_IDENTITY ) );
 
-
   cutensorTensorDescriptor_t descC;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
@@ -319,7 +290,6 @@ void build_contraction(
       extent_C.data(),
       NULL,/*stride*/
       typeTensor, CUTENSOR_OP_IDENTITY ) );
-
 
   // get the memory pointers to the tensors
   uint32_t alignmentRequirementA = 16;
@@ -332,84 +302,13 @@ void build_contraction(
   handle_cutensor_error(
     cutensorInitContractionDescriptor(
       handle,
-      desc,
+      &desc,
       &descA, modeA.data(), alignmentRequirementA,
       &descB, modeB.data(), alignmentRequirementB,
       &descC, modeC.data(), alignmentRequirementC,
       &descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
 }
-
-
-
-void execute_contraction(
-  cudaStream_t stream,
-  cutensorHandle_t const* handle,
-  cutensorContractionDescriptor_t const* desc,
-  void* out,
-  void const* lhs,
-  void const* rhs,
-  dtype_t type, void* work, uint64_t worksize)
-{
-  // Set the algorithm to use
-  cutensorContractionFind_t find;
-  handle_cutensor_error(
-    cutensorInitContractionFind(
-      handle, &find,
-      CUTENSOR_ALGO_DEFAULT) );
-
-
-
-  void* ptr;
-  float16_t alpha1;
-  float alpha2;
-  double alpha3;
-  std::complex<float> alpha4(1.0f, 0.0f);
-
-  if(type == dtype_t::f16){
-    //alpha1 = float16_t(1.0f);
-    //ptr = static_cast<void*>(&alpha1);
-    alpha2 = 1.0f;
-    ptr = static_cast<void*>(&alpha2);
-  }
-  else if(type == dtype_t::f32){
-    alpha2 = 1.0f;
-    ptr = static_cast<void*>(&alpha2);
-  }
-  else if(type == dtype_t::f64){
-    alpha3 = 1.0;
-    ptr = static_cast<void*>(&alpha3);
-  }
-  else if(type == dtype_t::c64){
-    ptr =  static_cast<void*>(&alpha4);
-  }
-
-  void const* alpha = ptr; 
-
-  
-  //std::cout << worksize << std::endl;
-  //printf("herej\n");
-  cutensorContractionPlan_t plan;
-  handle_cutensor_error(
-    cutensorInitContractionPlan(
-      handle,
-      &plan,
-      desc,
-      &find,
-      worksize) );
-
-  //printf("herek\n");
-  cutensorStatus_t err;
-
-  handle_cutensor_error(
-    cutensorContraction(handle, &plan, alpha, lhs,
-                        rhs, alpha, out, out,
-                        work, worksize, stream) );
-
-
-}
-
-
 
 cutensor_kernel_t
 build_cutensor_reduction(
@@ -1228,13 +1127,6 @@ build_straight_elementwise(
   // TODO: dispatch to canned elementwise kernels here
   throw std::runtime_error("build_straight_elementwise not implemented");
   return {};
-}
-
-void handle_cutensor_error(cutensorStatus_t const& err) {
-  if(err != CUTENSOR_STATUS_SUCCESS) {
-    string msg = cutensorGetErrorString(err);
-    throw std::runtime_error("handle_cutensor_error: " + msg);
-  }
 }
 
 cudaDataType_t dtypes_to_scalartype(dtype_t src, dtype_t dst){

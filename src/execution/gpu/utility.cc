@@ -1,6 +1,5 @@
 #include "utility.h"
 
-
 cudaStream_t cuda_create_stream() {
   cudaStream_t ret;
   auto cudaError = cudaStreamCreate(&ret);
@@ -60,8 +59,10 @@ void init_value(float *ptr, int count, float value) {
 void checkAlignment(cutensorHandle_t *handle, float *ptr,
                     cutensorTensorDescriptor_t desc) {
   uint32_t alignmentRequirement;
-  HANDLE_ERROR(cutensorGetAlignmentRequirement(handle, ptr, &desc,
-                                               &alignmentRequirement));
+  handle_cutensor_error(
+    cutensorGetAlignmentRequirement(
+    handle, ptr, &desc,
+    &alignmentRequirement));
 
   if (alignmentRequirement != 16) {
     // print the alignment requirement
@@ -69,3 +70,13 @@ void checkAlignment(cutensorHandle_t *handle, float *ptr,
               << alignmentRequirement << std::endl;
   }
 }
+
+void handle_cutensor_error(cutensorStatus_t error, string msg) {
+  if(error != CUTENSOR_STATUS_SUCCESS){ 
+    if(msg == "") {
+      msg = "handle_cutensor_error";
+    } 
+    throw std::runtime_error(msg + ": " + string(cutensorGetErrorString(error)));
+  }
+}
+

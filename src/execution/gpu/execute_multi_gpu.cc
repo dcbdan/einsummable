@@ -167,13 +167,8 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(
   int num_gpus = memory_base_ptrs.size();
   int num_streams = 5;
 
-  // create a cutensor handle for each device
-  // NOTE: change this when we have all GPUs at disposal
   for (int gpu = 0; gpu < num_gpus; ++gpu) {
     cudaSetDevice(gpu);  // Set the current GPU device
-    cutensorHandle_t* handle;
-    HANDLE_ERROR(cutensorCreate(&handle));
-    handles.push_back(handle);
       
     // create stream pools
     std::queue<cudaStream_t> my_stream_pool;
@@ -200,16 +195,14 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(
     if (memgraph.nodes[i].op.is_einsummable()) {
       // get the einsummable object
       auto my_einsummable = memgraph.nodes[i].op.get_einsummable();
-      
-      //build the einsum using kernel manager and get the built result
-      build_result_t result = km.build(my_einsummable);
 
-      //if the build result is not registered, add it to the unordered_map
-      if (einsum_build_results.find(my_einsummable) ==
-          einsum_build_results.end()) {
-        
-        einsum_build_results[my_einsummable] = result;
-
+      auto iter = einsum_worksizes.find(my_einsummable);
+      if(iter == einsum_worksizes.end()) {
+        auto maybe_worksize = km.build(my_einsummable);
+        if(!maybe_worksize) {
+          throw std::runtime_error("could not build " + write_with_ss(my_einsummable));
+        }
+        einsum_worksizes.insert({my_einsummable, maybe_worksize.value()});
       }
     }
   }
@@ -340,16 +333,23 @@ void multi_gpu_execute_state_t::run_create_stream() {
         finished_queue.push(node_idx);
       //} else if(node.op.is_touch()) {
       //  finished_queue.push(node_idx);
-      //} else if(node_idx == 11) {
-      //  finished_queue.push(node_idx);
+      } else if(node_idx == 11) {
+        finished_queue.push(node_idx);
       } else if (node.op.is_apply()) {
-        DLINE;
+        DLINEOUT("is apply for node " << node_idx);
         int node_loc = node.op.get_apply_loc();
         cudaSetDevice(node_loc); 
         cudaStream_t stream = cuda_create_stream();
         DLINE;
-        // get the memory offsets
+
         auto memory_vector = node.op.get_apply().mems;
+
+        void* out_mem = 
+          offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset);
+        vector<void const*> inn_mems =
+          get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]);
+
+
         // CASE: TOUCH
         if (node.op.is_touch()) {
           // std::cout << "Got a touch node" << std::endl;
@@ -387,10 +387,11 @@ void multi_gpu_execute_state_t::run_create_stream() {
 
             // use the operator of kernel_manager to run touch
             DLINEOUT("launching a touch");
-            km(touch,
-            stream,
-            offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
-            offset_increment(memory_base_ptrs[node_loc], memory_vector[1].offset));
+            km(
+              touch,
+              stream,
+              out_mem,
+              inn_mems[0]);
           }
         } else {
           DLINE;
@@ -400,50 +401,40 @@ void multi_gpu_execute_state_t::run_create_stream() {
             checkContractionOffset(node_idx);
           }
 
-          auto einsum_iter = einsum_build_results.find(my_einsummable);
-          if (einsum_iter == einsum_build_results.end()) {
-            throw std::runtime_error(
-                "Error: Einsummable not found");
+          auto einsum_iter = einsum_worksizes.find(my_einsummable);
+          if (einsum_iter == einsum_worksizes.end()) {
+            throw std::runtime_error("Error: Einsummable not built");
           }
-          //Get the is_built and worksize for corresponding build_result 
-          auto [is_built, known_workspace_size] = einsum_iter->second;
+          auto const& workspace_info = einsum_iter->second;
 
-          if(!is_built) {
-            // TODO: throw this error much earlier
-            throw std::runtime_error(
-               "Error: Einsummable not built; kernel_manager can't handle this einsum");
-          }
+          // TODO TODO: gpu allocated memory must be managed!
 
           optional<tuple<void*, uint64_t>> maybe_workspace;
-          if(known_workspace_size) {
-            DLINE;
-            uint64_t const& workspace_size = known_workspace_size.value();
+          if(workspace_info.known()) {
+            uint64_t const& workspace_size = workspace_info.value();
             if(workspace_size > 0) {
               DLINE;
               maybe_workspace = tuple<void*, uint64_t>(
-                gpu_allocate_memory(known_workspace_size.value(), node_loc),
-                known_workspace_size.value());
+                gpu_allocate_memory(workspace_size, node_loc),
+                workspace_size);
             }
           } else {
             // we don't know the workspace size
             DLINE;
-            uint64_t size = km.workspace_size(
-               my_einsummable,
-               offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
-               get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]), 
-               handles[node_loc]);
+            // TODO
+            uint64_t size = km.known_workspace_size(my_einsummable, out_mem, inn_mems);
             void* work = gpu_allocate_memory(size, node_loc);
             maybe_workspace = tuple<void*, uint64_t>(work, size);
           }
 
           //use kernel_manager operator to run einsum
-          DLINEOUT("launching an einsummable (or not)");
-          //km(
-          //  my_einsummable,
-          //  stream,
-          //  offset_increment(memory_base_ptrs[node_loc], memory_vector[0].offset),
-          //  get_input_mem_ptrs(memory_vector, memory_base_ptrs[node_loc]),
-          //  maybe_workspace);
+          DLINEOUT("launching an einsummable");
+          km(
+            my_einsummable,
+            stream,
+            out_mem,
+            inn_mems,
+            maybe_workspace);
         }
         //if (debug){
         //  std::cout << "Node " << node_idx << " has been scheduled to a stream" << std::endl;

@@ -3,7 +3,6 @@
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/scalarop.h"
-#include "../src/execution/gpu/execute.h"
 #include "../src/execution/gpu/execute_multi_gpu.h"
 #include "../src/execution/gpu/utility.h"
 
@@ -121,42 +120,42 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
-void execute_test(memgraph_t memgraph) {
-
-  // print a message
-  std::cout << "Checking correctness" << std::endl;
-  // create a buffer
-  // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
-  // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-  // d.random("-1.0", "1.0");
-  // // d.fill(scalar_t(float(17.63)));
-  // buffer_t b = d.data;
-  // auto cpu_ptr = b->data;
-  // auto size = b->size;
-
-  // print the number of nodes in the graph
-  std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
-            << std::endl;
-  bool debug = true;
-  if (debug) {
-    print_memgraph(memgraph);
-  }
-
-  // allocate a buffer on GPU
-  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
-  // print the memgraph size
-  std::cout << "Memgraph size: " << memgraph.mem_sizes()[0] << std::endl;
-  // copy data from CPU to GPU
-  // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-  // cudaSuccess) {
-  //     throw std::runtime_error("cudaMemcpy");
-  // }
-  // execute the memgraph on the GPU ptr
-  execute(memgraph, gpu_ptr);
-  std::cout << "GPU execution has finished" << std::endl;
-  // bring the data back
-  // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-}
+//void execute_test(memgraph_t memgraph) {
+//
+//  // print a message
+//  std::cout << "Checking correctness" << std::endl;
+//  // create a buffer
+//  // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
+//  // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
+//  // d.random("-1.0", "1.0");
+//  // // d.fill(scalar_t(float(17.63)));
+//  // buffer_t b = d.data;
+//  // auto cpu_ptr = b->data;
+//  // auto size = b->size;
+//
+//  // print the number of nodes in the graph
+//  std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
+//            << std::endl;
+//  bool debug = true;
+//  if (debug) {
+//    print_memgraph(memgraph);
+//  }
+//
+//  // allocate a buffer on GPU
+//  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
+//  // print the memgraph size
+//  std::cout << "Memgraph size: " << memgraph.mem_sizes()[0] << std::endl;
+//  // copy data from CPU to GPU
+//  // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
+//  // cudaSuccess) {
+//  //     throw std::runtime_error("cudaMemcpy");
+//  // }
+//  // execute the memgraph on the GPU ptr
+//  execute(memgraph, gpu_ptr);
+//  std::cout << "GPU execution has finished" << std::endl;
+//  // bring the data back
+//  // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
+//}
 
 void execute_multi_gpu_test(memgraph_t memgraph) {
   // print a message
@@ -204,65 +203,65 @@ void execute_multi_gpu_test(memgraph_t memgraph) {
 // NOTE: Since the correctness test fills the entire buffer with random values
 // without any consideration on the alignment The test only works with alignment
 // = 1
-void check_correctness(memgraph_t memgraph, bool debug = false) {
-  if (debug) {
-    print_memgraph(memgraph);
-  }
-
-  // print a message
-  std::cout << "Checking correctness" << std::endl;
-  // create a buffer
-  auto num_elems = memgraph.mem_sizes()[0] / sizeof(float);
-  dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-  d.random("-1.0", "1.0");
-  // d.fill(scalar_t(float(17.63)));
-  buffer_t b = d.data;
-  auto cpu_ptr = b->data;
-  auto size = b->size;
-  if (debug) {
-    std::cout << "Original buffer: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
-  }
-  // allocate a buffer on GPU
-  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
-  // copy data from CPU to GPU
-  if (cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-      cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy");
-  }
-  // execute the memgraph on the GPU ptr
-  execute(memgraph, gpu_ptr);
-  std::cout << "GPU execution has finished" << std::endl;
-  // bring the data back
-  dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-  if (cudaMemcpy(out.data->data, gpu_ptr, size, cudaMemcpyDeviceToHost) !=
-      cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy");
-  }
-  std::cout << "Copying from GPU to CPU has finished" << std::endl;
-
-  // run the same computation on CPU
-  vector<buffer_t> buffers;
-  buffers.push_back(b);
-  reference_compute_memgraph(memgraph, buffers);
-  std::cout << "CPU reference has finished" << std::endl;
-
-  // compare the results
-  auto result = is_close(d, out);
-  // print messages based on the result
-  if (result) {
-    std::cout << "Correctness test passed" << std::endl;
-  } else {
-    std::cout << "Correctness test failed" << std::endl;
-  }
-
-  if (debug && !result) {
-    std::cout << "Expected result: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
-    std::cout << "Actual result: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float *>(out.data->data), num_elems);
-  }
-}
+//void check_correctness(memgraph_t memgraph, bool debug = false) {
+//  if (debug) {
+//    print_memgraph(memgraph);
+//  }
+//
+//  // print a message
+//  std::cout << "Checking correctness" << std::endl;
+//  // create a buffer
+//  auto num_elems = memgraph.mem_sizes()[0] / sizeof(float);
+//  dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
+//  d.random("-1.0", "1.0");
+//  // d.fill(scalar_t(float(17.63)));
+//  buffer_t b = d.data;
+//  auto cpu_ptr = b->data;
+//  auto size = b->size;
+//  if (debug) {
+//    std::cout << "Original buffer: " << std::endl;
+//    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
+//  }
+//  // allocate a buffer on GPU
+//  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
+//  // copy data from CPU to GPU
+//  if (cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
+//      cudaSuccess) {
+//    throw std::runtime_error("cudaMemcpy");
+//  }
+//  // execute the memgraph on the GPU ptr
+//  execute(memgraph, gpu_ptr);
+//  std::cout << "GPU execution has finished" << std::endl;
+//  // bring the data back
+//  dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
+//  if (cudaMemcpy(out.data->data, gpu_ptr, size, cudaMemcpyDeviceToHost) !=
+//      cudaSuccess) {
+//    throw std::runtime_error("cudaMemcpy");
+//  }
+//  std::cout << "Copying from GPU to CPU has finished" << std::endl;
+//
+//  // run the same computation on CPU
+//  vector<buffer_t> buffers;
+//  buffers.push_back(b);
+//  reference_compute_memgraph(memgraph, buffers);
+//  std::cout << "CPU reference has finished" << std::endl;
+//
+//  // compare the results
+//  auto result = is_close(d, out);
+//  // print messages based on the result
+//  if (result) {
+//    std::cout << "Correctness test passed" << std::endl;
+//  } else {
+//    std::cout << "Correctness test failed" << std::endl;
+//  }
+//
+//  if (debug && !result) {
+//    std::cout << "Expected result: " << std::endl;
+//    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
+//    std::cout << "Actual result: " << std::endl;
+//    printFloatCPU(reinterpret_cast<const float *>(out.data->data), num_elems);
+//  }
+//}
 
 // ij,jk->ik
 /*

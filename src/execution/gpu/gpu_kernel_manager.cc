@@ -2,40 +2,32 @@
 
 #include "utility.h"
 
-build_result_t kernel_manager_t::build(einsummable_t const& e_)
+kernel_manager_t::kernel_manager_t() {
+  handle_cutensor_error(
+    cutensorCreate(&handle),
+    "cutensor create in kernel_manager constructor");
+}
+
+optional<workspace_info_t> 
+kernel_manager_t::build(einsummable_t const& e_)
 {
   auto einsummable = e_.merge_adjacent_dims();
 
-  if(kernels.count(einsummable) > 0) {
-    auto worksize = workspace_size(einsummable);
-    //if worksize doesn't exist, it means that the kernel is a reduction kernel
-    if(worksize){
-      build_result_t repeat_result{.built = true,.workspace_size = worksize};
-      return repeat_result;
-    }else{
-      build_result_t reduction_result{.built = true};
-      return reduction_result;
-    }
+  auto iter = kernels.find(einsummable);
+  if(iter != kernels.end()) { 
+    return workspace_size(iter->second);
   }
 
   if(einsummable.is_contraction()) {
-    auto c = contraction_t::make(einsummable);
+    auto c = make_contraction(einsummable);
     kernels.insert({einsummable,c});
-    build_result_t result_contraction{
-      .built = true, 
-      .workspace_size = c.worksize};
-    return result_contraction;
+    return workspace_info_t(c.worksize);
   }
-
-  string err_msg =
-    "could not build a kernel for einsummable_t: " 
-    + write_with_ss(einsummable);
-
 
   // Check for Reudctions
   if(einsummable.has_aggregation()) {
     if(einsummable.inns.size() != 1) {
-      throw std::runtime_error(err_msg);
+      return std::nullopt;
     }
 
     if(einsummable.castable.value() == castable_t::add) {
@@ -59,21 +51,17 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
       kernels.insert({einsummable, reduct_kernel});
 
-      build_result_t reduction_result{.built = true};
-      return reduction_result;
+      return workspace_info_t();
     }
 
-    
-
-    throw std::runtime_error(err_msg);
+    return std::nullopt;
   }
 
-  if(is_power_elementwise(einsummable)){
-
+  if(is_power_elementwise(einsummable)) {
     double pow = get_power(einsummable);
     uint64_t size = einsummable.join_shape[0];
-    auto lambda = [pow, size]
-    (cudaStream_t stream, float* out, const float* in){
+    auto lambda = [pow, size](cudaStream_t stream, float* out, const float* in) 
+    {
       elementwise_power(out, in, stream, pow, size);
     };
 
@@ -81,27 +69,20 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, power_kernel});
 
-    build_result_t result_power{
-      .built = true, 
-      .workspace_size = 0};
-    return result_power;
+    return workspace_info_t(0);
   }
 
   if(is_type_conversion(einsummable)){
-
     auto f = build_cutensor_type_conversion(einsummable);
 
     type_conversion_t conversion_kernel {f};
 
     kernels.insert({einsummable, conversion_kernel});
-    build_result_t result_conversion{
-      .built = true, 
-      .workspace_size = 0};
-    return result_conversion;
+
+    return workspace_info_t(0);
   }
 
   if(is_scale_and_increment(einsummable)){
-
     auto [scale, increment] = get_increment_scale(einsummable);
     uint64_t size = einsummable.join_shape[0];
     auto lambda = [scale, increment, size]
@@ -113,11 +94,7 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, scale_kernel});
 
-    build_result_t result_scale {
-      .built = true,
-      .workspace_size = 0};
-    
-    return result_scale;
+    return workspace_info_t(0);
   }
 
   if(is_custom_kernel1(einsummable)){
@@ -129,12 +106,8 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, custom_kernel});
 
-    build_result_t result_custom_1 {
-      .built = true, 
-      .workspace_size = 0};
-    return result_custom_1;
+    return workspace_info_t(0);
   }
-
 
   if(is_elementwise_with_pow(einsummable)){
     uint64_t a_size = einsummable.join_shape[0];
@@ -146,19 +119,16 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
     pow_and_elementwise_t pow_ane_ele_kernel {func_elem, worksize, a_size};
 
     kernels.insert({einsummable, pow_ane_ele_kernel});
-    build_result_t result_pow_ele {
-      .built = true, 
-      .workspace_size = worksize};
-    return result_pow_ele;
+
+    return workspace_info_t(worksize);
   }
 
   if(is_c64_elementwise_multiply(einsummable)){
-    auto c = contraction_t::make(einsummable);
+    auto c = make_contraction(einsummable);
+
     kernels.insert({einsummable,c});
-    build_result_t result_contraction{
-      .built = true, 
-      .workspace_size = c.worksize};
-    return result_contraction;
+
+    return workspace_info_t(c.worksize);
   }
 
 
@@ -172,55 +142,49 @@ build_result_t kernel_manager_t::build(einsummable_t const& e_)
 
     elementwise_t elementwise_kernel {func};
 
-
     kernels.insert({einsummable, elementwise_kernel});
-    build_result_t result_elementwise{
-      .built = true, 
-      .workspace_size = 0};
-    return result_elementwise;
 
-  }
-
-  build_result_t failed_result{.built=false};
-
-  return failed_result;
-}
-
-
-optional<uint64_t> kernel_manager_t::workspace_size(
-  einsummable_t const& e) const
-{
-  auto const& kernel = get_built_kernel_info(e);
-
-  if(std::holds_alternative<contraction_t>(kernel)) {
-    return std::get<contraction_t>(kernel).worksize;
-  }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
-    return std::get<pow_and_elementwise_t>(kernel).worksize;
-  }else if(std::holds_alternative<reduction_t>(kernel)) {
-    return std::nullopt;
-  }else {
-    return 0;
+    return workspace_info_t(0);
   }
 
   return std::nullopt;
 }
 
-uint64_t kernel_manager_t::workspace_size(
-  einsummable_t const& e, void* out,
-  vector<void const*> inns, 
-  cutensorHandle_t const* handle) const
+workspace_info_t kernel_manager_t::workspace_size(
+  einsummable_t const& e) const
 {
-  
-  auto const& kernel = get_built_kernel_info(e);
+  return workspace_size(get_built_kernel_info(e));
+}
 
+workspace_info_t kernel_manager_t::workspace_size(
+  kernel_manager_t::kernel_info_t const& kernel) const
+{
+  if(std::holds_alternative<contraction_t>(kernel)) {
+    return workspace_info_t(std::get<contraction_t>(kernel).worksize);
+  }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
+    return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
+  }else if(std::holds_alternative<reduction_t>(kernel)) {
+    return workspace_info_t();
+  }else {
+    return workspace_info_t(0);
+  }
+
+  throw std::runtime_error("workspace_size: should not reach");
+}
+
+uint64_t kernel_manager_t::known_workspace_size(
+  einsummable_t const& e, 
+  void* out,
+  vector<void const*> inns) const
+{
+  auto const& kernel = get_built_kernel_info(e);
 
   if(std::holds_alternative<reduction_t>(kernel)) {
     return reduction_worksize(e, out, inns, handle);
+  } else {
+    return workspace_size(kernel).value();
   }
-  return 0;
 }
-
-
 
 void kernel_manager_t::operator()(
   touch_t const& touch,
@@ -231,7 +195,6 @@ void kernel_manager_t::operator()(
   auto f = build_touch(touch);
   f(stream, out, inn);
 }
-
 
 void kernel_manager_t::operator()(
   einsummable_t const& e,
@@ -249,13 +212,10 @@ void kernel_manager_t::call(
   cudaStream_t stream,
   void* out,
   vector<void const*> inns,
-  optional<tuple<void*, uint64_t>> maybe_workspace)
+  optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
   using std::holds_alternative;
   using std::get;
-
-  cutensorHandle_t* handle;
-  HANDLE_ERROR(cutensorCreate(&handle));
 
   auto assert_num_inputs = [&inns](int n) {
     if(inns.size() != n) {
@@ -265,52 +225,67 @@ void kernel_manager_t::call(
 
   if(holds_alternative<contraction_t>(kernel)) {
     assert_num_inputs(2);
+
     auto const& c = get<contraction_t>(kernel);
-    if(c.worksize == 0) {
-      execute_contraction(stream,handle,&c.desc,
-        out,inns[0],inns[1],c.dtype,nullptr,0);
-    } else if(!maybe_workspace) {
-      throw std::runtime_error("workspace required; none given");
-    } else {
-      auto [workspace, wsz] = maybe_workspace.value();
-      if(wsz < c.worksize) {
-        throw std::runtime_error("provided workspace is too small");
+
+    void* workspace = nullptr;
+    uint64_t wsz = 0;
+    if(c.worksize != 0) {
+      if(maybe_workspace) {
+        workspace = std::get<0>(maybe_workspace.value());  
+        wsz       = std::get<1>(maybe_workspace.value());  
+      } else {
+        throw std::runtime_error("workspace required; none given");
       }
-      execute_contraction(stream,handle,&c.desc,
-        out,inns[0],inns[1],c.dtype,workspace,c.worksize);
     }
-  }else if(holds_alternative<reduction_t>(kernel)) {
+
+    execute_contraction(
+      c, stream,
+      out, inns[0], inns[1],
+      workspace, wsz);
+  } else if(holds_alternative<reduction_t>(kernel)) {
     assert_num_inputs(1);
+
     auto const& [f] = get<reduction_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
 
     f(stream,handle,out,inns,workspace,wsz);
-  }else if(holds_alternative<power_t>(kernel)) {
+  } else if(holds_alternative<power_t>(kernel)) {
     assert_num_inputs(1);
+
     auto const& [pow,f] = get<power_t>(kernel);
+
     f(stream,(float*)out,(float*)inns[0]);
-  }else if(holds_alternative<type_conversion_t>(kernel)) {
+  } else if(holds_alternative<type_conversion_t>(kernel)) {
     assert_num_inputs(1);
+
     auto const& [f] = get<type_conversion_t>(kernel);
+
     f(stream,handle,out,inns);
-  }else if(holds_alternative<elementwise_t>(kernel)) {
+  } else if(holds_alternative<elementwise_t>(kernel)) {
     auto const& [f] = get<elementwise_t>(kernel);
+
     f(stream,handle,out,inns);
-  }else if(holds_alternative<scale_t>(kernel)) {
+
+  } else if(holds_alternative<scale_t>(kernel)) {
     assert_num_inputs(1);
+
     auto const& [scale,f] = get<scale_t>(kernel);
+
     f(stream,(float*)out,(float*)inns[0]);
-  }else if(holds_alternative<pow_and_elementwise_t>(kernel)) {
+  } else if(holds_alternative<pow_and_elementwise_t>(kernel)) {
     auto const& [f, worksizep, a_size] = get<pow_and_elementwise_t>(kernel);
+
     auto [workspace, wsz] = maybe_workspace.value();
 
     f(stream,handle,out,inns,workspace,wsz);
-  }else if(holds_alternative<custom_kernel_1_t>(kernel)) {
+  } else if(holds_alternative<custom_kernel_1_t>(kernel)) {
     assert_num_inputs(1);
+
     auto const& [f] = get<custom_kernel_1_t>(kernel);
+
     f(stream,handle,out,inns);
   }    
-
 }
 
 kernel_manager_t::kernel_info_t const&
@@ -323,34 +298,90 @@ kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
   return iter->second;
 }
 
+kernel_manager_t::contraction_t
+kernel_manager_t::make_contraction(einsummable_t const& einsummable)
+{
+  contraction_t c;
 
-
-contraction_t contraction_t::make(einsummable_t const&  einsummable){
-  cutensorContractionDescriptor_t desc;
-
-  cutensorHandle_t* handle;
-  cutensorCreate(&handle);
-
-  build_contraction(&desc,handle,einsummable);
-
-  cutensorContractionFind_t find;
+  build_contraction_desc(c.desc, handle, einsummable);
 
   cutensorInitContractionFind(
-      handle, &find,
-      CUTENSOR_ALGO_DEFAULT);
+    handle, 
+    &c.find,
+    CUTENSOR_ALGO_DEFAULT);
+
+  c.worksize = 0;
   
-  uint64_t worksize = 0;
+  handle_cutensor_error(cutensorContractionGetWorkspaceSize(
+     handle,
+     &c.desc,
+     &c.find,
+     CUTENSOR_WORKSPACE_RECOMMENDED,
+     &c.worksize));
 
-  cutensorContractionGetWorkspaceSize(handle,
-  &desc,
-  &find,
-  CUTENSOR_WORKSPACE_RECOMMENDED,
-  &worksize);
+  handle_cutensor_error(
+    cutensorInitContractionPlan(
+      handle,
+      &c.plan,
+      &c.desc,
+      &c.find,
+      c.worksize) );
 
-  contraction_t con {.worksize=worksize,.desc = desc,.dtype = einsummable.out_dtype()};
+  return c;
+}
 
-  return con;
+void kernel_manager_t::execute_contraction(
+  contraction_t const& c,
+  cudaStream_t stream,
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  void* work,
+  uint64_t given_worksize) const
+{
+  static float               one_float = 1.0f;
+  static double              one_double = 1.0;
+  static std::complex<float> one_complex(1.0f, 0.0f);
 
+  static float               zero_float = 0.0f;
+  static double              zero_double = 0.0;
+  static std::complex<float> zero_complex(0.0f, 0.0f);
+
+  if(given_worksize < c.worksize) {
+    throw std::runtime_error("not enough workspace given for this contraction");
+  }
+
+  void* one_ptr;
+  void* zero_ptr;
+  if(c.dtype == dtype_t::f16) {
+    one_ptr  = static_cast<void*>(&one_float);
+    zero_ptr = static_cast<void*>(&zero_float);
+  } else if(c.dtype == dtype_t::f32) {
+    one_ptr  = static_cast<void*>(&one_float);
+    zero_ptr = static_cast<void*>(&zero_float);
+  } else if(c.dtype == dtype_t::f64) {
+    one_ptr  = static_cast<void*>(&one_double);
+    zero_ptr = static_cast<void*>(&zero_double);
+  } else if(c.dtype == dtype_t::c64) {
+    one_ptr  = static_cast<void*>(&one_complex);
+    zero_ptr = static_cast<void*>(&zero_double);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  handle_cutensor_error(
+    cutensorContraction(
+      handle, 
+      &c.plan, 
+      one_ptr,   // alpha
+      lhs, rhs,  // A,B
+      zero_ptr,  // beta
+      out,       // C
+      out,       // D
+      work, 
+      given_worksize, 
+      stream),
+    "contraction operator");
 }
 
 bool kernel_manager_t::is_power_elementwise(einsummable_t e){
