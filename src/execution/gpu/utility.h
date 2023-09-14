@@ -9,8 +9,8 @@
 
 // utility functions
 cudaStream_t cuda_create_stream();
-void const* offset_increment(void const* ptr, int offset);
-void*       offset_increment(void*       ptr, int offset);
+void const* offset_increment(void const* ptr, uint64_t offset);
+void*       offset_increment(void*       ptr, uint64_t offset);
 void* gpu_allocate_memory(size_t size, int device_id);
 
 // debug

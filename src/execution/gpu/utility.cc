@@ -9,10 +9,10 @@ cudaStream_t cuda_create_stream() {
   return ret;
 }
 
-void const* offset_increment(void const* ptr, int offset) {
+void const* offset_increment(void const* ptr, uint64_t offset) {
   return static_cast<void const*>(static_cast<uint8_t const*>(ptr) + offset);
 }
-void*       offset_increment(void*       ptr, int offset) {
+void*       offset_increment(void*       ptr, uint64_t offset) {
   return static_cast<void*>(static_cast<uint8_t*>(ptr) + offset);
 }
 

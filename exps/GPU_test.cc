@@ -523,7 +523,7 @@ void dcb01() {
     graph_writer_t gwriter;
 
     auto z = gwriter.input({sz,sz});
-    for(int i = 0; i != 12; ++i) {
+    for(int i = 0; i != 3; ++i) {
       auto w = gwriter.input({sz,sz});
       if(i % 2 == 0) {
         z = gwriter.matmul(z, w);
