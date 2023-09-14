@@ -219,7 +219,6 @@ struct callback_data_t {
   std::condition_variable *cv_ptr;
   multi_gpu_execute_state_t *my_state;
   int node_idx;
-  bool debug = true;
   cudaStream_t stream;
 
   void operator()() {
@@ -244,7 +243,7 @@ struct callback_data_t {
       // update the queues since this node is finished
       my_state->finished_queue.push(node_idx);
       my_state->finished_streams[stream] = node_loc;
-      if (debug){
+      if (my_state->debug){
         printf("Callback: Node %d finished execution.\n", node_idx);
       }
     }
@@ -266,8 +265,6 @@ struct callback_data_t {
 // ---------------- Calling streams from a stream pool version ----------------
 
 void multi_gpu_execute_state_t::run() {
-
-  bool debug = true;
 
   while (true) {
 
@@ -532,8 +529,6 @@ void multi_gpu_execute_state_t::run() {
 // ------------------------ No stream pool version ------------------------
 
 void multi_gpu_execute_state_t::run_create_stream() {
-
-  bool debug = true;
   
   while (true) {
 

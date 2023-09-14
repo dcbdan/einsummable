@@ -33,6 +33,7 @@ struct multi_gpu_execute_state_t {
   std::queue<int> finished_queue;
   //kernel manager for this specific multi_gpu_execute_state_t
   kernel_manager_t km;
+  bool debug = true;
 
   // if we are not modifying the original memgraph, we can use a map
   // to store the dependency count of each node
