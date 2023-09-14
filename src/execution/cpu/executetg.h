@@ -1,6 +1,4 @@
 #pragma once
-
-#pragma once
 #include "../../base/setup.h"
 
 #include "../../einsummable/taskgraph.h"
@@ -13,6 +11,8 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+
+#include "numa.h"
 
 struct execute_taskgraph_settings_t {
   int num_apply_runner;

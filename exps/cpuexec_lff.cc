@@ -337,7 +337,7 @@ random_step_partition_solve(
   int max_distance)
 {
   DOUT("random_step_partition_solve; max distance " << max_distance);
-  random_partition_t rnd { .splits = {1,2,4, 8,12,16} }; // ,24,32,48,64} };
+  random_partition_t rnd { .splits = {1,2,4,8,12,16,24} };
   adj_random_partition_t adj_rnd(g);
 
   vector<partition_t> current_ps;
@@ -353,7 +353,7 @@ random_step_partition_solve(
   };
 
   for(auto const& node: g.nodes) {
-    current_ps.push_back(partition_t::singleton(node.op.shape()));
+    current_ps.push_back(rnd(node.op.shape()));
   }
 
   vector<partition_t> ret_p = current_ps;
@@ -423,6 +423,7 @@ int main(int argc, char** argv) {
   pargs.set_default<bool>    ("mm",         true );
   pargs.set_default<bool>    ("direct",     false);
   pargs.set_default<bool>    ("withstep",   true );
+  pargs.set_default<int>     ("niter",       2000);
 
   uint64_t batch       = pargs.get<uint64_t>("batch");
   uint64_t seqlen      = pargs.get<uint64_t>("seqlen");
@@ -437,6 +438,7 @@ int main(int argc, char** argv) {
 
   int nrep = pargs.get<int>("nrep");
   int nrunner = pargs.get<int>("nrunner");
+  int niter = pargs.get<int>("niter");
 
   graph_t g = mm                                      ?
     make_graph_mm(       batch * seqlen, hidden, dim) :
@@ -474,11 +476,11 @@ int main(int argc, char** argv) {
     vector<partition_t> parts;
     if(with_step) {
       int max_distance = 10;
-      auto [parts_, tg_] = random_step_partition_solve(g, 3000, sts, max_distance);
+      auto [parts_, tg_] = random_step_partition_solve(g, niter, sts, max_distance);
       parts = parts_;
       tg = tg_;
     } else {
-      auto [parts_, tg_] = random_partition_solve(g, 3000, sts);
+      auto [parts_, tg_] = random_partition_solve(g, niter, sts);
       parts = parts_;
       tg = tg_;
     }

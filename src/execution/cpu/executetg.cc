@@ -68,6 +68,8 @@ state_t::state_t(
     num_recv_post_remaining(0),
     num_did_remaining(0)
 {
+  get_numa_info();
+
   this_rank = bool(mpi) ? mpi->this_rank : 0;
 
   int num_nodes = taskgraph.nodes.size();
@@ -132,6 +134,8 @@ state_t::state_t(
 
 void state_t::apply_runner(int runner_id)
 {
+  numa_info_t::pin_to_thread(runner_id);
+
   int which_apply;
   tuple<which_touch_t, bool> which_touch_is_first;
   bool doing_touch;
