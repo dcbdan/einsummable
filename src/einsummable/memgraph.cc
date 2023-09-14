@@ -103,7 +103,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       string aopstr;
       if(std::holds_alternative<einsummable_t>(aop)) {
         header = "apply";
-        aopstr = write_with_ss(std::get<einsummable_t>(aop));
+        auto const& e = std::get<einsummable_t>(aop);
+        aopstr = write_with_ss(e) + ","+write_with_ss(e.out_dtype());
       } else if(std::holds_alternative<touch_t>(aop)) {
         header = "touch";
         aopstr = write_with_ss(std::get<touch_t>(aop).castable) +
@@ -178,6 +179,12 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("memgraph print should not happen");
     }
     label = write_with_ss(id) + " " + label;
+
+    //for(int const& _id: {0,1,2,3,4,5,6,7,8,9,10,11,12,13}) {
+    //  if(id == _id) {
+    //    color = "pink";
+    //  }
+    //}
 
     //auto memlocs = op.get_memlocs();
     //for(auto const& memloc: memlocs) {
@@ -2186,7 +2193,7 @@ allocator_t::get_allocated_region(uint64_t offset) const
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
-  out << "[" << mem.offset << "," << mem.offset+mem.size << ")";
+  out << "[" << mem.offset << "," << (mem.offset+mem.size) << ")";
   return out;
 }
 std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {

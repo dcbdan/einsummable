@@ -9,6 +9,8 @@
 #include <cuda_runtime.h>
 #include <cutensor.h>
 
+#include "utility.h"
+
 using touch_kernel_t = std::function<
     void(cudaStream_t, void*, void const*)
   >;
@@ -38,22 +40,6 @@ touch_kernel_t build_touch(touch_t const& touch);
 // exists.
 //cutensor_kernel_t
 //build_einsummable(einsummable_t const& einsummable);
-
-// build a cutensor contraction description; throw an error if
-// the einsummable is not a contraction
-void build_contraction(
-  cutensorContractionDescriptor_t* desc,
-  cutensorHandle_t const* handle,
-  einsummable_t const& einsummable);
-
-void execute_contraction(
-  cudaStream_t,
-  cutensorHandle_t const*,
-  cutensorContractionDescriptor_t const*,
-  void* out,
-  void const* lhs,
-  void const* rhs,
-  dtype_t type, void* work, uint64_t worksize);
 
 cutensor_kernel_t
 build_cutensor_reduction(
@@ -127,8 +113,6 @@ build_straight_elementwise(
   scalarop_t op,
   uint64_t size);
 
-void handle_cutensor_error(cutensorStatus_t const& err);
-
 cutensor_elementwise_kernel_t
 build_cutensor_type_conversion(einsummable_t const& e);
 
@@ -137,3 +121,8 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size);
 
 cutensor_elementwise_op_t make_mul_op(
   einsummable_t const& e);
+
+cudaDataType_t dtype_to_cudatype(dtype_t type);
+
+cutensorComputeType_t dtype_to_computetype(dtype_t type);
+

@@ -7,23 +7,12 @@
 #include "cutensor.h"
 #include "kernels.h"
 #include "gpu_kernel_manager.h"
+#include "workspace.h"
 #include <mutex>
 #include <condition_variable>
 #include <cuda_runtime.h>
 
 using memgraph_t = memgraph_t;
-
-// we need to define HANDLE_ERROR properly since it's not included in the header
-// file defined:
-// (https://docs.nvidia.com/cuda/cutensor/getting_started.html#determine-algorithm-and-workspace)
-#define HANDLE_ERROR(x)                                                        \
-{                                                                            \
-    const auto err = x;                                                        \
-    if (err != CUTENSOR_STATUS_SUCCESS) {                                      \
-      printf("Error: %s in line %d\n", cutensorGetErrorString(err), __LINE__); \
-      exit(-1);                                                                \
-    }                                                                          \
-}
 
 struct multi_gpu_execute_state_t {
   memgraph_t const &memgraph;
@@ -57,7 +46,6 @@ struct multi_gpu_execute_state_t {
   // for the previous touch with the same id to finish
   std::vector<std::map<int, std::queue<int>>> groupID_to_nodeIDX;
 
-  std::vector<cutensorHandle_t*> handles;
   // create a pool of streams for each device
   std::vector<std::queue<cudaStream_t>> stream_pool;
   // value: device id -> look up which device it belongs
@@ -67,7 +55,9 @@ struct multi_gpu_execute_state_t {
   // pointer pointing to the start of the GPU memory
   std::vector<void*> memory_base_ptrs;
 
-  std::unordered_map<einsummable_t, build_result_t> einsum_build_results;
+  std::unordered_map<einsummable_t, workspace_info_t> einsum_worksizes;
+
+  workspace_manager_t workspace_manager;
 
   gpu_comm_t gpu_comm;
 
@@ -97,7 +87,7 @@ struct multi_gpu_execute_state_t {
   void add_to_pending_queue(std::vector<int> &nodes);
 
   std::vector<void const *> get_input_mem_ptrs(std::vector<mem_t> mem,
-                                              void *memory_base_ptr);
+                                               void *memory_base_ptr);
 
   void printContractionInfo(int node_idx, int num_elems);
   void checkContractionOffset(int node_idx);

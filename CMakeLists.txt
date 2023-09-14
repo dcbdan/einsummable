@@ -183,7 +183,8 @@ if(${GPU_EXECUTION_ENGINE})
     ${CUDA_LIBRARIES}
     cutensor
     cudart
-    cublasLt)
+    cublasLt
+    cublas)
 
   endfunction()
 

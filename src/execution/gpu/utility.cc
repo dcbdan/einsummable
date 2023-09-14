@@ -1,32 +1,19 @@
 #include "utility.h"
 
-// we need to define HANDLE_ERROR properly since it's not included in the header
-// file defined:
-// (https://docs.nvidia.com/cuda/cutensor/getting_started.html#determine-algorithm-and-workspace)
-#define HANDLE_ERROR(x)                                                        \
-{                                                                            \
-    const auto err = x;                                                        \
-    if (err != CUTENSOR_STATUS_SUCCESS) {                                      \
-      printf("Error: %s in line %d\n", cutensorGetErrorString(err), __LINE__); \
-      exit(-1);                                                                \
-    }                                                                          \
-}
-
 cudaStream_t cuda_create_stream() {
   cudaStream_t ret;
   auto cudaError = cudaStreamCreate(&ret);
   if (cudaError != cudaSuccess) {
-    // print error message and error code
-    fprintf(stderr, "cudaStreamCreate failed with error: %s\n", cudaGetErrorString(cudaError));
-    throw std::runtime_error("cuda_create_stream");
+    throw std::runtime_error("cuda_create_stream.. " + string(cudaGetErrorString(cudaError)));
   }
   return ret;
 }
 
-// increment the pointer by the byte offset
-// ONLY USE IF THE UNIT OF OFFSET IS BYTE
-void* offset_increment(const void *ptr, int offset) {
-  return (void *)((char *)ptr + offset);
+void const* offset_increment(void const* ptr, uint64_t offset) {
+  return static_cast<void const*>(static_cast<uint8_t const*>(ptr) + offset);
+}
+void*       offset_increment(void*       ptr, uint64_t offset) {
+  return static_cast<void*>(static_cast<uint8_t*>(ptr) + offset);
 }
 
 // prints float starting from ptr with count number of elements
@@ -73,8 +60,10 @@ void init_value(float *ptr, int count, float value) {
 void checkAlignment(cutensorHandle_t *handle, float *ptr,
                     cutensorTensorDescriptor_t desc) {
   uint32_t alignmentRequirement;
-  HANDLE_ERROR(cutensorGetAlignmentRequirement(handle, ptr, &desc,
-                                               &alignmentRequirement));
+  handle_cutensor_error(
+    cutensorGetAlignmentRequirement(
+    handle, ptr, &desc,
+    &alignmentRequirement));
 
   if (alignmentRequirement != 16) {
     // print the alignment requirement
@@ -82,3 +71,32 @@ void checkAlignment(cutensorHandle_t *handle, float *ptr,
               << alignmentRequirement << std::endl;
   }
 }
+
+void handle_cutensor_error(cutensorStatus_t error, string msg) {
+  if(error != CUTENSOR_STATUS_SUCCESS){ 
+    if(msg == "") {
+      msg = "handle_cutensor_error";
+    } 
+    throw std::runtime_error(msg + ": " + string(cutensorGetErrorString(error)));
+  }
+}
+
+void handle_cuda_error(cudaError_t error, string msg) {
+  DOUT("error is " << error << " ... msg: " << msg);
+  if(error != cudaSuccess){ 
+    if(msg == "") {
+      msg = "handle_cuda_error";
+    } 
+    throw std::runtime_error(msg + ": " + string(cudaGetErrorString(error)));
+  }
+}
+
+void handle_cublas_error(cublasStatus_t error, string msg) {
+  if(error != CUBLAS_STATUS_SUCCESS){ 
+    if(msg == "") {
+      msg = "handle_cublas_error";
+    } 
+    throw std::runtime_error(msg + ": " + write_with_ss(error));
+  }
+}
+
