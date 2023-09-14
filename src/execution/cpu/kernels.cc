@@ -264,12 +264,29 @@ vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
   return ret;
 }
 
+// TODO: put this somewhere appropriate
+std::mutex times_mutex;
+
 void kernel_manager_t::operator()(
   touch_t const& touch,
   void* out,
   void const* inn) const
 {
+  auto start = clock_now();
   execute_touch(touch.simplify(), out, inn);
+  auto end = clock_now();
+
+  std::chrono::duration<double, std::milli> duration = end - start;
+
+  auto& touch_times_ =
+    const_cast<
+        tuple<double, int> &
+    >(touch_times);
+
+  std::lock_guard guard(times_mutex);
+  auto& [total,count] = touch_times_;
+  total += duration.count();
+  count += 1;
 }
 
 void kernel_manager_t::operator()(
@@ -279,7 +296,25 @@ void kernel_manager_t::operator()(
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
   auto const& info = get_built_kernel_info(e);
+
+  auto start = clock_now();
   call(info, out, inns, maybe_workspace);
+  auto end = clock_now();
+
+  std::chrono::duration<double, std::milli> duration = end - start;
+
+  auto& times_ =
+    const_cast<
+      std::unordered_map<
+        einsummable_t,
+        tuple<double, int>
+        > &
+      >(times);
+
+  std::lock_guard guard(times_mutex);
+  auto& [total,count] = times_[e.merge_adjacent_dims()];
+  total += duration.count();
+  count += 1;
 }
 
 void kernel_manager_t::call(

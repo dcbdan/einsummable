@@ -166,7 +166,7 @@ struct graph_t {
 
   void print() const;
 
-  void print_graphviz(std::ostream& out) const;
+  void print_graphviz(std::ostream& out, vector<partition_t> p = {}) const;
 
   vector<int> get_inputs() const;
 

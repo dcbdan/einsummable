@@ -115,6 +115,9 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt);
 
+  tuple<double,int> touch_times;
+  std::unordered_map<einsummable_t, tuple<double, int>> times;
+
 private:
 
   std::unordered_map<einsummable_t, kernel_info_t> kernels;

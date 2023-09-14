@@ -792,7 +792,7 @@ void graph_t::print() const {
   }
 }
 
-void graph_t::print_graphviz(std::ostream& out) const {
+void graph_t::print_graphviz(std::ostream& out, vector<partition_t> parts) const {
   using std::endl;
   string tab = "  ";
   out << "digraph {" << endl;
@@ -805,12 +805,16 @@ void graph_t::print_graphviz(std::ostream& out) const {
     string color = "";
     if(op.is_input()) {
       label = "input" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.shape());
     } else if(op.is_formation()) {
       label = "form" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.out_shape());
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
       label = "einsummable" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.get_einsummable());
+      label += "\ninput_ids" + write_with_ss(node.inns);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -819,6 +823,15 @@ void graph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
     label += ":" + write_with_ss(out_dtype(id));
+
+    if(id < parts.size()) {
+      vector<int> np;
+      for(auto const& pd: parts[id].partdims) {
+        np.push_back(pd.num_parts());
+      }
+      label += "\n" + write_with_ss(np);
+    }
+
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";

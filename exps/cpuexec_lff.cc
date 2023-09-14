@@ -18,6 +18,19 @@ using tensor_t     = graph_writer_t::tensor_t;
 using full_dim_t   = graph_writer_t::full_dim_t;
 using full_shape_t = graph_writer_t::full_shape_t;
 
+void print_km_times(kernel_manager_t const& km) {
+  double total = 0.0;
+  for(auto const& [e, cn]: km.times) {
+    auto const& [c,n] = cn;
+    DOUT(e.str() << ": " << "[" << c << ", " << n << "]");
+    total += c;
+  }
+  auto const& [c,n] = km.touch_times;
+  DOUT("touch times: [" << c << ", " << n << "]");
+  total += c;
+  DOUT("total: " << total);
+}
+
 graph_t make_graph_ff_simple(
   uint64_t batch,
   uint64_t hidden,
@@ -37,13 +50,15 @@ graph_t make_graph_ff_simple(
 
   scalarop_t silu = scalarop_t::make_silu(x.get_dtype());
 
-  tensor_t a = writer.ew(silu, writer.matmul(x, w1t));
+  tensor_t a = writer.matmul(x, w1t);
+  //tensor_t a = writer.ew(silu, writer.matmul(x, w1t));
 
   tensor_t b = writer.matmul(x, w3t) ;
 
   tensor_t c = writer.mul(a, b);
 
-  writer.matmul(c, w2t);
+  tensor_t out = writer.matmul(c, w2t);
+  out.save_inplace();
 
   return writer.get_graph();
 }
@@ -62,6 +77,8 @@ graph_t make_graph_mm(
   tensor_t w1t = w1.transpose(0, 1);
 
   tensor_t a = writer.matmul(x, w1t);
+
+  a.save_inplace();
 
   return writer.get_graph();
 }
@@ -176,6 +193,8 @@ double execute_tg(
   execute_taskgraph(tg, settings, km, nullptr, tensors);
   auto end = clock_now();
 
+  print_km_times(km);
+
   std::chrono::duration<double, std::milli> duration = end - start;
   return duration.count();
 }
@@ -270,7 +289,7 @@ random_step_partition_solve(
   int max_distance)
 {
   DOUT("random_step_partition_solve; max distance " << max_distance);
-  random_partition_t rnd { .splits = {1,4,8,16} };//,16,32} };
+  random_partition_t rnd { .splits = {1,4,8,9,12,16,32} };//,16,32} };
 
   vector<partition_t> current_ps;
   for(auto const& node: g.nodes) {
@@ -395,14 +414,18 @@ int main(int argc, char** argv) {
     vector<partition_t> parts;
     if(with_step) {
       int max_distance = 10;
-      auto [parts_, tg_] = random_step_partition_solve(g, 2000, sts, max_distance);
+      auto [parts_, tg_] = random_step_partition_solve(g, 6000, sts, max_distance);
       parts = parts_;
       tg = tg_;
     } else {
-      auto [parts_, tg_] = random_partition_solve(g, 2000, sts);
+      auto [parts_, tg_] = random_partition_solve(g, 6000, sts);
       parts = parts_;
       tg = tg_;
     }
+
+    std::ofstream f("g_with_parts.gv");
+    g.print_graphviz(f, parts);
+    DOUT("printed g_with_parts.gv");
 
 
     //vector<partition_t> parts = {
