@@ -2,9 +2,9 @@
 
 workspace_manager_t::~workspace_manager_t() {
   for(int gpu = 0; gpu != data.size(); ++gpu) {
-    handle_cuda_error(cudaSetDevice(gpu));  
+    handle_cuda_error(cudaSetDevice(gpu), "~workspace_manager_t. set device");  
     for(auto const& [mem, size]: data[gpu]) {      
-      handle_cuda_error(cudaFree(mem));
+      handle_cuda_error(cudaFree(mem), "~workspace_maanger_t. cuda free");
     }
   }
   // TODO: currently not setting the device back to wtvr it was
@@ -30,13 +30,12 @@ workspace_manager_t::borrow_workspace(int gpu, uint64_t size) {
 
   handle_cuda_error(cudaSetDevice(gpu)); 
 
-  auto& [mem, sz] = data_here.emplace_back();
-  sz = size;
+  void* mem;
   handle_cuda_error(cudaMalloc(&mem, size));
 
   // TODO: currently not setting device back to wtvr it was
 
-  return {mem,sz};
+  return {mem,size};
 }
 
 void workspace_manager_t::return_workspace(int gpu, void* mem, uint64_t sz) 

@@ -4,31 +4,55 @@
 
 kernel_manager_t::kernel_manager_t() {
   handle_cutensor_error(
-    cutensorCreate(&handle),
+    cutensorCreate(&cutensor_handle),
     "cutensor create in kernel_manager constructor");
+  handle_cublas_error(
+    cublasCreate(&cublas_handle),
+    "cublas create in kernel_manager constructor");
+
+  one_half    = 1.0f;
+  one_float   = 1.0f;
+  one_double  = 1.0;
+  one_complex = std::complex<float>(1.0f, 0.0f);
+
+  zero_half    = 0.0f;
+  zero_float   = 0.0f;
+  zero_double  = 0.0;
+  zero_complex = std::complex<float>(0.0f, 0.0f);
+}
+
+kernel_manager_t::~kernel_manager_t() {
+  handle_cutensor_error(
+    cutensorDestroy(cutensor_handle),
+    "cutensor destroy in kernel_manager destructor");
+  handle_cublas_error(
+    cublasDestroy(cublas_handle),
+    "cublas destroy in kernel_manager destructor");
 }
 
 optional<workspace_info_t> 
 kernel_manager_t::build(einsummable_t const& e_)
 {
-  DLINE;
   auto einsummable = e_.merge_adjacent_dims();
 
-  DLINE;
   auto iter = kernels.find(einsummable);
   if(iter != kernels.end()) { 
     return workspace_size(iter->second);
   }
 
-  DLINE;
+  {
+    auto maybe_matmul = make_matmul(einsummable);
+    if(maybe_matmul) {
+      kernels.insert({einsummable, maybe_matmul.value()});
+      return workspace_info_t(0);
+    }
+  }
+
   if(einsummable.is_contraction()) {
-    DLINE;
     auto c = make_contraction(einsummable);
-    DLINE;
     kernels.insert({einsummable,c});
     return workspace_info_t(c.worksize);
   }
-  DLINE;
 
   // Check for Reudctions
   if(einsummable.has_aggregation()) {
@@ -186,7 +210,7 @@ uint64_t kernel_manager_t::known_workspace_size(
   auto const& kernel = get_built_kernel_info(e);
 
   if(std::holds_alternative<reduction_t>(kernel)) {
-    return reduction_worksize(e, out, inns, handle);
+    return reduction_worksize(e, out, inns, cutensor_handle);
   } else {
     return workspace_size(kernel).value();
   }
@@ -229,7 +253,12 @@ void kernel_manager_t::call(
     }
   };
 
-  if(holds_alternative<contraction_t>(kernel)) {
+  if(holds_alternative<matmul_t>(kernel)) {
+    auto const& m = get<matmul_t>(kernel);
+    execute_matmul(
+      m, stream,
+      out, inns[0], inns[1]);
+  } else if(holds_alternative<contraction_t>(kernel)) {
     assert_num_inputs(2);
 
     auto const& c = get<contraction_t>(kernel);
@@ -255,7 +284,7 @@ void kernel_manager_t::call(
     auto const& [f] = get<reduction_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
 
-    f(stream,handle,out,inns,workspace,wsz);
+    f(stream,cutensor_handle,out,inns,workspace,wsz);
   } else if(holds_alternative<power_t>(kernel)) {
     assert_num_inputs(1);
 
@@ -267,11 +296,11 @@ void kernel_manager_t::call(
 
     auto const& [f] = get<type_conversion_t>(kernel);
 
-    f(stream,handle,out,inns);
+    f(stream,cutensor_handle,out,inns);
   } else if(holds_alternative<elementwise_t>(kernel)) {
     auto const& [f] = get<elementwise_t>(kernel);
 
-    f(stream,handle,out,inns);
+    f(stream,cutensor_handle,out,inns);
 
   } else if(holds_alternative<scale_t>(kernel)) {
     assert_num_inputs(1);
@@ -284,13 +313,13 @@ void kernel_manager_t::call(
 
     auto [workspace, wsz] = maybe_workspace.value();
 
-    f(stream,handle,out,inns,workspace,wsz);
+    f(stream,cutensor_handle,out,inns,workspace,wsz);
   } else if(holds_alternative<custom_kernel_1_t>(kernel)) {
     assert_num_inputs(1);
 
     auto const& [f] = get<custom_kernel_1_t>(kernel);
 
-    f(stream,handle,out,inns);
+    f(stream,cutensor_handle,out,inns);
   }    
 }
 
@@ -304,14 +333,69 @@ kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
   return iter->second;
 }
 
+optional<kernel_manager_t::matmul_t>
+kernel_manager_t::make_matmul(einsummable_t const& e)
+{
+  if(!e.has_aggregation()) {
+    return std::nullopt;
+  }
+  if(e.castable.value() != castable_t::add) {
+    return std::nullopt;
+  }
+
+  string s = e.str();
+  auto fix = einsummable_t::normalize_str;
+
+  matmul_t ret {
+    .dtype = e.out_dtype(),
+    .ni = e.join_shape[0],
+    .nj = e.join_shape[2],
+    .nk = e.join_shape[1],
+    .trans_l = false,
+    .trans_r = false,
+    .swap = false
+  };
+
+  // Here our the 8 possible matmul strings
+  if(s == fix("ij,jk->ik")) {
+    return ret;
+  } else if(s == fix("ij,kj->ik")) {
+    ret.trans_r = true;
+    return ret;
+  } else if(s == fix("ji,jk->ik")) {
+    ret.trans_l = true;
+    return ret;
+  } else if(s == fix("ji,kj->ik")) {
+    ret.trans_l = true;
+    ret.trans_r = true;
+    return ret;
+  } else if(s == fix("jk,ij->ik")) {
+    ret.swap = true;
+    return ret;
+  } else if(s == fix("jk,ij->ik")) {
+    ret.trans_r = true;
+    ret.swap = true;
+    return ret;
+  } else if(s == fix("jk,ji->ik")) {
+    ret.trans_l = true;
+    ret.swap = true;
+    return ret;
+  } else if(s == fix("jk,ji->ik")) {
+    ret.trans_l = true;
+    ret.trans_r = true;
+    ret.swap = true;
+    return ret;
+  }
+
+  return std::nullopt;
+}
+
 kernel_manager_t::contraction_t
 kernel_manager_t::make_contraction(einsummable_t const& einsummable)
 {
-  DLINEOUT("MAKE CONTRACTION");
   auto const& e = einsummable; // an alias
   contraction_t c;
 
-  DLINE;
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeB = e.inns[1];
   std::vector<int> modeC;
@@ -323,7 +407,6 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   int nmodeB = e.inns[1].size();
   int nmodeC = e.out_rank;
 
-  DLINE;
   std::reverse(modeA.begin(), modeA.end());
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
@@ -332,7 +415,6 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
 
   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
   
-  DLINE;
   vector<int64_t> extent_A;
   for(auto const& mode: modeA) {
     extent_A.push_back(e.join_shape[mode]);
@@ -348,32 +430,29 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   }
 
   // Set up Tensor Descriptors for A, B, and C
-  DLINE;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
-      handle,
+      cutensor_handle,
       &c.descA,
       nmodeA,
       extent_A.data(),
       NULL,/*stride*/
       typeTensor, CUTENSOR_OP_IDENTITY ) );
 
-  DLINE;
   cutensorTensorDescriptor_t descB;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
-      handle,
+      cutensor_handle,
       &c.descB,
       nmodeB,
       extent_B.data(),
       NULL,/*stride*/
       typeTensor, CUTENSOR_OP_IDENTITY ) );
 
-  DLINE;
   cutensorTensorDescriptor_t descC;
   handle_cutensor_error(
     cutensorInitTensorDescriptor(
-      handle,
+      cutensor_handle,
       &c.descC,
       nmodeC,
       extent_C.data(),
@@ -388,10 +467,9 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
-  DLINE;
   handle_cutensor_error(
     cutensorInitContractionDescriptor(
-      handle,
+      cutensor_handle,
       &c.desc,
       &c.descA, modeA.data(), alignmentRequirementA,
       &c.descB, modeB.data(), alignmentRequirementB,
@@ -399,36 +477,96 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
       &c.descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
 
-  DLINE;
   handle_cutensor_error(cutensorInitContractionFind(
-    handle, 
+    cutensor_handle, 
     &c.find,
     CUTENSOR_ALGO_DEFAULT));
 
   c.worksize = 0;
   
-  DLINE;
   handle_cutensor_error(cutensorContractionGetWorkspaceSize(
-     handle,
+     cutensor_handle,
      &c.desc,
      &c.find,
      CUTENSOR_WORKSPACE_RECOMMENDED,
      &c.worksize));
 
-  DLINEOUT("worksize is " << c.worksize);
   handle_cutensor_error(cutensorInitContractionPlan(
-      handle,
+      cutensor_handle,
       &c.plan,
       &c.desc,
       &c.find,
       c.worksize));
 
-  DLINE;
   return c;
 }
 
+void kernel_manager_t::execute_matmul(
+  kernel_manager_t::matmul_t const& matmul,  
+  cudaStream_t stream,
+  void* out,
+  void const* lhs,
+  void const* rhs) const
+{
+  // TODO: use the 64bit version when using latest version of cublas
+
+  // convert from row to column major
+
+  auto const& [dtype, ni, nj, nk, _0, _1, _2] = matmul;
+
+  // row major      column major   
+  // ij,jk->ik      ji,kj->ki
+  // ij,kj->ik      ji,jk->ki
+  // ji,jk->ik      ij,kj->ki
+  // ji,kj->ik      ij,jk->ki
+  //
+  // jk,ij->ik      kj,ji->ki
+  // kj,ij->ik      jk,ji->ki
+  // jk,ji->ik      kj,ij->ki
+  // kj,ji->ik      jk,ij->ki
+
+  // To go from row to column major, 
+  // these get flipped
+  bool trans_l = !matmul.trans_l;
+  bool trans_r = !matmul.trans_r;
+  bool swap    = !matmul.swap;
+
+  int m = nk; // num rows of c
+  int n = ni; // num cols of c
+  int k = nj; // the other dimension
+
+  int ldl = trans_l ? nj : ni ;
+  int ldr = trans_r ? nk : nj ;
+  int ldo = nk;
+  
+  handle_cublas_error(cublasSetStream(cublas_handle, stream));
+
+  if(swap) {
+    std::swap(trans_l, trans_r);
+    std::swap(lhs, rhs);
+    std::swap(ldl, ldr);
+  } 
+
+  if(dtype == dtype_t::f32) {
+    //cublasSgemm(
+    //  cublas_handle, 
+    //  trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
+    //  trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
+    //  m, n, k, 
+    //  &one_float, 
+    //  static_cast<float const*>(lhs), ldl,
+    //  static_cast<float const*>(rhs), ldr,
+    //  &zero_float,
+    //  static_cast<float*>(out), ldo);
+  } else {
+    throw std::runtime_error("not implemented: the other cublas matmul dtypes");
+  }
+
+  handle_cuda_error(cudaDeviceSynchronize());
+}
+
 void kernel_manager_t::execute_contraction(
-  contraction_t const& c,
+  kernel_manager_t::contraction_t const& c,
   cudaStream_t stream,
   void* out,
   void const* lhs,
@@ -436,14 +574,6 @@ void kernel_manager_t::execute_contraction(
   void* work,
   uint64_t given_worksize) const
 {
-  static float               one_float = 1.0f;
-  static double              one_double = 1.0;
-  static std::complex<float> one_complex(1.0f, 0.0f);
-
-  static float               zero_float = 0.0f;
-  static double              zero_double = 0.0;
-  static std::complex<float> zero_complex(0.0f, 0.0f);
-
   //// TODO: remove
   //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
   //cudaStream_t s01;
@@ -455,28 +585,16 @@ void kernel_manager_t::execute_contraction(
     throw std::runtime_error("not enough workspace given for this contraction");
   }
 
-  void* one_ptr;
-  void* zero_ptr;
-  if(c.dtype == dtype_t::f16) {
-    one_ptr  = static_cast<void*>(&one_float);
-    zero_ptr = static_cast<void*>(&zero_float);
-  } else if(c.dtype == dtype_t::f32) {
-    one_ptr  = static_cast<void*>(&one_float);
-    zero_ptr = static_cast<void*>(&zero_float);
-  } else if(c.dtype == dtype_t::f64) {
-    one_ptr  = static_cast<void*>(&one_double);
-    zero_ptr = static_cast<void*>(&zero_double);
-  } else if(c.dtype == dtype_t::c64) {
-    one_ptr  = static_cast<void*>(&one_complex);
-    zero_ptr = static_cast<void*>(&zero_double);
-  } else {
-    throw std::runtime_error("should not reach");
-  }
+  void const* one_ptr  = 
+    c.dtype == dtype_t::f16 ? get_one_ptr( dtype_t::f32) : get_one_ptr( c.dtype);
+  void const* zero_ptr = 
+    c.dtype == dtype_t::f16 ? get_zero_ptr(dtype_t::f32) : get_zero_ptr(c.dtype);
 
   handle_cutensor_error(
     cutensorContraction(
-      handle, 
-      &c.plan, 
+      cutensor_handle, 
+      &c.plan,              // TODO: c can change locations, can cutensorContrcation
+                            //       is async... this might be nitpicky
       one_ptr,   // alpha
       lhs, rhs,  // A,B
       zero_ptr,  // beta
@@ -642,4 +760,31 @@ tuple<float, float> kernel_manager_t::get_increment_scale(einsummable_t e){
 
 }
 
+void const* kernel_manager_t::get_one_ptr(dtype_t dtype) const {
+  if(dtype == dtype_t::f16) {
+    return static_cast<void const*>(&one_half);
+  } else if(dtype == dtype_t::f32) {
+    return static_cast<void const*>(&one_float);
+  } else if(dtype == dtype_t::f64) {
+    return static_cast<void const*>(&one_double);
+  } else if(dtype == dtype_t::c64) {
+    return static_cast<void const*>(&one_complex);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+void const* kernel_manager_t::get_zero_ptr(dtype_t dtype) const {
+  if(dtype == dtype_t::f16) {
+    return static_cast<void const*>(&zero_half);
+  } else if(dtype == dtype_t::f32) {
+    return static_cast<void const*>(&zero_float);
+  } else if(dtype == dtype_t::f64) {
+    return static_cast<void const*>(&zero_double);
+  } else if(dtype == dtype_t::c64) {
+    return static_cast<void const*>(&zero_double);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
 

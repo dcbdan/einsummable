@@ -2,7 +2,6 @@
 #include "utility.h"
 #include <cuda_runtime_api.h>
 
-
 bool multi_gpu_execute_state_t::has_stream() {
   for (auto &stream : stream_pool) {
     if (stream.size() != 0) {
@@ -123,20 +122,17 @@ std::map<int, int> multi_gpu_execute_state_t::get_dependencies() {
 
 // check if all the nodes finished executing
 bool multi_gpu_execute_state_t::is_complete() {
-  auto idx = 0;
   if (num_nodes_remaining != 0) {
     return false;
   }
 
   // double check if we really finished everything and the counters are updated
   // correctly
-  idx = 0;
   for (auto it = dependency_count.begin(); it != dependency_count.end(); it++) {
     if (it->second != 0) {
       throw std::runtime_error("Error: All nodes finished execution but the "
                                "dependency count doesn't match.");
     }
-    idx++;
   }
 
   if (pending_queue.size() != 0) {
@@ -162,8 +158,7 @@ multi_gpu_execute_state_t::get_input_mem_ptrs(
 
 multi_gpu_execute_state_t::multi_gpu_execute_state_t(
   memgraph_t const& input_memgraph, std::vector<void*> mem_ptr)
-    : memgraph(input_memgraph), memory_base_ptrs(mem_ptr),
-      workspaces(mem_ptr.size())
+    : memgraph(input_memgraph), memory_base_ptrs(mem_ptr)
 {
   int num_gpus = memory_base_ptrs.size();
   int num_streams = 5;
@@ -171,12 +166,12 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(
   for (int gpu = 0; gpu < num_gpus; ++gpu) {
     cudaSetDevice(gpu);  // Set the current GPU device
       
-    // create stream pools
-    std::queue<cudaStream_t> my_stream_pool;
-    for (int i = 0; i < num_streams; i++) {
-      my_stream_pool.push(cuda_create_stream());
-    }
-    stream_pool.push_back(my_stream_pool);
+    //// create stream pools
+    //std::queue<cudaStream_t> my_stream_pool;
+    //for (int i = 0; i < num_streams; i++) {
+    //  my_stream_pool.push(cuda_create_stream());
+    //}
+    //stream_pool.push_back(my_stream_pool);
 
     group_id_executing.push_back(std::set<int>());
     all_group_ids.push_back(std::set<int>());
@@ -210,8 +205,6 @@ multi_gpu_execute_state_t::multi_gpu_execute_state_t(
 }
 
 void execute_multi_gpu(const memgraph_t &memgraph, std::vector<void*> mem_ptrs) {
-  DOUT("");
-  DOUT("");
   DLINEOUT("execute_multi_gpu");
   // create a multi_gpu_execute_state_t
   multi_gpu_execute_state_t gpu_execute_state(memgraph, mem_ptrs);
@@ -254,7 +247,7 @@ struct callback_data_t {
     cv.notify_all();
   }
 
-  callback_data_t (
+  callback_data_t(
     std::mutex *m_ptr, std::condition_variable *cv_ptr, 
     multi_gpu_execute_state_t *my_state, int node_idx,
     optional<tuple<void*, uint64_t>> maybe_workspace)
@@ -265,7 +258,7 @@ struct callback_data_t {
       workspace = m;
       workspace_size = s;
     } else {
-      workspace_size == 0;
+      workspace_size = 0;
     }
   }
 
@@ -280,6 +273,7 @@ void multi_gpu_execute_state_t::run_create_stream() {
   bool debug = true;
   while (true) {
     if (is_complete()) {
+      DLINEOUT("complete");
       break;
     }
 
@@ -320,7 +314,7 @@ void multi_gpu_execute_state_t::run_create_stream() {
         finished_queue.push(node_idx);
       //} else if(node.op.is_touch()) {
       //  finished_queue.push(node_idx);
-      //} else if(node_idx == 11) {
+      //} else if(node_idx == 6 || node_idx == 10 || node_idx == 14) {
       //  finished_queue.push(node_idx);
       } else if (node.op.is_apply()) {
         DLINEOUT("is apply for node " << node_idx);
@@ -328,7 +322,6 @@ void multi_gpu_execute_state_t::run_create_stream() {
         cudaSetDevice(node_loc); 
         cudaStream_t stream;
         handle_cuda_error(cudaStreamCreate(&stream),  "creating apply stream");
-        DLINE;
 
         auto memory_vector = node.op.get_apply().mems;
 
@@ -382,7 +375,6 @@ void multi_gpu_execute_state_t::run_create_stream() {
               inn_mems[0]);
           }
         } else {
-          DLINE;
           auto my_einsummable = node.op.get_einsummable();
           if (my_einsummable.is_contraction()) {
             // do a check of the offsets
@@ -397,22 +389,19 @@ void multi_gpu_execute_state_t::run_create_stream() {
 
           if(workspace_info.known()) {
             uint64_t const& workspace_size = workspace_info.value();
-            DLINEOUT("WORKSPACE SIZE IS " << workspace_size);
             if(workspace_size > 0) {
-              DLINE;
               maybe_workspace = 
                 workspace_manager.borrow_workspace(node_loc, workspace_size);
             }
           } else {
             // we don't know the workspace size
-            DLINE;
             uint64_t size = km.known_workspace_size(my_einsummable, out_mem, inn_mems);
             maybe_workspace = 
               workspace_manager.borrow_workspace(node_loc, size);
           }
 
           //use kernel_manager operator to run einsum
-          DLINEOUT("launching an einsummable");
+          DLINEOUT("launching an einsummable " << bool(maybe_workspace) );
           km(
             my_einsummable,
             stream,
@@ -426,16 +415,19 @@ void multi_gpu_execute_state_t::run_create_stream() {
         // after execution, we attach the stream with a callback function
         // get all the metadata needed for the callback
         callback_data_t *data = new callback_data_t(&m, &cv, this, node_idx, maybe_workspace);
-        // add the callback
-        cudaStreamAddCallback(
-            stream,
-            [](CUstream_st*, cudaError, void *raw_data) {
-              callback_data_t *data = static_cast<callback_data_t*>(raw_data);
-              callback_data_t &f = *data;
-              f();
-              delete data;
-            },
-            static_cast<void *>(data), 0);
+        handle_cuda_error(cudaStreamAddCallback(
+          stream,
+          [](CUstream_st*, cudaError err, void *raw_data) {
+            if(err != cudaSuccess) {
+              DOUT("in callback, has an error");
+            }
+            callback_data_t *data = static_cast<callback_data_t*>(raw_data);
+            callback_data_t &f = *data;
+            f();
+            delete data;
+          },
+          static_cast<void *>(data), 0),
+          "at callback");
         // now the stream can be destoryed--note that this is asynchronous
         handle_cuda_error(cudaStreamDestroy(stream), "destroying apply stream");
       } else if (node.op.is_move()) {

@@ -5,10 +5,12 @@
 #include "cutensor.h"
 
 #include <memory>
+#include "cublas_v2.h"
 
 // utility functions
 cudaStream_t cuda_create_stream();
-void* offset_increment(const void *ptr, int offset);
+void const* offset_increment(void const* ptr, int offset);
+void*       offset_increment(void*       ptr, int offset);
 void* gpu_allocate_memory(size_t size, int device_id);
 
 // debug
@@ -21,6 +23,8 @@ void checkAlignment(cutensorHandle_t *handle, float *ptr,
 void handle_cutensor_error(cutensorStatus_t error, string msg = "");
 
 void handle_cuda_error(cudaError_t error, string msg = "");
+
+void handle_cublas_error(cublasStatus_t error, string msg = "");
 
 struct cuda_stream_t {
   cuda_stream_t() {

@@ -9,10 +9,11 @@ cudaStream_t cuda_create_stream() {
   return ret;
 }
 
-// increment the pointer by the byte offset
-// ONLY USE IF THE UNIT OF OFFSET IS BYTE
-void* offset_increment(const void *ptr, int offset) {
-  return (void *)((char *)ptr + offset);
+void const* offset_increment(void const* ptr, int offset) {
+  return static_cast<void const*>(static_cast<uint8_t const*>(ptr) + offset);
+}
+void*       offset_increment(void*       ptr, int offset) {
+  return static_cast<void*>(static_cast<uint8_t*>(ptr) + offset);
 }
 
 // prints float starting from ptr with count number of elements
@@ -87,6 +88,15 @@ void handle_cuda_error(cudaError_t error, string msg) {
       msg = "handle_cuda_error";
     } 
     throw std::runtime_error(msg + ": " + string(cudaGetErrorString(error)));
+  }
+}
+
+void handle_cublas_error(cublasStatus_t error, string msg) {
+  if(error != CUBLAS_STATUS_SUCCESS){ 
+    if(msg == "") {
+      msg = "handle_cublas_error";
+    } 
+    throw std::runtime_error(msg + ": " + write_with_ss(error));
   }
 }
 

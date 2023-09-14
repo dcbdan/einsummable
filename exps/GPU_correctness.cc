@@ -185,8 +185,9 @@ void execute_multi_gpu_test(memgraph_t memgraph) {
   auto num_gpu = memgraph.mem_sizes().size();
   // allocate ptrs for gpu
   std::vector<void*> gpu_ptrs;
+  auto mem_sizes = memgraph.mem_sizes();
   for (int i = 0; i < num_gpu; ++i){
-    gpu_ptrs.push_back(gpu_allocate_memory(memgraph.mem_sizes()[i], i));
+    gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
   }
   // copy data from CPU to GPU
   // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=

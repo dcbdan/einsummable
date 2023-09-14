@@ -25,8 +25,29 @@ struct workspace_info_t {
   bool known() const { return bool(workspace_size); }
 };
 
-struct kernel_manager_t{
+struct kernel_manager_t {
 private:
+  struct matmul_t {
+    // Str = swap   ? R,L->ik : L,R->ij
+    // L   = transL ? ji      : ij
+    // R   = transR ? kj      : jk
+    dtype_t dtype;
+    uint64_t ni;
+    uint64_t nj;
+    uint64_t nk;
+    bool trans_l;
+    bool trans_r;
+    bool swap;
+  };
+  optional<matmul_t> make_matmul(einsummable_t const& e);
+
+  void execute_matmul(
+    matmul_t const& m, 
+    cudaStream_t stream,
+    void* out,
+    void const* lhs,
+    void const* rhs) const;
+
   struct contraction_t {
     cutensorTensorDescriptor_t descA;
     cutensorTensorDescriptor_t descB;
@@ -83,6 +104,7 @@ private:
 
 public:
   kernel_manager_t();
+  ~kernel_manager_t();
 
   optional<workspace_info_t> build(einsummable_t const& e);
 
@@ -108,7 +130,7 @@ public:
 
 private:
   using kernel_info_t = std::variant<
-    contraction_t, cutensor_kernel_t, scale_t, pow_and_elementwise_t,
+    matmul_t, contraction_t, cutensor_kernel_t, scale_t, pow_and_elementwise_t,
     custom_kernel_1_t, void_cuda_kernel_t, type_conversion_t,
     touch_kernel_t, elementwise_t, power_t, reduction_t>;
 
@@ -141,6 +163,20 @@ private:
   static tuple<float, float> get_increment_scale(einsummable_t e);
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
-  cutensorHandle_t* handle;
+  cutensorHandle_t* cutensor_handle;
+  cublasHandle_t cublas_handle; 
+
+  float16_t           one_half;
+  float               one_float;
+  double              one_double;
+  std::complex<float> one_complex;
+
+  float16_t           zero_half;
+  float               zero_float;
+  double              zero_double;
+  std::complex<float> zero_complex;
+
+  void const* get_one_ptr(dtype_t dtype) const;
+  void const* get_zero_ptr(dtype_t dtype) const;
 };
 

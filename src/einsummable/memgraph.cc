@@ -2193,8 +2193,7 @@ allocator_t::get_allocated_region(uint64_t offset) const
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
-  uint64_t div = 10000000;
-  out << "[" << (mem.offset / div) << "," << ((mem.offset+mem.size) / div) << ")";
+  out << "[" << mem.offset << "," << (mem.offset+mem.size) << ")";
   return out;
 }
 std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {

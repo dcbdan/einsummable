@@ -329,6 +329,40 @@ void slow_mm(dtype_t const& dd,
   }
 }
 
+void mm_test2() {
+  dtype_t dtype = dtype_t::f32;
+
+  void* a;
+  void* b;
+  void* c;
+  void* w;
+
+  kernel_manager_t km;
+
+  uint64_t ni = 10000;
+
+  handle_cuda_error(cudaMalloc(&a, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&b, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&c, ni*ni*dtype_size(dtype)));
+
+  // A  B   C
+  //ij,jk->ik
+  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
+
+  uint64_t wsz = km.build(e).value().value();
+  handle_cuda_error(cudaMalloc(&w, wsz));
+
+  cudaStream_t stream;
+  handle_cuda_error(cudaStreamCreate(&stream));
+  DLINE;
+
+  for(int i = 0; i != 10; ++i) {
+    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
+  }
+
+  handle_cuda_error(cudaDeviceSynchronize());
+}
+
 void mm_test() {
   dtype_t dtype = dtype_t::f32;
 
@@ -345,10 +379,16 @@ void mm_test() {
     {2048,2048,2048},
     {4096,4096,4096},
     {16384,16384,16384},
+    {20048, 20048, 20048},
+    {20048, 20048, 20048},
+    {20048, 20048, 20048},
+    {20048, 20048, 20048},
     {20048, 20048, 20048}
   };
 
   bool test = false;
+
+  kernel_manager_t km;
 
   for(auto const& [ni,nj,nk]: szs) {
     DOUT(ni << ", " << nj << ", " << nk);
@@ -363,7 +403,6 @@ void mm_test() {
     dbuffer_t cc_cpu = make_dbuffer(dtype, test ? ni*nk : 1);
     dbuffer_t cc_gpu = make_dbuffer(dtype, test ? ni*nk : 1);
     DLINE;
-
 
     if(test) {
       aa.random("-0.000001","0.000001");
@@ -386,7 +425,6 @@ void mm_test() {
     }
 
     DLINE;
-    kernel_manager_t km;
  
     DLINE;
     uint64_t wsz = km.build(e).value().value();
@@ -420,13 +458,72 @@ void mm_test() {
   }
 }
 
+void mm_test3() {
+  dtype_t dtype = dtype_t::f32;
+
+  vector<void*> a;
+  vector<void*> b;
+  vector<void*> c;
+  vector<void*> w;
+
+  kernel_manager_t km;
+
+  uint64_t ni = 10000;
+
+  // A  B   C
+  //ij,jk->ik
+  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
+
+  uint64_t wsz = km.build(e).value().value();
+
+  int nrep = 10;
+  for(int i = 0; i != nrep; ++i) {
+    a.emplace_back();
+    b.emplace_back();
+    c.emplace_back();
+    w.emplace_back();
+    handle_cuda_error(cudaMalloc(&a.back(), ni*ni*dtype_size(dtype)));
+    handle_cuda_error(cudaMalloc(&b.back(), ni*ni*dtype_size(dtype)));
+    handle_cuda_error(cudaMalloc(&c.back(), ni*ni*dtype_size(dtype)));
+    handle_cuda_error(cudaMalloc(&w.back(), wsz));
+  }
+
+  cudaStream_t stream;
+  handle_cuda_error(cudaStreamCreate(&stream));
+  DLINE;
+
+  for(int i = 0; i != nrep; ++i) {
+    km(e, stream, c[i], {a[i],b[i]}, tuple<void*, uint64_t>{w[i], wsz});
+  }
+
+  handle_cuda_error(cudaDeviceSynchronize());
+
+  for(int i = 0; i != nrep; ++i) {
+    handle_cuda_error(cudaFree(a[i]));
+    handle_cuda_error(cudaFree(b[i]));
+    handle_cuda_error(cudaFree(c[i]));
+    handle_cuda_error(cudaFree(w[i]));
+  }
+}
+
 void dcb01() {
   uint64_t sz = 10000;
   graph_t graph;
+  //{
+  //  graph_writer_t gwriter;
+  //  auto l = gwriter.input({sz,sz});
+  //  auto r = gwriter.input({sz,sz});
+  //  for(int i = 0; i != 5; ++i) {
+  //    auto o = gwriter.matmul(l,r);
+  //    o.save_inplace();
+  //  }
+  //  graph = gwriter.get_graph();
+  //}
   {
     graph_writer_t gwriter;
+
     auto z = gwriter.input({sz,sz});
-    for(int i = 0; i != 4; ++i) {
+    for(int i = 0; i != 12; ++i) {
       auto w = gwriter.input({sz,sz});
       if(i % 2 == 0) {
         z = gwriter.matmul(z, w);
@@ -434,7 +531,6 @@ void dcb01() {
         z = gwriter.matmul(w, z);
       }
     }
-
     z.save_inplace();
 
     graph = gwriter.get_graph();
@@ -453,5 +549,8 @@ int main(int argc, char **argv) {
 //  // contractionTest2();
 //  return 0;
 
+  //mm_test3();
+  //mm_test2();
+  //mm_test();
   dcb01();
 }
