@@ -522,9 +522,16 @@ void multi_gpu_execute_state_t::run_stream_pool() {
             },
             static_cast<void *>(data), 0);
       }
-      else {
-        throw std::runtime_error("Error: Operation not supported: Type is "
-                                 "among the following - evict, load");
+      else if (node.is_evict()) {
+        // TODO: implement evict
+        throw std::runtime_error("Error: Operation not supported: Evict");
+      }
+      else if (node.is_load()){
+        // TODO: implement load
+        throw std::runtime_error("Error: Operation not supported: Load");
+      }
+      else{
+        throw std::runtime_error("Error: Unknown operation type to execution engine");
       }
     }
 
@@ -729,11 +736,16 @@ void multi_gpu_execute_state_t::run_create_stream() {
               delete data;
             },
             static_cast<void *>(data), 0);
-      } else {
-        // print a message saying that the operation is not supported and this
-        // operation's type
-        throw std::runtime_error("Error: Operation not supported: Type is "
-                                 "among the following - evict, load");
+      } else if (node.is_evict()) {
+        // TODO: implement evict
+        throw std::runtime_error("Error: Operation not supported: Evict");
+      }
+      else if (node.is_load()){
+        // TODO: implement load
+        throw std::runtime_error("Error: Operation not supported: Load");
+      }
+      else{
+        throw std::runtime_error("Error: Unknown operation type to execution engine");
       }
     }
 
