@@ -8,8 +8,6 @@
 #include "kernels.h"
 #include "gpu_kernel_manager.h"
 #include "workspace.h"
-#include <mutex>
-#include <condition_variable>
 #include <cuda_runtime.h>
 
 using memgraph_t = memgraph_t;
