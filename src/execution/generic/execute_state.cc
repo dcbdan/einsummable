@@ -1,4 +1,5 @@
 #include "execute_state.h"
+#include <cmath>
 #include <variant>
 
 void exec_state_t::event_loop() {
@@ -93,6 +94,22 @@ void node_t::launch(
     callback();
   } else if(holds_alternative<einsummable_cpu_t>(op)) {
     resource->launch_on_cpu_thread(/* ... */);
+  }
+  else if (holds_alternative<move_cpu_t>(op)) {
+    resource->launch_on_cpu_thread(/* ... */);
+  }
+  else if (holds_alternative<einsummable_gpu_t>(op)) {
+    resource->launch_on_gpu_stream(/* ... */);
+  }
+  else if (holds_alternative<touch_gpu_t>(op)) {
+    resource->launch_on_gpu_stream(/* ... */);
+  }
+  else if (holds_alternative<copy_gpu_t>(op)) {
+    resource->launch_on_gpu_stream(/* ... */);
+  }
+  
+  else {
+    throw std::runtime_error("should not reach; undefined op type");
   }
 }
 
@@ -201,11 +218,31 @@ exec_graph_t make_from_memgraph_with_gpu(
   for(int i = 0; i < memgraph.nodes.size(); i++) {
     auto const& node = memgraph.nodes[i];
     auto node_loc = node.get_loc();
-    if (node_loc == this_node){
+    if (std::floor(node_loc/num_gpu_per_node) == this_node){
       exec_graph_t::node_t ret_node = gpu_node_translate(node);
       ret.nodes.push_back(ret_node);
     }
   }
+
+  return ret;
+}
+
+std::vector<exec_graph_t> make_from_memgraph_gpu_all(
+    memgraph_t const& memgraph,
+    int num_gpu_per_node, int num_nodes){
   
+  std::vector<exec_graph_t> ret;
+  for(int i = 0; i < num_nodes; i++){
+    ret.push_back(make_from_memgraph_with_gpu(memgraph, num_gpu_per_node, i));
+  }
+
+  for(int i = 0; i < memgraph.nodes.size(); i++) {
+    auto const& node = memgraph.nodes[i];
+    auto node_loc = node.get_loc();
+    int which_node = std::floor(node_loc/num_gpu_per_node);
+    exec_graph_t::node_t ret_node = gpu_node_translate(node);
+    ret[which_node].nodes.push_back(ret_node);
+  }
+
   return ret;
 }
