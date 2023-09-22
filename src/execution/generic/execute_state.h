@@ -87,8 +87,6 @@ struct exec_graph_t {
   // do nothing op
   struct dummy_t {};
 
-  struct move_t {};
-
   // ---------- cpu ops  -----------------
 
   struct einsummable_cpu_t {
@@ -110,19 +108,29 @@ struct exec_graph_t {
 
   struct einsummable_gpu_t {
     einsummable_t e;
-    vector<uint64_t> offsets;
-    uint64_t workspace_size;
+    vector<mem_t> mems;
   };
 
 
   struct touch_gpu_t {
     touch_t t;
-    vector<uint64_t> offsets;
-    uint64_t workspace_size;
+    vector<mem_t> mems;
+    int group_id;
   };
 
   struct copy_gpu_t {
-    move_t m;
+    memgraph_t::move_t m;
+  };
+
+  // ---------- gpu ops that may need more info --------
+  struct evict_gpu_t {
+    memloc_t src;
+    stoloc_t dst;
+  };
+
+  struct load_gpu_t {
+    stoloc_t src;
+    memloc_t dst;
   };
 
   using op_t = std::variant<

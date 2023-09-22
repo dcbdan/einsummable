@@ -351,6 +351,19 @@ public:
       if (is_touch())       std::cout << "touch";
     }
 
+    int get_loc() const{
+      if (is_inputmem())   return get_inputmem().loc;
+      if (is_inputsto())   return get_inputsto().loc;
+      if (is_apply())      return get_apply_loc();
+      if (is_move())       return get_move().get_dst_loc();
+      if (is_evict())      return get_evict().src.loc;
+      if (is_load())       return get_load().dst.loc;
+      if (is_partialize()) return get_partialize().loc;
+      if (is_alloc())      return get_alloc().loc;
+      if (is_del())        return get_del().loc;
+      throw std::runtime_error("trying to get loc for an unknown op");
+    }
+
     int get_apply_loc() const { 
       if (!is_apply()) throw std::runtime_error("trying to get apply loc for a non-apply op");
       return get_apply().loc; }

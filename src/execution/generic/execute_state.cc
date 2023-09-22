@@ -163,6 +163,7 @@ exec_graph_t::node_t exec_graph_t::gpu_node_translate(
 {
   node_t ret;
   auto mem_op = n.op;
+  ret.outs = n.outs;
   // see which op it is and translate
   // IF STATEMENTS
   if (mem_op.is_inputmem() || mem_op.is_inputsto() || mem_op.is_del() 
@@ -170,19 +171,20 @@ exec_graph_t::node_t exec_graph_t::gpu_node_translate(
     ret.op = dummy_t{};
   }
   else if (mem_op.is_touch()){
-    ret.op = touch_gpu_t{mem_op.get_touch(), {}, 0};
+    auto apply = mem_op.get_apply();
+    ret.op = touch_gpu_t{mem_op.get_touch(), apply.mems, apply.group_id};
   }
   else if (mem_op.is_move()){
-
+    ret.op = mem_op.get_move();
   }
   else if (mem_op.is_evict()){
-
+    throw std::runtime_error("Evict not implemented");
   }
   else if (mem_op.is_load()){
-
+    throw std::runtime_error("Load not implemented");
   }
   else if (mem_op.is_einsummable()){
-
+    ret.op = einsummable_gpu_t{mem_op.get_einsummable(), mem_op.get_apply().mems};
   }
   else{
     throw std::runtime_error("should not reach; should exhaust all memgraph ops");
@@ -196,13 +198,14 @@ exec_graph_t make_from_memgraph_with_gpu(
     int num_gpu_per_node,
     int this_node){
   exec_graph_t ret;
-  ret.nodes.resize(memgraph.nodes.size());
   for(int i = 0; i < memgraph.nodes.size(); i++) {
     auto const& node = memgraph.nodes[i];
-    auto& ret_node = ret.nodes[i];
-    ret_node.op = node.op;
-    ret_node.outs = node.outs;
-    ret_node.num_deps_remaining = node.ins.size();
-    ret_node.num_remaining = node.ins.size();
+    auto node_loc = node.get_loc();
+    if (node_loc == this_node){
+      exec_graph_t::node_t ret_node = gpu_node_translate(node);
+      ret.nodes.push_back(ret_node);
+    }
   }
+  
+  return ret;
 }
