@@ -56,7 +56,7 @@ void exec_state_t::decrement_outs(int id) {
 
 bool exec_state_t::try_to_launch(int id) {
   auto const& node = exec_graph.nodes[id];
-  auto const& resource_desc = node.required_resources();
+  auto resource_desc = node.resource_description();
   auto resources =
     resource_manager.try_to_acquire_resources(resource_desc);
   if(resources != nullptr) {
