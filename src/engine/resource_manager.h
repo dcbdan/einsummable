@@ -1,6 +1,10 @@
 #pragma once
 #include "../base/setup.h"
 
+#ifdef CPU_EXEC
+#include "cpu/workspace_manager.h"
+#endif
+
 struct global_buffer_t {
   struct desc_t {};
 
@@ -19,9 +23,15 @@ struct global_buffer_t {
 
 struct resource_manager_t {
   using desc_unit_t = std::variant<
+#ifdef CPU_EXEC
+    cpu_workspace_manager_t::desc_t,
+#endif
     global_buffer_t::desc_t
   >;
   using resource_unit_t = std::variant<
+#ifdef CPU_EXEC
+    cpu_workspace_manager_t::resource_t,
+#endif
     global_buffer_t::resource_t
   >;
 
@@ -37,6 +47,9 @@ struct resource_manager_t {
 
 private:
   global_buffer_t* global_buffer;
+#ifdef CPU_EXEC
+  cpu_workspace_manager_t* cpu_workspace_manager;
+#endif
 };
 
 

@@ -105,3 +105,56 @@ exec_graph_t::make_cpu_exec_graph(
   return graph;
 }
 
+exec_graph_t::desc_t
+exec_graph_t::cpu_einsummable_t::resource_description() const
+{
+  vector<desc_unit_t> ret;
+  ret.emplace_back(global_buffer_t::desc_t{});
+
+  // TODO: insert threadpool resource description
+
+  if(workspace_size > 0) {
+    ret.emplace_back(cpu_workspace_manager_t::desc_t { .size = workspace_size });
+  }
+  return ret;
+}
+
+void exec_graph_t::cpu_einsummable_t::launch(
+  exec_graph_t::rsrc_t resources,
+  std::function<void()> callback) const
+{
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(
+    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+
+  void* out_mem = reinterpret_cast<void*>(
+    ptr + mems[0].size);
+
+  vector<void const*> inn_mems;
+  inn_mems.reserve(mems.size() - 1);
+  for(int i = 1; i != mems.size(); ++i) {
+    inn_mems.push_back(reinterpret_cast<void const*>(
+      ptr + mems[i].size));
+  }
+
+  optional<tuple<void*, uint64_t>> maybe_workspace;
+  if(workspace_size > 0) {
+    maybe_workspace =
+      std::get<cpu_workspace_manager_t::resource_t>(resources[1]).as_tuple();
+  }
+
+  // TODO use threadpool resource.
+
+  // But since we're not using a threadpool resource, we're just going
+  // to launch a thread and let it float in the wind by calling detach
+  std::thread thread(
+    [this, callback, out_mem, inn_mems, maybe_workspace]
+    {
+      cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
+      callback();
+    });
+  // Note: capturing this under the assumption that the exec_graph will not
+  //       change and invalidate the this pointer
+
+  thread.detach();
+}
+

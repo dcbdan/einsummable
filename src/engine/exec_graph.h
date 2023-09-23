@@ -7,6 +7,7 @@
 
 #ifdef CPU_EXEC
 #include "cpu/kernel_executor.h"
+#include "cpu/workspace_manager.h"
 #endif
 
 struct exec_graph_t {

@@ -15,6 +15,9 @@ resource_manager_t::try_to_acquire_unit(
   resource_manager_t::desc_unit_t const& desc)
 {
   TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t, global_buffer);
+#ifdef CPU_EXEC
+  TRY_VARIANT_ACQUIRE(cpu_workspace_manager_t::desc_t, cpu_workspace_manager);
+#endif
   throw std::runtime_error("should not reach");
 }
 
@@ -47,6 +50,9 @@ void resource_manager_t::release_unit(
   resource_manager_t::resource_unit_t const& rsrc)
 {
   TRY_VARIANT_RELEASE(global_buffer_t::resource_t, global_buffer);
+#ifdef CPU_EXEC
+  TRY_VARIANT_RELEASE(cpu_workspace_manager_t::resource_t, cpu_workspace_manager);
+#endif
   throw std::runtime_error("should not reach");
 }
 
