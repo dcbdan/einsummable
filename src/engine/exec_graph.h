@@ -33,20 +33,21 @@ struct exec_graph_t {
   };
 
 #ifdef CPU_EXEC
-  struct cpu_touch_t {
-    cpu_kernel_executor_t& cpu_manager;
-    touch_t touch;
-    int group_id;
-    // TODO: mems as well
+  struct cpu_einsummable_t {
+    cpu_kernel_executor_t& cpu_executor;
+    einsummable_t einsummable;
+    vector<mem_t> mems;
+    uint64_t workspace_size;
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
   };
 
-  struct cpu_einsummable_t {
-    cpu_kernel_executor_t& cpu_manager;
-    einsummable_t einsummable;
-    // TODO: mems as well
+  struct cpu_touch_t {
+    cpu_kernel_executor_t& cpu_executor;
+    touch_t touch;
+    int group_id;
+    vector<mem_t> mems;
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
@@ -67,6 +68,8 @@ struct exec_graph_t {
     void launch(rsrc_t resource, std::function<void()> callback) const;
 
     op_t op;
+
+    vector<int> inns;
 
     vector<int> outs;
   };
