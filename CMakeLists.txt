@@ -90,7 +90,7 @@ if(${CPU_EXECUTION_ENGINE})
 
   include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
 
-  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
   #       have to be rebuilt?
@@ -137,7 +137,7 @@ if(${CPU_EXECUTION_ENGINE})
       MKL::MKL)
   endfunction()
 
-  add_cpu_llama_application("llama_cpu" "cpu")
+  #add_cpu_llama_application("llama_cpu" "cpu")
 
 endif()
 

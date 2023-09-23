@@ -9,7 +9,7 @@
 
 #include <thread>
 
-struct kernel_manager_t {
+struct cpu_kernel_executor_t {
 private:
   struct binfo_t {
     bool trans_lhs;
@@ -68,7 +68,7 @@ private:
 
 public:
 
-  kernel_manager_t();
+  cpu_kernel_executor_t();
 
   // Register this einsummable with the manager and return the required
   // workspace size. If the einsummable object cannot be registered,

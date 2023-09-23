@@ -1,11 +1,11 @@
-#include "kernels.h"
+#include "kernel_executor.h"
 
 #include <mkl_cblas.h>
 #include <mkl.h>
 
 #include "permute.h"
 
-kernel_manager_t::kernel_manager_t()
+cpu_kernel_executor_t::cpu_kernel_executor_t()
 {
   auto fix = einsummable_t::normalize_str;
 
@@ -47,7 +47,7 @@ kernel_manager_t::kernel_manager_t()
   };
 }
 
-optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
+optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
 {
   auto einsummable = e_.merge_adjacent_dims();
 
@@ -217,7 +217,7 @@ optional<uint64_t> kernel_manager_t::build(einsummable_t const& e_)
 
 // get the workspace size
 // (throw an error if e has not been built)
-uint64_t kernel_manager_t::workspace_size(einsummable_t const& e) const
+uint64_t cpu_kernel_executor_t::workspace_size(einsummable_t const& e) const
 {
   auto const& kernel = get_built_kernel_info(e);
 
@@ -228,7 +228,7 @@ uint64_t kernel_manager_t::workspace_size(einsummable_t const& e) const
   }
 }
 
-vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
+vector<int> cpu_kernel_executor_t::donatables(einsummable_t const& e) const
 {
   auto const& kernel = get_built_kernel_info(e);
 
@@ -264,7 +264,7 @@ vector<int> kernel_manager_t::donatables(einsummable_t const& e) const
   return ret;
 }
 
-void kernel_manager_t::operator()(
+void cpu_kernel_executor_t::operator()(
   touch_t const& touch,
   void* out,
   void const* inn) const
@@ -272,7 +272,7 @@ void kernel_manager_t::operator()(
   execute_touch(touch.simplify(), out, inn);
 }
 
-void kernel_manager_t::operator()(
+void cpu_kernel_executor_t::operator()(
   einsummable_t const& e,
   void* out,
   vector<void const*> inns,
@@ -282,8 +282,8 @@ void kernel_manager_t::operator()(
   call(info, out, inns, maybe_workspace);
 }
 
-void kernel_manager_t::call(
-  kernel_manager_t::kernel_info_t const& kernel,
+void cpu_kernel_executor_t::call(
+  cpu_kernel_executor_t::kernel_info_t const& kernel,
   void* out,
   vector<void const*> inns,
   optional<tuple<void*, uint64_t>> maybe_workspace)
@@ -353,8 +353,8 @@ void kernel_manager_t::call(
   }
 }
 
-kernel_manager_t::kernel_info_t const&
-kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
+cpu_kernel_executor_t::kernel_info_t const&
+cpu_kernel_executor_t::get_built_kernel_info(einsummable_t const& e) const
 {
   auto iter = kernels.find(e.merge_adjacent_dims());
   if(iter == kernels.end()) {
@@ -363,8 +363,8 @@ kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
   return iter->second;
 }
 
-optional<kernel_manager_t::batch_matmul_t>
-kernel_manager_t::make_batch_matmul(einsummable_t const& e)
+optional<cpu_kernel_executor_t::batch_matmul_t>
+cpu_kernel_executor_t::make_batch_matmul(einsummable_t const& e)
 {
   if(!e.is_contraction()) {
     return std::nullopt;
@@ -449,7 +449,7 @@ kernel_manager_t::make_batch_matmul(einsummable_t const& e)
 std::function<void(void*, vector<void const*>)>
 build_einsummable(einsummable_t const& e)
 {
-  kernel_manager_t ks;
+  cpu_kernel_executor_t ks;
   auto maybe = ks.build(e);
   if(!maybe) {
     throw std::runtime_error("could not build the kernel");
@@ -459,7 +459,7 @@ build_einsummable(einsummable_t const& e)
   }
   auto const& meta_info = ks.get_built_kernel_info(e);
   return [meta_info](void* out, vector<void const*> inns) {
-    kernel_manager_t::call(meta_info, out, inns);
+    cpu_kernel_executor_t::call(meta_info, out, inns);
   };
 }
 

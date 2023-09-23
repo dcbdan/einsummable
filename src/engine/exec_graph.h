@@ -6,7 +6,7 @@
 #include "../einsummable/memgraph.h"
 
 #ifdef CPU_EXEC
-#include "cpu/kernel_manager.h"
+#include "cpu/kernel_executor.h"
 #endif
 
 struct exec_graph_t {
@@ -27,7 +27,7 @@ struct exec_graph_t {
 
 #ifdef CPU_EXEC
   struct cpu_touch_t {
-    cpu_kernel_manager_t* cpu_manager;
+    cpu_kernel_executor_t* cpu_manager;
     touch_t touch;
     int group_id;
     // TODO: mems as well
@@ -37,7 +37,7 @@ struct exec_graph_t {
   };
 
   struct cpu_einsummable_t {
-    cpu_kernel_manager_t* cpu_manager;
+    cpu_kernel_executor_t* cpu_manager;
     einsummable_t einsummable;
     // TODO: mems as well
 
@@ -66,6 +66,6 @@ struct exec_graph_t {
 
   vector<node_t> nodes;
 #ifdef CPU_EXEC
-  cpu_kernel_manager_t* cpu_manager;
+  cpu_kernel_executor_t* cpu_manager;
 #endif
 };

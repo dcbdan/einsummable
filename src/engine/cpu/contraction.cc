@@ -1,5 +1,5 @@
 #include "contraction.h"
-#include "kernels.h"
+#include "kernel_executor.h"
 
 void contraction_t::operator()(
   void* workspace,
