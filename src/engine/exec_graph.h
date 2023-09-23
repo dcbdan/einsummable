@@ -3,6 +3,8 @@
 
 #include "resource_manager.h"
 
+#include "../einsummable/memgraph.h"
+
 #ifdef CPU_EXEC
 #include "cpu/kernel_manager.h"
 #endif

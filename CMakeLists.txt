@@ -73,6 +73,8 @@ if(${CPU_EXECUTION_ENGINE})
     set(MKL_THREADING sequential)
   endif()
 
+  add_compile_definitions(CPU_EXEC)
+
   # Tell MKL to use the best instructions; if
   # this instruction set it goes to the next best
   # and so on...
@@ -111,17 +113,18 @@ if(${CPU_EXECUTION_ENGINE})
     MKL::MKL)
   endfunction()
 
-  add_cpu_application("cpuexec"         "exps" "cpuexec")
-  add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
-  add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-  add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
-  add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
-  add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
-  add_cpu_application("cpumanager"      "exps" "cpumanager")
-  add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
-  add_cpu_application("cpumms"          "exps" "cpumms")
+  #add_cpu_application("cpuexec"         "exps" "cpuexec")
+  #add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
+  #add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
+  #add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
+  #add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
+  #add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
+  #add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
+  #add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
+  #add_cpu_application("cpumanager"      "exps" "cpumanager")
+  #add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
+  #add_cpu_application("cpumms"          "exps" "cpumms")
+  add_cpu_application("cpu_engine"      "exps" "cpu_engine")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
