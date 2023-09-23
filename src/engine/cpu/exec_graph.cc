@@ -24,17 +24,7 @@ exec_graph_t::make_cpu_exec_graph(
       inns.push_back(mid_to_eid.at(mid));
     }
 
-    vector<int> outs;
-    for(auto const& mid: mid_outs) {
-      outs.push_back(mid_to_eid.at(mid));
-    }
-
-    graph.nodes.push_back(node_t {
-      .op = op,
-      .inns = inns,
-      .outs = outs
-    });
-    int eid = graph.nodes.size() - 1;
+    int eid = graph.insert(op, inns);
 
     mid_to_eid.insert({mid, eid});
     eid_to_mid.insert({eid, mid});
@@ -82,8 +72,17 @@ exec_graph_t::make_cpu_exec_graph(
         cpu_touch_t op {
           .cpu_executor = cpu_executor,
           .touch = apply.get_touch(),
+          .group_id = apply.group,
           .mems = apply.mems
         };
+
+        // Any touch that does not have a group id is the only write to
+        // the output bytes, so make sure it's castable is none so that
+        // it does a copy and not a sum
+        if(op.group_id < 0) {
+          op.touch.castable = std::nullopt;
+        }
+
         insert(op, mid);
       } else {
         throw std::runtime_error("should not reach");
@@ -127,13 +126,13 @@ void exec_graph_t::cpu_einsummable_t::launch(
     std::get<global_buffer_t::resource_t>(resources[0]).ptr);
 
   void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].size);
+    ptr + mems[0].offset);
 
   vector<void const*> inn_mems;
   inn_mems.reserve(mems.size() - 1);
   for(int i = 1; i != mems.size(); ++i) {
     inn_mems.push_back(reinterpret_cast<void const*>(
-      ptr + mems[i].size));
+      ptr + mems[i].offset));
   }
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
@@ -182,17 +181,28 @@ void exec_graph_t::cpu_touch_t::launch(
     std::get<global_buffer_t::resource_t>(resources[0]).ptr);
 
   void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].size);
+    ptr + mems[0].offset);
 
   void const* inn_mem = reinterpret_cast<void const*>(
-    ptr + mems[1].size);
+    ptr + mems[1].offset);
+
+  bool is_first = false;
+  if(group_id >= 0) {
+    is_first = std::get<group_manager_t::resource_t>(resources[1]).is_first;
+  }
+
+  touch_t this_touch = touch;
+  if(is_first) {
+    // if this is the first touch, make sure the touch becomes a copy
+    this_touch.castable = std::nullopt;
+  }
 
   // TODO use threadpool resource.
 
   // But since we're not using a threadpool resource, we're just going
   // to launch a thread and let it float in the wind by calling detach
-  std::thread thread([this, callback, out_mem, inn_mem] {
-    cpu_executor(touch, out_mem, inn_mem);
+  std::thread thread([this, callback, this_touch, out_mem, inn_mem] {
+    cpu_executor(this_touch, out_mem, inn_mem);
     callback();
   });
 

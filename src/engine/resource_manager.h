@@ -6,6 +6,10 @@
 #endif
 
 struct global_buffer_t {
+  global_buffer_t(void* p)
+    : ptr(p)
+  {}
+
   struct desc_t {};
 
   struct resource_t {
@@ -27,6 +31,7 @@ struct group_manager_t {
   };
   struct resource_t {
     int group_id;
+    bool is_first;
   };
 
   optional<resource_t> try_to_acquire(desc_t desc);
@@ -34,8 +39,9 @@ struct group_manager_t {
   void release(resource_t resource);
 
 private:
-  std::mutex m_busy_groups;
+  std::mutex m;
   set<int> busy_groups;
+  set<int> seen_groups;
 };
 
 struct resource_manager_t {
@@ -64,7 +70,8 @@ struct resource_manager_t {
   void release_unit(resource_unit_t const& resource_unit);
   void release(resource_t resource);
 
-private:
+  //  TODO: decide if they should be pointers or references or
+  //        shared pointers and how they should be set
 #ifdef CPU_EXEC
   cpu_workspace_manager_t* cpu_workspace_manager;
 #endif

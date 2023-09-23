@@ -79,4 +79,7 @@ struct exec_graph_t {
 #ifdef CPU_EXEC
   cpu_kernel_executor_t& cpu_executor;
 #endif
+
+private:
+  int insert(op_t const& op, vector<int> const& inns);
 };

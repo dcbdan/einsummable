@@ -68,19 +68,23 @@ void resource_manager_t::release(
 
 optional<group_manager_t::resource_t>
 group_manager_t::try_to_acquire(group_manager_t::desc_t desc) {
-  std::unique_lock lk(m_busy_groups);
+  std::unique_lock lk(m);
   if(busy_groups.count(desc.group_id) == 0) {
     busy_groups.insert(desc.group_id);
-    return resource_t{ desc.group_id };
+    return resource_t{
+      .group_id = desc.group_id,
+      .is_first = (seen_groups.count(desc.group_id) == 0)
+    };
   } else {
     return std::nullopt;
   }
 }
 
 void group_manager_t::release(group_manager_t::resource_t rsrc) {
-  std::unique_lock lk(m_busy_groups);
+  std::unique_lock lk(m);
   if(!busy_groups.erase(rsrc.group_id)) {
     throw std::runtime_error("trying to release a group id that isn't busy");
   }
+  seen_groups.insert(rsrc.group_id);
 }
 

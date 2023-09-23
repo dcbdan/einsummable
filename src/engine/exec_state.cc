@@ -3,7 +3,20 @@
 exec_state_t::exec_state_t(exec_graph_t const& g, resource_manager_t& r)
   : exec_graph(g), resource_manager(r)
 {
-  // TODO
+  int num_nodes = exec_graph.nodes.size();
+
+  num_remaining = num_nodes;
+
+  num_deps_remaining.reserve(num_nodes);
+  for(int id = 0; id != num_nodes; ++id) {
+    int num_deps = g.nodes[id].inns.size();
+
+    num_deps_remaining.push_back(num_deps);
+
+    if(num_deps == 0) {
+      ready_to_run.push_back(id);
+    }
+  }
 }
 
 void exec_state_t::event_loop() {

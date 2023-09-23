@@ -20,4 +20,22 @@ exec_graph_t::node_t::launch(
     op);
 }
 
+int exec_graph_t::insert(
+  exec_graph_t::op_t const& op,
+  vector<int> const& inns)
+{
+  int ret = nodes.size();
+
+  nodes.push_back(node_t {
+    .op = op,
+    .inns = inns,
+    .outs = vector<int>{}
+  });
+
+  for(auto const& inn: inns) {
+    nodes[inn].outs.push_back(ret);
+  }
+
+  return ret;
+}
 
