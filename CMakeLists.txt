@@ -57,6 +57,7 @@ add_base_application("einsummable_test" "exps" "einsummable_test")
 add_base_application("memgraph_test"    "exps" "memgraph_test")
 add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
+add_base_application("engine"           "exps" "engine")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -71,7 +72,7 @@ if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
     set(MKL_THREADING sequential)
   endif()
-  
+
   # Tell MKL to use the best instructions; if
   # this instruction set it goes to the next best
   # and so on...
