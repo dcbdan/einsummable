@@ -158,3 +158,44 @@ void exec_graph_t::cpu_einsummable_t::launch(
   thread.detach();
 }
 
+exec_graph_t::desc_t
+exec_graph_t::cpu_touch_t::resource_description() const
+{
+  vector<desc_unit_t> ret;
+
+  ret.emplace_back(global_buffer_t::desc_t{});
+
+  // TODO add threadpool resource description
+
+  if(group_id >= 0) {
+    ret.emplace_back(group_manager_t::desc_t { group_id });
+  }
+
+  return ret;
+}
+
+void exec_graph_t::cpu_touch_t::launch(
+  exec_graph_t::rsrc_t resources,
+  std::function<void()> callback) const
+{
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(
+    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+
+  void* out_mem = reinterpret_cast<void*>(
+    ptr + mems[0].size);
+
+  void const* inn_mem = reinterpret_cast<void const*>(
+    ptr + mems[1].size);
+
+  // TODO use threadpool resource.
+
+  // But since we're not using a threadpool resource, we're just going
+  // to launch a thread and let it float in the wind by calling detach
+  std::thread thread([this, callback, out_mem, inn_mem] {
+    cpu_executor(touch, out_mem, inn_mem);
+    callback();
+  });
+
+  thread.detach();
+}
+

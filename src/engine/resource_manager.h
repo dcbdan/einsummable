@@ -21,18 +21,37 @@ struct global_buffer_t {
   void* ptr;
 };
 
+struct group_manager_t {
+  struct desc_t {
+    int group_id;
+  };
+  struct resource_t {
+    int group_id;
+  };
+
+  optional<resource_t> try_to_acquire(desc_t desc);
+
+  void release(resource_t resource);
+
+private:
+  std::mutex m_busy_groups;
+  set<int> busy_groups;
+};
+
 struct resource_manager_t {
   using desc_unit_t = std::variant<
 #ifdef CPU_EXEC
     cpu_workspace_manager_t::desc_t,
 #endif
-    global_buffer_t::desc_t
+    global_buffer_t::desc_t,
+    group_manager_t::desc_t
   >;
   using resource_unit_t = std::variant<
 #ifdef CPU_EXEC
     cpu_workspace_manager_t::resource_t,
 #endif
-    global_buffer_t::resource_t
+    global_buffer_t::resource_t,
+    group_manager_t::resource_t
   >;
 
   using desc_t = vector<desc_unit_t>;
@@ -46,10 +65,11 @@ struct resource_manager_t {
   void release(resource_t resource);
 
 private:
-  global_buffer_t* global_buffer;
 #ifdef CPU_EXEC
   cpu_workspace_manager_t* cpu_workspace_manager;
 #endif
+  group_manager_t* group_manager;
+  global_buffer_t* global_buffer;
 };
 
 

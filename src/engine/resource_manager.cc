@@ -14,10 +14,11 @@ optional<resource_manager_t::resource_unit_t>
 resource_manager_t::try_to_acquire_unit(
   resource_manager_t::desc_unit_t const& desc)
 {
-  TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t, global_buffer);
 #ifdef CPU_EXEC
   TRY_VARIANT_ACQUIRE(cpu_workspace_manager_t::desc_t, cpu_workspace_manager);
 #endif
+  TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t, global_buffer);
+  TRY_VARIANT_ACQUIRE(group_manager_t::desc_t, group_manager);
   throw std::runtime_error("should not reach");
 }
 
@@ -49,15 +50,37 @@ resource_manager_t::try_to_acquire(desc_t const& desc)
 void resource_manager_t::release_unit(
   resource_manager_t::resource_unit_t const& rsrc)
 {
-  TRY_VARIANT_RELEASE(global_buffer_t::resource_t, global_buffer);
 #ifdef CPU_EXEC
   TRY_VARIANT_RELEASE(cpu_workspace_manager_t::resource_t, cpu_workspace_manager);
 #endif
+  TRY_VARIANT_RELEASE(global_buffer_t::resource_t, global_buffer);
+  TRY_VARIANT_RELEASE(group_manager_t::resource_t, group_manager);
   throw std::runtime_error("should not reach");
 }
 
 void resource_manager_t::release(
-  resource_manager_t::resource_t resource)
+  resource_manager_t::resource_t resources)
 {
+  for(auto const& unit: resources) {
+    release_unit(unit);
+  }
+}
+
+optional<group_manager_t::resource_t>
+group_manager_t::try_to_acquire(group_manager_t::desc_t desc) {
+  std::unique_lock lk(m_busy_groups);
+  if(busy_groups.count(desc.group_id) == 0) {
+    busy_groups.insert(desc.group_id);
+    return resource_t{ desc.group_id };
+  } else {
+    return std::nullopt;
+  }
+}
+
+void group_manager_t::release(group_manager_t::resource_t rsrc) {
+  std::unique_lock lk(m_busy_groups);
+  if(!busy_groups.erase(rsrc.group_id)) {
+    throw std::runtime_error("trying to release a group id that isn't busy");
+  }
 }
 
