@@ -1,3 +1,11 @@
+#include "exec_state.h"
+
+exec_state_t::exec_state_t(exec_graph_t const& g, resource_manager_t& r)
+  : exec_graph(g), resource_manager(r)
+{
+  // TODO
+}
+
 void exec_state_t::event_loop() {
   std::queue<int> processing;
   while(true) {
@@ -46,7 +54,7 @@ void exec_state_t::event_loop() {
 void exec_state_t::decrement_outs(int id) {
   auto const& node = exec_graph.nodes[id];
   for(auto const& out_id: node.outs) {
-    int& cnt = num_deps_remaining;
+    int& cnt = num_deps_remaining[out_id];
     cnt--;
     if(cnt == 0) {
       ready_to_run.push_back(out_id);
@@ -57,11 +65,12 @@ void exec_state_t::decrement_outs(int id) {
 bool exec_state_t::try_to_launch(int id) {
   auto const& node = exec_graph.nodes[id];
   auto resource_desc = node.resource_description();
-  auto resources =
-    resource_manager.try_to_acquire_resources(resource_desc);
-  if(resources != nullptr) {
+  auto maybe_resources =
+    resource_manager.try_to_acquire(resource_desc);
+  if(maybe_resources) {
+    auto const& resources = maybe_resources.value();
     auto callback = [this, id, resources] {
-      resources.release();
+      resource_manager.release(resources);
 
       {
         std::unique_lock lk(m_notify);

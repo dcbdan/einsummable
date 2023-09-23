@@ -14,12 +14,10 @@ exec_graph_t::node_t::launch(
   std::function<void()> callback) const
 {
   return std::visit(
-    [](
-      auto const& op,
-      rsrc_t resource,
-      std::function<void()> callback)
-      {
-        return op.launch(resource, callback);
-      },
-      op, resource, callback);
+    [resource, callback](auto const& op) {
+      op.launch(resource, callback);
+    },
+    op);
 }
+
+

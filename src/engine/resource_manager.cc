@@ -12,7 +12,7 @@
 
 optional<resource_manager_t::resource_unit_t>
 resource_manager_t::try_to_acquire_unit(
-  resource_manager_t::desc_unit_t desc)
+  resource_manager_t::desc_unit_t const& desc)
 {
   TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t, global_buffer);
   throw std::runtime_error("should not reach");
@@ -31,6 +31,7 @@ resource_manager_t::try_to_acquire(desc_t const& desc)
       return std::nullopt;
     }
   }
+  return ret;
 }
 
 #define TRY_VARIANT_RELEASE(type_t, obj)  \

@@ -10,6 +10,13 @@
 #endif
 
 struct exec_graph_t {
+#ifdef CPU_EXEC
+  static exec_graph_t make_cpu_exec_graph(
+    memgraph_t const& memgraph,
+    int this_rank,
+    cpu_kernel_executor_t& cpu_executor);
+#endif
+
   using desc_t = resource_manager_t::desc_t;
   using desc_unit_t = resource_manager_t::desc_unit_t;
 
@@ -27,7 +34,7 @@ struct exec_graph_t {
 
 #ifdef CPU_EXEC
   struct cpu_touch_t {
-    cpu_kernel_executor_t* cpu_manager;
+    cpu_kernel_executor_t& cpu_manager;
     touch_t touch;
     int group_id;
     // TODO: mems as well
@@ -37,7 +44,7 @@ struct exec_graph_t {
   };
 
   struct cpu_einsummable_t {
-    cpu_kernel_executor_t* cpu_manager;
+    cpu_kernel_executor_t& cpu_manager;
     einsummable_t einsummable;
     // TODO: mems as well
 
@@ -66,6 +73,6 @@ struct exec_graph_t {
 
   vector<node_t> nodes;
 #ifdef CPU_EXEC
-  cpu_kernel_executor_t* cpu_manager;
+  cpu_kernel_executor_t& cpu_executor;
 #endif
 };
