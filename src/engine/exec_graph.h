@@ -13,6 +13,12 @@
 
 struct exec_graph_t {
 #ifdef CPU_EXEC
+  exec_graph_t(cpu_kernel_executor_t& e)
+    : cpu_executor(e)
+  {}
+#endif
+
+#ifdef CPU_EXEC
   static exec_graph_t make_cpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
@@ -81,7 +87,6 @@ struct exec_graph_t {
 #endif
     dummy_t>;
 
-
   struct node_t {
     desc_t resource_description() const;
 
@@ -95,6 +100,7 @@ struct exec_graph_t {
   };
 
   vector<node_t> nodes;
+
 #ifdef CPU_EXEC
   // When compiling exec graphs, einsummable nodes are built into
   // this particular executor. An executor could be considered a "resource"

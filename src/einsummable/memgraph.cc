@@ -137,7 +137,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       auto const& [memloc, stoloc] = node.op.get_evict();
       label = "evict@" +
         write_with_ss(memloc) +
-        "->storage_id" +
+        "->sto_id" +
         write_with_ss(stoloc.id);
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];
@@ -145,7 +145,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_load()) {
       auto const& [stoloc, memloc] = node.op.get_load();
       label = string("load@") +
-        "storage_id" + write_with_ss(stoloc.id) + "->" +
+        "sto_id" + write_with_ss(stoloc.id) + "->" +
         write_with_ss(memloc);
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];

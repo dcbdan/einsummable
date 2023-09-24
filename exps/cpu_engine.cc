@@ -7,13 +7,16 @@
 #include <fstream>
 
 void usage() {
-  std::cout << "Usage: ni nj nk li lj rj rk ji jj jk oi ok\n";
+  std::cout << "Usage: memsize ni nj nk li lj rj rk ji jj jk oi ok\n";
 }
 
-void execute_memgraph_cpu(memgraph_t const& memgraph, buffer_t buffer);
+void execute_memgraph_cpu(
+  memgraph_t const& memgraph,
+  buffer_t buffer,
+  cpu_storage_t& storage);
 
 int main(int argc, char** argv) {
-  if(argc != 13) {
+  if(argc != 14) {
     usage();
     return 1;
   }
@@ -23,23 +26,26 @@ int main(int argc, char** argv) {
   int rj, rk;
   int ji, jj, jk;
   int oi, ok;
+  uint64_t mem_size;
   try {
-    ni = parse_with_ss<uint64_t>(argv[1]);
-    nj = parse_with_ss<uint64_t>(argv[2]);
-    nk = parse_with_ss<uint64_t>(argv[3]);
+    mem_size = parse_with_ss<uint64_t>(argv[1]);
 
-    li = parse_with_ss<int>(argv[4]);
-    lj = parse_with_ss<int>(argv[5]);
+    ni = parse_with_ss<uint64_t>(argv[2]);
+    nj = parse_with_ss<uint64_t>(argv[3]);
+    nk = parse_with_ss<uint64_t>(argv[4]);
 
-    rj = parse_with_ss<int>(argv[6]);
-    rk = parse_with_ss<int>(argv[7]);
+    li = parse_with_ss<int>(argv[5]);
+    lj = parse_with_ss<int>(argv[6]);
 
-    ji = parse_with_ss<int>(argv[8]);
-    jj = parse_with_ss<int>(argv[9]);
-    jk = parse_with_ss<int>(argv[10]);
+    rj = parse_with_ss<int>(argv[7]);
+    rk = parse_with_ss<int>(argv[8]);
 
-    oi = parse_with_ss<int>(argv[11]);
-    ok = parse_with_ss<int>(argv[12]);
+    ji = parse_with_ss<int>(argv[9]);
+    jj = parse_with_ss<int>(argv[10]);
+    jk = parse_with_ss<int>(argv[11]);
+
+    oi = parse_with_ss<int>(argv[12]);
+    ok = parse_with_ss<int>(argv[13]);
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -85,7 +91,12 @@ int main(int argc, char** argv) {
     DOUT("printed tg.gv");
   }
 
-  auto [inn_to_mem, out_to_mem, memgraph] = memgraph_t::make_without_evict(taskgraph);
+  auto [inn_to_memstoloc, out_to_memstoloc, memgraph] =
+    memgraph_t::make(
+      taskgraph,
+      vector<int>{},
+      vector<uint64_t>{ mem_size });
+
 
   {
     std::ofstream f("mg.gv");
@@ -93,25 +104,57 @@ int main(int argc, char** argv) {
     DOUT("printed mg.gv");
   }
 
-  buffer_t buffer = make_buffer(memgraph.mem_sizes()[0]);
+  buffer_t buffer = make_buffer(mem_size);
+  cpu_storage_t storage;
 
-  for(auto const& [inn,mem]: inn_to_mem) {
-    buffer_t tensor_ = make_buffer_reference(buffer->data + mem.offset, mem.size);
-    dbuffer_t tensor(dtype, tensor_);
+  for(auto const& [inn,memstoloc]: inn_to_memstoloc) {
+    uint64_t size = taskgraph.nodes[inn].op.out_size();
+    dbuffer_t tensor = make_dbuffer(dtype, size / dtype_size(dtype));
     tensor.random("1.0", "1.0");
+
+    if(memstoloc.is_memloc()) {
+      auto const& memloc = memstoloc.get_memloc();
+      auto const& [offset,size_,_] = memloc;
+      if(size != size_) {
+        throw std::runtime_error("size mismatch");
+      }
+      std::copy(
+        tensor.data->data,
+        tensor.data->data + size,
+        buffer->data + offset);
+    } else {
+      int const& sto_id = memstoloc.get_stoloc().id;
+      storage.write(tensor.data, sto_id);
+    }
+
     DOUT(tensor);
   }
 
-  execute_memgraph_cpu(memgraph, buffer);
+  execute_memgraph_cpu(memgraph, buffer, storage);
 
-  for(auto const& [out,mem]: out_to_mem) {
-    buffer_t tensor_ = make_buffer_reference(buffer->data + mem.offset, mem.size);
+  for(auto const& [out,memstoloc]: out_to_memstoloc) {
+    uint64_t size = taskgraph.nodes[out].op.out_size();
+    buffer_t tensor_;
+    if(memstoloc.is_memloc()) {
+      auto const& memloc = memstoloc.get_memloc();
+      auto const& [offset,size_,_] = memloc;
+      if(size != size_) {
+        throw std::runtime_error("size mismatch");
+      }
+      tensor_ = make_buffer_reference(buffer->data + offset, size);
+    } else {
+      int const& sto_id = memstoloc.get_stoloc().id;
+      tensor_ = storage.read(sto_id);
+    }
     dbuffer_t tensor(dtype, tensor_);
     DOUT(tensor);
   }
 }
 
-void execute_memgraph_cpu(memgraph_t const& memgraph, buffer_t buffer)
+void execute_memgraph_cpu(
+  memgraph_t const& memgraph,
+  buffer_t buffer,
+  cpu_storage_t& storage)
 {
   cpu_kernel_executor_t executor;
 
@@ -122,8 +165,11 @@ void execute_memgraph_cpu(memgraph_t const& memgraph, buffer_t buffer)
   group_manager_t group_manager;
   global_buffer_t global_buffer(buffer->raw());
 
+  cpu_storage_manager_t cpu_storage_manager { .ptr = &storage };
+
   resource_manager_t resource_manager {
     .cpu_workspace_manager = &cpu_workspace_manager,
+    .cpu_storage_manager = &cpu_storage_manager,
     .group_manager = &group_manager,
     .global_buffer = &global_buffer
   };

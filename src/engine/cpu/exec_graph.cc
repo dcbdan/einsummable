@@ -6,9 +6,7 @@ exec_graph_t::make_cpu_exec_graph(
   int this_rank,
   cpu_kernel_executor_t& cpu_executor)
 {
-  exec_graph_t graph {
-    .cpu_executor = cpu_executor
-  };
+  exec_graph_t graph(cpu_executor);
 
   map<int, int> mid_to_eid;
 
