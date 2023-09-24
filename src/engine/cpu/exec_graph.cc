@@ -11,7 +11,6 @@ exec_graph_t::make_cpu_exec_graph(
   };
 
   map<int, int> mid_to_eid;
-  map<int, int> eid_to_mid; // TODO: is this one needed?
 
   auto insert = [&](op_t op, int mid)
   {
@@ -27,7 +26,6 @@ exec_graph_t::make_cpu_exec_graph(
     int eid = graph.insert(op, inns);
 
     mid_to_eid.insert({mid, eid});
-    eid_to_mid.insert({eid, mid});
   };
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
@@ -91,11 +89,19 @@ exec_graph_t::make_cpu_exec_graph(
       // TODO
       throw std::runtime_error("moves are not implemented");
     } else if(node.op.is_evict()) {
-      // TODO
-      throw std::runtime_error("evicts are not implemented");
+      auto const& evict = node.op.get_evict();
+      cpu_evict_t op {
+        .id  = evict.dst.id,
+        .mem = evict.src.as_mem()
+      };
+      insert(op, mid);
     } else if(node.op.is_load()) {
-      // TODO
-      throw std::runtime_error("loads are not implemented");
+      auto const& load = node.op.get_load();
+      cpu_load_t op {
+        .id  = load.src.id,
+        .mem = load.dst.as_mem()
+      };
+      insert(op, mid);
     } else {
       throw std::runtime_error("should not reach");
     }
@@ -203,6 +209,64 @@ void exec_graph_t::cpu_touch_t::launch(
   // to launch a thread and let it float in the wind by calling detach
   std::thread thread([this, callback, this_touch, out_mem, inn_mem] {
     cpu_executor(this_touch, out_mem, inn_mem);
+    callback();
+  });
+
+  thread.detach();
+}
+
+exec_graph_t::desc_t
+exec_graph_t::cpu_evict_t::resource_description() const
+{
+  vector<desc_unit_t> ret;
+
+  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(cpu_storage_manager_t::desc_t{});
+
+  return ret;
+}
+
+void exec_graph_t::cpu_evict_t::launch(
+  exec_graph_t::rsrc_t resources,
+  std::function<void()> callback) const
+{
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(
+    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+  cpu_storage_t* storage =
+    std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
+
+  std::thread thread([this, callback, storage, ptr] {
+    buffer_t data = make_buffer_reference(ptr + mem.offset, mem.size);
+    storage->write(data, id);
+    callback();
+  });
+
+  thread.detach();
+}
+
+exec_graph_t::desc_t
+exec_graph_t::cpu_load_t::resource_description() const
+{
+  vector<desc_unit_t> ret;
+
+  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(cpu_storage_manager_t::desc_t{});
+
+  return ret;
+}
+
+void exec_graph_t::cpu_load_t::launch(
+  exec_graph_t::rsrc_t resources,
+  std::function<void()> callback) const
+{
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(
+    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+  cpu_storage_t* storage =
+    std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
+
+  std::thread thread([this, callback, storage, ptr] {
+    buffer_t data = make_buffer_reference(ptr + mem.offset, mem.size);
+    storage->load(data, id);
     callback();
   });
 

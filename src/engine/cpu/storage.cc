@@ -21,12 +21,12 @@ string open_temp(string path, std::fstream& f)
   return path;
 }
 
-storage_t::storage_t()
+cpu_storage_t::cpu_storage_t()
 {
   filename = open_temp("/tmp", file);
 }
 
-storage_t::stoalloc_t::stoalloc_t()
+cpu_storage_t::stoalloc_t::stoalloc_t()
   : allocator(
       std::numeric_limits<uint64_t>::max(),
       allocator_settings_t {
@@ -35,15 +35,15 @@ storage_t::stoalloc_t::stoalloc_t()
       })
 {}
 
-uint64_t storage_t::stoalloc_t::allocate(uint64_t sz) {
+uint64_t cpu_storage_t::stoalloc_t::allocate(uint64_t sz) {
   return std::get<0>(allocator.allocate(sz));
 }
 
-void storage_t::stoalloc_t::free(uint64_t offset) {
+void cpu_storage_t::stoalloc_t::free(uint64_t offset) {
   allocator.free(offset, 0);
 }
 
-uint64_t storage_t::stoalloc_t::get_size_at(uint64_t offset) const {
+uint64_t cpu_storage_t::stoalloc_t::get_size_at(uint64_t offset) const {
   auto maybe = allocator.get_allocated_region(offset);
   if(!maybe) {
     throw std::runtime_error("get_size_at: this memory not allocated");
@@ -55,7 +55,7 @@ uint64_t storage_t::stoalloc_t::get_size_at(uint64_t offset) const {
   return end-beg;
 }
 
-void storage_t::write(buffer_t buffer, int id)
+void cpu_storage_t::write(buffer_t buffer, int id)
 {
   std::unique_lock lk(m);
 
@@ -74,7 +74,7 @@ void storage_t::write(buffer_t buffer, int id)
   file.flush();
 }
 
-void storage_t::read(buffer_t buffer, int id) {
+void cpu_storage_t::read(buffer_t buffer, int id) {
   std::unique_lock lk(m);
 
   auto iter = offsets.find(id);
@@ -89,7 +89,7 @@ void storage_t::read(buffer_t buffer, int id) {
   _read(buffer, offset);
 }
 
-buffer_t storage_t::read(int id) {
+buffer_t cpu_storage_t::read(int id) {
   std::unique_lock lk(m);
 
   auto iter = offsets.find(id);
@@ -104,19 +104,19 @@ buffer_t storage_t::read(int id) {
   return buffer;
 }
 
-void storage_t::_read(buffer_t buffer, uint64_t offset) {
+void cpu_storage_t::_read(buffer_t buffer, uint64_t offset) {
   file.seekg(offset, std::ios::beg);
   char* data = reinterpret_cast<char*>(buffer->data);
   file.read(data, buffer->size);
   file.flush();
 }
 
-void storage_t::remove(int id) {
+void cpu_storage_t::remove(int id) {
   std::unique_lock lk(m);
   _remove(id);
 }
 
-void storage_t::_remove(int id) {
+void cpu_storage_t::_remove(int id) {
   auto iter = offsets.find(id);
   if(iter == offsets.end()) {
     throw std::runtime_error("storage remove: id not in storage");
@@ -126,7 +126,7 @@ void storage_t::_remove(int id) {
   offsets.erase(iter);
 }
 
-void storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
+void cpu_storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
   map<int, int> items;
   for(auto const& old_new: old_to_new_stoids) {
     items.insert({old_new[0], old_new[1]});
@@ -134,7 +134,7 @@ void storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
   remap(items);
 }
 
-void storage_t::remap(map<int, int> const& mm) {
+void cpu_storage_t::remap(map<int, int> const& mm) {
   std::unique_lock lk(m);
 
   map<int, uint64_t> new_offsets;
@@ -156,7 +156,7 @@ void storage_t::remap(map<int, int> const& mm) {
   offsets = new_offsets;
 }
 
-int storage_t::get_max_id() const {
+int cpu_storage_t::get_max_id() const {
   if(offsets.size() == 0) {
     return -1;
   }

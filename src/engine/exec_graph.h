@@ -8,6 +8,7 @@
 #ifdef CPU_EXEC
 #include "cpu/kernel_executor.h"
 #include "cpu/workspace_manager.h"
+#include "cpu/storage.h"
 #endif
 
 struct exec_graph_t {
@@ -53,12 +54,30 @@ struct exec_graph_t {
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
   };
+
+  struct cpu_evict_t {
+    int id;
+    mem_t mem;
+
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+    desc_t resource_description() const;
+  };
+
+  struct cpu_load_t {
+    int id;
+    mem_t mem;
+
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+    desc_t resource_description() const;
+  };
 #endif
 
   using op_t = std::variant<
 #ifdef CPU_EXEC
     cpu_touch_t,
     cpu_einsummable_t,
+    cpu_evict_t,
+    cpu_load_t,
 #endif
     dummy_t>;
 
@@ -77,6 +96,11 @@ struct exec_graph_t {
 
   vector<node_t> nodes;
 #ifdef CPU_EXEC
+  // When compiling exec graphs, einsummable nodes are built into
+  // this particular executor. An executor could be considered a "resource"
+  // that gets passed in to the einsummable nodes, but the same
+  // cpu executor would have to get passed in. Also the cpu executor's state
+  // does not change during execution, only during compilation.
   cpu_kernel_executor_t& cpu_executor;
 #endif
 

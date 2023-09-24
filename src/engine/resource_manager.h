@@ -3,6 +3,7 @@
 
 #ifdef CPU_EXEC
 #include "cpu/workspace_manager.h"
+#include "cpu/storage_manager.h"
 #endif
 
 struct global_buffer_t {
@@ -48,6 +49,7 @@ struct resource_manager_t {
   using desc_unit_t = std::variant<
 #ifdef CPU_EXEC
     cpu_workspace_manager_t::desc_t,
+    cpu_storage_manager_t::desc_t,
 #endif
     global_buffer_t::desc_t,
     group_manager_t::desc_t
@@ -55,6 +57,7 @@ struct resource_manager_t {
   using resource_unit_t = std::variant<
 #ifdef CPU_EXEC
     cpu_workspace_manager_t::resource_t,
+    cpu_storage_manager_t::resource_t,
 #endif
     global_buffer_t::resource_t,
     group_manager_t::resource_t
@@ -74,6 +77,7 @@ struct resource_manager_t {
   //        shared pointers and how they should be set
 #ifdef CPU_EXEC
   cpu_workspace_manager_t* cpu_workspace_manager;
+  cpu_storage_manager_t* cpu_storage_manager;
 #endif
   group_manager_t* group_manager;
   global_buffer_t* global_buffer;

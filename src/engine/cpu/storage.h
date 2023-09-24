@@ -9,9 +9,9 @@
 #include <mutex>
 #include <fstream>
 
-struct storage_t
+struct cpu_storage_t
 {
-  storage_t();
+  cpu_storage_t();
 
 	void write(buffer_t buffer, int id);
 
