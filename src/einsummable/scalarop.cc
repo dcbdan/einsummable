@@ -1411,6 +1411,16 @@ scalarop_t scalarop_t::make_relu(dtype_t dtype) {
   return parse_with_ss<scalarop_t>(ite);
 }
 
+scalarop_t scalarop_t::make_mask(compare_t compare, dtype_t dtype) {
+  string arg0 = op_t::h_str(0, dtype);
+  string arg1 = op_t::h_str(1, dtype);
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  string one = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string compare_str = write_with_ss(compare);
+  string ite = "ite_"+compare_str+"[" + arg0 + "," + arg1 + "," + one + "," + zero + "]";
+  return parse_with_ss<scalarop_t>(ite);
+}
+
 scalarop_t scalarop_t::make_silu(dtype_t dtype) {
   string one          = write_with_ss(make_constant(scalar_t::one(dtype)));
   string negative_one = write_with_ss(make_constant(scalar_t::negative_one(dtype)));

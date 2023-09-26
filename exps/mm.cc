@@ -132,23 +132,23 @@ int main(int argc, char** argv) {
   auto [_0, _1, _taskgraph] = taskgraph_t::make(graph, pls);
   taskgraph = _taskgraph;
 
-  auto [_2, _3, memgraph] = memgraph_t::make_without_evict(taskgraph);
+  auto [_2, _3, memgraph] = memgraph_t::make(taskgraph);
   // ^ note that memsizes and allocat_settings not being provided
 
   {
-    std::ofstream f("g.gv");
+    std::ofstream f("gprint.gv");
     graph.print_graphviz(f);
     DOUT("wrote g.gv");
   }
 
   {
-    std::ofstream f("tg.gv");
+    std::ofstream f("tgprint.gv");
     taskgraph.print_graphviz(f);
     DOUT("wrote tg.gv");
   }
 
   {
-    std::ofstream f("mg.gv");
+    std::ofstream f("mgprint.gv");
     memgraph.print_graphviz(f);
     DOUT("printed mg.gv");
   }

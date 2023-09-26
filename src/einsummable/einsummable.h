@@ -75,6 +75,9 @@ struct einsummable_t {
   static string create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs);
 
   static string create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape);
+
+  string create_reduction_vjp_string();
+
   static tuple<string, vector<string>>
   make_str_terms(vector<vector<int>> const& inns, int out_rank);
 

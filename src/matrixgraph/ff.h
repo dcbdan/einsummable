@@ -28,6 +28,33 @@ struct ff_sqdiff_t {
   shape_t shape_wi(int i) const;
 };
 
+struct ff_loss_t {
+  graph_t graph;
+  dtype_t dtype;
+
+  uint64_t dn;
+  uint64_t dp;
+  uint64_t dd;
+  vector<uint64_t> dws;
+  float learning_rate;
+
+  int x;
+  int y;
+  int yhat;
+  int sqdiff;
+  vector<int> wsinn;
+  vector<int> wsout;
+  vector<int> grads;
+
+  using shape_t = tuple<uint64_t, uint64_t>;
+
+  shape_t shape_x()       const { return {dn,dp}; }
+  shape_t shape_y()       const { return {dn,dd}; }
+  shape_t shape_yhat()    const { return {dn,dd}; }
+  shape_t shape_sqdiff()  const { return {dn,dd}; }
+  shape_t shape_wi(int i) const;
+};
+
 // Given data matrix x: dn,dp
 // and output matrix y: dn,dd,
 // create a ff gradient update where

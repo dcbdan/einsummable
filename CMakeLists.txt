@@ -69,24 +69,10 @@ endfunction()
 add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
-<<<<<<< HEAD
 # if(${CPU_EXECUTION_ENGINE})
 #   if(NOT MKL_THREADING)
 #     set(MKL_THREADING sequential)
 #   endif()
-=======
-if(${CPU_EXECUTION_ENGINE})
-  if(NOT MKL_THREADING)
-    set(MKL_THREADING sequential)
-  endif()
-
-  # Tell MKL to use the best instructions; if
-  # this instruction set it goes to the next best
-  # and so on...
-  # (MKL is bad at finding the right instruction set and
-  #  this helps empirically)
-  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
->>>>>>> tblis
 
 #   find_package(MPI REQUIRED)
 
@@ -109,7 +95,6 @@ if(${CPU_EXECUTION_ENGINE})
 #     ${CP_FILES}
 #   )
 
-<<<<<<< HEAD
 #   function(add_cpu_application exec dir filename)
 #   add_executable(${exec} ${dir}/${filename}.cc)
 #   target_link_libraries(${exec}
@@ -139,52 +124,6 @@ if(${CPU_EXECUTION_ENGINE})
 #       ${MPI_CXX_LIBRARIES}
 #       MKL::MKL)
 #   endfunction()
-=======
-  add_library(tblis SHARED IMPORTED)
-  set_target_properties(tblis PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/lib/libtblis.so)
-
-  add_library(tci SHARED IMPORTED)
-  set_target_properties(tci PROPERTIES IMPORTED_LOCATION ${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/lib/libtci.so)
-
-  function(add_cpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
-  target_link_libraries(${exec}
-    cpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
-    ${MPI_CXX_LIBRARIES}
-    MKL::MKL
-    tblis
-    tci)
-  endfunction()
-
-  add_cpu_application("cpuexec"              "exps" "cpuexec")
-  add_cpu_application("cpuexec_3d"           "exps" "cpuexec_3d")
-  add_cpu_application("cpuexec_ff"           "exps" "cpuexec_ff")
-  add_cpu_application("cpuexec_mm"           "exps" "cpuexec_mm")
-  add_cpu_application("cpuexec_touch"        "exps" "cpuexec_touch")
-  add_cpu_application("cpuexec_permute"      "exps" "cpuexec_permute")
-  add_cpu_application("cpuexec_kernels"      "exps" "cpuexec_kernels")
-  add_cpu_application("cpuexec_gen"          "exps" "cpuexec_gen")
-  add_cpu_application("cpuexec_attention"    "exps" "cpuexec_attention")
-  add_cpu_application("cpuexec_lff"          "exps" "cpuexec_lff")
-  add_cpu_application("cpumanager"           "exps" "cpumanager")
-  add_cpu_application("cpukerneltime"        "exps" "cpukerneltime")
-  add_cpu_application("cpumms"               "exps" "cpumms")
-
-  function(add_cpu_llama_application exec filename)
-    add_executable(${exec} llama/${filename}.cc
-      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
-    target_link_libraries(${exec}
-      cpu_execution_engine
-      proto
-      ${Protobuf_LIBRARIES}
-      ${MPI_CXX_LIBRARIES}
-      MKL::MKL
-      tblis
-      tci)
-  endfunction()
->>>>>>> tblis
 
 #   add_cpu_llama_application("llama_cpu" "cpu")
 

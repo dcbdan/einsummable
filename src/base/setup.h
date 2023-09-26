@@ -906,6 +906,30 @@ vector<int> find_permutation(
   return ret;
 }
 
+template <typename T>
+vector<T> contraction_remap(
+  vector<T> out, 
+  vector<T> join
+)
+{
+  vector<uint64_t> new_join_shape(out);
+  map<uint64_t, int> maps;
+  int ctr = 0; 
+
+  for (auto i : new_join_shape) {
+    auto it = std::find(join.begin(), join.end(), i);
+    if (it != join.end()) {
+      join.erase(it);
+    }
+  }
+
+  for (auto const& i : join) {
+    new_join_shape.push_back(i);
+  }
+
+  return new_join_shape;
+}
+
 // out_perm = {2,0,1} implies we have ijk->kij
 vector<int> as_out_perm(
   vector<int> const& inn,

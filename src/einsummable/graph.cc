@@ -835,7 +835,7 @@ void graph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_einsummable()) {
       label = "einsummable" + write_with_ss(id);
       label += "\n" + write_with_ss(op.get_einsummable());
-      label += "\ninput_ids" + write_with_ss(node.inns);
+      //label += "\ninput_ids" + write_with_ss(node.inns);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -952,11 +952,14 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
 
   vector<int> ret;
   ret.reserve(weights.size());
+  std::cout << weights.size() << std::endl;
   for(auto const& weight : weights) {
     ret.push_back(state[weight]);
     std::cout << "Added to ret..." << std::endl;
   }
 
+  std::cout << state.grads.at(weights[0]) << std::endl;
+  std::cout << "Leaving this..." << std::endl;
   return ret;
 }
 
@@ -1067,79 +1070,41 @@ int graph_t::build_grad_term(
     auto einsummable = op.get_einsummable();
     if (einsummable.is_contraction()) {
       int other = out_node.get_other_input(id);
+      std::cout << "Contractionnnnn" << std::endl;
       if (which_inn == 0) {
+        std::cout << "LHS" << std::endl;
         return build_grad_term_mul_lhs(einsummable, node_grad, other); // out_grad "*" OTHER.T
       } else {
+        std::cout << "RHS" << std::endl;
         return build_grad_term_mul_rhs(einsummable, other, node_grad); // OTHER.T "*" out_grad
       }
+    } else if (einsummable.join.is_identity() && einsummable.castable.has_value()){
+      return build_grad_term_reduction(einsummable, node_grad, out_node_id, id);
     } else if (einsummable.join.is_unary()) {
-        return build_grad_term_ewu(einsummable, id, node_grad);
+      return build_grad_term_ewu(einsummable, id, node_grad);
     } else if (einsummable.join.is_binary()) {
-        int other = out_node.get_other_input(id);
-        return build_grad_term_ewb_arg(einsummable, node_grad, id, other, which_inn);
-    }
+      int other = out_node.get_other_input(id);
+      return build_grad_term_ewb_arg(einsummable, node_grad, id, other, which_inn);
+    } 
   }
 }
 
-/*
-  How can I incoroprate find_permutation to this case?
+// How to check if it's broadcast, join shape is different when it's broadcast
 
-*/
 int graph_t::build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int other) {
 
-  /*auto const& lhs = nodes[node_grad];
-  auto const& rhs = nodes[other];
+  auto const& vjp_string = einsum.create_contraction_vjp_string(0);
 
-  int lhsrank = lhs.op.out_rank();
-  int rhsrank = rhs.op.out_rank();*/
+  auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
 
-  auto const& notationies = einsum.create_contraction_vjp_string(0);
+  auto join_shape = contraction_remap(einsum.inn_shapes()[0], einsum.join_shape);
+  //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]});
 
-  std::cout << einsum.str() << std::endl;
-  std::cout << notationies << std::endl;
+  std::cout << einsum.inn_shapes()[0] << std::endl;
+  std::cout << einsum.join_shape << std::endl;
+  std::cout << join_shape << std::endl;
 
-  // auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, false, true);
-  auto const& [inns, out_rank] = einsummable_t::parse_str(notationies);
-
-  std::cout << einsum.inn_shapes()[1] << ", " << einsum.out_shape() << std::endl;
-
-  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]});
-
-  einsummable_t einsumz(
-    join_shape.value(),
-    inns,
-    out_rank,
-    scalarop_t::make_mul(),
-    castable_t::add
-  );
-  // sve ovo da zamenim sa: 
-
-  std::cout << "Kreirao sam einsummable objekat" << std::endl;
-
-  return insert_einsummable(einsumz, {node_grad, other});
-}
-
-int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_grad) {
-
-  /*auto const& lhs = nodes[other];
-  auto const& rhs = nodes[node_grad];
-
-  int lhsrank = lhs.op.out_rank();
-  int rhsrank = rhs.op.out_rank();*/
-
-  auto const& notationies = einsum.create_contraction_vjp_string(1);
-
-  std::cout << einsum.str() << std::endl;
-  std::cout << notationies << std::endl;
-
-  // auto const& notation = einsummable_t::create_batch_matmul_string(lhsrank, rhsrank, true, false);
-  auto const& [inns, out_rank] = einsummable_t::parse_str(notationies);
-
-  std::cout << einsum.inn_shapes()[0] << ", " << einsum.out_shape() << std::endl;
-
-  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
-
-  einsummable_t einsumz(
+  einsummable_t vjp(
     join_shape,
     inns,
     out_rank,
@@ -1147,9 +1112,28 @@ int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_
     castable_t::add
   );
 
-  std::cout << "Kreirao sam einsummable objekat" << std::endl;
+  return insert_einsummable(vjp, {node_grad, other});
+}
 
-  return insert_einsummable(einsumz, {other, node_grad});
+int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_grad) {
+
+  auto const& vjp_string = einsum.create_contraction_vjp_string(1);
+
+  auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
+
+  auto join_shape = contraction_remap(einsum.inn_shapes()[1], einsum.join_shape);
+  //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
+  std::cout << join_shape << std::endl;
+
+  einsummable_t vjp(
+    join_shape,
+    inns,
+    out_rank,
+    scalarop_t::make_mul(),
+    castable_t::add
+  );
+
+  return insert_einsummable(vjp, {other, node_grad});
 }
 
 int graph_t::build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad) {
@@ -1194,6 +1178,51 @@ int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, i
 
   int temp_id = insert_einsummable(tmp, {other, arg});
   return insert_einsummable(grad, {node_grad, temp_id});
+}
+
+int graph_t::build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn)
+{
+  string jacobian_str = einsummable.create_reduction_vjp_string();
+  auto const& [inns, out_rank] = einsummable_t::parse_str(jacobian_str);
+  auto const& vjp_shape = einsummable_t::construct_join_shape(inns, {einsummable.out_shape(), einsummable.inn_shapes()[0]});
+
+  if (vjp_shape.has_value()) {
+    std::runtime_error("Wrong einsummable join shape.");
+  }
+
+  if (einsummable.castable == castable_t::add) {
+    
+    einsummable_t broadcast(
+      vjp_shape.value(),
+      inns,
+      out_rank,
+      scalarop_t::make_identity()
+    );
+
+    return insert_einsummable(broadcast, {node_grad});
+  } 
+
+  scalarop_t jacobi_op = (einsummable.castable == castable_t::mul) 
+    ? scalarop_t::make_div() 
+    : scalarop_t::make_mask(compare_t::eq);
+
+    einsummable_t jacobian(
+      vjp_shape.value(), 
+      inns,
+      out_rank,
+      jacobi_op
+    );
+
+    int jacobian_id = insert_einsummable(jacobian, {node, inn});
+
+    einsummable_t vjp(
+      vjp_shape.value(),
+      inns,
+      out_rank,
+      scalarop_t::make_mul()
+    );
+
+    return insert_einsummable(vjp, {node_grad, jacobian_id});  
 }
 
 // Construct a 3D matmul graph, (ij,jk->ik)
@@ -1751,10 +1780,31 @@ graph_writer_t::tensor_t::physically_permute() const {
   return ret;
 }
 
+vector<graph_writer_t::tensor_t>
+graph_writer_t::backprop(tensor_t out, vector<tensor_t> params)
+{
+  vector<int> ws; 
+  for (auto const& param : params) {
+    ws.push_back(param.get_id());
+  }
+
+  vector<int> ws_grads = graph.backprop(out.get_id(), ws);
+
+  vector<graph_writer_t::tensor_t> tensor_grads;
+
+  for (int grad : ws_grads) {
+    auto node_grad = graph.nodes[grad];
+    auto shape = full_shape_t::from_full(node_grad.op.out_shape());
+    tensor_grads.push_back(tensor_t(shape, grad, this));
+  }
+
+  return tensor_grads;
+}
+
 graph_writer_t::tensor_t
 graph_writer_t::input(
-  vector<uint64_t> shape,
-  dtype_t dtype)
+    vector<uint64_t> shape,
+    dtype_t dtype)
 {
   return this->input(full_shape_t::from_full(shape), dtype);
 }

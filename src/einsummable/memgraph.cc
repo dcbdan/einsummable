@@ -125,7 +125,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
         "->" +
         write_with_ss(memloc_t { dst_offset, size, dst_loc });
       //label = "move " + write_with_ss(id);
-      color = "lightgray";
+      color = "pink";
     } else if(op.is_evict()) {
       auto const& [memloc, stoloc] = node.op.get_evict();
       label = "evict@" +
@@ -135,6 +135,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];
       }
+      color = "pink";
     } else if(op.is_load()) {
       auto const& [stoloc, memloc] = node.op.get_load();
       label = string("load@") +
@@ -143,6 +144,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];
       }
+      color = "pink";
     } else if(op.is_partialize()) {
       partialize_t const& par = op.get_partialize();
       string memloc = write_with_ss(

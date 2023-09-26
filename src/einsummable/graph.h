@@ -326,6 +326,8 @@ public:
   int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
   int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
 
+  int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
+
   vector<node_t> nodes;
 
 private:
@@ -612,6 +614,8 @@ struct graph_writer_t {
   };
 
   graph_t const& get_graph() const { return graph; }
+
+  vector<tensor_t> backprop(tensor_t out, vector<tensor_t> params);
 
   // the core ops
 

@@ -493,39 +493,18 @@ string einsummable_t::make_str(
 string
 einsummable_t::create_contraction_vjp_string(int which_inn)
 {
-  map<int, int> mapz;
-  vector<vector<int>> innz;
-  vector<int> tmp;
-  vector<int> tmp2;
-  int ctr = 0;
-
-  for (auto i : inns[which_inn]) {
-    mapz.insert({i, ctr++});
-  }
-
-  for (auto i : inns[which_inn == 0 ? 1 : 0]) {
-    auto it = mapz.find(i);
-    if (it == mapz.end()) {
-      mapz.insert({i, ctr});
-      tmp2.push_back(ctr++);
-    } else {
-      tmp2.push_back(it->second);
-    }
-  }
-
-  for (int i = 0; i < out_rank; i++) {
-    tmp.push_back(mapz.at(i));
-  }
+  int other = which_inn == 0 ? 1 : 0;
+  auto const& terms = einsummable_t::make_str_terms(inns, out_rank);
+  string result = "->" + std::get<1>(terms)[which_inn];
+  string VJP_string;
 
   if (which_inn == 0) {
-    innz.push_back(tmp);
-    innz.push_back(tmp2);
+    VJP_string = std::get<0>(terms) + "," + std::get<1>(terms)[other] + result;
   } else {
-    innz.push_back(tmp2);
-    innz.push_back(tmp);
+    VJP_string = std::get<1>(terms)[other] + "," + std::get<0>(terms) + result;
   }
   
-  return make_str(innz, inns[which_inn].size());
+  return VJP_string;
 }
 
 string
@@ -534,6 +513,17 @@ einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> 
   auto identity = identity_permutation(argument_shape.size());
   auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};  
   return make_str(permuted_inns, argument_shape.size());
+}
+
+string einsummable_t::create_reduction_vjp_string()
+{
+  auto const terms = einsummable_t::make_str_terms(inns, out_rank);
+
+  if (castable == castable_t::add) {
+    return std::get<0>(terms) + "->" + std::get<1>(terms)[0];
+  }
+
+  return std::get<0>(terms) + "," + std::get<1>(terms)[0] + "->" + std::get<1>(terms)[0];
 }
 
 string 
@@ -1006,9 +996,9 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   for(int i = 1; i < e.join_shape.size(); ++i) {
     out << "," << e.join_shape[i];
   }
-  out << "]";
+  out << "]\n";
 
-  out << e.str();
+  out << e.str() << "\n";
 
   out << e.join.to_cppstr();
 
