@@ -39,3 +39,54 @@ int exec_graph_t::insert(
   return ret;
 }
 
+exec_graph_t::desc_t
+exec_graph_t::notify_recv_ready_t::resource_description() const {
+  // TODO
+}
+
+exec_graph_t::desc_t
+exec_graph_t::wait_recv_ready_t::resource_description() const {
+  // TODO
+}
+
+exec_graph_t::desc_t
+exec_graph_t::send_t::resource_description() const {
+  // TODO
+}
+
+exec_graph_t::desc_t
+exec_graph_t::recv_t::resource_description() const {
+  // TODO
+}
+
+void
+exec_graph_t::notify_recv_ready_t::launch(
+  exec_graph_t::rsrc_t resource,
+  std::function<void()> callback) const
+{
+  // TODO
+}
+
+void
+exec_graph_t::wait_recv_ready_t::launch(
+  exec_graph_t::rsrc_t resource,
+  std::function<void()> callback) const
+{
+  // TODO
+}
+
+void
+exec_graph_t::send_t::launch(
+  exec_graph_t::rsrc_t resource,
+  std::function<void()> callback) const
+{
+  // TODO
+}
+
+void
+exec_graph_t::recv_t::launch(
+  exec_graph_t::rsrc_t resource,
+  std::function<void()> callback) const
+{
+  // TODO
+}
