@@ -6,6 +6,8 @@
 #include "cpu/storage_manager.h"
 #endif
 
+#include "notifier.h"
+
 struct global_buffer_t {
   global_buffer_t(void* p)
     : ptr(p)
@@ -52,7 +54,8 @@ struct resource_manager_t {
     cpu_storage_manager_t::desc_t,
 #endif
     global_buffer_t::desc_t,
-    group_manager_t::desc_t
+    group_manager_t::desc_t,
+    notifier_t::desc_t
   >;
   using resource_unit_t = std::variant<
 #ifdef CPU_EXEC
@@ -60,7 +63,8 @@ struct resource_manager_t {
     cpu_storage_manager_t::resource_t,
 #endif
     global_buffer_t::resource_t,
-    group_manager_t::resource_t
+    group_manager_t::resource_t,
+    notifier_t::resource_t
   >;
 
   using desc_t = vector<desc_unit_t>;
@@ -81,6 +85,7 @@ struct resource_manager_t {
 #endif
   group_manager_t* group_manager;
   global_buffer_t* global_buffer;
+  notifier_t*      notifier;
 };
 
 

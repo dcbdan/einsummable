@@ -1,5 +1,8 @@
 #include "exec_graph.h"
 
+#include "communicator.h"
+#include "notifier.h"
+
 exec_graph_t::desc_t
 exec_graph_t::node_t::resource_description() const
 {
@@ -41,12 +44,12 @@ int exec_graph_t::insert(
 
 exec_graph_t::desc_t
 exec_graph_t::notify_recv_ready_t::resource_description() const {
-  // TODO
+  return vector<desc_unit_t>{ notifier_t::desc_t {} };
 }
 
 exec_graph_t::desc_t
 exec_graph_t::wait_recv_ready_t::resource_description() const {
-  // TODO
+ return vector<desc_unit_t>{ notifier_t::desc_t {} };
 }
 
 exec_graph_t::desc_t
