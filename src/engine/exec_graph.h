@@ -146,7 +146,8 @@ struct exec_graph_t {
     // resources:
     //   the notifer,
     //   send channel,
-    //   a thread
+    //   a thread,
+    //   global buffer
     desc_t resource_description() const;
 
     // dependencies: a single dependencies on a wait_recv_ready_t
@@ -165,6 +166,7 @@ struct exec_graph_t {
     //   the notifier,
     //   communicator,
     //   a thread
+    //   global buffer
     desc_t resource_description() const;
 
     // dependencies: a single dependencies on a notify_recv_ready_t

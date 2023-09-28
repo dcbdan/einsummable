@@ -18,9 +18,10 @@ resource_manager_t::try_to_acquire_unit(
   TRY_VARIANT_ACQUIRE(cpu_workspace_manager_t::desc_t, cpu_workspace_manager);
   TRY_VARIANT_ACQUIRE(cpu_storage_manager_t::desc_t, cpu_storage_manager);
 #endif
-  TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t, global_buffer);
-  TRY_VARIANT_ACQUIRE(group_manager_t::desc_t, group_manager);
-  TRY_VARIANT_ACQUIRE(notifier_t::desc_t,      notifier);
+  TRY_VARIANT_ACQUIRE(global_buffer_t::desc_t,   global_buffer);
+  TRY_VARIANT_ACQUIRE(group_manager_t::desc_t,   group_manager);
+  TRY_VARIANT_ACQUIRE(notifier_t::desc_t,        notifier);
+  TRY_VARIANT_ACQUIRE(channel_manager_t::desc_t, channel_manager);
   throw std::runtime_error("should not reach");
 }
 
@@ -56,9 +57,10 @@ void resource_manager_t::release_unit(
   TRY_VARIANT_RELEASE(cpu_workspace_manager_t::resource_t, cpu_workspace_manager);
   TRY_VARIANT_RELEASE(cpu_storage_manager_t::resource_t, cpu_storage_manager);
 #endif
-  TRY_VARIANT_RELEASE(global_buffer_t::resource_t, global_buffer);
-  TRY_VARIANT_RELEASE(group_manager_t::resource_t, group_manager);
-  TRY_VARIANT_RELEASE(notifier_t::resource_t,      notifier);
+  TRY_VARIANT_RELEASE(global_buffer_t::resource_t,   global_buffer);
+  TRY_VARIANT_RELEASE(group_manager_t::resource_t,   group_manager);
+  TRY_VARIANT_RELEASE(notifier_t::resource_t,        notifier);
+  TRY_VARIANT_RELEASE(channel_manager_t::resource_t, channel_manager);
   throw std::runtime_error("should not reach");
 }
 

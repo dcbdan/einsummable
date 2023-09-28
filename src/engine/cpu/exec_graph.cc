@@ -126,17 +126,14 @@ void exec_graph_t::cpu_einsummable_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+  auto const& global_buffer = std::get<global_buffer_t::resource_t>(resources[0]);
 
-  void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].offset);
+  void* out_mem = global_buffer.at(mems[0].offset);
 
   vector<void const*> inn_mems;
   inn_mems.reserve(mems.size() - 1);
   for(int i = 1; i != mems.size(); ++i) {
-    inn_mems.push_back(reinterpret_cast<void const*>(
-      ptr + mems[i].offset));
+    inn_mems.push_back(global_buffer.at(mems[i].offset));
   }
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
@@ -181,14 +178,11 @@ void exec_graph_t::cpu_touch_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+  auto const& global_buffer = std::get<global_buffer_t::resource_t>(resources[0]);
 
-  void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].offset);
+  void* out_mem = global_buffer.at(mems[0].offset);
 
-  void const* inn_mem = reinterpret_cast<void const*>(
-    ptr + mems[1].offset);
+  void const* inn_mem = global_buffer.at(mems[1].offset);
 
   bool is_first = false;
   if(group_id >= 0) {
