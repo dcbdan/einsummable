@@ -6,6 +6,8 @@ struct communicator_t {
 };
 
 struct channel_manager_t {
+  channel_manager_t(communicator_t& comm);
+
   struct desc_t {
     bool send;
     int loc;
@@ -16,7 +18,7 @@ struct channel_manager_t {
     void recv(void* ptr, uint64_t bytes, int channel) const;
 
     int get_channel() const { return channel; }
-  private:
+
     channel_manager_t* self;
     int loc;
     int channel; // -1 if no send channel reserved;
@@ -28,5 +30,11 @@ struct channel_manager_t {
   void release(resource_t rsrc);
 
 private:
-  communicator_t* comm;
+  communicator_t& comm;
+
+  std::mutex m;
+  vector<vector<int>> avail_channels;
+
+  optional<int> acquire_channel(int loc);
+  void release_channel(int loc, int channel);
 };
