@@ -2,7 +2,34 @@
 #include "../base/setup.h"
 
 struct communicator_t {
-  // TODO
+  // TODO: constructor
+  communicator_t() {}
+  // - connect to all the other workers and get setup
+  // - have a notify recver for each location
+  // - launch a notify thread that isn't killed until the destructor
+  //   is called
+
+  int get_this_rank()  const { return this_rank;  }
+  int get_world_size() const { return world_size; }
+
+  void send_sync(int dst, void const* data, uint64_t size);
+  void recv_sync(int src, void* data,       uint64_t size);
+
+  void send_int_sync(int dst, int val);
+  int  recv_int_sync(int src);
+
+  void barrier_sync();
+
+  void set_notify_callback(std::function<void(void* data, uint64_t size)> callback);
+  void set_notify_recv_size(uint64_t);
+  void notify_sync(int dst, void* data, uint64_t size);
+
+private:
+  int this_rank;
+  int world_size;
+
+  uint64_t notify_recv_size;
+  std::function<void(void* data, uint64_t size)> notify_callback;
 };
 
 struct channel_manager_t {

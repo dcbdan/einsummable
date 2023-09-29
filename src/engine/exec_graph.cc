@@ -86,7 +86,7 @@ exec_graph_t::notify_recv_ready_t::launch(
   notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
 
   std::thread thread([this, callback, notifier] {
-    notifier->notify_recv_ready(this->id);
+    notifier->notify_recv_ready(this->dst, this->id);
     notifier->wait_send_ready(this->id);
 
     callback();
@@ -123,7 +123,7 @@ exec_graph_t::send_t::launch(
   void* ptr = std::get<global_buffer_t::resource_t>(resource[2]).at(mem.offset);
 
   std::thread thread([this, callback, notifier, wire, ptr] {
-    notifier->send_ready(this->id, wire.get_channel());
+    notifier->notify_send_ready(this->dst, this->id, wire.get_channel());
 
     wire.send(ptr, this->mem.size);
 

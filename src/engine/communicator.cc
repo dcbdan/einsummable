@@ -1,5 +1,40 @@
 #include "communicator.h"
 
+void communicator_t::send_sync(int dst, void const* data, uint64_t size)
+{
+  // TODO
+}
+
+void communicator_t::recv_sync(int src, void* data, uint64_t size) {
+  // TODO
+}
+
+void communicator_t::send_int_sync(int dst, int val) {
+  // TODO
+}
+int communicator_t::recv_int_sync(int src) {
+  // TODO
+}
+
+void communicator_t::barrier_sync() {
+  // TODO
+}
+
+void communicator_t::set_notify_callback(
+  std::function<void(void* data, uint64_t size)> callback)
+{
+  // TODO maybe need to grab lock
+}
+
+void communicator_t::set_notify_recv_size(uint64_t new_recv_size)
+{
+  // TODO maybe need to grab lock
+}
+
+void communicator_t::notify_sync(int dst, void* data, uint64_t size) {
+  // TODO need to send to notify on other machine
+}
+
 channel_manager_t::channel_manager_t(communicator_t& comm)
   : comm(comm)
 {
