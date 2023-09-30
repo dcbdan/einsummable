@@ -7,7 +7,11 @@
 #include <mutex>
 
 struct notifier_t {
+  // starts a notifier on comm
   notifier_t(communicator_t& comm);
+
+  // stops the notifier
+  ~notifier_t();
 
   struct desc_t {};
 

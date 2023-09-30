@@ -7,6 +7,7 @@
 #endif
 
 #include "notifier.h"
+#include "channel_manager.h"
 
 struct global_buffer_t {
   global_buffer_t(void* p)

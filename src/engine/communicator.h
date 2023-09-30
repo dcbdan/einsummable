@@ -1,67 +1,266 @@
 #pragma once
 #include "../base/setup.h"
 
+#include <ucp/api/ucp.h>
+
+#include <future>
+#include <atomic>
+#include <memory>
+
 struct communicator_t {
-  // TODO: constructor
-  communicator_t() {}
-  // - connect to all the other workers and get setup
-  // - have a notify recver for each location
-  // - launch a notify thread that isn't killed until the destructor
-  //   is called
+  communicator_t(string addr_zero, bool is_server, int world_size_, int n_channels = 1);
+
+  ~communicator_t();
 
   int get_this_rank()  const { return this_rank;  }
   int get_world_size() const { return world_size; }
 
-  void send_sync(int dst, int channel, void const* data, uint64_t size);
-  void recv_sync(int src, int channel, void* data,       uint64_t size);
+  int num_channels(int loc) const {
+    return loc == this_rank ? 0 : stream_channels.size();
+  }
 
-  void send_int_sync(int dst, int val);
-  int  recv_int_sync(int src);
+  void send(int dst, int channel, void const* data, uint64_t size);
+  void recv(int src, int channel, void* data,       uint64_t size);
 
-  void barrier_sync();
+  void send_int(int dst, int channel, int val);
+  int  recv_int(int src, int channel);
 
-  void set_notify_callback(std::function<void(void* data, uint64_t size)> callback);
-  void set_notify_recv_size(uint64_t);
-  void notify_sync(int dst, void* data, uint64_t size);
+  // TODO: right now, start_listen_notify launches a thread that constantly polls.
+  //       maybe this is not what we want
+  void start_listen_notify(
+    uint64_t msg_size,
+    std::function<void(vector<uint8_t> data)> callback);
+
+  void stop_listen_notify();
+
+  void notify(int dst, void const* data, uint64_t size);
+
+  void barrier();
+
+  void send(int dst, void const* data, uint64_t size) {
+    send(dst, 0, data, size);
+  }
+  void recv(int src, void* data, uint64_t size) {
+    recv(src, 0, data, size);
+  }
+
+  void send_int(int dst, int val) {
+    send_int(dst, 0, val);
+  }
+  int recv_int(int src) {
+    return recv_int(src, 0);
+  }
+
+private:
+  struct addr_data_t {
+    vector<uint8_t> data;
+
+    void resize(uint64_t const& sz) { data.resize(sz); }
+
+    uint64_t size() const { return data.size(); }
+
+    ucp_address_t* get() {
+      return reinterpret_cast<ucp_address_t*>(data.data());
+    }
+    ucp_address_t const* get() const {
+      return reinterpret_cast<ucp_address_t const*>(data.data());
+    }
+
+    void* raw() {
+      return reinterpret_cast<void*>(data.data());
+    }
+    void const* raw() const {
+      return reinterpret_cast<void const*>(data.data());
+    }
+  };
+
+  struct wire_t {
+    wire_t(communicator_t* self);
+
+    wire_t(wire_t const& other) {
+      throw std::runtime_error("wire_t should not be copied!");
+    }
+
+    ~wire_t();
+
+    void create_endpoint(addr_data_t const& addr);
+
+    addr_data_t make_addr_data();
+
+    ucp_address_t* get_ucp_addr() { return ucp_addr; }
+    uint64_t get_ucp_addr_size() { return ucp_addr_size; }
+
+    void send(void const* data, uint64_t size);
+
+    void recv(void* data, uint64_t size);
+
+    struct listener_t {
+      listener_t(wire_t& w, uint64_t msg_size);
+
+      ~listener_t();
+
+      void start();
+
+      bool progress();
+
+      vector<uint8_t>& payload() { return data; }
+
+    private:
+      ucp_request_param_t param;
+      vector<uint8_t> data;
+      uint64_t size;
+      bool is_done;
+      wire_t& self;
+      ucs_status_ptr_t status;
+    };
+
+    std::unique_ptr<listener_t> make_listener(uint64_t msg_size) {
+      return std::make_unique<listener_t>(*this, msg_size);
+    }
+
+  private:
+    ucp_worker_h worker;
+
+    bool has_endpoint;
+    ucp_ep_h endpoint;
+
+    ucp_address_t* ucp_addr;
+    uint64_t ucp_addr_size;
+
+    // these are used in the constructor but have to
+    // stay alive after the constructor TODO (that is the hypothesis)
+    ucp_worker_params_t worker_params;
+    ucp_worker_attr_t worker_attr;
+
+
+    friend class listen_t;
+  };
+
+  struct channel_t {
+    void close() {
+      send_wires.clear();
+      recv_wires.clear();
+    }
+
+    vector<wire_t> recv_wires;
+    vector<wire_t> send_wires;
+  };
 
 private:
   int this_rank;
   int world_size;
 
-  uint64_t notify_recv_size;
-  std::function<void(void* data, uint64_t size)> notify_callback;
-};
+  channel_t notify_channel;
+  vector<channel_t> stream_channels;
 
-struct channel_manager_t {
-  channel_manager_t(communicator_t& comm);
+  ucp_context_h ucp_context;
 
-  struct desc_t {
-    bool send;
-    int loc;
+  // for the listener thread to check
+  std::atomic_bool stop_listening;
+  bool is_listening;
+  std::thread listen_thread;
+
+  ///////////
+  // these methods will only occur in the constructor {{{
+  void _setup_context();
+
+  static vector<addr_data_t> _oob_recv_addrs(int oob_sock);
+
+  // (addrs is taken by reference but not modified)
+  static void _oob_send_addrs(int oob_sock, vector<addr_data_t>& addr);
+
+  static int _oob_recv_int(int oob_sock);
+
+  static void _oob_send_int(int oob_sock, int rank);
+
+  void _wire_send_addrs(int rank, vector<addr_data_t> const& addr);
+
+  vector<addr_data_t> _wire_recv_addrs(int rank);
+
+  void _wire_send_sync(int dst, void const* data, uint64_t size);
+
+  void _wire_recv_sync(int src, void* data, uint64_t size);
+
+  static vector<addr_data_t>
+  _get_peers_less(
+    vector<vector<addr_data_t>> const& all_addr,
+    int rank);
+
+  static vector<addr_data_t>
+  _get_peers_more(
+    vector<vector<addr_data_t>> const& all_addr,
+    int rank);
+
+  struct _notify_processor_t {
+    _notify_processor_t(int n):
+      num_msg(n)
+    {}
+
+    struct msg_t {
+      // TODO: hopefully this is big enough to store a ucx address
+      static uint64_t const max_addr_size = 500;
+
+      enum {
+        recv_ep,
+        send_ep
+      } ep;
+      int rank;
+      int channel;
+      uint64_t addrsize;
+      uint8_t addr[max_addr_size];
+
+      addr_data_t get_addr() const;
+
+      void write_addr(addr_data_t const& d);
+    };
+
+    void process(msg_t const& msg);
+
+    void wait() { when_done.get_future().get(); }
+
+    vector<msg_t>& get_recvd_messages() { return recvd_messages; }
+
+  private:
+    int num_msg;
+    vector<msg_t> recvd_messages;
+    std::promise<void> when_done;
   };
 
-  struct resource_t {
-    void send(void const* ptr, uint64_t num_bytes) const;
-    void recv(void* ptr, uint64_t num_bytes, int channel_) const;
 
-    int get_channel() const { return channel; }
+  // }}}
+  ///////////
 
-    channel_manager_t* self;
-    int loc;
-    int channel; // -1 if no send channel reserved;
-                 // then it can only recv
-  };
+  void _close_context();
 
-  optional<resource_t> try_to_acquire(desc_t desc);
+  static int _to_idx(int rank, int this_rank_);
 
-  void release(resource_t rsrc);
+  int _to_idx(int rank) const;
 
-private:
-  communicator_t& comm;
+  static int _from_idx(int idx, int this_rank_);
 
-  std::mutex m;
-  vector<vector<int>> avail_channels;
+  int _from_idx(int idx) const;
 
-  optional<int> acquire_channel(int loc);
-  void release_channel(int loc, int channel);
+  void barrier(channel_t& channel);
+
+  wire_t& get_send_wire(int rank, channel_t& channel) {
+    return channel.send_wires[_to_idx(rank)];
+  }
+  wire_t& get_recv_wire(int rank, channel_t& channel) {
+    return channel.recv_wires[_to_idx(rank)];
+  }
+
+  wire_t& get_stream_send_wire(int rank, int channel) {
+    return stream_channels[channel].send_wires[_to_idx(rank)];
+  }
+  wire_t& get_stream_recv_wire(int rank, int channel) {
+    return stream_channels[channel].recv_wires[_to_idx(rank)];
+  }
+
+  wire_t& get_notify_send_wire(int rank) {
+    return notify_channel.send_wires[_to_idx(rank)];
+  }
+  wire_t& get_notify_recv_wire(int rank) {
+    return notify_channel.recv_wires[_to_idx(rank)];
+  }
 };
+

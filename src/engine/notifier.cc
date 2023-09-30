@@ -3,14 +3,18 @@
 notifier_t::notifier_t(communicator_t& cm)
   : comm(cm)
 {
-  comm.set_notify_recv_size(sizeof(msg_t));
-
-  comm.set_notify_callback([this](void* data, uint64_t size) {
-    if(size != sizeof(msg_t)) {
-      throw std::runtime_error("recv notify of incorrect size");
-    }
-    this->process(*reinterpret_cast<msg_t*>(data));
+  comm.start_listen_notify(
+    sizeof(msg_t),
+    [this](vector<uint8_t> data) {
+      if(data.size() != sizeof(msg_t)) {
+        throw std::runtime_error("recv notify of incorrect size");
+      }
+      this->process(*reinterpret_cast<msg_t*>(data.data()));
   });
+}
+
+notifier_t::~notifier_t() {
+  comm.stop_listen_notify();
 }
 
 void notifier_t::notify_recv_ready(int dst, int id) {
@@ -18,7 +22,7 @@ void notifier_t::notify_recv_ready(int dst, int id) {
   msg.msg_type = msg_t::recv_ready;
   msg.msg.recv_info.id = id;
 
-  comm.notify_sync(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
+  comm.notify(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
 }
 
 void notifier_t::wait_send_ready(int id) {
@@ -49,7 +53,7 @@ void notifier_t::notify_send_ready(int dst, int id, int channel) {
   msg.msg.send_info.id = id;
   msg.msg.send_info.channel = channel;
 
-  comm.notify_sync(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
+  comm.notify(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
 }
 
 void notifier_t::process(notifier_t::msg_t const& msg) {
