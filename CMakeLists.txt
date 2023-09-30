@@ -130,6 +130,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
   #add_cpu_application("cpumms"          "exps" "cpumms")
   add_cpu_application("cpu_engine"      "exps" "cpu_engine")
+  add_cpu_application("cpu_engine_ml"   "exps" "cpu_engine_ml")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

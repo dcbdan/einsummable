@@ -51,6 +51,47 @@ struct communicator_t {
     return recv_int(src, 0);
   }
 
+  template <typename T>
+  void send_contig_obj(int dst, T const& obj) {
+    send(dst, reinterpret_cast<void const*>(&obj), sizeof(obj));
+  }
+  template <typename T>
+  T recv_contig_obj(int dst) {
+    T ret;
+    recv(dst, reinterpret_cast<void*>(&ret), sizeof(ret));
+    return ret;
+  }
+  template <typename T>
+  void broadcast_contig_obj(T const& obj) {
+    for(int rank = 0; rank != world_size; ++rank) {
+      if(rank == this_rank) {
+        continue;
+      }
+      send_contig_obj(rank, obj);
+    }
+  }
+
+  void send_string(int dst, string const& str) {
+    int sz = str.size();
+    char const* ptr = str.c_str();
+    send_int(dst, sz);
+    send(dst, reinterpret_cast<void const*>(ptr), sz);
+  }
+  string recv_string(int src) {
+    int sz = recv_int(src);
+    vector<char> data(sz);
+    recv(src, reinterpret_cast<void*>(data.data()), sz);
+    return string(data.begin(), data.end());
+  }
+  void broadcast_string(string const& str) {
+    for(int rank = 0; rank != world_size; ++rank) {
+      if(rank == this_rank) {
+        continue;
+      }
+      send_string(rank, str);
+    }
+  }
+
 private:
   struct addr_data_t {
     vector<uint8_t> data;

@@ -264,6 +264,7 @@ string memgraph_t::to_wire() const {
       i->set_loc(input.loc);
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
+      i->set_size(input.size);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -375,7 +376,8 @@ memgraph_t memgraph_t::from_wire(string const& str) {
       op = op_t(inputsto_t {
         .loc = i.loc(),
         .storage_loc = i.storage_loc(),
-        .storage_id = i.storage_id()
+        .storage_id = i.storage_id(),
+        .size = i.size()
       });
     } else if(n.has_apply()) {
       auto const& a = n.apply();
@@ -1012,7 +1014,8 @@ memgraph_make_state_t::memgraph_make_state_t(
       inputsto_t input {
         .loc = memgraph.get_loc_from_storage_loc(storage_loc),
         .storage_loc = storage_loc,
-        .storage_id = storage_id
+        .storage_id = storage_id,
+        .size = tg.out_size(tid)
       };
 
       int mid = memgraph.insert(op_t(input), {});
@@ -1078,7 +1081,8 @@ void memgraph_make_state_t::initialize_input(int inn){
     inputsto_t input_sto = {
       .loc = loc,
       .storage_loc = memgraph.storage_locs[loc],
-      .storage_id = _sto_id++
+      .storage_id = _sto_id++,
+      .size = size
     };
     input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
 

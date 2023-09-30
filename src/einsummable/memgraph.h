@@ -85,7 +85,13 @@ struct allocator_settings_t {
   static allocator_settings_t gpu_alignment_settings();
 };
 
+// TODO: refactor memgraph so that a every compute loc has one storage loc
+//       and every storage loc has one compute loc. maybe?
 struct memgraph_t {
+  memgraph_t():
+    memgraph_t(1, 1, vector<int>(1, 0))
+  {}
+
   memgraph_t(
     int num_compute_locs,
     int num_storage_locs,
@@ -146,12 +152,12 @@ struct memgraph_t {
   string to_wire() const;
   static memgraph_t from_wire(string const& str);
 
-  int const num_compute_locs;
-  int const num_storage_locs;
+  int num_compute_locs;
+  int num_storage_locs;
 
   // Example: Four gpu node, with ram as the storage, then
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
-  vector<int> const storage_locs;
+  vector<int> storage_locs;
 
   // TODO TODO TODO
   // This method is very dirty. A single sto_loc may map into
@@ -176,6 +182,7 @@ public:
     int loc;
     int storage_loc;
     int storage_id;
+    uint64_t size;
     stoloc_t as_stoloc() const { return stoloc_t { storage_loc, storage_id }; }
   };
 
@@ -325,13 +332,13 @@ public:
     // check and get einsummable
     bool is_einsummable() const { return is_apply() && std::holds_alternative<einsummable_t>(get_apply().op); }
     bool is_touch()       const { return is_apply() && std::holds_alternative<touch_t>(get_apply().op); }
-    einsummable_t get_einsummable() const { 
+    einsummable_t get_einsummable() const {
       if (!is_einsummable()) throw std::runtime_error("trying to get einsummable for an non-einsummable op");
-      return std::get<einsummable_t>(get_apply().op); 
+      return std::get<einsummable_t>(get_apply().op);
     }
-    touch_t get_touch() const { 
+    touch_t get_touch() const {
       if (!is_touch()) throw std::runtime_error("trying to get touch for an non-touch op");
-      return std::get<touch_t>(get_apply().op); 
+      return std::get<touch_t>(get_apply().op);
     }
     bool is_contraction() const { return is_einsummable() && get_einsummable().is_contraction(); }
 
@@ -364,7 +371,7 @@ public:
       throw std::runtime_error("trying to get loc for an unknown op");
     }
 
-    int get_apply_loc() const { 
+    int get_apply_loc() const {
       if (!is_apply()) throw std::runtime_error("trying to get apply loc for a non-apply op");
       return get_apply().loc; }
 
