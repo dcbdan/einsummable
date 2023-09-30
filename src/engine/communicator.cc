@@ -1,11 +1,11 @@
 #include "communicator.h"
 
-void communicator_t::send_sync(int dst, void const* data, uint64_t size)
+void communicator_t::send_sync(int dst, int channel, void const* data, uint64_t size)
 {
   // TODO
 }
 
-void communicator_t::recv_sync(int src, void* data, uint64_t size) {
+void communicator_t::recv_sync(int src, int channel, void* data, uint64_t size) {
   // TODO
 }
 
@@ -75,15 +75,18 @@ void channel_manager_t::release(channel_manager_t::resource_t rsrc) {
 }
 
 void
-channel_manager_t::resource_t::send(void* ptr, uint64_t bytes) const
+channel_manager_t::resource_t::send(void const* ptr, uint64_t num_bytes) const
 {
-  // TODO
+  if(channel < 0) {
+    throw std::runtime_error("invalid channel");
+  }
+  self->comm.send_sync(loc, channel, ptr, num_bytes);
 }
 
 void
-channel_manager_t::resource_t::recv(void* ptr, uint64_t bytes, int channel) const
+channel_manager_t::resource_t::recv(void* ptr, uint64_t num_bytes, int channel_) const
 {
-  // TODO
+  self->comm.recv_sync(loc, channel_, ptr, num_bytes);
 }
 
 optional<int>

@@ -12,8 +12,8 @@ struct communicator_t {
   int get_this_rank()  const { return this_rank;  }
   int get_world_size() const { return world_size; }
 
-  void send_sync(int dst, void const* data, uint64_t size);
-  void recv_sync(int src, void* data,       uint64_t size);
+  void send_sync(int dst, int channel, void const* data, uint64_t size);
+  void recv_sync(int src, int channel, void* data,       uint64_t size);
 
   void send_int_sync(int dst, int val);
   int  recv_int_sync(int src);
@@ -41,8 +41,8 @@ struct channel_manager_t {
   };
 
   struct resource_t {
-    void send(void* ptr, uint64_t bytes) const;
-    void recv(void* ptr, uint64_t bytes, int channel) const;
+    void send(void const* ptr, uint64_t num_bytes) const;
+    void recv(void* ptr, uint64_t num_bytes, int channel_) const;
 
     int get_channel() const { return channel; }
 

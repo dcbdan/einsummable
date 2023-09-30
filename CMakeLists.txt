@@ -30,7 +30,6 @@ file(GLOB BA_FILES ${PROJECT_SOURCE_DIR}/src/base/*.cc)
 file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
 file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
 file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
-file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
 
 add_library(einsummable
   STATIC
@@ -38,7 +37,6 @@ add_library(einsummable
   ${ES_FILES}
   ${MG_FILES}
   ${AP_FILES}
-  ${EG_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -84,14 +82,18 @@ if(${CPU_EXECUTION_ENGINE})
   #  this helps empirically)
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  find_package(MPI REQUIRED)
-
   find_package(MKL REQUIRED)
+
+  if(NOT DEFINED UCX_PATH)
+    message( SEND_ERROR "Pleased define UCX_PATH")
+  endif()
+  set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
+  include_directories(${UCX_PATH}/include)
+  find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
   include_directories(${MKL_INCLUDE})
 
-  include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
-
+  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
@@ -112,8 +114,8 @@ if(${CPU_EXECUTION_ENGINE})
     cpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
-    ${MPI_CXX_LIBRARIES}
-    MKL::MKL)
+    MKL::MKL
+    ucx::ucp ucx::ucs)
   endfunction()
 
   #add_cpu_application("cpuexec"         "exps" "cpuexec")
@@ -136,7 +138,6 @@ if(${CPU_EXECUTION_ENGINE})
       cpu_execution_engine
       proto
       ${Protobuf_LIBRARIES}
-      ${MPI_CXX_LIBRARIES}
       MKL::MKL)
   endfunction()
 
@@ -176,7 +177,6 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
-    ${EG_FILES}
     ${CP_FILES}
     ${CU_FILES}
   )
