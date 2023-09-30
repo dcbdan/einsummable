@@ -10,7 +10,9 @@ exec_graph_t::make_cpu_exec_graph(
 
   map<int, int> mid_to_eid;
 
-  auto insert = [&](op_t op, int mid)
+  // Insert the op and get the dependencies from mid. Note that
+  // this does not check for whether the mid deps are local or not
+  auto insert_from_mid = [&](op_t op, int mid)
   {
     auto const& node = memgraph.nodes[mid];
     auto const& mid_inns = node.inns;
@@ -39,7 +41,7 @@ exec_graph_t::make_cpu_exec_graph(
       node.op.is_alloc()      ||
       node.op.is_del())
     {
-      insert(dummy_t{}, mid);
+      insert_from_mid(dummy_t{}, mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -63,7 +65,7 @@ exec_graph_t::make_cpu_exec_graph(
         op.workspace_size = maybe_registered.value();
 
         // insert into the graph
-        insert(op, mid);
+        insert_from_mid(op, mid);
       } else if(apply.is_touch()) {
         cpu_touch_t op {
           .cpu_executor = cpu_executor,
@@ -79,12 +81,75 @@ exec_graph_t::make_cpu_exec_graph(
           op.touch.castable = std::nullopt;
         }
 
-        insert(op, mid);
+        insert_from_mid(op, mid);
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
-      // TODO
+      auto const& move = node.op.get_move();
+      auto const& [src, src_offset] = move.src;
+      auto const& [dst, dst_offset] = move.dst;
+
+      vector<int> local_deps;
+      for(auto const& dep_mid: node.inns) {
+        if(memgraph.nodes[dep_mid].op.is_local_to(this_rank)) {
+          local_deps.push_back(mid_to_eid.at(dep_mid));
+        }
+      }
+
+      if(src == dst) {
+        throw std::runtime_error("not supporting moves within self");
+      }
+      if(src == this_rank) {
+        // On this machine, we are sending.
+        mem_t mem {
+          .offset = src_offset,
+          .size = move.size
+        };
+
+        int recv_ready_eid = graph.insert(
+          wait_recv_ready_t {
+            .id = mid,
+            .src = dst
+          },
+          local_deps);
+
+        int send_eid = graph.insert(
+          send_t {
+            .id = mid,
+            .dst = dst,
+            .mem = mem
+          },
+          { recv_ready_eid });
+
+        mid_to_eid.insert({mid, send_eid});
+      } else if(dst == this_rank) {
+        // On this machine, we are recving.
+        mem_t mem {
+          .offset = dst_offset,
+          .size = move.size
+        };
+
+        int recv_ready_eid = graph.insert(
+          notify_recv_ready_t {
+            .id = mid,
+            .dst = src
+          },
+          local_deps);
+
+        int recv_eid = graph.insert(
+          recv_t {
+            .id = mid,
+            .src = src,
+            .mem = mem
+          },
+          { recv_ready_eid });
+
+        mid_to_eid.insert({mid, recv_eid});
+      } else {
+        throw std::runtime_error("this move is not local!");
+      }
+
       throw std::runtime_error("moves are not implemented");
     } else if(node.op.is_evict()) {
       auto const& evict = node.op.get_evict();
@@ -92,14 +157,14 @@ exec_graph_t::make_cpu_exec_graph(
         .id  = evict.dst.id,
         .mem = evict.src.as_mem()
       };
-      insert(op, mid);
+      insert_from_mid(op, mid);
     } else if(node.op.is_load()) {
       auto const& load = node.op.get_load();
       cpu_load_t op {
         .id  = load.src.id,
         .mem = load.dst.as_mem()
       };
-      insert(op, mid);
+      insert_from_mid(op, mid);
     } else {
       throw std::runtime_error("should not reach");
     }
