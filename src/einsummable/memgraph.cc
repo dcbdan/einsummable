@@ -874,7 +874,10 @@ memgraph_t::make(
   allocator_settings_t settings,
   bool use_storage)
 {
-  int const n_compute_locs = taskgraph.num_locs();
+  int n_compute_locs = taskgraph.num_locs();
+  if(mem_sizes.size() > n_compute_locs) {
+    n_compute_locs = mem_sizes.size();
+  }
 
   if(which_storage.size() == 0) {
     which_storage = vector<int>(n_compute_locs);

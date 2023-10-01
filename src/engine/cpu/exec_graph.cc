@@ -149,8 +149,6 @@ exec_graph_t::make_cpu_exec_graph(
       } else {
         throw std::runtime_error("this move is not local!");
       }
-
-      throw std::runtime_error("moves are not implemented");
     } else if(node.op.is_evict()) {
       auto const& evict = node.op.get_evict();
       cpu_evict_t op {

@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
 }
 
 memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
-  if(argc != 14) {
+  if(argc != 13) {
     usage();
     throw std::runtime_error("incorrect number of args");
   }
@@ -87,26 +87,23 @@ memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
   int rj, rk;
   int ji, jj, jk;
   int oi, ok;
-  uint64_t mem_size;
   try {
-    mem_size = parse_with_ss<uint64_t>(argv[1]);
+    ni = parse_with_ss<uint64_t>(argv[1]);
+    nj = parse_with_ss<uint64_t>(argv[2]);
+    nk = parse_with_ss<uint64_t>(argv[3]);
 
-    ni = parse_with_ss<uint64_t>(argv[2]);
-    nj = parse_with_ss<uint64_t>(argv[3]);
-    nk = parse_with_ss<uint64_t>(argv[4]);
+    li = parse_with_ss<int>(argv[4]);
+    lj = parse_with_ss<int>(argv[5]);
 
-    li = parse_with_ss<int>(argv[5]);
-    lj = parse_with_ss<int>(argv[6]);
+    rj = parse_with_ss<int>(argv[6]);
+    rk = parse_with_ss<int>(argv[7]);
 
-    rj = parse_with_ss<int>(argv[7]);
-    rk = parse_with_ss<int>(argv[8]);
+    ji = parse_with_ss<int>(argv[8]);
+    jj = parse_with_ss<int>(argv[9]);
+    jk = parse_with_ss<int>(argv[10]);
 
-    ji = parse_with_ss<int>(argv[9]);
-    jj = parse_with_ss<int>(argv[10]);
-    jk = parse_with_ss<int>(argv[11]);
-
-    oi = parse_with_ss<int>(argv[12]);
-    ok = parse_with_ss<int>(argv[13]);
+    oi = parse_with_ss<int>(argv[11]);
+    ok = parse_with_ss<int>(argv[12]);
   } catch(...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -149,7 +146,7 @@ memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
   if(world_size > 1) {
     for(auto& pl: pls) {
       for(auto& loc: pl.locations.get()) {
-        loc = runif(world_size);
+        loc = 0; // TODO // runif(world_size);
       }
     }
   }
@@ -162,6 +159,7 @@ memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
     DOUT("printed tg.gv");
   }
 
+  DLINEOUT("MEM SIZES ARE " << mem_sizes);
   auto [inn_to_memstoloc, out_to_memstoloc, memgraph] =
     memgraph_t::make(
       taskgraph,
@@ -183,7 +181,7 @@ void execute_memgraph_cpu(
   buffer_t buffer,
   cpu_storage_t& storage)
 {
-  // TODO
+  DLINEOUT("execute memgraph cpu");
   cpu_kernel_executor_t executor;
 
   exec_graph_t graph =
