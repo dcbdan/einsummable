@@ -11,6 +11,11 @@
 #include "cpu/storage.h"
 #endif
 
+#ifdef GPU_EXEC
+#include "gpu/gpu_kernel_manager.h"
+#include "gpu/workspace.h"
+#endif
+
 struct exec_graph_t {
 #ifdef CPU_EXEC
   exec_graph_t(cpu_kernel_executor_t& e)
@@ -23,6 +28,19 @@ struct exec_graph_t {
     memgraph_t const& memgraph,
     int this_rank,
     cpu_kernel_executor_t& cpu_executor);
+#endif
+
+#ifdef GPU_EXEC
+  exec_graph_t(kernel_manager_t& km)
+    : gpu_km(km)
+  {}
+#endif
+
+#ifdef GPU_EXEC
+  static exec_graph_t make_gpu_exec_graph(
+    memgraph_t const& memgraph,
+    int this_rank,
+    kernel_manager_t& gpu_km);
 #endif
 
   using desc_t = resource_manager_t::desc_t;
@@ -193,12 +211,51 @@ struct exec_graph_t {
     }
   };
 
+#ifdef GPU_EXEC
+  struct gpu_einsummable_t {
+    kernel_manager_t& gpu_km;
+    einsummable_t einsummable;
+    vector<mem_t> mems;
+    workspace_info_t worksize;
+    int device;
+
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+    desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "gpu_einsummable"; }
+  };
+
+  struct gpu_touch_t {
+    kernel_manager_t& gpu_km;
+    touch_t touch;
+    int group_id;
+    vector<mem_t> mems;
+    int device;
+
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+    desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "gpu_touch"; }
+  };
+
+  struct gpu_copy_t {
+    memgraph_t::move_t move;
+
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+    desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "gpu_copy"; }
+  };
+#endif
+
   using op_t = std::variant<
 #ifdef CPU_EXEC
     cpu_touch_t,
     cpu_einsummable_t,
     cpu_evict_t,
     cpu_load_t,
+#endif
+#ifdef GPU_EXEC
+    gpu_touch_t,
+    gpu_einsummable_t,
+    gpu_copy_t,
 #endif
     notify_recv_ready_t,
     wait_recv_ready_t,
@@ -229,6 +286,10 @@ struct exec_graph_t {
   // cpu executor would have to get passed in. Also the cpu executor's state
   // does not change during execution, only during compilation.
   cpu_kernel_executor_t& cpu_executor;
+#endif
+
+#ifdef GPU_EXEC
+  kernel_manager_t& gpu_km;
 #endif
 
 private:
