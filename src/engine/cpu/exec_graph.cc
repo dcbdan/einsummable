@@ -175,7 +175,7 @@ exec_graph_t::desc_t
 exec_graph_t::cpu_einsummable_t::resource_description() const
 {
   vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
 
   // TODO: insert threadpool resource description
 
@@ -189,7 +189,7 @@ void exec_graph_t::cpu_einsummable_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
-  auto const& global_buffer = std::get<global_buffer_t::resource_t>(resources[0]);
+  auto const& global_buffer = std::get<global_buffers_t::resource_t>(resources[0]);
 
   void* out_mem = global_buffer.at(mems[0].offset);
 
@@ -226,7 +226,7 @@ exec_graph_t::cpu_touch_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
 
   // TODO add threadpool resource description
 
@@ -241,7 +241,7 @@ void exec_graph_t::cpu_touch_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
-  auto const& global_buffer = std::get<global_buffer_t::resource_t>(resources[0]);
+  auto const& global_buffer = std::get<global_buffers_t::resource_t>(resources[0]);
 
   void* out_mem = global_buffer.at(mems[0].offset);
 
@@ -275,7 +275,7 @@ exec_graph_t::cpu_evict_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
   ret.emplace_back(cpu_storage_manager_t::desc_t{});
 
   return ret;
@@ -286,7 +286,7 @@ void exec_graph_t::cpu_evict_t::launch(
   std::function<void()> callback) const
 {
   uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
   cpu_storage_t* storage =
     std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
 
@@ -304,7 +304,7 @@ exec_graph_t::cpu_load_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
   ret.emplace_back(cpu_storage_manager_t::desc_t{});
 
   return ret;
@@ -315,7 +315,7 @@ void exec_graph_t::cpu_load_t::launch(
   std::function<void()> callback) const
 {
   uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
   cpu_storage_t* storage =
     std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
 

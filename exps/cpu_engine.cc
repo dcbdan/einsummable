@@ -163,7 +163,7 @@ void execute_memgraph_cpu(
 
   cpu_workspace_manager_t cpu_workspace_manager;
   group_manager_t group_manager;
-  global_buffer_t global_buffer(buffer->raw());
+  global_buffers_t global_buffers(buffer->raw());
 
   cpu_storage_manager_t cpu_storage_manager { .ptr = &storage };
 
@@ -171,7 +171,7 @@ void execute_memgraph_cpu(
     .cpu_workspace_manager = &cpu_workspace_manager,
     .cpu_storage_manager = &cpu_storage_manager,
     .group_manager = &group_manager,
-    .global_buffer = &global_buffer
+    .global_buffers = &global_buffers
   };
 
   exec_state_t state(graph, resource_manager);

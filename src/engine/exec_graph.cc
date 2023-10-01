@@ -71,7 +71,7 @@ exec_graph_t::send_t::resource_description() const {
       .send = true,
       .loc = dst
     },
-    global_buffer_t::desc_t {}
+    global_buffers_t::desc_t {}
   };
 }
 
@@ -84,7 +84,7 @@ exec_graph_t::recv_t::resource_description() const {
       .send = false,
       .loc = src
     },
-    global_buffer_t::desc_t {}
+    global_buffers_t::desc_t {}
   };
 }
 
@@ -130,7 +130,7 @@ exec_graph_t::send_t::launch(
   notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
   auto const& wire = std::get<channel_manager_t::resource_t>(resource[1]);
 
-  void* ptr = std::get<global_buffer_t::resource_t>(resource[2]).at(mem.offset);
+  void* ptr = std::get<global_buffers_t::resource_t>(resource[2]).at(mem.offset);
 
   std::thread thread([this, callback, notifier, wire, ptr] {
     notifier->notify_send_ready(this->dst, this->id, wire.get_channel());
@@ -151,7 +151,7 @@ exec_graph_t::recv_t::launch(
   // TODO: use a thread resource
   notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
   auto const& wire = std::get<channel_manager_t::resource_t>(resource[1]);
-  void* ptr = std::get<global_buffer_t::resource_t>(resource[2]).at(mem.offset);
+  void* ptr = std::get<global_buffers_t::resource_t>(resource[2]).at(mem.offset);
 
   std::thread thread([this, callback, notifier, wire, ptr] {
     int channel = notifier->get_channel(this->id);

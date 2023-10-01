@@ -9,12 +9,18 @@
 #include "notifier.h"
 #include "channel_manager.h"
 
-struct global_buffer_t {
-  global_buffer_t(void* p)
-    : ptr(p)
+struct global_buffers_t {
+  global_buffers_t(void* p)
+    : global_buffers_t(vector<void*>{p})
   {}
 
-  struct desc_t {};
+  global_buffers_t(vector<void*> const& ps)
+    : ptrs(ps)
+  {}
+
+  struct desc_t {
+    int which;
+  };
 
   struct resource_t {
     void* ptr;
@@ -26,13 +32,13 @@ struct global_buffer_t {
     }
   };
 
-  optional<resource_t> try_to_acquire(desc_t){
-    return resource_t{ .ptr = ptr };
+  optional<resource_t> try_to_acquire(desc_t desc){
+    return resource_t{ .ptr = ptrs.at(desc.which) };
   }
 
   void release(resource_t) {}
 
-  void* ptr;
+  vector<void*> ptrs;
 };
 
 struct group_manager_t {
@@ -60,7 +66,7 @@ struct resource_manager_t {
     cpu_workspace_manager_t::desc_t,
     cpu_storage_manager_t::desc_t,
 #endif
-    global_buffer_t::desc_t,
+    global_buffers_t::desc_t,
     group_manager_t::desc_t,
     notifier_t::desc_t,
     channel_manager_t::desc_t
@@ -70,7 +76,7 @@ struct resource_manager_t {
     cpu_workspace_manager_t::resource_t,
     cpu_storage_manager_t::resource_t,
 #endif
-    global_buffer_t::resource_t,
+    global_buffers_t::resource_t,
     group_manager_t::resource_t,
     notifier_t::resource_t,
     channel_manager_t::resource_t
@@ -93,7 +99,7 @@ struct resource_manager_t {
   cpu_storage_manager_t* cpu_storage_manager;
 #endif
   group_manager_t*   group_manager;
-  global_buffer_t*   global_buffer;
+  global_buffers_t*  global_buffers;
   notifier_t*        notifier;
   channel_manager_t* channel_manager;
 };

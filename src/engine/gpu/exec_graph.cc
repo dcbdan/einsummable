@@ -4,7 +4,7 @@
 #include "utility.h"
 
 
-// TODO: have a stream pool implementation once creating a stream on fly works 
+// TODO: have a stream pool implementation once creating a stream on fly works
 exec_graph_t
 exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
@@ -110,7 +110,7 @@ exec_graph_t::desc_t
 exec_graph_t::gpu_einsummable_t::resource_description() const
 {
   vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{});
 
   if (worksize.value() > 0) {
     ret.emplace_back(workspace_t::desc_t{worksize.value()});
@@ -124,7 +124,7 @@ void exec_graph_t::gpu_einsummable_t::launch(
   std::function<void()> callback) const
 {
   uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
 
   void* out_mem = reinterpret_cast<void*>(
     ptr + mems[0].offset);
@@ -171,7 +171,7 @@ exec_graph_t::desc_t
 exec_graph_t::gpu_touch_t::resource_description() const
 {
   vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffer_t::desc_t{});
+  ret.emplace_back(global_buffers_t::desc_t{});
 
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::desc_t { group_id });
@@ -185,7 +185,7 @@ void exec_graph_t::gpu_touch_t::launch(
   std::function<void()> callback) const
 {
   uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
 
   void* out_mem = reinterpret_cast<void*>(
     ptr + mems[0].offset);
@@ -231,7 +231,7 @@ void exec_graph_t::gpu_touch_t::launch(
 exec_graph_t::desc_unit_t
 exec_graph_t::gpu_copy_t::resource_description() const
 {
-  return global_buffer_t::desc_t{};
+  return global_buffers_t::desc_t{};
 }
 
 void exec_graph_t::gpu_copy_t::launch(
@@ -239,7 +239,7 @@ void exec_graph_t::gpu_copy_t::launch(
   std::function<void()> callback) const
 {
   uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffer_t::resource_t>(resources[0]).ptr);
+    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
 
   void* dst_mem = reinterpret_cast<void*>(
     ptr + mems[0].offset);
