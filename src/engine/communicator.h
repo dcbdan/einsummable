@@ -315,5 +315,7 @@ private:
   wire_t& get_notify_recv_wire(int rank) {
     return notify_channel.recv_wires[_to_idx(rank)];
   }
+
+  std::mutex notify_mutex; // TODO: is this needed?
 };
 

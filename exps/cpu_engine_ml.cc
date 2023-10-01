@@ -146,7 +146,7 @@ memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
   if(world_size > 1) {
     for(auto& pl: pls) {
       for(auto& loc: pl.locations.get()) {
-        loc = 0; // TODO // runif(world_size);
+        loc = runif(world_size);
       }
     }
   }

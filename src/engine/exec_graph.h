@@ -38,6 +38,7 @@ struct exec_graph_t {
     desc_t resource_description() const {
       return vector<desc_unit_t>();
     }
+    void print(std::ostream& out) const { out << "dummy"; }
   };
 
 #ifdef CPU_EXEC
@@ -49,6 +50,7 @@ struct exec_graph_t {
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "cpu_einsummable"; }
   };
 
   struct cpu_touch_t {
@@ -59,6 +61,7 @@ struct exec_graph_t {
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "cpu_touch"; }
   };
 
   struct cpu_evict_t {
@@ -67,6 +70,7 @@ struct exec_graph_t {
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "cpu_evict"; }
   };
 
   struct cpu_load_t {
@@ -75,6 +79,7 @@ struct exec_graph_t {
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
     desc_t resource_description() const;
+    void print(std::ostream& out) const { out << "cpu_load"; }
   };
 #endif
 
@@ -119,6 +124,10 @@ struct exec_graph_t {
     desc_t resource_description() const;
 
     // dependencies: wtvr dependencies until a recv can start
+
+    void print(std::ostream& out) const {
+      out << "notify_recv_ready {id = " << id << "}";
+    }
   };
 
   struct wait_recv_ready_t {
@@ -132,6 +141,10 @@ struct exec_graph_t {
     desc_t resource_description() const;
 
     // dependencies: wtvr dependencies until a send can start
+
+    void print(std::ostream& out) const {
+      out << "wait_recv_ready {id = " << id << "}";
+    }
   };
 
   struct send_t {
@@ -151,6 +164,10 @@ struct exec_graph_t {
     desc_t resource_description() const;
 
     // dependencies: a single dependencies on a wait_recv_ready_t
+
+    void print(std::ostream& out) const {
+      out << "send {id = " << id << "}";
+    }
   };
 
   struct recv_t {
@@ -170,6 +187,10 @@ struct exec_graph_t {
     desc_t resource_description() const;
 
     // dependencies: a single dependencies on a notify_recv_ready_t
+
+    void print(std::ostream& out) const {
+      out << "recv {id = " << id  << "}";
+    }
   };
 
   using op_t = std::variant<
@@ -189,6 +210,8 @@ struct exec_graph_t {
     desc_t resource_description() const;
 
     void launch(rsrc_t resource, std::function<void()> callback) const;
+
+    void print(std::ostream& out) const;
 
     op_t op;
 

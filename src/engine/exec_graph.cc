@@ -23,6 +23,16 @@ exec_graph_t::node_t::launch(
     op);
 }
 
+void
+exec_graph_t::node_t::print(std::ostream& out) const
+{
+  return std::visit(
+    [&out](auto const& op) {
+      op.print(out);
+    },
+    op);
+}
+
 int exec_graph_t::insert(
   exec_graph_t::op_t const& op,
   vector<int> const& inns)

@@ -25,11 +25,13 @@ void exec_state_t::event_loop() {
     while(processing.size() > 0) {
       int id = processing.front();
       processing.pop();
+      is_running.erase(id);
 
       decrement_outs(id); // just adding to ready to run?
 
       num_remaining--;
     }
+
     if(num_remaining == 0) {
       return;
     }
@@ -40,6 +42,7 @@ void exec_state_t::event_loop() {
         int const& id = *iter;
         if(try_to_launch(id)) {
           ready_to_run.erase(iter);
+          is_running.insert(id);
         } else {
           iter++;
         }

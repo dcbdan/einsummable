@@ -336,6 +336,10 @@ void communicator_t::start_listen_notify(
             listener->start();
             iter++;
           }
+        } else {
+          // no progress was node, ok, go to the next
+          // listener
+          iter++;
         }
       }
     }
@@ -350,6 +354,8 @@ void communicator_t::stop_listen_notify() {
 }
 
 void communicator_t::notify(int dst, void const* data, uint64_t size) {
+  // TODO: is notify mutex necc? Should have one on each notify send wire?
+  std::unique_lock lk(notify_mutex);
   get_notify_send_wire(dst).send(data, size);
 }
 
