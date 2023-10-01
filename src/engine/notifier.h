@@ -40,7 +40,8 @@ private:
   struct msg_t {
     enum {
       recv_ready,
-      send_ready
+      send_ready,
+      stop
     } msg_type;
     union {
       struct {

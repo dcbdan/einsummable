@@ -9,11 +9,29 @@ notifier_t::notifier_t(communicator_t& cm)
       if(data.size() != sizeof(msg_t)) {
         throw std::runtime_error("recv notify of incorrect size");
       }
-      this->process(*reinterpret_cast<msg_t*>(data.data()));
+      msg_t& msg = *reinterpret_cast<msg_t*>(data.data());
+      if(msg.msg_type == msg_t::stop) {
+        return true;
+      } else {
+        this->process(msg);
+        return false;
+      }
   });
 }
 
 notifier_t::~notifier_t() {
+  int this_rank = comm.get_this_rank();
+  int world_size = comm.get_world_size();
+
+  msg_t msg;
+  msg.msg_type = msg_t::stop;
+
+  for(int rank = 0; rank != world_size; ++rank) {
+    if(rank != this_rank) {
+      comm.notify(rank, reinterpret_cast<void*>(&msg), sizeof(msg));
+    }
+  }
+
   comm.stop_listen_notify();
 }
 

@@ -20,7 +20,7 @@ void execute_memgraph_cpu(
   cpu_storage_t& storage);
 
 int main(int argc, char** argv) {
-  if(argc < 3) {
+  if(argc < 4) {
     usage();
     throw std::runtime_error("provide addr_zero is_client world_size");
   }
@@ -159,7 +159,7 @@ memgraph_t build_memgraph(vector<uint64_t> mem_sizes, int argc, char** argv) {
     DOUT("printed tg.gv");
   }
 
-  DLINEOUT("MEM SIZES ARE " << mem_sizes);
+  DLINEOUT("Mem sizes are " << mem_sizes);
   auto [inn_to_memstoloc, out_to_memstoloc, memgraph] =
     memgraph_t::make(
       taskgraph,
@@ -181,7 +181,6 @@ void execute_memgraph_cpu(
   buffer_t buffer,
   cpu_storage_t& storage)
 {
-  DLINEOUT("execute memgraph cpu");
   cpu_kernel_executor_t executor;
 
   exec_graph_t graph =

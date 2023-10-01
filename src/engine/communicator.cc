@@ -202,7 +202,12 @@ communicator_t::communicator_t(
       [&](vector<uint8_t> data) {
         using msg_t = _notify_processor_t::msg_t;
         msg_t& msg = *reinterpret_cast<msg_t*>(data.data());
-        processor.process(msg);
+        if(msg.ep == _notify_processor_t::msg_t::stop) {
+          return true;
+        } else {
+          processor.process(msg);
+          return false;
+        }
       }
     );
 
@@ -223,11 +228,12 @@ communicator_t::communicator_t(
     // by notifying with a bunch of _notify_processor_t::msg_t objects
     {
       _notify_processor_t::msg_t msg;
-      for(int channel = 0; channel != n_channels; ++channel) {
-        for(int rank = 0; rank != world_size; ++rank) {
-          if(rank == this_rank) {
-            continue;
-          }
+      for(int rank = 0; rank != world_size; ++rank) {
+        if(rank == this_rank) {
+          continue;
+        }
+
+        for(int channel = 0; channel != n_channels; ++channel) {
           msg.rank = this_rank;
           msg.channel = channel;
 
@@ -248,6 +254,9 @@ communicator_t::communicator_t(
             notify(rank, reinterpret_cast<void*>(&msg), sizeof(msg));
           }
         }
+
+        msg.ep = _notify_processor_t::msg_t::stop;
+        notify(rank, reinterpret_cast<void*>(&msg), sizeof(msg));
       }
     }
 
@@ -269,6 +278,8 @@ communicator_t::communicator_t(
 
 communicator_t::~communicator_t() {
   notify_channel.close();
+
+  barrier();
 
   for(auto& channel: stream_channels) {
     channel.close();
@@ -297,52 +308,45 @@ int communicator_t::recv_int(int src, int channel) {
 
 void communicator_t::start_listen_notify(
   uint64_t msg_size,
-  std::function<void(vector<uint8_t> data)> callback)
+  std::function<bool(vector<uint8_t> data)> callback)
 {
   if(is_listening) {
     throw std::runtime_error("is already listening!");
   }
   is_listening = true;
-  stop_listening = false;
 
   vector<wire_t>& recvs = notify_channel.recv_wires;
 
   listen_thread = std::thread([this, msg_size, callback, &recvs] {
-    //vector<uint8_t> data(msg_size);
-    //recvs[0].recv(
-    //  reinterpret_cast<void*>(data.data()),
-    //  msg_size);
-    //callback(data);
-    //recvs[0].recv(
-    //  reinterpret_cast<void*>(data.data()),
-    //  msg_size);
-    //callback(data);
-
     vector<std::unique_ptr<wire_t::listener_t>> listeners;
     for(int i = 0; i != world_size - 1; ++i) {
       listeners.push_back(recvs[i].make_listener(msg_size));
       listeners.back()->start();
     }
 
-    while(true) {
-      for(auto& listener: listeners) {
+    while(listeners.size() > 0) {
+      auto iter = listeners.begin();
+      while(iter != listeners.end()) {
+        auto& listener = *iter;
         if(listener->progress()) {
-          callback(listener->payload());
-          listener->start();
+          if(callback(listener->payload())) {
+            // this message informed us that we should stop
+            iter = listeners.erase(iter);
+          } else {
+            listener->start();
+            iter++;
+          }
         }
-      }
-
-      if(stop_listening) {
-        return;
       }
     }
   });
 }
 
 void communicator_t::stop_listen_notify() {
-  stop_listening = true;
-  listen_thread.join();
-  is_listening = false;
+  if(is_listening) {
+    listen_thread.join();
+    is_listening = false;
+  }
 }
 
 void communicator_t::notify(int dst, void const* data, uint64_t size) {
@@ -732,20 +736,13 @@ communicator_t::wire_t::listener_t::listener_t(communicator_t::wire_t& w, uint64
   param.flags = UCP_STREAM_RECV_FLAG_WAITALL;
   param.cb.recv_stream = [](void*, ucs_status_t status, size_t length, void* data) {
     auto& self = *reinterpret_cast<listener_t*>(data);
-    if(status == UCS_ERR_CANCELED) {
-      // ok, fine
-    } else {
-      handle_ucs_error(status, "in notify recv callback");
-      self.is_done = true;
-    }
+    handle_ucs_error(status, "in notify recv callback");
+    self.is_done = true;
   };
   param.user_data = reinterpret_cast<void*>(this);
 }
 
-communicator_t::wire_t::listener_t::~listener_t() {
-  ucp_request_cancel(self.worker, reinterpret_cast<void*>(status));
-  ucp_request_free(status);
-}
+communicator_t::wire_t::listener_t::~listener_t() {}
 
 void communicator_t::wire_t::listener_t::start() {
   is_done = false;

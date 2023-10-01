@@ -27,9 +27,21 @@ struct communicator_t {
 
   // TODO: right now, start_listen_notify launches a thread that constantly polls.
   //       maybe this is not what we want
+  // TODO: In practice, it appears to be the case that a recv post on a stream cannot
+  //       be cancelled. The problem with this is that start_listen_notify originally
+  //       just waited until a stop_listen_notify was called and then it would attempt
+  //       to cancel the recvs on all posts. But that left dangling recvs and things
+  //       would break.
+  //
+  //       Instead, the callback returns whether or not the wire that got this message
+  //       should be stopped. Once all recving wires have been stopped, the thread
+  //       launched by start_listen_notify will stop. So currently, if you want to
+  //       ever join start_listen_notify, what you should do is send a message to every
+  //       other location and the callback should decipher that that message will be the
+  //       last message on the wire.
   void start_listen_notify(
     uint64_t msg_size,
-    std::function<void(vector<uint8_t> data)> callback);
+    std::function<bool(vector<uint8_t> data)> callback);
 
   void stop_listen_notify();
 
@@ -197,7 +209,6 @@ private:
   ucp_context_h ucp_context;
 
   // for the listener thread to check
-  std::atomic_bool stop_listening;
   bool is_listening;
   std::thread listen_thread;
 
@@ -243,7 +254,8 @@ private:
 
       enum {
         recv_ep,
-        send_ep
+        send_ep,
+        stop
       } ep;
       int rank;
       int channel;
