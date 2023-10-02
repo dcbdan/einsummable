@@ -94,6 +94,7 @@ if(${CPU_EXECUTION_ENGINE})
   include_directories(${MKL_INCLUDE})
 
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
+  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
@@ -105,6 +106,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${MG_FILES}
     ${AP_FILES}
     ${EG_FILES}
+    ${SE_FILES}
     ${CP_FILES}
   )
 
