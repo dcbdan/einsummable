@@ -83,6 +83,34 @@ struct communicator_t {
     }
   }
 
+  template <typename T>
+  void send_vector(int dst, vector<T> const& xs) {
+    int n = xs.size();
+    send_int(dst, n);
+    send(
+      dst,
+      reinterpret_cast<void const*>(xs.data()),
+      n*sizeof(T));
+  }
+  template <typename T>
+  vector<T> recv_vector(int src) {
+    int n = recv_int(src);
+    vector<T> ret(n);
+    recv(
+      src,
+      reinterpret_cast<void*>(ret.data()),
+      n*sizeof(T));
+  }
+  template <typename T>
+  void broadcast_vector(vector<T> const& xs) {
+    for(int rank = 0; rank != world_size; ++rank) {
+      if(rank == this_rank) {
+        continue;
+      }
+      send_vector(rank, xs);
+    }
+  }
+
   void send_string(int dst, string const& str) {
     int sz = str.size();
     char const* ptr = str.c_str();
