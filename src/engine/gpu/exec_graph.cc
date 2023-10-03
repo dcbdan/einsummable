@@ -1,3 +1,4 @@
+#include "exec_nodes.h"
 #include "../exec_graph.h"
 #include "gpu_kernel_manager.h"
 #include "workspace.h"
@@ -15,7 +16,7 @@ exec_graph_t::make_gpu_exec_graph(
 
   map<int, int> mid_to_eid;
 
-  auto insert = [&](op_t op, int mid)
+  auto insert = [&](op_ptr_t op, int mid)
   {
     auto const& node = memgraph.nodes[mid];
     auto const& mid_inns = node.inns;
@@ -44,7 +45,8 @@ exec_graph_t::make_gpu_exec_graph(
       node.op.is_alloc()      ||
       node.op.is_del())
     {
-      insert(dummy_t{}, mid);
+      op_ptr_t op = std::make_shared<dummy_t>();
+      insert(op, mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -53,47 +55,47 @@ exec_graph_t::make_gpu_exec_graph(
         }
 
         // build the op (except the workspace size)
-        gpu_einsummable_t op {
-          .gpu_km = gpu_km,
-          .einsummable = apply.get_einsummable().merge_adjacent_dims(),
-          .mems = apply.mems,
-          .device = node.op.get_apply_loc()
-        };
+        gpu_einsummable_t* op = new gpu_einsummable_t(
+          gpu_km,
+          apply.get_einsummable().merge_adjacent_dims(),
+          apply.mems,
+          node.op.get_apply_loc()
+        );
 
         // compile the kernel (and update the workspace size)
-        auto maybe_registered = gpu_km.build(op.einsummable);
+        auto maybe_registered = gpu_km.build(op->einsummable);
         if(!maybe_registered) {
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
-        op.worksize = maybe_registered.value();
+        op->worksize = maybe_registered.value();
 
         // insert into the graph
-        insert(op, mid);
+        insert(op_ptr_t(op), mid);
       } else if(apply.is_touch()) {
-        gpu_touch_t op {
-          .gpu_km = gpu_km,
-          .touch = apply.get_touch(),
-          .group_id = apply.group,
-          .mems = apply.mems,
-          .device = node.op.get_apply_loc()
-        };
+        gpu_touch_t* op = new gpu_touch_t(
+          gpu_km,
+          apply.get_touch(),
+          apply.group,
+          apply.mems,
+          node.op.get_apply_loc()
+        );
 
         // Any touch that does not have a group id is the only write to
         // the output bytes, so make sure it's castable is none so that
         // it does a copy and not a sum
-        if(op.group_id < 0) {
-          op.touch.castable = std::nullopt;
+        if(op->group_id < 0) {
+          op->touch.castable = std::nullopt;
         }
 
-        insert(op, mid);
+        insert(op_ptr_t(op), mid);
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
-      gpu_copy_t op {
+      gpu_copy_t* op = new gpu_copy_t(
         .move = node.op.get_move()
-      };
-      insert(op, mid);
+      );
+      insert(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
     } else if(node.op.is_load()) {
@@ -107,7 +109,7 @@ exec_graph_t::make_gpu_exec_graph(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::gpu_einsummable_t::resource_description() const
+gpu_einsummable_t::resource_description() const
 {
   vector<desc_unit_t> ret;
   ret.emplace_back(global_buffers_t::desc_t{});
@@ -119,7 +121,7 @@ exec_graph_t::gpu_einsummable_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::gpu_einsummable_t::launch(
+void gpu_einsummable_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
@@ -168,7 +170,7 @@ void exec_graph_t::gpu_einsummable_t::launch(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::gpu_touch_t::resource_description() const
+gpu_touch_t::resource_description() const
 {
   vector<desc_unit_t> ret;
   ret.emplace_back(global_buffers_t::desc_t{});
@@ -180,7 +182,7 @@ exec_graph_t::gpu_touch_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::gpu_touch_t::launch(
+void gpu_touch_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
@@ -229,12 +231,12 @@ void exec_graph_t::gpu_touch_t::launch(
 }
 
 exec_graph_t::desc_unit_t
-exec_graph_t::gpu_copy_t::resource_description() const
+gpu_copy_t::resource_description() const
 {
   return global_buffers_t::desc_t{};
 }
 
-void exec_graph_t::gpu_copy_t::launch(
+void gpu_copy_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {

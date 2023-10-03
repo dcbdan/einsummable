@@ -1,9 +1,6 @@
 #include "../exec_graph.h"
 
 struct cpu_einsummable_t : exec_graph_t::op_base_t {
-  using rsrc_t = exec_graph_t::rsrc_t;
-  using desc_t = exec_graph_t::desc_t;
-
   cpu_einsummable_t(
     cpu_kernel_executor_t& a,
     einsummable_t const& b,
@@ -22,9 +19,6 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
 };
 
 struct cpu_touch_t : exec_graph_t::op_base_t {
-  using rsrc_t = exec_graph_t::rsrc_t;
-  using desc_t = exec_graph_t::desc_t;
-
   cpu_touch_t(
     cpu_kernel_executor_t& a,
     touch_t const& b,
@@ -44,9 +38,6 @@ struct cpu_touch_t : exec_graph_t::op_base_t {
 };
 
 struct cpu_evict_t : exec_graph_t::op_base_t {
-  using rsrc_t = exec_graph_t::rsrc_t;
-  using desc_t = exec_graph_t::desc_t;
-
   cpu_evict_t(int a, mem_t const& b)
     : id(a), mem(b)
   {}
@@ -60,9 +51,6 @@ struct cpu_evict_t : exec_graph_t::op_base_t {
 };
 
 struct cpu_load_t : exec_graph_t::op_base_t {
-  using rsrc_t = exec_graph_t::rsrc_t;
-  using desc_t = exec_graph_t::desc_t;
-
   cpu_load_t(int a, mem_t const& b)
     : id(a), mem(b)
   {}
