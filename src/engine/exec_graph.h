@@ -36,21 +36,9 @@ struct exec_graph_t {
     kernel_manager_t& gpu_km);
 #endif
 
-  using desc_t      = resource_manager_t::desc_t;
-  using desc_unit_t = resource_manager_t::desc_unit_t;
-
-  using rsrc_t      = resource_manager_t::resource_t;
-  using rsrc_unit_t = resource_manager_t::resource_unit_t;
-
   struct op_base_t {
-    using desc_t      = resource_manager_t::desc_t;
-    using desc_unit_t = resource_manager_t::desc_unit_t;
-
-    using rsrc_t      = resource_manager_t::resource_t;
-    using rsrc_unit_t = resource_manager_t::resource_unit_t;
-
-    virtual void launch(rsrc_t resource, std::function<void()> callback) const = 0;
-    virtual desc_t resource_description() const = 0;
+    virtual void launch(resource_ptr_t resource, std::function<void()> callback) const = 0;
+    virtual desc_ptr_t resource_description() const = 0;
     virtual void print(std::ostream& out) const = 0;
   };
 
@@ -62,9 +50,9 @@ struct exec_graph_t {
     vector<int> inns;
     vector<int> outs;
 
-    inline desc_t resource_description() const { return op->resource_description(); }
+    inline desc_ptr_t resource_description() const { return op->resource_description(); }
 
-    inline void launch(rsrc_t resource, std::function<void()> callback) const {
+    inline void launch(resource_ptr_t resource, std::function<void()> callback) const {
       op->launch(resource, callback);
     }
 
@@ -74,11 +62,11 @@ struct exec_graph_t {
   vector<node_t> nodes;
 
   struct dummy_t : op_base_t {
-    void launch(rsrc_t resource, std::function<void()> callback) const {
+    void launch(resource_ptr_t resource, std::function<void()> callback) const {
       callback();
     }
-    desc_t resource_description() const {
-      return vector<desc_unit_t>();
+    desc_ptr_t resource_description() const {
+      return resource_manager_t::make_desc(vector<desc_ptr_t>());
     }
     void print(std::ostream& out) const { out << "dummy"; }
   };
@@ -93,10 +81,10 @@ struct exec_graph_t {
 
     // notify the dst side that recv `id` is ready
     // recv the notification that send `id` is ready with some `channel`
-    void launch(rsrc_t resource, std::function<void()> callback) const;
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
 
     // resource: the notifier
-    desc_t resource_description() const;
+    desc_ptr_t resource_description() const;
 
     // dependencies: wtvr dependencies until a recv can start
 
@@ -143,10 +131,10 @@ struct exec_graph_t {
     int src;
 
     // wait until the src side says recv `id` is ready
-    void launch(rsrc_t resource, std::function<void()> callback) const;
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
 
     // resource: the notifier
-    desc_t resource_description() const;
+    desc_ptr_t resource_description() const;
 
     // dependencies: wtvr dependencies until a send can start
 
@@ -154,6 +142,13 @@ struct exec_graph_t {
       out << "wait_recv_ready {id = " << id << "}";
     }
   };
+
+  // TODO: send and recv need to specify which buffer in global
+  //       buffers we're talking about ;; right now the assumption
+  //       is always buffer zero, but we want to support gpu to gpu
+  //       communication, and maybe we want to do send and recv with
+  //       ucx. (Note: ucx communicator doesn't support such a setup since
+  //             we don't allow sending to ourselves)
 
   struct send_t : op_base_t {
     send_t(int a, int b, mem_t const& c)
@@ -166,14 +161,14 @@ struct exec_graph_t {
 
     // notify `dst` that `id` is ready and `channel` will be used
     // use a thread to send the data over that channel
-    void launch(rsrc_t resource, std::function<void()> callback) const;
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
 
     // resources:
     //   the notifer,
     //   send channel,
     //   a thread,
     //   global buffer
-    desc_t resource_description() const;
+    desc_ptr_t resource_description() const;
 
     // dependencies: a single dependencies on a wait_recv_ready_t
 
@@ -193,14 +188,14 @@ struct exec_graph_t {
 
     // get the `channel` from the notifier
     // use a thread to recv the data over that channel
-    void launch(rsrc_t resource, std::function<void()> callback) const;
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
 
     // resources:
     //   the notifier,
     //   communicator,
     //   a thread
     //   global buffer
-    desc_t resource_description() const;
+    desc_ptr_t resource_description() const;
 
     // dependencies: a single dependencies on a notify_recv_ready_t
 
@@ -216,6 +211,7 @@ struct exec_graph_t {
   // cpu executor would have to get passed in. Also the cpu executor's state
   // does not change during execution, only during compilation.
   cpu_kernel_executor_t& cpu_executor;
+  // TODO: prefer to not have the kernel manager as part of this class...
 #endif
 
 #ifdef GPU_EXEC

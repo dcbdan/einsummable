@@ -2,6 +2,7 @@
 
 #include "communicator.h"
 #include "notifier.h"
+#include "channel_manager.h"
 
 int exec_graph_t::insert(
   exec_graph_t::op_ptr_t op,
@@ -22,48 +23,57 @@ int exec_graph_t::insert(
   return ret;
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 exec_graph_t::notify_recv_ready_t::resource_description() const {
-  return vector<desc_unit_t>{ notifier_t::desc_t {} };
+  return resource_manager_t::make_desc(
+    vector<desc_ptr_t>{
+      notifier_t::make_desc(unit_t{})
+    }
+  );
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 exec_graph_t::wait_recv_ready_t::resource_description() const {
- return vector<desc_unit_t>{ notifier_t::desc_t {} };
+  return resource_manager_t::make_desc(
+    vector<desc_ptr_t>{
+      notifier_t::make_desc(unit_t{})
+    }
+  );
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 exec_graph_t::send_t::resource_description() const {
   // TODO: need to grab a thread resource
-  return vector<desc_unit_t>{
-    notifier_t::desc_t {},
-    channel_manager_t::desc_t {
-      .send = true,
-      .loc = dst
-    },
-    global_buffers_t::desc_t {}
-  };
+  return resource_manager_t::make_desc(
+    vector<desc_ptr_t> {
+      notifier_t::make_desc(unit_t{}),
+      channel_manager_t::make_desc({ true, dst }),
+      global_buffers_t::make_desc()
+    }
+  );
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 exec_graph_t::recv_t::resource_description() const {
   // TODO: need to grab a thread resource
-  return vector<desc_unit_t>{
-    notifier_t::desc_t {},
-    channel_manager_t::desc_t {
-      .send = false,
-      .loc = src
-    },
-    global_buffers_t::desc_t {}
-  };
+  return resource_manager_t::make_desc(
+    vector<desc_ptr_t> {
+      notifier_t::make_desc(unit_t{}),
+      channel_manager_t::make_desc({ false, src }),
+      global_buffers_t::make_desc()
+    }
+  );
 }
 
 void
 exec_graph_t::notify_recv_ready_t::launch(
-  exec_graph_t::rsrc_t resource,
+  resource_ptr_t resource,
   std::function<void()> callback) const
 {
-  notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(resource);
+
+  notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
   std::thread thread([this, callback, notifier] {
     notifier->notify_recv_ready(this->dst, this->id);
@@ -77,10 +87,13 @@ exec_graph_t::notify_recv_ready_t::launch(
 
 void
 exec_graph_t::wait_recv_ready_t::launch(
-  exec_graph_t::rsrc_t resource,
+  resource_ptr_t resource,
   std::function<void()> callback) const
 {
-  notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(resource);
+
+  notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
   std::thread thread([this, callback, notifier] {
     notifier->wait_recv_ready(this->id);
@@ -93,14 +106,20 @@ exec_graph_t::wait_recv_ready_t::launch(
 
 void
 exec_graph_t::send_t::launch(
-  exec_graph_t::rsrc_t resource,
+  resource_ptr_t resource,
   std::function<void()> callback) const
 {
   // TODO: use a thread resource
-  notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
-  auto const& wire = std::get<channel_manager_t::resource_t>(resource[1]);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(resource);
 
-  void* ptr = std::get<global_buffers_t::resource_t>(resource[2]).at(mem.offset);
+  notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
+
+  auto const& wire = channel_manager_t::get_resource(resources[1]);
+
+  void* ptr = increment_void_ptr(
+    global_buffers_t::get_resource(resources[2]),
+    mem.offset);
 
   std::thread thread([this, callback, notifier, wire, ptr] {
     notifier->notify_send_ready(this->dst, this->id, wire.get_channel());
@@ -115,13 +134,20 @@ exec_graph_t::send_t::launch(
 
 void
 exec_graph_t::recv_t::launch(
-  exec_graph_t::rsrc_t resource,
+  resource_ptr_t resource,
   std::function<void()> callback) const
 {
   // TODO: use a thread resource
-  notifier_t* notifier = std::get<notifier_t::resource_t>(resource[0]).self;
-  auto const& wire = std::get<channel_manager_t::resource_t>(resource[1]);
-  void* ptr = std::get<global_buffers_t::resource_t>(resource[2]).at(mem.offset);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(resource);
+
+  notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
+
+  auto const& wire = channel_manager_t::get_resource(resources[1]);
+
+  void* ptr = increment_void_ptr(
+    global_buffers_t::get_resource(resources[2]),
+    mem.offset);
 
   std::thread thread([this, callback, notifier, wire, ptr] {
     int channel = notifier->get_channel(this->id);

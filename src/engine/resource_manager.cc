@@ -1,96 +1,71 @@
 #include "resource_manager.h"
 
-#define TRY_VARIANT_ACQUIRE(type_t, obj) \
-  if(std::holds_alternative<type_t>(desc)) { \
-    if(obj) { \
-      return obj->try_to_acquire(std::get<type_t>(desc)); \
-    } else { \
-      throw std::runtime_error("obj is nullptr"); \
-    } \
-  }
-
-
-optional<resource_manager_t::resource_unit_t>
-resource_manager_t::try_to_acquire_unit(
-  resource_manager_t::desc_unit_t const& desc)
+optional<vector<resource_ptr_t>>
+resource_manager_t::try_to_acquire_impl(vector<desc_ptr_t> const& descs)
 {
-#ifdef CPU_EXEC
-  TRY_VARIANT_ACQUIRE(cpu_workspace_manager_t::desc_t, cpu_workspace_manager);
-  TRY_VARIANT_ACQUIRE(cpu_storage_manager_t::desc_t, cpu_storage_manager);
-#endif
-  TRY_VARIANT_ACQUIRE(global_buffers_t::desc_t,   global_buffers);
-  TRY_VARIANT_ACQUIRE(group_manager_t::desc_t,   group_manager);
-  TRY_VARIANT_ACQUIRE(notifier_t::desc_t,        notifier);
-  TRY_VARIANT_ACQUIRE(channel_manager_t::desc_t, channel_manager);
-  throw std::runtime_error("should not reach");
-}
-
-optional<resource_manager_t::resource_t>
-resource_manager_t::try_to_acquire(desc_t const& desc)
-{
-  vector<resource_unit_t> ret;
-  for(auto const& unit: desc) {
-    auto maybe = try_to_acquire_unit(unit);
+  vector<resource_ptr_t> ret;
+  ret.reserve(descs.size());
+  for(auto desc: descs) {
+    resource_ptr_t maybe = try_to_acquire_unit(desc);
     if(maybe) {
-      ret.push_back(maybe.value());
+      ret.push_back(maybe);
     } else {
-      release(ret);
+      release_impl(ret);
       return std::nullopt;
     }
   }
+
   return ret;
 }
 
-#define TRY_VARIANT_RELEASE(type_t, obj)  \
-  if(std::holds_alternative<type_t>(rsrc)) { \
-    if(obj) { \
-      return obj->release(std::get<type_t>(rsrc)); \
-    } else { \
-      throw std::runtime_error("obj is nullptr"); \
-    } \
+void resource_manager_t::release_impl(
+  vector<resource_ptr_t> const& resources)
+{
+  for(auto resource: resources) {
+    release_unit(resource);
   }
+}
+
+resource_ptr_t resource_manager_t::try_to_acquire_unit(
+  desc_ptr_t desc)
+{
+  for(auto manager: managers) {
+    if(manager->handles(desc)) {
+      return manager->try_to_acquire(desc);
+    }
+  }
+  throw std::runtime_error("should not reach: try to acquire unit");
+}
 
 void resource_manager_t::release_unit(
-  resource_manager_t::resource_unit_t const& rsrc)
+  resource_ptr_t resource)
 {
-#ifdef CPU_EXEC
-  TRY_VARIANT_RELEASE(cpu_workspace_manager_t::resource_t, cpu_workspace_manager);
-  TRY_VARIANT_RELEASE(cpu_storage_manager_t::resource_t, cpu_storage_manager);
-#endif
-  TRY_VARIANT_RELEASE(global_buffers_t::resource_t,   global_buffers);
-  TRY_VARIANT_RELEASE(group_manager_t::resource_t,   group_manager);
-  TRY_VARIANT_RELEASE(notifier_t::resource_t,        notifier);
-  TRY_VARIANT_RELEASE(channel_manager_t::resource_t, channel_manager);
-  throw std::runtime_error("should not reach");
-}
-
-void resource_manager_t::release(
-  resource_manager_t::resource_t resources)
-{
-  for(auto const& unit: resources) {
-    release_unit(unit);
+  for(auto manager: managers) {
+    if(manager->handles(resource)) {
+      return manager->release(resource);
+    }
   }
+  throw std::runtime_error("should not reach: release unit");
 }
 
-optional<group_manager_t::resource_t>
-group_manager_t::try_to_acquire(group_manager_t::desc_t desc) {
+optional<tuple<int, bool>>
+group_manager_t::try_to_acquire_impl(int const& group_id) {
   std::unique_lock lk(m);
-  if(busy_groups.count(desc.group_id) == 0) {
-    busy_groups.insert(desc.group_id);
-    return resource_t{
-      .group_id = desc.group_id,
-      .is_first = (seen_groups.count(desc.group_id) == 0)
-    };
+  if(busy_groups.count(group_id) == 0) {
+    busy_groups.insert(group_id);
+    bool is_first = seen_groups.count(group_id) == 0;
+    return tuple<int, bool>(group_id, is_first);
   } else {
     return std::nullopt;
   }
 }
 
-void group_manager_t::release(group_manager_t::resource_t rsrc) {
+void group_manager_t::release_impl(tuple<int, bool> const& info) {
+  auto const& [group_id, is_first] = info;
   std::unique_lock lk(m);
-  if(!busy_groups.erase(rsrc.group_id)) {
+  if(!busy_groups.erase(group_id)) {
     throw std::runtime_error("trying to release a group id that isn't busy");
   }
-  seen_groups.insert(rsrc.group_id);
+  seen_groups.insert(group_id);
 }
 

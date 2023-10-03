@@ -944,4 +944,7 @@ void istream_expect(std::istream& inn, string const& xs);
 // find the longest parse of the options; throw an error if no parse
 int istream_expect_or(std::istream& inn, vector<string> const& options);
 
+struct unit_t {};
 
+void* increment_void_ptr(void* ptr, uint64_t size);
+void const* increment_void_ptr(void const* ptr, uint64_t size);

@@ -12,13 +12,14 @@ channel_manager_t::channel_manager_t(communicator_t& comm)
   }
 }
 
-optional<channel_manager_t::resource_t>
-channel_manager_t::try_to_acquire(channel_manager_t::desc_t desc) {
+optional<channel_manager_resource_t>
+channel_manager_t::try_to_acquire_impl(tuple<bool, int> const&  desc)
+{
   auto const& [is_send, loc] = desc;
   if(is_send) {
     auto maybe_channel = acquire_channel(loc);
     if(maybe_channel) {
-      return resource_t {
+      return channel_manager_resource_t {
         .self = this,
         .loc = loc,
         .channel = maybe_channel.value()
@@ -27,7 +28,7 @@ channel_manager_t::try_to_acquire(channel_manager_t::desc_t desc) {
       return std::nullopt;
     }
   } else {
-    return resource_t {
+    return channel_manager_resource_t {
       .self = this,
       .loc = loc,
       .channel = -1
@@ -35,14 +36,14 @@ channel_manager_t::try_to_acquire(channel_manager_t::desc_t desc) {
   }
 }
 
-void channel_manager_t::release(channel_manager_t::resource_t rsrc) {
+void channel_manager_t::release_impl(channel_manager_resource_t const& rsrc) {
   if(rsrc.channel >= 0) {
     release_channel(rsrc.loc, rsrc.channel);
   }
 }
 
 void
-channel_manager_t::resource_t::send(void* ptr, uint64_t bytes) const
+channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
 {
   if(channel < 0) {
     throw std::runtime_error("invalid channel for send");
@@ -51,7 +52,7 @@ channel_manager_t::resource_t::send(void* ptr, uint64_t bytes) const
 }
 
 void
-channel_manager_t::resource_t::recv(void* ptr, uint64_t bytes, int channel_) const
+channel_manager_resource_t::recv(void* ptr, uint64_t bytes, int channel_) const
 {
   self->comm.recv(loc, channel_, ptr, bytes);
 }

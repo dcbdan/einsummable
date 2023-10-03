@@ -5,7 +5,7 @@
 #include "resource_manager.h"
 
 struct exec_state_t {
-  exec_state_t(exec_graph_t const& g, resource_manager_t& r);
+  exec_state_t(exec_graph_t const& g, rm_ptr_t r);
 
   // execute all nodes in exec graph
   void event_loop();
@@ -34,5 +34,5 @@ struct exec_state_t {
   std::condition_variable cv_notify;
 
   exec_graph_t const& exec_graph;
-  resource_manager_t& resource_manager;
+  rm_ptr_t resource_manager;
 };

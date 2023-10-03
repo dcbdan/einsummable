@@ -1,107 +1,139 @@
 #pragma once
 #include "../base/setup.h"
 
-#ifdef CPU_EXEC
-#include "cpu/workspace_manager.h"
-#include "cpu/storage_manager.h"
-#endif
+struct desc_base_t {
+  virtual ~desc_base_t() = default;
+};
+using desc_ptr_t = std::shared_ptr<desc_base_t>;
 
-#include "notifier.h"
-#include "channel_manager.h"
+struct resource_base_t {
+  virtual ~resource_base_t() = default;
+};
+using resource_ptr_t = std::shared_ptr<resource_base_t>;
 
-struct global_buffers_t {
-  global_buffers_t(void* p)
-    : global_buffers_t(vector<void*>{p})
-  {}
+struct resource_manager_base_t {
+  // resource_ptr_t may be a nullptr if did not acquire
+  virtual resource_ptr_t try_to_acquire(desc_ptr_t desc) = 0;
 
-  global_buffers_t(vector<void*> const& ps)
-    : ptrs(ps)
-  {}
+  virtual void release(resource_ptr_t resource) = 0;
 
-  struct desc_t {
-    int which;
+  // TODO: Should handles exist as part of the base or just as part of
+  //       rm_template_t? If resource_manager_t is to hold something that is
+  //       not a rm_template_t, then these need to be here.
+  virtual bool handles(desc_ptr_t      desc)     const = 0;
+  virtual bool handles(resource_ptr_t resource)  const = 0;
+};
+using rm_ptr_t = std::shared_ptr<resource_manager_base_t>;
+
+template <typename D, typename R>
+struct rm_template_t : resource_manager_base_t {
+  struct desc_t : desc_base_t {
+    desc_t(D const& x): d(x) {}
+    D d;
   };
-
-  struct resource_t {
-    void* ptr;
-
-    void* at(uint64_t offset) const {
-      return reinterpret_cast<void*>(
-        reinterpret_cast<uint8_t*>(ptr) + offset
-      );
-    }
+  struct resource_t : resource_base_t {
+    resource_t(R const& x): r(x) {}
+    R r;
   };
+  // Note: Both desc_t and resource_t will copy D and R in their constructor.
+  //       The assumption is that D and R are lightweight
 
-  optional<resource_t> try_to_acquire(desc_t desc){
-    return resource_t{ .ptr = ptrs.at(desc.which) };
+  bool handles(desc_ptr_t desc) const {
+    desc_t* maybe = dynamic_cast<desc_t*>(desc.get());
+    return bool(maybe);
+  }
+  bool handles(resource_ptr_t resource) const {
+    resource_t* maybe = dynamic_cast<resource_t*>(resource.get());
+    return bool(maybe);
   }
 
-  void release(resource_t) {}
+  resource_ptr_t try_to_acquire(desc_ptr_t desc) {
+    D const& d = static_cast<desc_t*>(desc.get())->d;
+    optional<R> maybe = try_to_acquire_impl(d);
+    if(maybe) {
+      return resource_ptr_t(new resource_t(maybe.value()));
+    } else {
+      return resource_ptr_t(nullptr);
+    }
+  }
+  void release(resource_ptr_t resource) {
+    R const& r = get_resource(resource);
+    release_impl(r);
+  }
+  // Note: Both try_to_acquire and resource_ptr_t are making the assumption
+  //       that the desc_ptr_t and resource_ptr_t provided will return true
+  //       when given to handles. (Hence the static cast)
+
+  static
+  desc_ptr_t make_desc(D const& d) {
+    return desc_ptr_t(new desc_t(d));
+  }
+
+  static
+  R const& get_resource(resource_ptr_t resource) {
+    return static_cast<resource_t*>(resource.get())->r;
+  }
+
+private:
+  virtual optional<R> try_to_acquire_impl(D const& d) = 0;
+  virtual void release_impl(R const& r) = 0;
+};
+
+struct resource_manager_t
+  : rm_template_t<vector<desc_ptr_t>, vector<resource_ptr_t>>
+{
+  resource_manager_t(vector<rm_ptr_t> const& ms)
+    : managers(ms)
+  {}
+
+private:
+  optional<vector<resource_ptr_t>> try_to_acquire_impl(vector<desc_ptr_t> const& descs);
+  void release_impl(vector<resource_ptr_t> const& resources);
+
+  resource_ptr_t try_to_acquire_unit(desc_ptr_t desc);
+  void release_unit(resource_ptr_t resource);
+
+  vector<rm_ptr_t> managers;
+};
+
+////////////////////////////////////////////////////////////
+// Some common manager types
+
+struct global_buffers_t
+  : rm_template_t<int, void*>
+{
+  global_buffers_t(void* ptr)
+    : global_buffers_t(vector<void*>{ ptr })
+  {}
+
+  global_buffers_t(vector<void*> ps):
+    ptrs(ps)
+  {}
+
+  static desc_ptr_t make_desc() { return rm_template_t::make_desc(0); }
+
+private:
+  optional<void*> try_to_acquire_impl(int const& which) {
+    return ptrs.at(which);
+  }
+
+  void release_impl(void* const& ptr) {}
 
   vector<void*> ptrs;
 };
 
-struct group_manager_t {
-  struct desc_t {
-    int group_id;
-  };
-  struct resource_t {
-    int group_id;
-    bool is_first;
-  };
-
-  optional<resource_t> try_to_acquire(desc_t desc);
-
-  void release(resource_t resource);
+struct group_manager_t
+  : rm_template_t<int, tuple<int, bool>>
+{
+  group_manager_t() {}
 
 private:
+  optional<tuple<int, bool>> try_to_acquire_impl(int const& group_id);
+
+  void release_impl(tuple<int, bool> const& group_id_and_is_first);
+
   std::mutex m;
   set<int> busy_groups;
   set<int> seen_groups;
 };
-
-struct resource_manager_t {
-  using desc_unit_t = std::variant<
-#ifdef CPU_EXEC
-    cpu_workspace_manager_t::desc_t,
-    cpu_storage_manager_t::desc_t,
-#endif
-    global_buffers_t::desc_t,
-    group_manager_t::desc_t,
-    notifier_t::desc_t,
-    channel_manager_t::desc_t
-  >;
-  using resource_unit_t = std::variant<
-#ifdef CPU_EXEC
-    cpu_workspace_manager_t::resource_t,
-    cpu_storage_manager_t::resource_t,
-#endif
-    global_buffers_t::resource_t,
-    group_manager_t::resource_t,
-    notifier_t::resource_t,
-    channel_manager_t::resource_t
-  >;
-
-  using desc_t = vector<desc_unit_t>;
-
-  using resource_t = vector<resource_unit_t>;
-
-  optional<resource_unit_t> try_to_acquire_unit(desc_unit_t const& unit);
-  optional<resource_t> try_to_acquire(desc_t const& desc);
-
-  void release_unit(resource_unit_t const& resource_unit);
-  void release(resource_t resource);
-
-  //  TODO: decide if they should be pointers or references or
-  //        shared pointers and how they should be set
-#ifdef CPU_EXEC
-  cpu_workspace_manager_t* cpu_workspace_manager;
-  cpu_storage_manager_t* cpu_storage_manager;
-#endif
-  group_manager_t*   group_manager;
-  global_buffers_t*  global_buffers;
-  notifier_t*        notifier;
-  channel_manager_t* channel_manager;
-};
-
 

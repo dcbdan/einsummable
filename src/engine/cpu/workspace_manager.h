@@ -3,25 +3,20 @@
 
 #include "../../base/buffer.h"
 
-struct cpu_workspace_manager_t {
-  struct desc_t {
-    uint64_t size;
-  };
+#include "../resource_manager.h"
 
-  struct resource_t {
-    int which;
-    void* ptr;
-    uint64_t size;
+struct cpu_workspace_resource_t {
+  int which;
+  void* ptr;
+  uint64_t size;
 
-    tuple<void*, uint64_t> as_tuple() const { return {ptr,size}; }
-  };
+  tuple<void*, uint64_t> as_tuple() const { return {ptr,size}; }
+};
 
-  optional<resource_t>
-  try_to_acquire(desc_t desc);
-
-  void release(resource_t resource) {
-    release(resource.which);
-  }
+struct cpu_workspace_manager_t
+  : rm_template_t<uint64_t, cpu_workspace_resource_t>
+{
+  cpu_workspace_manager_t() {}
 
 private:
   std::mutex m_items;
@@ -31,6 +26,13 @@ private:
   int acquire(uint64_t min_size);
 
   void release(int which);
+private:
+  optional<cpu_workspace_resource_t>
+  try_to_acquire_impl(uint64_t const& size);
+
+  void release_impl(cpu_workspace_resource_t const& resource) {
+    release(resource.which);
+  }
 };
 
 

@@ -1,6 +1,10 @@
 #include "../src/engine/exec_state.h"
 #include "../src/engine/exec_graph.h"
 #include "../src/engine/resource_manager.h"
+#include "../src/engine/communicator.h"
+
+#include "../src/engine/cpu/storage_manager.h"
+#include "../src/engine/cpu/workspace_manager.h"
 
 #include "../src/einsummable/dbuffer.h"
 
@@ -110,7 +114,7 @@ int main(int argc, char** argv) {
   for(auto const& [inn,memstoloc]: inn_to_memstoloc) {
     uint64_t size = taskgraph.nodes[inn].op.out_size();
     dbuffer_t tensor = make_dbuffer(dtype, size / dtype_size(dtype));
-    tensor.random("1.0", "1.0");
+    tensor.ones();
 
     if(memstoloc.is_memloc()) {
       auto const& memloc = memstoloc.get_memloc();
@@ -130,7 +134,9 @@ int main(int argc, char** argv) {
     DOUT(tensor);
   }
 
+  DOUT("executing...");
   execute_memgraph_cpu(memgraph, buffer, storage);
+  DOUT("executed.");
 
   for(auto const& [out,memstoloc]: out_to_memstoloc) {
     uint64_t size = taskgraph.nodes[out].op.out_size();
@@ -161,18 +167,14 @@ void execute_memgraph_cpu(
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(memgraph, 0, executor);
 
-  cpu_workspace_manager_t cpu_workspace_manager;
-  group_manager_t group_manager;
-  global_buffers_t global_buffers(buffer->raw());
-
-  cpu_storage_manager_t cpu_storage_manager { .ptr = &storage };
-
-  resource_manager_t resource_manager {
-    .cpu_workspace_manager = &cpu_workspace_manager,
-    .cpu_storage_manager = &cpu_storage_manager,
-    .group_manager = &group_manager,
-    .global_buffers = &global_buffers
-  };
+  rm_ptr_t resource_manager(new resource_manager_t(
+    vector<rm_ptr_t> {
+      rm_ptr_t(new cpu_workspace_manager_t()),
+      rm_ptr_t(new cpu_storage_manager_t(&storage)),
+      rm_ptr_t(new group_manager_t()),
+      rm_ptr_t(new global_buffers_t(buffer->raw()))
+    }
+  ));
 
   exec_state_t state(graph, resource_manager);
 

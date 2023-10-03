@@ -13,8 +13,8 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   vector<mem_t> mems;
   uint64_t workspace_size;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_einsummable"; }
 };
 
@@ -32,8 +32,8 @@ struct cpu_touch_t : exec_graph_t::op_base_t {
   int group_id;
   vector<mem_t> mems;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_touch"; }
 };
 
@@ -45,8 +45,8 @@ struct cpu_evict_t : exec_graph_t::op_base_t {
   int id;
   mem_t mem;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_evict"; }
 };
 
@@ -58,7 +58,7 @@ struct cpu_load_t : exec_graph_t::op_base_t {
   int id;
   mem_t mem;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_load"; }
 };

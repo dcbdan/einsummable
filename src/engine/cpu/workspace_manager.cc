@@ -30,14 +30,14 @@ int cpu_workspace_manager_t::acquire(uint64_t size)
   return ret;
 }
 
-optional<cpu_workspace_manager_t::resource_t>
-cpu_workspace_manager_t::try_to_acquire(desc_t desc)
+optional<cpu_workspace_resource_t>
+cpu_workspace_manager_t::try_to_acquire_impl(uint64_t const& size)
 {
   std::unique_lock lk(m_items);
 
-  resource_t ret;
+  cpu_workspace_resource_t ret;
 
-  ret.which = acquire(desc.size);
+  ret.which = acquire(size);
 
   auto& [_, buffer] = items[ret.which];
 

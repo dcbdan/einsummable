@@ -2,6 +2,9 @@
 
 #include "exec_nodes.h"
 
+#include "workspace_manager.h"
+#include "storage_manager.h"
+
 exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,
@@ -159,38 +162,44 @@ exec_graph_t::make_cpu_exec_graph(
   return graph;
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 cpu_einsummable_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc());
 
   // TODO: insert threadpool resource description
 
   if(workspace_size > 0) {
-    ret.emplace_back(cpu_workspace_manager_t::desc_t { .size = workspace_size });
+    ret.emplace_back(cpu_workspace_manager_t::make_desc(workspace_size));
   }
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void cpu_einsummable_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  auto const& global_buffer = std::get<global_buffers_t::resource_t>(resources[0]);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
 
-  void* out_mem = global_buffer.at(mems[0].offset);
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* out_mem = increment_void_ptr(
+    global_buffer,
+    mems[0].offset);
 
   vector<void const*> inn_mems;
   inn_mems.reserve(mems.size() - 1);
   for(int i = 1; i != mems.size(); ++i) {
-    inn_mems.push_back(global_buffer.at(mems[i].offset));
+    inn_mems.push_back(increment_void_ptr(
+      global_buffer,
+      mems[i].offset));
   }
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
-    maybe_workspace =
-      std::get<cpu_workspace_manager_t::resource_t>(resources[1]).as_tuple();
+    maybe_workspace = cpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
   }
 
   // TODO use threadpool resource.
@@ -209,35 +218,42 @@ void cpu_einsummable_t::launch(
   thread.detach();
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 cpu_touch_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
+  vector<desc_ptr_t> ret;
 
-  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
+  ret.emplace_back(global_buffers_t::make_desc());
 
   // TODO add threadpool resource description
 
   if(group_id >= 0) {
-    ret.emplace_back(group_manager_t::desc_t { group_id });
+    ret.emplace_back(group_manager_t::make_desc(group_id));
   }
 
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void cpu_touch_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  auto const& global_buffer = std::get<global_buffers_t::resource_t>(resources[0]);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
 
-  void* out_mem = global_buffer.at(mems[0].offset);
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
-  void const* inn_mem = global_buffer.at(mems[1].offset);
+  void* out_mem = increment_void_ptr(
+    global_buffer,
+    mems[0].offset);
+
+  void const* inn_mem = increment_void_ptr(
+    global_buffer,
+    mems[1].offset);
 
   bool is_first = false;
   if(group_id >= 0) {
-    is_first = std::get<group_manager_t::resource_t>(resources[1]).is_first;
+    is_first = std::get<0>(group_manager_t::get_resource(resources[1]));
   }
 
   touch_t this_touch = touch;
@@ -258,28 +274,34 @@ void cpu_touch_t::launch(
   thread.detach();
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 cpu_evict_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
+  vector<desc_ptr_t> ret;
 
-  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
-  ret.emplace_back(cpu_storage_manager_t::desc_t{});
+  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(cpu_storage_manager_t::make_desc());
 
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void cpu_evict_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* ptr = increment_void_ptr(
+    global_buffers_t::get_resource(resources[0]),
+    mem.offset);
+
   cpu_storage_t* storage =
-    std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
+    cpu_storage_manager_t::get_resource(resources[1]).ptr;
 
   std::thread thread([this, callback, storage, ptr] {
-    buffer_t data = make_buffer_reference(ptr + mem.offset, mem.size);
+    buffer_t data = make_buffer_reference(
+      static_cast<uint8_t*>(ptr), mem.size);
     storage->write(data, id);
     callback();
   });
@@ -287,28 +309,34 @@ void cpu_evict_t::launch(
   thread.detach();
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 cpu_load_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
+  vector<desc_ptr_t> ret;
 
-  ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
-  ret.emplace_back(cpu_storage_manager_t::desc_t{});
+  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(cpu_storage_manager_t::make_desc());
 
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void cpu_load_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* ptr = increment_void_ptr(
+    global_buffers_t::get_resource(resources[0]),
+    mem.offset);
+
   cpu_storage_t* storage =
-    std::get<cpu_storage_manager_t::resource_t>(resources[1]).ptr;
+    cpu_storage_manager_t::get_resource(resources[1]).ptr;
 
   std::thread thread([this, callback, storage, ptr] {
-    buffer_t data = make_buffer_reference(ptr + mem.offset, mem.size);
+    buffer_t data = make_buffer_reference(
+      static_cast<uint8_t*>(ptr), mem.size);
     storage->load(data, id);
     callback();
   });

@@ -1,6 +1,6 @@
 #include "exec_state.h"
 
-exec_state_t::exec_state_t(exec_graph_t const& g, resource_manager_t& r)
+exec_state_t::exec_state_t(exec_graph_t const& g, rm_ptr_t r)
   : exec_graph(g), resource_manager(r)
 {
   int num_nodes = exec_graph.nodes.size();
@@ -80,13 +80,12 @@ void exec_state_t::decrement_outs(int id) {
 
 bool exec_state_t::try_to_launch(int id) {
   auto const& node = exec_graph.nodes[id];
-  auto resource_desc = node.resource_description();
-  auto maybe_resources =
-    resource_manager.try_to_acquire(resource_desc);
-  if(maybe_resources) {
-    auto const& resources = maybe_resources.value();
+  desc_ptr_t resource_desc = node.resource_description();
+  resource_ptr_t resources =
+    resource_manager->try_to_acquire(resource_desc);
+  if(resources) {
     auto callback = [this, id, resources] {
-      resource_manager.release(resources);
+      resource_manager->release(resources);
 
       {
         std::unique_lock lk(m_notify);
