@@ -1,5 +1,7 @@
 #include "../exec_graph.h"
 
+#include "exec_nodes.h"
+
 exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,
@@ -12,7 +14,7 @@ exec_graph_t::make_cpu_exec_graph(
 
   // Insert the op and get the dependencies from mid. Note that
   // this does not check for whether the mid deps are local or not
-  auto insert_from_mid = [&](op_t op, int mid)
+  auto insert_from_mid = [&](op_ptr_t op, int mid)
   {
     auto const& node = memgraph.nodes[mid];
     auto const& mid_inns = node.inns;
@@ -41,7 +43,8 @@ exec_graph_t::make_cpu_exec_graph(
       node.op.is_alloc()      ||
       node.op.is_del())
     {
-      insert_from_mid(dummy_t{}, mid);
+      op_ptr_t op = std::make_shared<dummy_t>();
+      insert_from_mid(op, mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -50,38 +53,37 @@ exec_graph_t::make_cpu_exec_graph(
         }
 
         // build the op (except the workspace size)
-        cpu_einsummable_t op {
-          .cpu_executor = cpu_executor,
-          .einsummable = apply.get_einsummable().merge_adjacent_dims(),
-          .mems = apply.mems,
-          .workspace_size = 0
-        };
+        cpu_einsummable_t* op = new cpu_einsummable_t(
+          cpu_executor,
+          apply.get_einsummable().merge_adjacent_dims(),
+          apply.mems
+        );
 
         // compile the kernel (and update the workspace size)
-        auto maybe_registered = cpu_executor.build(op.einsummable);
+        auto maybe_registered = cpu_executor.build(op->einsummable);
         if(!maybe_registered) {
           throw std::runtime_error("could not compile the kernel");
         }
-        op.workspace_size = maybe_registered.value();
+        op->workspace_size = maybe_registered.value();
 
         // insert into the graph
-        insert_from_mid(op, mid);
+        insert_from_mid(op_ptr_t(op), mid);
       } else if(apply.is_touch()) {
-        cpu_touch_t op {
-          .cpu_executor = cpu_executor,
-          .touch = apply.get_touch(),
-          .group_id = apply.group,
-          .mems = apply.mems
-        };
+        cpu_touch_t* op = new cpu_touch_t (
+          cpu_executor,
+          apply.get_touch(),
+          apply.group,
+          apply.mems
+        );
 
         // Any touch that does not have a group id is the only write to
         // the output bytes, so make sure it's castable is none so that
         // it does a copy and not a sum
-        if(op.group_id < 0) {
-          op.touch.castable = std::nullopt;
+        if(op->group_id < 0) {
+          op->touch.castable = std::nullopt;
         }
 
-        insert_from_mid(op, mid);
+        insert_from_mid(op_ptr_t(op), mid);
       } else {
         throw std::runtime_error("should not reach");
       }
@@ -108,18 +110,11 @@ exec_graph_t::make_cpu_exec_graph(
         };
 
         int recv_ready_eid = graph.insert(
-          wait_recv_ready_t {
-            .id = mid,
-            .src = dst
-          },
+          op_ptr_t(new exec_graph_t::wait_recv_ready_t(mid, dst)),
           local_deps);
 
         int send_eid = graph.insert(
-          send_t {
-            .id = mid,
-            .dst = dst,
-            .mem = mem
-          },
+          op_ptr_t(new exec_graph_t::send_t(mid, dst, mem)),
           { recv_ready_eid });
 
         mid_to_eid.insert({mid, send_eid});
@@ -131,18 +126,11 @@ exec_graph_t::make_cpu_exec_graph(
         };
 
         int recv_ready_eid = graph.insert(
-          notify_recv_ready_t {
-            .id = mid,
-            .dst = src
-          },
+          op_ptr_t(new notify_recv_ready_t(mid, src)),
           local_deps);
 
         int recv_eid = graph.insert(
-          recv_t {
-            .id = mid,
-            .src = src,
-            .mem = mem
-          },
+          op_ptr_t(new recv_t(mid, src, mem)),
           { recv_ready_eid });
 
         mid_to_eid.insert({mid, recv_eid});
@@ -151,18 +139,18 @@ exec_graph_t::make_cpu_exec_graph(
       }
     } else if(node.op.is_evict()) {
       auto const& evict = node.op.get_evict();
-      cpu_evict_t op {
-        .id  = evict.dst.id,
-        .mem = evict.src.as_mem()
-      };
-      insert_from_mid(op, mid);
+      cpu_evict_t* op = new cpu_evict_t(
+        evict.dst.id,
+        evict.src.as_mem()
+      );
+      insert_from_mid(op_ptr_t(op), mid);
     } else if(node.op.is_load()) {
       auto const& load = node.op.get_load();
-      cpu_load_t op {
-        .id  = load.src.id,
-        .mem = load.dst.as_mem()
-      };
-      insert_from_mid(op, mid);
+      cpu_load_t* op = new cpu_load_t(
+        load.src.id,
+        load.dst.as_mem()
+      );
+      insert_from_mid(op_ptr_t(op), mid);
     } else {
       throw std::runtime_error("should not reach");
     }
@@ -172,7 +160,7 @@ exec_graph_t::make_cpu_exec_graph(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::cpu_einsummable_t::resource_description() const
+cpu_einsummable_t::resource_description() const
 {
   vector<desc_unit_t> ret;
   ret.emplace_back(global_buffers_t::desc_t{ .which = 0 });
@@ -185,7 +173,7 @@ exec_graph_t::cpu_einsummable_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::cpu_einsummable_t::launch(
+void cpu_einsummable_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
@@ -222,7 +210,7 @@ void exec_graph_t::cpu_einsummable_t::launch(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::cpu_touch_t::resource_description() const
+cpu_touch_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
@@ -237,7 +225,7 @@ exec_graph_t::cpu_touch_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::cpu_touch_t::launch(
+void cpu_touch_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
@@ -271,7 +259,7 @@ void exec_graph_t::cpu_touch_t::launch(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::cpu_evict_t::resource_description() const
+cpu_evict_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
@@ -281,7 +269,7 @@ exec_graph_t::cpu_evict_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::cpu_evict_t::launch(
+void cpu_evict_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {
@@ -300,7 +288,7 @@ void exec_graph_t::cpu_evict_t::launch(
 }
 
 exec_graph_t::desc_t
-exec_graph_t::cpu_load_t::resource_description() const
+cpu_load_t::resource_description() const
 {
   vector<desc_unit_t> ret;
 
@@ -310,7 +298,7 @@ exec_graph_t::cpu_load_t::resource_description() const
   return ret;
 }
 
-void exec_graph_t::cpu_load_t::launch(
+void cpu_load_t::launch(
   exec_graph_t::rsrc_t resources,
   std::function<void()> callback) const
 {

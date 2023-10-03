@@ -21,9 +21,7 @@ struct exec_graph_t {
   exec_graph_t(cpu_kernel_executor_t& e)
     : cpu_executor(e)
   {}
-#endif
 
-#ifdef CPU_EXEC
   static exec_graph_t make_cpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
@@ -34,71 +32,20 @@ struct exec_graph_t {
   exec_graph_t(kernel_manager_t& km)
     : gpu_km(km)
   {}
-#endif
 
-#ifdef GPU_EXEC
   static exec_graph_t make_gpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
     kernel_manager_t& gpu_km);
 #endif
 
-  using desc_t = resource_manager_t::desc_t;
+  using desc_t      = resource_manager_t::desc_t;
   using desc_unit_t = resource_manager_t::desc_unit_t;
 
-  using rsrc_t = resource_manager_t::resource_t;
+  using rsrc_t      = resource_manager_t::resource_t;
   using rsrc_unit_t = resource_manager_t::resource_unit_t;
 
-  struct dummy_t {
-    void launch(rsrc_t resource, std::function<void()> callback) const {
-      callback();
-    }
-    desc_t resource_description() const {
-      return vector<desc_unit_t>();
-    }
-    void print(std::ostream& out) const { out << "dummy"; }
-  };
-
 #ifdef CPU_EXEC
-  struct cpu_einsummable_t {
-    cpu_kernel_executor_t& cpu_executor;
-    einsummable_t einsummable;
-    vector<mem_t> mems;
-    uint64_t workspace_size;
-
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-    desc_t resource_description() const;
-    void print(std::ostream& out) const { out << "cpu_einsummable"; }
-  };
-
-  struct cpu_touch_t {
-    cpu_kernel_executor_t& cpu_executor;
-    touch_t touch;
-    int group_id;
-    vector<mem_t> mems;
-
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-    desc_t resource_description() const;
-    void print(std::ostream& out) const { out << "cpu_touch"; }
-  };
-
-  struct cpu_evict_t {
-    int id;
-    mem_t mem;
-
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-    desc_t resource_description() const;
-    void print(std::ostream& out) const { out << "cpu_evict"; }
-  };
-
-  struct cpu_load_t {
-    int id;
-    mem_t mem;
-
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-    desc_t resource_description() const;
-    void print(std::ostream& out) const { out << "cpu_load"; }
-  };
 #endif
 
   // The communicator object, resource manager and knowing when communication can
@@ -130,88 +77,9 @@ struct exec_graph_t {
   // The following communication nodes implement portions of the handshake while
   // only utilizing the necc resources.
 
-  struct notify_recv_ready_t {
-    int id;
-    int dst;
-
-    // notify the dst side that recv `id` is ready
-    // recv the notification that send `id` is ready with some `channel`
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-
-    // resource: the notifier
-    desc_t resource_description() const;
-
-    // dependencies: wtvr dependencies until a recv can start
-
-    void print(std::ostream& out) const {
-      out << "notify_recv_ready {id = " << id << "}";
-    }
-  };
-
-  struct wait_recv_ready_t {
-    int id;
-    int src;
-
-    // wait until the src side says recv `id` is ready
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-
-    // resource: the notifier
-    desc_t resource_description() const;
-
-    // dependencies: wtvr dependencies until a send can start
-
-    void print(std::ostream& out) const {
-      out << "wait_recv_ready {id = " << id << "}";
-    }
-  };
-
-  struct send_t {
-    int id;
-    int dst;
-    mem_t mem;
-
-    // notify `dst` that `id` is ready and `channel` will be used
-    // use a thread to send the data over that channel
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-
-    // resources:
-    //   the notifer,
-    //   send channel,
-    //   a thread,
-    //   global buffer
-    desc_t resource_description() const;
-
-    // dependencies: a single dependencies on a wait_recv_ready_t
-
-    void print(std::ostream& out) const {
-      out << "send {id = " << id << "}";
-    }
-  };
-
-  struct recv_t {
-    int id;
-    int src;
-    mem_t mem;
-
-    // get the `channel` from the notifier
-    // use a thread to recv the data over that channel
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-
-    // resources:
-    //   the notifier,
-    //   communicator,
-    //   a thread
-    //   global buffer
-    desc_t resource_description() const;
-
-    // dependencies: a single dependencies on a notify_recv_ready_t
-
-    void print(std::ostream& out) const {
-      out << "recv {id = " << id  << "}";
-    }
-  };
-
 #ifdef GPU_EXEC
+  // TODO: refactor this from variant to interface
+
   struct gpu_einsummable_t {
     kernel_manager_t& gpu_km;
     einsummable_t einsummable;
@@ -245,39 +113,143 @@ struct exec_graph_t {
   };
 #endif
 
-  using op_t = std::variant<
-#ifdef CPU_EXEC
-    cpu_touch_t,
-    cpu_einsummable_t,
-    cpu_evict_t,
-    cpu_load_t,
-#endif
-#ifdef GPU_EXEC
-    gpu_touch_t,
-    gpu_einsummable_t,
-    gpu_copy_t,
-#endif
-    notify_recv_ready_t,
-    wait_recv_ready_t,
-    send_t,
-    recv_t,
-    dummy_t>;
+  struct op_base_t {
+    using desc_t      = resource_manager_t::desc_t;
+    using desc_unit_t = resource_manager_t::desc_unit_t;
+
+    using rsrc_t      = resource_manager_t::resource_t;
+    using rsrc_unit_t = resource_manager_t::resource_unit_t;
+
+    virtual void launch(rsrc_t resource, std::function<void()> callback) const = 0;
+    virtual desc_t resource_description() const = 0;
+    virtual void print(std::ostream& out) const = 0;
+  };
+
+  using op_ptr_t = std::shared_ptr<op_base_t>;
 
   struct node_t {
-    desc_t resource_description() const;
-
-    void launch(rsrc_t resource, std::function<void()> callback) const;
-
-    void print(std::ostream& out) const;
-
-    op_t op;
+    op_ptr_t op;
 
     vector<int> inns;
-
     vector<int> outs;
+
+    inline desc_t resource_description() const { return op->resource_description(); }
+
+    inline void launch(rsrc_t resource, std::function<void()> callback) const {
+      op->launch(resource, callback);
+    }
+
+    inline void print(std::ostream& out) const { op->print(out); }
   };
 
   vector<node_t> nodes;
+
+  struct dummy_t : op_base_t {
+    void launch(rsrc_t resource, std::function<void()> callback) const {
+      callback();
+    }
+    desc_t resource_description() const {
+      return vector<desc_unit_t>();
+    }
+    void print(std::ostream& out) const { out << "dummy"; }
+  };
+
+  struct notify_recv_ready_t : op_base_t {
+    notify_recv_ready_t(int a, int b)
+      : id(a), dst(b)
+    {}
+
+    int id;
+    int dst;
+
+    // notify the dst side that recv `id` is ready
+    // recv the notification that send `id` is ready with some `channel`
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+
+    // resource: the notifier
+    desc_t resource_description() const;
+
+    // dependencies: wtvr dependencies until a recv can start
+
+    void print(std::ostream& out) const {
+      out << "notify_recv_ready {id = " << id << "}";
+    }
+  };
+
+  struct wait_recv_ready_t : op_base_t {
+    wait_recv_ready_t(int a, int b)
+      : id(a), src(b)
+    {}
+
+    int id;
+    int src;
+
+    // wait until the src side says recv `id` is ready
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+
+    // resource: the notifier
+    desc_t resource_description() const;
+
+    // dependencies: wtvr dependencies until a send can start
+
+    void print(std::ostream& out) const {
+      out << "wait_recv_ready {id = " << id << "}";
+    }
+  };
+
+  struct send_t : op_base_t {
+    send_t(int a, int b, mem_t const& c)
+      : id(a), dst(b), mem(c)
+    {}
+
+    int id;
+    int dst;
+    mem_t mem;
+
+    // notify `dst` that `id` is ready and `channel` will be used
+    // use a thread to send the data over that channel
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+
+    // resources:
+    //   the notifer,
+    //   send channel,
+    //   a thread,
+    //   global buffer
+    desc_t resource_description() const;
+
+    // dependencies: a single dependencies on a wait_recv_ready_t
+
+    void print(std::ostream& out) const {
+      out << "send {id = " << id << "}";
+    }
+  };
+
+  struct recv_t : op_base_t {
+    recv_t(int a, int b, mem_t const& c)
+      : id(a), src(b), mem(c)
+    {}
+
+    int id;
+    int src;
+    mem_t mem;
+
+    // get the `channel` from the notifier
+    // use a thread to recv the data over that channel
+    void launch(rsrc_t resource, std::function<void()> callback) const;
+
+    // resources:
+    //   the notifier,
+    //   communicator,
+    //   a thread
+    //   global buffer
+    desc_t resource_description() const;
+
+    // dependencies: a single dependencies on a notify_recv_ready_t
+
+    void print(std::ostream& out) const {
+      out << "recv {id = " << id  << "}";
+    }
+  };
 
 #ifdef CPU_EXEC
   // When compiling exec graphs, einsummable nodes are built into
@@ -293,5 +265,7 @@ struct exec_graph_t {
 #endif
 
 private:
-  int insert(op_t const& op, vector<int> const& inns);
+  int insert(op_ptr_t op, vector<int> const& inns);
 };
+
+

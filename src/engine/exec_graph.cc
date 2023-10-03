@@ -3,38 +3,8 @@
 #include "communicator.h"
 #include "notifier.h"
 
-exec_graph_t::desc_t
-exec_graph_t::node_t::resource_description() const
-{
-  return std::visit(
-    [](auto const& op){ return op.resource_description(); },
-    op);
-}
-
-void
-exec_graph_t::node_t::launch(
-  exec_graph_t::rsrc_t resource,
-  std::function<void()> callback) const
-{
-  return std::visit(
-    [resource, callback](auto const& op) {
-      op.launch(resource, callback);
-    },
-    op);
-}
-
-void
-exec_graph_t::node_t::print(std::ostream& out) const
-{
-  return std::visit(
-    [&out](auto const& op) {
-      op.print(out);
-    },
-    op);
-}
-
 int exec_graph_t::insert(
-  exec_graph_t::op_t const& op,
+  exec_graph_t::op_ptr_t op,
   vector<int> const& inns)
 {
   int ret = nodes.size();
