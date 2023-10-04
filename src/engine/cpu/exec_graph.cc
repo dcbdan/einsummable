@@ -253,7 +253,8 @@ void cpu_touch_t::launch(
 
   bool is_first = false;
   if(group_id >= 0) {
-    is_first = std::get<0>(group_manager_t::get_resource(resources[1]));
+    tuple<int, bool> const& info = group_manager_t::get_resource(resources[1]);
+    is_first = std::get<1>(info);
   }
 
   touch_t this_touch = touch;
