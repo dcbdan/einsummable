@@ -1,6 +1,12 @@
 #include "../src/engine/exec_state.h"
 #include "../src/engine/exec_graph.h"
 #include "../src/engine/resource_manager.h"
+#include "../src/engine/communicator.h"
+#include "../src/engine/channel_manager.h"
+#include "../src/engine/notifier.h"
+
+#include "../src/engine/cpu/storage_manager.h"
+#include "../src/engine/cpu/workspace_manager.h"
 
 #include "../src/einsummable/dbuffer.h"
 
@@ -189,24 +195,16 @@ void execute_memgraph_cpu(
       communicator.get_this_rank(),
       executor);
 
-  cpu_workspace_manager_t cpu_workspace_manager;
-  group_manager_t group_manager;
-  global_buffers_t global_buffers(buffer->raw());
-
-  cpu_storage_manager_t cpu_storage_manager { .ptr = &storage };
-
-  notifier_t notifier(communicator);
-
-  channel_manager_t channel_manager(communicator);
-
-  resource_manager_t resource_manager {
-    .cpu_workspace_manager = &cpu_workspace_manager,
-    .cpu_storage_manager   = &cpu_storage_manager,
-    .group_manager         = &group_manager,
-    .global_buffers        = &global_buffers,
-    .notifier              = &notifier,
-    .channel_manager       = &channel_manager
-  };
+  rm_ptr_t resource_manager(new resource_manager_t(
+    vector<rm_ptr_t> {
+      rm_ptr_t(new cpu_workspace_manager_t()),
+      rm_ptr_t(new group_manager_t()),
+      rm_ptr_t(new global_buffers_t(buffer->raw())),
+      rm_ptr_t(new cpu_storage_manager_t(&storage)),
+      rm_ptr_t(new notifier_t(communicator)),
+      rm_ptr_t(new channel_manager_t(communicator))
+    }
+  ));
 
   exec_state_t state(graph, resource_manager);
 
