@@ -108,40 +108,43 @@ exec_graph_t::make_gpu_exec_graph(
   return graph;
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 gpu_einsummable_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffers_t::desc_t{});
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc());
 
   if (worksize.value() > 0) {
-    ret.emplace_back(workspace_t::desc_t{worksize.value()});
+    ret.emplace_back(workspace_t::make_desc(worksize.value()));
   }
 
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void gpu_einsummable_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
 
-  void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].offset);
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* out_mem = increment_void_ptr(
+    global_buffer,
+    mems[0].offset);
 
   vector<void const*> inn_mems;
   inn_mems.reserve(mems.size() - 1);
   for(int i = 1; i != mems.size(); ++i) {
-    inn_mems.push_back(reinterpret_cast<void const*>(
-      ptr + mems[i].offset));
+    inn_mems.push_back(increment_void_ptr(
+      global_buffer,
+      mems[i].offset));
   }
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
-  if(worksize.value() > 0) {
-    maybe_workspace =
-      std::get<workspace_manager_t::resource_t>(resources[1]).as_tuple();
+  if(workspace_size > 0) {
+    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
   }
 
   // create stream and launch
@@ -169,35 +172,40 @@ void gpu_einsummable_t::launch(
     "gpu_einsummable_t: callback");
 }
 
-exec_graph_t::desc_t
+desc_ptr_t
 gpu_touch_t::resource_description() const
 {
-  vector<desc_unit_t> ret;
-  ret.emplace_back(global_buffers_t::desc_t{});
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc());
 
   if(group_id >= 0) {
-    ret.emplace_back(group_manager_t::desc_t { group_id });
+    ret.emplace_back(group_manager_t::make_desc(group_id));
   }
 
-  return ret;
+  return resource_manager_t::make_desc(ret);
 }
 
 void gpu_touch_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
 
-  void* out_mem = reinterpret_cast<void*>(
-    ptr + mems[0].offset);
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
-  void const* inn_mem = reinterpret_cast<void const*>(
-    ptr + mems[1].offset);
+  void* out_mem = increment_void_ptr(
+    global_buffer,
+    mems[0].offset);
+
+  void const* inn_mem = increment_void_ptr(
+    global_buffer,
+    mems[1].offset);
 
   bool is_first = false;
   if(group_id >= 0) {
-    is_first = std::get<group_manager_t::resource_t>(resources[1]).is_first;
+    tuple<int, bool> const& info = group_manager_t::get_resource(resources[1]);
+    is_first = std::get<1>(info);
   }
 
   touch_t this_touch = touch;
@@ -210,7 +218,7 @@ void gpu_touch_t::launch(
   cudaSetDevice(device);
   cudaStream_t stream = cuda_create_stream();
   gpu_km(
-    touch,
+    this_touch,
     stream,
     out_mem,
     inn_mem);
@@ -230,22 +238,32 @@ void gpu_touch_t::launch(
     "gpu_touch_t: callback");
 }
 
-exec_graph_t::desc_unit_t
+desc_ptr_t
 gpu_copy_t::resource_description() const
 {
-  return global_buffers_t::desc_t{};
+  return resource_manager_t::make_desc(
+    vecotr<desc_ptr_t>(
+      global_buffers_t::make_desc()
+    )
+  );
 }
 
 void gpu_copy_t::launch(
-  exec_graph_t::rsrc_t resources,
+  resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(
-    std::get<global_buffers_t::resource_t>(resources[0]).ptr);
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
 
-  void* dst_mem = reinterpret_cast<void*>(
-    ptr + mems[0].offset);
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
-  void const* inn_mem = reinterpret_cast<void const*>(
-    ptr + mems[1].offset);
+  void* out_mem = increment_void_ptr(
+    global_buffer,
+    mems[0].offset);
+
+  void const* inn_mem = increment_void_ptr(
+    global_buffer,
+    mems[1].offset);
+
+  // TODO: do the actual thing here
 }

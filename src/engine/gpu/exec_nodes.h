@@ -1,4 +1,5 @@
 #include "../exec_graph.h"
+#include "../resource_manager.h"
 
 struct gpu_einsummable_t {
   gpu_einsummable_t(
@@ -15,8 +16,8 @@ struct gpu_einsummable_t {
   int device;
   workspace_info_t worksize;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_einsummable"; }
 };
 
@@ -36,8 +37,8 @@ struct gpu_touch_t {
   vector<mem_t> mems;
   int device;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_touch"; }
 };
 
@@ -48,7 +49,7 @@ struct gpu_copy_t {
 
   memgraph_t::move_t move;
 
-  void launch(rsrc_t resource, std::function<void()> callback) const;
-  desc_t resource_description() const;
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_copy"; }
 };

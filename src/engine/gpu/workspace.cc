@@ -1,18 +1,22 @@
 #include "workspace.h"
 
-workspace_manager_t::~workspace_manager_t() {
+gpu_workspace_manager_t::~gpu_workspace_manager_t() {
   for(int gpu = 0; gpu != data.size(); ++gpu) {
-    handle_cuda_error(cudaSetDevice(gpu), "~workspace_manager_t. set device");  
-    for(auto const& [mem, size]: data[gpu]) {      
+    handle_cuda_error(cudaSetDevice(gpu), "~gpu_workspace_manager_t. set device");
+    for(auto const& [mem, size]: data[gpu]) {
       handle_cuda_error(cudaFree(mem), "~workspace_maanger_t. cuda free");
     }
   }
   // TODO: currently not setting the device back to wtvr it was
 }
 
-tuple<void*, uint64_t> 
-workspace_manager_t::borrow_workspace(int gpu, uint64_t size) {
+optional<gpu_workspace_resource_t>
+gpu_workspace_manager_t::try_to_acquire_impl(
+    gpu_workspace_desc_t const& desc)
+{
   std::unique_lock lk(m);
+
+  auto const& [device, size] = desc;
 
   if(data.size() < gpu + 1) {
     data.resize(gpu+1);
@@ -20,27 +24,36 @@ workspace_manager_t::borrow_workspace(int gpu, uint64_t size) {
   auto& data_here = data[gpu];
 
   for(auto iter = data_here.begin(); iter != data_here.end(); ++iter) {
-    auto workspace = *iter; 
-    auto const& [mem,size_] = workspace;
+    auto const& [mem,size_] = *iter;
     if(size_ >= size) {
       data_here.erase(iter);
-      return workspace;
+      return gpu_workspace_resource_t {
+        .device = device,
+        .ptr = mem,
+        .size = size_
+      }
     }
   }
 
-  handle_cuda_error(cudaSetDevice(gpu)); 
+  handle_cuda_error(cudaSetDevice(gpu));
 
   void* mem;
   handle_cuda_error(cudaMalloc(&mem, size));
 
   // TODO: currently not setting device back to wtvr it was
 
-  return {mem,size};
+  return gpu_workspace_resource_t {
+    .device = device,
+    .ptr = mem,
+    .size = size
+  };
 }
 
-void workspace_manager_t::return_workspace(int gpu, void* mem, uint64_t sz) 
+void gpu_workspace_manager_t::release_impl(
+  gpu_workspace_resource_t const& resource)
 {
   std::unique_lock lk(m);
-  data[gpu].emplace_back(mem, sz);
+  auot const& [device, ptr, size];
+  data[device].emplace_back(mem, sz);
 }
 
