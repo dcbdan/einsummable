@@ -2,8 +2,9 @@
 #include "../../base/setup.h"
 
 #include "../../einsummable/scalarop.h"
+#include "../../einsummable/einsummable.h"
 
-#include "../../einsummable/taskgraph.h" // touch_t
+#include "../touch.h"
 
 #include "contraction.h"
 
@@ -155,8 +156,6 @@ build_ab_a_reduction_kernel(
   dtype_t dtype,
   castable_t castable);
 
-using touch_kernel_t = std::function<void(void*, void const*)>;
-
 // trans lhs   trans rhs
 // F           F          ij,jk->ik
 // T           F          ji,jk->ik
@@ -222,11 +221,6 @@ void permute_kernel(
   uint64_t permute_block_size,
   vector<uint64_t> const& inn_shape,
   vector<int> const& out_perm,
-  void* out,
-  void const* inn);
-
-void execute_touch(
-  touch_t const& touch,
   void* out,
   void const* inn);
 

@@ -29,7 +29,7 @@ struct server_base_t {
   virtual void execute(taskgraph_t const& taskgraph) = 0;
 
   // create a taskgraph and execute the graph.
-  void execute(
+  void execute_graph(
     graph_t const& graph,
     vector<placement_t> const& placements);
 
@@ -37,7 +37,7 @@ struct server_base_t {
   // onto node zero.
   virtual dbuffer_t get_tensor(relation_t const& src_relation) = 0;
 
-  dbuffer_t get_tensor(int gid);
+  dbuffer_t get_tensor_from_gid(int gid);
 
   relation_t const& get_relation(int gid) const;
 
@@ -76,8 +76,6 @@ struct server_base_t {
   virtual void local_insert_tensors(map<int, buffer_t> data) = 0;
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
 
-  communicator_t& comm;
-
 private:
   map<int, relation_t> gid_map;
 };
@@ -85,6 +83,10 @@ private:
 // This is a server_base object but it executes all taskgraphs by first
 // converting them into memgraphs.
 struct server_mg_base_t : server_base_t {
+  server_mg_base_t(communicator_t& c)
+    : comm(c)
+  {}
+
   void listen();
 
   void register_listen(string key, std::function<void(server_base_t*)> f);
@@ -156,6 +158,7 @@ struct server_mg_base_t : server_base_t {
     map<int, memstoloc_t> const& full_data_locs,
     map<int, memstoloc_t> const& inn_tg_to_loc);
 
+  communicator_t& comm;
 private:
   map<string, std::function<void(server_base_t*)>> listeners;
 

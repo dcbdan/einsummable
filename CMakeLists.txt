@@ -96,6 +96,7 @@ if(${CPU_EXECUTION_ENGINE})
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
+  file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
   #       have to be rebuilt?
@@ -108,6 +109,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
+    ${CS_FILES}
   )
 
   function(add_cpu_application exec dir filename)
@@ -120,19 +122,20 @@ if(${CPU_EXECUTION_ENGINE})
     ucx::ucp ucx::ucs)
   endfunction()
 
-  #add_cpu_application("cpuexec"         "exps" "cpuexec")
-  #add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
-  #add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-  #add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-  #add_cpu_application("cpuexec_touch"   "exps" "cpuexec_touch")
-  #add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-  #add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
-  #add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
-  #add_cpu_application("cpumanager"      "exps" "cpumanager")
-  #add_cpu_application("cpukerneltime"   "exps" "cpukerneltime")
-  #add_cpu_application("cpumms"          "exps" "cpumms")
-  add_cpu_application("cpu_engine"      "exps" "cpu_engine")
-  add_cpu_application("cpu_engine_ml"   "exps" "cpu_engine_ml")
+  #add_cpu_application("cpuexec"               "exps" "cpuexec")
+  #add_cpu_application("cpuexec_3d"            "exps" "cpuexec_3d")
+  #add_cpu_application("cpuexec_ff"            "exps" "cpuexec_ff")
+  #add_cpu_application("cpuexec_mm"            "exps" "cpuexec_mm")
+  #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
+  #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
+  #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
+  #add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
+  #add_cpu_application("cpumanager"            "exps" "cpumanager")
+  #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
+  #add_cpu_application("cpumms"                "exps" "cpumms")
+  add_cpu_application("cpu_engine"            "exps" "cpu_engine")
+  add_cpu_application("cpu_engine_ml"         "exps" "cpu_engine_ml")
+  add_cpu_application("cpu_engine_server"     "exps" "cpu_engine_server")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

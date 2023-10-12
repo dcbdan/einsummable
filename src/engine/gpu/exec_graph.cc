@@ -12,7 +12,7 @@ exec_graph_t::make_gpu_exec_graph(
   int this_rank,
   kernel_manager_t& gpu_km)
 {
-  exec_graph_t graph(gpu_km);
+  exec_graph_t graph;
 
   map<int, int> mid_to_eid;
 

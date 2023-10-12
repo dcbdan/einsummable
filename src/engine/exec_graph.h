@@ -15,10 +15,8 @@
 
 struct exec_graph_t {
 #ifdef CPU_EXEC
-  exec_graph_t(cpu_kernel_executor_t& e)
-    : cpu_executor(e)
-  {}
-
+  // note: the nodes of this graph may reference
+  //       the provided executor
   static exec_graph_t make_cpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
@@ -26,10 +24,8 @@ struct exec_graph_t {
 #endif
 
 #ifdef GPU_EXEC
-  exec_graph_t(kernel_manager_t& km)
-    : gpu_km(km)
-  {}
-
+  // note: the nodes of this graph may reference
+  //       the provided executor
   static exec_graph_t make_gpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
@@ -43,6 +39,8 @@ struct exec_graph_t {
   };
 
   using op_ptr_t = std::shared_ptr<op_base_t>;
+
+  int insert(op_ptr_t op, vector<int> const& inns);
 
   struct node_t {
     op_ptr_t op;
@@ -69,28 +67,6 @@ struct exec_graph_t {
       return resource_manager_t::make_desc(vector<desc_ptr_t>());
     }
     void print(std::ostream& out) const { out << "dummy"; }
-  };
-
-  struct notify_recv_ready_t : op_base_t {
-    notify_recv_ready_t(int a, int b)
-      : id(a), dst(b)
-    {}
-
-    int id;
-    int dst;
-
-    // notify the dst side that recv `id` is ready
-    // recv the notification that send `id` is ready with some `channel`
-    void launch(resource_ptr_t resource, std::function<void()> callback) const;
-
-    // resource: the notifier
-    desc_ptr_t resource_description() const;
-
-    // dependencies: wtvr dependencies until a recv can start
-
-    void print(std::ostream& out) const {
-      out << "notify_recv_ready {id = " << id << "}";
-    }
   };
 
   // The communicator object, resource manager and knowing when communication can
@@ -121,6 +97,28 @@ struct exec_graph_t {
 
   // The following communication nodes implement portions of the handshake while
   // only utilizing the necc resources.
+
+  struct notify_recv_ready_t : op_base_t {
+    notify_recv_ready_t(int a, int b)
+      : id(a), dst(b)
+    {}
+
+    int id;
+    int dst;
+
+    // notify the dst side that recv `id` is ready
+    // recv the notification that send `id` is ready with some `channel`
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
+
+    // resource: the notifier
+    desc_ptr_t resource_description() const;
+
+    // dependencies: wtvr dependencies until a recv can start
+
+    void print(std::ostream& out) const {
+      out << "notify_recv_ready {id = " << id << "}";
+    }
+  };
 
   struct wait_recv_ready_t : op_base_t {
     wait_recv_ready_t(int a, int b)
@@ -203,23 +201,6 @@ struct exec_graph_t {
       out << "recv {id = " << id  << "}";
     }
   };
-
-#ifdef CPU_EXEC
-  // When compiling exec graphs, einsummable nodes are built into
-  // this particular executor. An executor could be considered a "resource"
-  // that gets passed in to the einsummable nodes, but the same
-  // cpu executor would have to get passed in. Also the cpu executor's state
-  // does not change during execution, only during compilation.
-  cpu_kernel_executor_t& cpu_executor;
-  // TODO: prefer to not have the kernel manager as part of this class...
-#endif
-
-#ifdef GPU_EXEC
-  kernel_manager_t& gpu_km;
-#endif
-
-private:
-  int insert(op_ptr_t op, vector<int> const& inns);
 };
 
 
