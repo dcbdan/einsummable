@@ -100,6 +100,7 @@ struct communicator_t {
       src,
       reinterpret_cast<void*>(ret.data()),
       n*sizeof(T));
+    return ret;
   }
   template <typename T>
   void broadcast_vector(vector<T> const& xs) {

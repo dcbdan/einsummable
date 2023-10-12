@@ -35,55 +35,194 @@ void cpu_mg_server_t::execute_memgraph(
   state.event_loop();
 }
 
-buffer_t cpu_mg_server_t::local_copy_data_at(memsto_t const& loc) {
-  // TODO
-  return make_buffer(0);
+buffer_t cpu_mg_server_t::local_copy_data_at(memsto_t const& d) {
+  if(d.is_mem()) {
+    auto const& [offset, size] = d.get_mem();
+    buffer_t ret = make_buffer(size);
+
+    std::copy(
+      mem->data + offset,
+      mem->data + (offset + size),
+      ret->data);
+
+    return ret;
+  } else if(d.is_sto()) {
+    int const& id = d.get_sto();
+    return storage.read(id);
+  } else {
+    throw std::runtime_error("should not happen");
+  }
 }
+
+struct id_memsto_t {
+  int id;
+  memsto_t memsto;
+};
 
 server_mg_base_t::make_mg_info_t
 cpu_mg_server_t::recv_make_mg_info() {
-  // TODO
-  return make_mg_info_t {};
+  auto fix = [](memsto_t const& memsto, int loc) {
+    if(memsto.is_mem()) {
+      return memstoloc_t(memsto.get_mem().as_memloc(loc));
+    } else {
+      int const& sto_id = memsto.get_sto();
+      return memstoloc_t(stoloc_t { loc, sto_id });
+    }
+  };
+
+  int world_size = comm.get_world_size();
+
+  make_mg_info_t ret;
+
+  ret.which_storage.resize(world_size);
+  std::iota(ret.which_storage.begin(), ret.which_storage.end(), 0);
+
+  ret.mem_sizes.push_back(mem->size);
+  for(auto const& [id, memsto]: data_locs) {
+    ret.data_locs.insert({id, fix(memsto, 0)});
+  }
+
+  for(int src = 1; src != world_size; ++src) {
+    ret.mem_sizes.push_back(comm.recv_contig_obj<uint64_t>(src));
+    for(auto const& [id, memsto]: comm.recv_vector<id_memsto_t>(src)) {
+      ret.data_locs.insert({id, fix(memsto, src)});
+    }
+  }
+
+  return ret;
 }
 
 void cpu_mg_server_t::send_make_mg_info() {
-  // TODO
+  comm.send_contig_obj(0, mem->size);
+
+  vector<id_memsto_t> ds;
+  ds.reserve(data_locs.size());
+  for(auto const& [id, memsto]: data_locs) {
+    ds.push_back(id_memsto_t { .id = id, .memsto = memsto });
+  }
+
+  comm.send_vector(0, ds);
 }
 
 void cpu_mg_server_t::storage_remap_server(
   vector<vector<std::array<int, 2>>> const& remaps)
 {
-  // TODO
+  int world_size = comm.get_world_size();
+
+  storage.remap(remaps[0]);
+  for(int dst = 1; dst != world_size; ++dst) {
+    comm.send_vector(dst, remaps[dst]);
+  }
 }
 
 void cpu_mg_server_t::storage_remap_client() {
-  // TODO
-}
-
-vector<uint64_t> cpu_mg_server_t::recv_mem_sizes() {
-  // TODO
-  return {};
-}
-
-void cpu_mg_server_t::send_mem_sizes() {
-  // TODO
+  auto remap = comm.recv_vector<std::array<int, 2>>(0);
+  storage.remap(remap);
 }
 
 void cpu_mg_server_t::rewrite_data_locs_server(
-  map<int, memstoloc_t> const& out_tg_to_loc)
+  map<int, memstoloc_t> const& new_data_locs)
 {
-  // TODO
+  auto get_loc = [](memstoloc_t const& x) {
+    if(x.is_memloc()) {
+      return x.get_memloc().loc;
+    } else {
+      // Note: stoloc_t::loc is a storage location, but we are
+      //       assuming that storage loc == compute loc in this directory!
+      return x.get_stoloc().loc;
+    }
+  };
+
+  int world_size = comm.get_world_size();
+  int this_rank = 0;
+
+  vector<vector<id_memsto_t>> items(world_size);
+  data_locs.clear();
+  for(auto const& [id, memstoloc]: new_data_locs) {
+    int loc = get_loc(memstoloc);
+    if(loc == this_rank) {
+      data_locs.insert({ id, memstoloc.as_memsto() });
+    } else {
+      items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
+    }
+  }
+
+  for(int dst = 0; dst != world_size; ++dst) {
+    if(dst != this_rank) {
+      comm.send_vector(dst, items[dst]);
+    }
+  }
 }
 
 void cpu_mg_server_t::rewrite_data_locs_client() {
-  // TODO
+  data_locs.clear();
+  auto new_data_locs = comm.recv_vector<id_memsto_t>(0);
+  for(auto const& [id, memsto]: new_data_locs) {
+    data_locs.insert({id, memsto});
+  }
 }
 
 void cpu_mg_server_t::local_insert_tensors(map<int, buffer_t> data) {
-  // TODO
+  // create an allocator and fill it in
+  allocator_t allocator(mem->size);
+
+  for(auto const& [id, memsto]: data_locs) {
+    if(memsto.is_mem()) {
+      mem_t const& mem = memsto.get_mem();
+      allocator.allocate_at_without_deps(mem.offset, mem.size);
+    }
+  }
+
+  for(auto const& [tid, tensor]: data) {
+    memsto_t memsto;
+
+    auto maybe_offset = allocator.try_to_allocate_without_deps(tensor->size);
+
+    // 1. copy the data over
+    // 2. fill out memsto with where the copied data is
+    if(maybe_offset) {
+      auto const& offset = maybe_offset.value();
+
+      std::copy(
+        tensor->data,
+        tensor->data + tensor->size,
+        mem->data + offset);
+
+      memsto = memsto_t(mem_t {
+        .offset = offset,
+        .size = tensor->size
+      });
+    } else {
+      int id = 1 + storage.get_max_id();
+
+      storage.write(tensor, id);
+
+      memsto = memsto_t(id);
+    }
+
+    auto [_, did_insert] = data_locs.insert({tid, memsto});
+    if(!did_insert) {
+      throw std::runtime_error("this tid is already in data locs");
+    }
+  }
 }
 
 void cpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
-  // TODO
+  for(auto const& tid: tids) {
+    auto iter = data_locs.find(tid);
+    if(iter == data_locs.end()) {
+      throw std::runtime_error("no tid to delete");
+    }
+
+    memsto_t const& memsto = iter->second;
+    if(memsto.is_mem()) {
+      // nothing to do
+    } else {
+      int const& id = memsto.get_sto();
+      storage.remove(id);
+    }
+
+    data_locs.erase(iter);
+  }
 }
 

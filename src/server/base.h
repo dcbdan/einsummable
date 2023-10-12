@@ -149,9 +149,6 @@ struct server_mg_base_t : server_base_t {
     vector<vector<std::array<int, 2>>> const& remaps) = 0;
   virtual void storage_remap_client() = 0;
 
-  virtual vector<uint64_t> recv_mem_sizes() = 0;
-  virtual void send_mem_sizes() = 0;
-
   virtual void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc) = 0;
   virtual void rewrite_data_locs_client() = 0;
   // }}}

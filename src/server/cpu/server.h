@@ -26,9 +26,6 @@ struct cpu_mg_server_t : server_mg_base_t
     vector<vector<std::array<int, 2>>> const& remaps);
   void storage_remap_client();
 
-  vector<uint64_t> recv_mem_sizes();
-  void send_mem_sizes();
-
   void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc);
   void rewrite_data_locs_client();
   // }}}

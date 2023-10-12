@@ -121,7 +121,7 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<uint64_t> mem_sizes = {},
     // NOTE: this got changed to satisfy the GPU alignment
-    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
+    allocator_settings_t settings = allocator_settings_t::default_settings());
 
   static
   tuple<
