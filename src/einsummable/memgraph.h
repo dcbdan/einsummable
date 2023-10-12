@@ -651,3 +651,162 @@ struct memgraph_make_state_t {
 // every tensor can be moved (evicted, put into different memory, ect).
 
 
+struct memgraph_make_state_t2 {
+  memgraph_make_state_t2(
+    taskgraph_t const& taskgraph,
+    vector<int> const& which_storage,
+    vector<allocator_t> const& empty_allocators,
+    map<int, memstoloc_t>& input_tid_to_data,
+    int num_compute,
+    int num_storage,
+    bool use_storage);
+
+  using op_t         = memgraph_t::op_t;
+  using inputmem_t   = memgraph_t::inputmem_t;
+  using inputsto_t   = memgraph_t::inputsto_t;
+  using apply_t      = memgraph_t::apply_t;
+  using move_t       = memgraph_t::move_t;
+  using partialize_t = memgraph_t::partialize_t;
+  using alloc_t      = memgraph_t::alloc_t;
+  using del_t        = memgraph_t::del_t;
+  using evict_t      = memgraph_t::evict_t;
+  using load_t       = memgraph_t::load_t;
+
+  void initialize_input(int inn);
+
+  bool input_has_been_initialized(int inn);
+
+  void add_to_memgraph(
+    std::variant<_which_node_t, _which_touch_t> const& which_op);
+
+  // This calls add to memgraph for every op, but also sets up all metadata
+  // for eviction and loading
+  void process(
+    vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops);
+
+  int get_group_at(int task_id, int unit_id);
+
+  // At the end of this call, these tensors should be in memory. If they can't
+  // all be in memory, then an error is thrown. If the tensor isn't yet created,
+  // a tensor of the correct size is allocated.
+  vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
+
+  // Load as many tensors as possible, with a maximum number of bytes
+  // loaded at hint.
+  // The algorihtm is:
+  //   1. find all tensors in storage less than size hint and will
+  //      be used again
+  //   2. load the tensor that is used earliest
+  //   3. decrement hint and recurse
+  // If allocation fails or there are no tensors smaller than
+  // hint, stop.
+  void load_tensors_until(int loc, uint64_t hint);
+
+  // find the tid that
+  // 1. is bigger than size and
+  // 2. not in `cannot_evict` and
+  // 3. will be used latest into the future among tids that
+  //    satisfy 1 and 2
+  optional<int> find_victim(int loc, uint64_t size, vector<int> cannot_evict = {});
+  // If not tensors satisfy 1 and 2, return None.
+
+  // Insert an allocate node and return the alloc_t mem id
+  int allocate_with_evict(
+    int loc, uint64_t size,
+    vector<int> cannot_evict = {});
+
+  optional<int> allocate_without_evict(int loc, uint64_t size);
+
+  // push this tensor onto memory
+  void evict_tensor(int tid);
+
+  // load tid into memory, possibly evicting tensors.
+  // Don't evict any items in cannot_evict
+  void load_tensor_with_evict(int tid, vector<int> cannot_evict = {});
+
+  // if this cannot allocate memory, will return false
+  bool load_tensor_without_evict(int tid);
+
+  void _load_tensor_helper(int tid, int alloc_mid);
+
+  // TODO: where should tensor donation occur?
+
+  // this tensor was used, see if you can free the memory
+  void register_usage(int task_id);
+
+  // A bunch of helper methods to modify
+  //   task_tensor_to_mem_node,
+  //   tensors_on_memory,
+  //   tensors_on_storage
+  void task_tensor_to_mem_node_insert_on_storage(int tid, int mid);
+  void task_tensor_to_mem_node_insert_on_memory(int tid, int mid);
+  void _task_tensor_to_mem_node_insert(int tid, int mid);
+
+  void task_tensor_to_mem_node_update_on_storage(int tid, int mid);
+  void task_tensor_to_mem_node_update_on_memory(int tid, int mid);
+  void _task_tensor_to_mem_node_update(int tid, int mid);
+
+  void task_tensor_to_mem_node_erase_on_storage(int tid);
+  void task_tensor_to_mem_node_erase_on_memory(int tid);
+  void _task_tensor_to_mem_node_erase(int tid);
+
+  taskgraph_t const& taskgraph;
+
+  memgraph_t memgraph;
+
+  vector<allocator_t> allocators;
+
+  int _group;
+  map<tuple<int,int>, int> to_group;
+
+  bool const use_storage;
+
+  // A mapping from partialize id to all apply memids doing a touch
+  map<int, vector<int>> partializes_in_progress;
+
+  // These objects should tend to be updated together {{{
+  // Mappings from the taskgraph tensor to the corresponding
+  // mem graph node. This gets updated as tensors get evicted,
+  // and fully computed.
+  map<int, int> task_tensor_to_mem_node;
+
+  // these are all the tensors (represented as tids) that are in storage
+  set<int> tensors_on_storage;
+
+  // tensors_on_memory is a map from tid to all of the mids that have used
+  // that tensor while it has been in memory.
+  map<int, set<int>> tensors_on_memory;
+  // }}}
+
+  // A mapping from (apply || move) taskgraph node to the corresponding
+  // apply or move
+  map<_which_node_t, int> task_node_to_mem_node;
+  // A mapping form a taskgraph touch to the corresponding apply
+  map<_which_touch_t, int> task_touch_to_mem_node;
+
+  vector<int> remaining_usage_counts;
+
+  // This contains tensors who have been donated
+  // to another node
+  set<int> donated;
+
+  int _sto_id;
+
+  // A mapping from input tid to where it's stored initially
+  map<int, memstoloc_t>& input_tid_to_data;
+
+  struct order_state_t {
+    // For each tid, when is it used
+    vector<set<int>> when_used;
+
+    // any usage less than this may get removed
+    int threshold;
+
+    // Return the next time a tensor is "used".
+    // An tid is "used" at each t in when_used[tid] provided t >= threshold.
+    int get(int tid);
+    // This method may update when_used; it is assumed that threshold is only
+    // increased.
+  };
+  optional<order_state_t> order_state;
+};
