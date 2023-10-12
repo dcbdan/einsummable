@@ -212,7 +212,9 @@ exec_graph_t create_repartition_execgraph(
   for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
     auto const& node = taskgraph.nodes[tid];
     if(node.op.is_input()) {
-      // nothing to do
+      op_ptr_t op(new dummy_t());
+      int eid = graph.insert(op, {});
+      tid_to_eid.insert({tid, eid});
     } else if(node.op.is_move()) {
       auto const& [src,dst,inn_tid,size] = node.op.get_move();
       if(src == this_rank) {
@@ -249,7 +251,10 @@ exec_graph_t create_repartition_execgraph(
         vector<int> tmp_eids;
         for(auto const& [inn_tid, touch]: touches_from) {
           op_ptr_t op(new rp_touch_t(touch, tid, inn_tid));
-          int tmp_eid = graph.insert(op, { inn_tid });
+
+          int inn_eid = tid_to_eid.at(inn_tid);
+          int tmp_eid = graph.insert(op, { inn_eid });
+
           tmp_eids.push_back(tmp_eid);
         }
 

@@ -15,6 +15,8 @@ tuple<graph_t, vector<placement_t>> build_graph_pls(
   int world_size, int argc, char** argv);
 
 int main(int argc, char** argv) {
+  set_default_dtype(dtype_t::f64);
+
   if(argc < 4) {
     usage();
     throw std::runtime_error("provide addr_zero is_client world_size");
@@ -39,8 +41,8 @@ int main(int argc, char** argv) {
       if(node.op.is_input()) {
         auto const& input = node.op.get_input();
         dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-        tensor.random("-0.01", "0.01");
-        //tensor.ones();
+        //tensor.random("-0.01", "0.01");
+        tensor.ones();
         server.insert_tensor(gid, pls[gid], tensor);
       }
     }
