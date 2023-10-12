@@ -112,6 +112,18 @@ struct global_buffers_t
 
   static desc_ptr_t make_desc() { return rm_template_t::make_desc(0); }
 
+  static desc_ptr_t make_desc(int device){
+    return rm_template_t::make_desc(device);
+  } 
+  
+  static desc_ptr_t make_multi_desc(std::vector<int> const& whichs) {
+    vector<desc_ptr_t> ret;
+    for(auto which: whichs) {
+      ret.push_back(rm_template_t::make_desc(which));
+    }
+    return resource_manager_t::make_desc(ret);
+  }
+
 private:
   optional<void*> try_to_acquire_impl(int const& which) {
     return ptrs.at(which);

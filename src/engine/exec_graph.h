@@ -5,12 +5,16 @@
 
 #include "../einsummable/memgraph.h"
 
+// RM this; used to show compile messages
+// #define GPU_EXEC
+
 #ifdef CPU_EXEC
 #include "cpu/kernel_executor.h"
 #endif
 
 #ifdef GPU_EXEC
 #include "gpu/gpu_kernel_manager.h"
+#include "gpu/gpu_communicator.h"
 #endif
 
 struct exec_graph_t {
@@ -26,14 +30,15 @@ struct exec_graph_t {
 #endif
 
 #ifdef GPU_EXEC
-  exec_graph_t(kernel_manager_t& km)
-    : gpu_km(km)
+  exec_graph_t(kernel_manager_t& km, gpu_comm_t& gc)
+    : gpu_km(km), gpu_comm(gc)
   {}
 
   static exec_graph_t make_gpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
-    kernel_manager_t& gpu_km);
+    kernel_manager_t& gpu_km,
+    gpu_comm_t& gpu_comm);
 #endif
 
   struct op_base_t {
@@ -202,7 +207,7 @@ struct exec_graph_t {
     void print(std::ostream& out) const {
       out << "recv {id = " << id  << "}";
     }
-  };
+  };  
 
 #ifdef CPU_EXEC
   // When compiling exec graphs, einsummable nodes are built into
@@ -216,6 +221,7 @@ struct exec_graph_t {
 
 #ifdef GPU_EXEC
   kernel_manager_t& gpu_km;
+  gpu_comm_t gpu_comm;
 #endif
 
 private:

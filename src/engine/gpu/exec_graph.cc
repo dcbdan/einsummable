@@ -1,18 +1,17 @@
 #include "exec_nodes.h"
 #include "../exec_graph.h"
-#include "gpu_kernel_manager.h"
 #include "workspace.h"
 #include "utility.h"
 
 
 // TODO: have a stream pool implementation once creating a stream on fly works
-exec_graph_t
-exec_graph_t::make_gpu_exec_graph(
+exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
-  kernel_manager_t& gpu_km)
+  kernel_manager_t& gpu_km,
+  gpu_comm_t& gpu_comm)
 {
-  exec_graph_t graph(gpu_km);
+  exec_graph_t graph(gpu_km, gpu_comm);
 
   map<int, int> mid_to_eid;
 
@@ -67,7 +66,7 @@ exec_graph_t::make_gpu_exec_graph(
         if(!maybe_registered) {
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
-        op->worksize = maybe_registered.value();
+        op->workspace_size = maybe_registered.value().value();
 
         // insert into the graph
         insert(op_ptr_t(op), mid);
@@ -92,9 +91,7 @@ exec_graph_t::make_gpu_exec_graph(
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
-      gpu_copy_t* op = new gpu_copy_t(
-        .move = node.op.get_move()
-      );
+      gpu_copy_t* op = new gpu_copy_t(node.op.get_move(), gpu_comm);
       insert(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
@@ -112,10 +109,13 @@ desc_ptr_t
 gpu_einsummable_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
-  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(global_buffers_t::make_desc(device));
 
-  if (worksize.value() > 0) {
-    ret.emplace_back(workspace_t::make_desc(worksize.value()));
+  if (workspace_size > 0) {
+    gpu_workspace_desc_t workspace_desc;
+    workspace_desc.device = device;
+    workspace_desc.size = workspace_size;
+    ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
   }
 
   return resource_manager_t::make_desc(ret);
@@ -241,11 +241,11 @@ void gpu_touch_t::launch(
 desc_ptr_t
 gpu_copy_t::resource_description() const
 {
-  return resource_manager_t::make_desc(
-    vecotr<desc_ptr_t>(
-      global_buffers_t::make_desc()
-    )
-  );
+  auto my_move = move;
+  auto [src_loc, src_offset] = my_move.src;
+  auto [dst_loc, dst_offset] = my_move.dst;
+
+  return global_buffers_t::make_multi_desc({src_loc, dst_loc});
 }
 
 void gpu_copy_t::launch(
@@ -255,15 +255,30 @@ void gpu_copy_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+  auto all_buffers_rsrc = resource_manager_t::get_resource(resources[0]);
+  auto src_buffer = global_buffers_t::get_resource(all_buffers_rsrc[0]);
+  auto dst_buffer = global_buffers_t::get_resource(all_buffers_rsrc[1]);
 
-  void* out_mem = increment_void_ptr(
-    global_buffer,
-    mems[0].offset);
+  auto [src_loc, src_offset] = move.src;
+  auto [dst_loc, dst_offset] = move.dst;
 
-  void const* inn_mem = increment_void_ptr(
-    global_buffer,
-    mems[1].offset);
+  void* src_mem = increment_void_ptr(
+    src_buffer,
+    src_offset);
 
-  // TODO: do the actual thing here
+  void* dst_mem = increment_void_ptr(
+    dst_buffer,
+    dst_offset);
+
+  cudaSetDevice(src_loc);
+  cudaStream_t stream = cuda_create_stream();
+  cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
+  if (cudaError != cudaSuccess) {
+    // print cpy size
+    fprintf(stderr, "cpy size: %zu\n", move.size);
+    // print the error code and error string
+    fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
+    throw std::runtime_error("cudaMemcpy failed");
+  }
+  // gpu_comm.send(dst_mem, src_mem, move.size, stream);
 }
