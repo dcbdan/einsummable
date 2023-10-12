@@ -18,10 +18,10 @@ gpu_workspace_manager_t::try_to_acquire_impl(
 
   auto const& [device, size] = desc;
 
-  if(data.size() < gpu + 1) {
-    data.resize(gpu+1);
+  if(data.size() < device + 1) {
+    data.resize(device+1);
   }
-  auto& data_here = data[gpu];
+  auto& data_here = data[device];
 
   for(auto iter = data_here.begin(); iter != data_here.end(); ++iter) {
     auto const& [mem,size_] = *iter;
@@ -31,11 +31,11 @@ gpu_workspace_manager_t::try_to_acquire_impl(
         .device = device,
         .ptr = mem,
         .size = size_
-      }
+      };
     }
   }
 
-  handle_cuda_error(cudaSetDevice(gpu));
+  handle_cuda_error(cudaSetDevice(device));
 
   void* mem;
   handle_cuda_error(cudaMalloc(&mem, size));
@@ -53,7 +53,7 @@ void gpu_workspace_manager_t::release_impl(
   gpu_workspace_resource_t const& resource)
 {
   std::unique_lock lk(m);
-  auot const& [device, ptr, size];
+  auto const& [device, ptr, size];
   data[device].emplace_back(mem, sz);
 }
 

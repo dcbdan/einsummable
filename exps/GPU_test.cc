@@ -6,9 +6,16 @@
 
 #include "GPU_correctness.cc"
 
+#include "../src/engine/exec_state.h"
+#include "../src/engine/exec_graph.h"
+#include "../src/engine/resource_manager.h"
+#include "../src/engine/communicator.h"
+#include "../src/engine/gpu/workspace.h"
+
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <vector>
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -108,6 +115,56 @@ void execute_compile_from_taskgraph(taskgraph_t const& taskgraph) {
     }
     
     execute_multi_gpu_test(memgraph);
+  }
+}
+
+memgraph_t taskgraph_to_memgraph(taskgraph_t const& taskgraph) {
+  // it could be the case that not all locs are actually used,
+  // for example 1 1 2 100 100 100 88
+  // Here only 2 locs will really be used, not all 88...
+  int np = taskgraph.num_locs();
+
+  // have everyone share the same cache
+  vector<int> compute_loc_to_cache(np, 0);
+
+  size_t allocator_size = 6lu * 1024lu * 1024lu * 1024lu;
+
+  vector<uint64_t> mem_sizes;
+
+  for (int i = 0; i < np; ++i){
+    mem_sizes.push_back(allocator_size);
+  }
+
+  {
+    tuple<map<int, mem_t>, // input -> mem
+          map<int, mem_t>, // save -> mem
+          memgraph_t>
+        _info1 = memgraph_t::make_without_evict(
+            taskgraph, mem_sizes,
+            {allocator_strat_t::lowest_dependency, 4});
+    auto const &[_2, _3, memgraph] = _info1;
+
+    std::cout << "Printing to mm3d_mem_lowest_dep.gv" << std::endl;
+    std::ofstream f("mm3d_mem_lowest_dep.gv");
+    memgraph.print_graphviz(f);
+
+    // Do some checks before we execute
+    for (int i = 0; i < np; ++i){
+      // check if the sizes of the memgraph is lower than what we have given
+      if (memgraph.mem_sizes()[i] > allocator_size) {
+        std::cout << "Error: the size of the memgraph is larger than the size "
+                    "given to the allocator"
+                  << std::endl;
+        exit(1);
+      }
+
+      // print the memgraph sizes on all gpus
+      std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
+
+      check_bounds(memgraph, memgraph.mem_sizes()[i]);
+    }
+    
+    return memgraph;
   }
 }
 
@@ -475,10 +532,75 @@ void dcb01() {
   execute_compile_from_taskgraph(taskgraph);
 }
 
+void execute_memgraph_gpu(
+  memgraph_t const& memgraph,
+  std::vector<void*> buffers)
+{
+  kernel_manager_t km;
+  gpu_comm_t comm;
+
+  exec_graph_t graph =
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, comm);
+
+  rm_ptr_t resource_manager(new resource_manager_t(
+    vector<rm_ptr_t> {
+      rm_ptr_t(new gpu_workspace_manager_t()),
+      rm_ptr_t(new group_manager_t()),
+      rm_ptr_t(new global_buffers_t(buffers))
+    }
+  ));
+
+  exec_state_t state(graph, resource_manager);
+
+  state.event_loop();
+}
+
+void engine_1(int argc, char** argv){
+  if (argc != 8) {
+    usage();
+    return;
+  }
+
+  int pi, pj, pk;
+  uint64_t di, dj, dk;
+  int np;
+  try {
+    pi = parse_with_ss<int>(argv[1]);
+    pj = parse_with_ss<int>(argv[2]);
+    pk = parse_with_ss<int>(argv[3]);
+    di = parse_with_ss<uint64_t>(argv[4]);
+    dj = parse_with_ss<uint64_t>(argv[5]);
+    dk = parse_with_ss<uint64_t>(argv[6]);
+    np = parse_with_ss<int>(argv[7]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    usage();
+    return;
+  }
+
+  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+
+  memgraph_t memgraph = taskgraph_to_memgraph(taskgraph);
+
+  auto num_gpu = memgraph.mem_sizes().size();
+  // allocate ptrs for gpu
+  std::vector<void*> gpu_ptrs;
+  auto mem_sizes = memgraph.mem_sizes();
+  for (int i = 0; i < num_gpu; ++i){
+    gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
+  }
+
+  DOUT("executing...");
+  execute_memgraph_gpu(memgraph, gpu_ptrs);
+  DOUT("executed.");
+}
+
 int main(int argc, char **argv) {
 //  // main_ff();
 //  // main_matmul(argc, argv);
- main_matmul_multi_gpu(argc, argv);
+//  main_matmul_multi_gpu(argc, argv);
 //  // contractionTest2();
 //  return 0;
 
@@ -486,4 +608,5 @@ int main(int argc, char **argv) {
   //mm_test2();
   //mm_test();
   // dcb01();
+  engine_1(argc, argv);
 }

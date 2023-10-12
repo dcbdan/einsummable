@@ -158,6 +158,20 @@ if(${GPU_EXECUTION_ENGINE})
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
   include_directories(${PROJECT_SOURCE_DIR}/src/execution/gpu)
+  include_directories(${PROJECT_SOURCE_DIR}/src/engine)
+  include_directories(${PROJECT_SOURCE_DIR}/src/engine/gpu)
+
+  add_compile_definitions(GPU_EXEC)
+
+  # add ucx dependency
+  # define UCX_PATH below
+  SET(UCX_PATH "/opt/ucx")
+  if(NOT DEFINED UCX_PATH)
+    message( SEND_ERROR "Pleased define UCX_PATH")
+  endif()
+  set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
+  include_directories(${UCX_PATH}/include)
+  find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
   # set the right architecture
   include(FindCUDA/select_compute_arch)
@@ -171,6 +185,8 @@ if(${GPU_EXECUTION_ENGINE})
 
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
   file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
+  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
+  file(GLOB GP_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cc)
 
   add_library(cutensor SHARED IMPORTED)
   set_target_properties(cutensor PROPERTIES
@@ -185,6 +201,8 @@ if(${GPU_EXECUTION_ENGINE})
     ${AP_FILES}
     ${CP_FILES}
     ${CU_FILES}
+    ${EG_FILES}
+    ${GP_FILES}
   )
 
   function(add_gpu_application exec dir filename)
@@ -198,13 +216,14 @@ if(${GPU_EXECUTION_ENGINE})
     cutensor
     cudart
     cublasLt
-    cublas)
+    cublas
+    ucx::ucp ucx::ucs)
 
   endfunction()
 
   # call add_gpu_application here
   ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
-  add_gpu_application("test_alignment"  "exps" "test_alignment")
+  # add_gpu_application("test_alignment"  "exps" "test_alignment")
 
   add_gpu_application("basicTest" "exps" "GPU_test")
   # add_gpu_application("ffTest" "exps" "GPU_ff_test")

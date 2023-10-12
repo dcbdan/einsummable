@@ -522,11 +522,11 @@ void multi_gpu_execute_state_t::run_stream_pool() {
             },
             static_cast<void *>(data), 0);
       }
-      else if (node.is_evict()) {
+      else if (node.op.is_evict()) {
         // TODO: implement evict
         throw std::runtime_error("Error: Operation not supported: Evict");
       }
-      else if (node.is_load()){
+      else if (node.op.is_load()){
         // TODO: implement load
         throw std::runtime_error("Error: Operation not supported: Load");
       }
@@ -736,11 +736,11 @@ void multi_gpu_execute_state_t::run_create_stream() {
               delete data;
             },
             static_cast<void *>(data), 0);
-      } else if (node.is_evict()) {
+      } else if (node.op.is_evict()) {
         // TODO: implement evict
         throw std::runtime_error("Error: Operation not supported: Evict");
       }
-      else if (node.is_load()){
+      else if (node.op.is_load()){
         // TODO: implement load
         throw std::runtime_error("Error: Operation not supported: Load");
       }
