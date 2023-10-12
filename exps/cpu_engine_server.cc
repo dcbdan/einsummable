@@ -58,6 +58,8 @@ int main(int argc, char** argv) {
         DOUT("gid sum is: " << tensor.sum());
       }
     }
+
+    server.shutdown();
   } else {
     server.listen();
   }

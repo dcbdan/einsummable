@@ -2736,6 +2736,22 @@ int taskgraph_t::op_t::out_loc() const {
   throw std::runtime_error("should not reach: out_loc");
 }
 
+bool taskgraph_t::op_t::is_local_to(int loc) const {
+  if(is_input()) {
+    return get_input().loc == loc;
+  }
+  if(is_apply()) {
+    return get_apply().loc == loc;
+  }
+  if(is_move()) {
+    return get_move().src == loc || get_move().dst == loc;
+  }
+  if(is_partialize()) {
+    return get_partialize().loc == loc;
+  }
+  throw std::runtime_error("should not reach: is_local_to");
+}
+
 vector<vector<tuple<int, touch_t>>>
 taskgraph_t::partialize_t::as_touches_from() const {
   vector<vector<tuple<int, touch_t>>> rets;

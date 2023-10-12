@@ -38,6 +38,9 @@ private:
     for(auto const& [tid, size]: info) {
       auto iter = data.find(tid);
       if(iter == data.end()) {
+        if(size == 0) {
+          throw std::runtime_error("size is zero for datamap allocate");
+        }
         // assumption: allocating doesn't take that long
         ret.push_back(make_buffer(size));
         data.insert({tid, ret.back()});
@@ -108,11 +111,12 @@ struct rp_touch_t : exec_graph_t::op_base_t {
 // but with the datamap instead of global buffers
 
 struct rp_send_t : exec_graph_t::op_base_t {
-  rp_send_t(int a, int b)
-    : tid(a), dst(b)
+  rp_send_t(int a, int b, int c)
+    : src_tid(a), dst_tid(b), dst(c)
   {}
 
-  int tid;
+  int src_tid;
+  int dst_tid;
   int dst;
 
   void launch(resource_ptr_t rsrc, std::function<void()> callback) const {
@@ -126,7 +130,7 @@ struct rp_send_t : exec_graph_t::op_base_t {
     buffer_t buffer = datamap_manager_t::get_resource(resources[2])[0];
 
     std::thread t([this, notifier, wire, buffer, callback] {
-      notifier->notify_send_ready(this->dst, this->tid, wire.get_channel());
+      notifier->notify_send_ready(this->dst, this->dst_tid, wire.get_channel());
 
       wire.send(buffer->raw(), buffer->size);
 
@@ -141,22 +145,22 @@ struct rp_send_t : exec_graph_t::op_base_t {
       vector<desc_ptr_t> {
         notifier_t::make_desc(unit_t{}),
         channel_manager_t::make_desc({ true, dst }),
-        datamap_manager_t::make_desc(tid)
+        datamap_manager_t::make_desc(src_tid)
       }
     );
   }
 
   void print(std::ostream& out) const {
-    out << "rp_send_t";
+    out << "rp_send_t {id = " << dst_tid << "}";
   }
 };
 
 struct rp_recv_t : exec_graph_t::op_base_t {
   rp_recv_t(int a, uint64_t b, int c)
-    : tid(a), size(b), src(c)
+    : dst_tid(a), size(b), src(c)
   {}
 
-  int tid;
+  int dst_tid;
   uint64_t size;
   int src;
 
@@ -166,12 +170,16 @@ struct rp_recv_t : exec_graph_t::op_base_t {
 
     notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-    auto const& wire = channel_manager_t::get_resource(resources[1]);
+    buffer_t buffer = datamap_manager_t::get_resource(resources[1])[0];
 
-    buffer_t buffer = datamap_manager_t::get_resource(resources[2])[0];
+    auto const& wire = channel_manager_t::get_resource(resources[2]);
+
+    if(buffer->size != size) {
+      throw std::runtime_error("how come buffer has incorrect size?");
+    }
 
     std::thread t([this, notifier, wire, buffer, callback] {
-      int channel = notifier->get_channel(this->tid);
+      int channel = notifier->get_channel(this->dst_tid);
 
       wire.recv(buffer->raw(), this->size, channel);
 
@@ -185,14 +193,14 @@ struct rp_recv_t : exec_graph_t::op_base_t {
     return resource_manager_t::make_desc(
       vector<desc_ptr_t> {
         notifier_t::make_desc(unit_t{}),
-        datamap_manager_t::make_desc(tid),
+        datamap_manager_t::make_desc(dst_tid, size),
         channel_manager_t::make_desc({ false, src })
       }
     );
   }
 
   void print(std::ostream& out) const {
-    out << "rp_recv_t";
+    out << "rp_recv_t {id = " << dst_tid << "}";
   }
 };
 
@@ -211,6 +219,11 @@ exec_graph_t create_repartition_execgraph(
 
   for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
     auto const& node = taskgraph.nodes[tid];
+
+    if(!node.op.is_local_to(this_rank)) {
+      continue;
+    }
+
     if(node.op.is_input()) {
       op_ptr_t op(new dummy_t());
       int eid = graph.insert(op, {});
@@ -225,16 +238,13 @@ exec_graph_t create_repartition_execgraph(
           { inn_eid });
 
         int send_eid = graph.insert(
-          op_ptr_t(new rp_send_t(tid, dst)),
+          op_ptr_t(new rp_send_t(inn_tid, tid, dst)),
           { recv_ready_eid });
-
-        tid_to_eid.insert({tid, send_eid});
       } else if(dst == this_rank) {
-        int inn_eid = tid_to_eid.at(inn_tid);
-
         int recv_ready_eid = graph.insert(
           op_ptr_t(new notify_recv_ready_t(tid, src)),
-          { inn_eid });
+          {} // no deps: always ready to recv
+        );
 
         int recv_eid = graph.insert(
           op_ptr_t(new rp_recv_t(tid, size, src)),
@@ -242,29 +252,28 @@ exec_graph_t create_repartition_execgraph(
 
         tid_to_eid.insert({tid, recv_eid});
       } else {
-        // nothing to do
+        throw std::runtime_error("should not reach: move not local");
       }
     } else if(node.op.is_partialize()) {
-      if(node.op.out_loc() == this_rank) {
-        auto const& touches_from = node.op.get_partialize().as_touches_from_flat();
+      auto const& touches_from = node.op.get_partialize().as_touches_from_flat();
 
-        vector<int> tmp_eids;
-        for(auto const& [inn_tid, touch]: touches_from) {
-          op_ptr_t op(new rp_touch_t(touch, tid, inn_tid));
+      vector<int> tmp_eids;
+      for(auto const& [inn_tid, touch]: touches_from) {
+        op_ptr_t op(new rp_touch_t(touch, tid, inn_tid));
 
-          int inn_eid = tid_to_eid.at(inn_tid);
-          int tmp_eid = graph.insert(op, { inn_eid });
+        int inn_eid = tid_to_eid.at(inn_tid);
+        int tmp_eid = graph.insert(op, { inn_eid });
 
-          tmp_eids.push_back(tmp_eid);
-        }
-
-        op_ptr_t dummy_op(new dummy_t());
-        int eid = graph.insert(dummy_op, tmp_eids);
-
-        tid_to_eid.insert({tid, eid});
-      } else {
-        // this partialize does not happen here, nothing to do
+        tmp_eids.push_back(tmp_eid);
       }
+
+      int eid = tmp_eids[0];
+      if(tmp_eids.size() > 1) {
+        op_ptr_t dummy_op(new dummy_t());
+        eid = graph.insert(dummy_op, tmp_eids);
+      }
+
+      tid_to_eid.insert({tid, eid});
     } else {
       throw std::runtime_error(
         "repartition exec graph only supports input, move and partialize"
@@ -305,6 +314,7 @@ void repartition(
     data, remap_gid, gid_to_inn, _remap, this_rank);
 
   exec_graph_t execgraph = create_repartition_execgraph(this_rank, taskgraph);
+
   rm_ptr_t resource_manager = create_repartition_resource_manager(comm, data);
 
   exec_state_t state(execgraph, resource_manager);

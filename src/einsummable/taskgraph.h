@@ -284,6 +284,8 @@ public:
 
     int out_loc() const;
 
+    bool is_local_to(int loc) const;
+
     uint64_t out_size() const;
 
     set<int> inputs() const;
