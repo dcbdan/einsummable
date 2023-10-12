@@ -120,7 +120,6 @@ struct memgraph_t {
   make_without_evict(
     taskgraph_t const& graph,
     vector<uint64_t> mem_sizes = {},
-    // NOTE: this got changed to satisfy the GPU alignment
     allocator_settings_t settings = allocator_settings_t::default_settings());
 
   static
@@ -433,7 +432,7 @@ struct allocator_t {
 
   allocator_t(
     uint64_t memsize_t,
-    allocator_settings_t settings = allocator_settings_t::gpu_alignment_settings());
+    allocator_settings_t settings = allocator_settings_t::default_settings());
 
   // Allocate this much memory if possible and return the offset and all dependents.
   // If there is not free memory of this size, none is returned.

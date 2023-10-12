@@ -88,8 +88,10 @@ private:
 // This is a server_base object but it executes all taskgraphs by first
 // converting them into memgraphs.
 struct server_mg_base_t : server_base_t {
-  server_mg_base_t(communicator_t& c)
-    : comm(c)
+  server_mg_base_t(
+    communicator_t& c,
+    allocator_settings_t s = allocator_settings_t::default_settings())
+    : comm(c), alloc_settings(s)
   {}
 
   void listen();
@@ -125,11 +127,6 @@ struct server_mg_base_t : server_base_t {
 
   map<int, buffer_t> local_copy_source_data(remap_relations_t const& remap);
 
-  // mapping from tid to where the data lives
-  map<int, memsto_t> data_locs;
-
-  allocator_settings_t alloc_settings;
-
   // server, client pairs {{{
   void execute_tg_server(taskgraph_t const& taskgraph);
   void execute_tg_client();
@@ -160,7 +157,14 @@ struct server_mg_base_t : server_base_t {
     map<int, memstoloc_t> const& full_data_locs,
     map<int, memstoloc_t> const& inn_tg_to_loc);
 
+public:
+  // mapping from tid to where the data lives
+  map<int, memsto_t> data_locs;
+
+  allocator_settings_t alloc_settings;
+
   communicator_t& comm;
+
 private:
   map<string, std::function<void(server_base_t*)>> listeners;
 

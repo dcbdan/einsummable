@@ -38,7 +38,6 @@ private:
 
   buffer_t mem;
   cpu_storage_t storage;
-  map<int, memsto_t> data_locs;
 
   cpu_kernel_executor_t kernel_executor;
 };

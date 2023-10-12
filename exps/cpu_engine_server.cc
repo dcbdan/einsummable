@@ -21,15 +21,15 @@ int main(int argc, char** argv) {
   }
 
   string addr_zero = parse_with_ss<string>(argv[1]);
-  bool is_server = parse_with_ss<int>(argv[2]) == 0;
+  bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
-  communicator_t communicator(addr_zero, is_server, world_size);
+  communicator_t communicator(addr_zero, is_rank_zero, world_size);
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
 
   cpu_mg_server_t server(communicator, mem_size);
 
-  if(is_server) {
+  if(is_rank_zero) {
     // execute this
     auto [graph, pls] = build_graph_pls(world_size, argc - 4, argv + 4);
 
@@ -39,7 +39,8 @@ int main(int argc, char** argv) {
       if(node.op.is_input()) {
         auto const& input = node.op.get_input();
         dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-        tensor.random("-0.00001", "0.00001");
+        tensor.random("-0.01", "0.01");
+        //tensor.ones();
         server.insert_tensor(gid, pls[gid], tensor);
       }
     }
