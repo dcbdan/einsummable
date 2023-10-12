@@ -54,6 +54,27 @@ void server_base_t::insert_tensor(
   gid_map.insert({gid, dst_relation});
 }
 
+void server_base_t::insert_tensor(
+  int gid,
+  placement_t const& pl,
+  dbuffer_t src_tensor)
+{
+  // get some new tids to use in the relation
+  int t = get_max_tid() + 1;
+
+  vtensor_t<int> tids(pl.block_shape());
+  vector<int>& ts = tids.get();
+  std::iota(ts.begin(), ts.end(), t);
+
+  relation_t relation {
+    .dtype = src_tensor.dtype,
+    .placement = pl,
+    .tids = tids
+  };
+
+  insert_tensor(gid, relation, src_tensor);
+}
+
 void server_base_t::remap(
   map<int, relation_t> const& gid_to_new_relations)
 {

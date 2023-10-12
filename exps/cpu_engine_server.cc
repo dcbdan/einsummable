@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
         auto const& input = node.op.get_input();
         dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
         tensor.random("-0.00001", "0.00001");
-        /////// server.insert_tensor(gid, pls[gid], tensor); // TODO: implement this into base server
+        server.insert_tensor(gid, pls[gid], tensor);
       }
     }
 

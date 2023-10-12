@@ -47,6 +47,11 @@ struct server_base_t {
     int gid,
     relation_t const& dst_relation,
     dbuffer_t src_tensor);
+  void insert_tensor(
+    int gid,
+    placement_t const& placement,
+    dbuffer_t src_tensor);
+
   virtual void insert_relation(
     relation_t const& dst_relation,
     dbuffer_t src_tensor) = 0;
