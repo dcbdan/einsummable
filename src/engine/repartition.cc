@@ -217,7 +217,7 @@ exec_graph_t create_repartition_execgraph(
 
   map<int, int> tid_to_eid;
 
-  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+  for(auto const& tid: taskgraph.get_order()) {
     auto const& node = taskgraph.nodes[tid];
 
     if(!node.op.is_local_to(this_rank)) {
