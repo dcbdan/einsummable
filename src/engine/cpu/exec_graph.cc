@@ -167,8 +167,7 @@ cpu_einsummable_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc());
-
-  // TODO: insert threadpool resource description
+  ret.emplace_back(threadpool_manager_t::make_desc());
 
   if(workspace_size > 0) {
     ret.emplace_back(cpu_workspace_manager_t::make_desc(workspace_size));
@@ -185,6 +184,8 @@ void cpu_einsummable_t::launch(
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
@@ -199,14 +200,10 @@ void cpu_einsummable_t::launch(
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
-    maybe_workspace = cpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
+    maybe_workspace = cpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
   }
 
-  // TODO use threadpool resource.
-
-  // But since we're not using a threadpool resource, we're just going
-  // to launch a thread and let it float in the wind by calling detach
-  std::thread thread(
+  thread_resource.launch(
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
@@ -214,8 +211,6 @@ void cpu_einsummable_t::launch(
     });
   // Note: capturing this under the assumption that the exec_graph will not
   //       change and invalidate the this pointer
-
-  thread.detach();
 }
 
 desc_ptr_t
@@ -224,8 +219,7 @@ cpu_touch_t::resource_description() const
   vector<desc_ptr_t> ret;
 
   ret.emplace_back(global_buffers_t::make_desc());
-
-  // TODO add threadpool resource description
+  ret.emplace_back(threadpool_manager_t::make_desc());
 
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::make_desc(group_id));
@@ -243,6 +237,8 @@ void cpu_touch_t::launch(
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
@@ -253,7 +249,7 @@ void cpu_touch_t::launch(
 
   bool is_first = false;
   if(group_id >= 0) {
-    tuple<int, bool> const& info = group_manager_t::get_resource(resources[1]);
+    tuple<int, bool> const& info = group_manager_t::get_resource(resources[2]);
     is_first = std::get<1>(info);
   }
 
@@ -263,16 +259,10 @@ void cpu_touch_t::launch(
     this_touch.castable = std::nullopt;
   }
 
-  // TODO use threadpool resource.
-
-  // But since we're not using a threadpool resource, we're just going
-  // to launch a thread and let it float in the wind by calling detach
-  std::thread thread([this, callback, this_touch, out_mem, inn_mem] {
+  thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
     cpu_executor(this_touch, out_mem, inn_mem);
     callback();
   });
-
-  thread.detach();
 }
 
 desc_ptr_t

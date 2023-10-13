@@ -48,24 +48,3 @@ void resource_manager_t::release_unit(
   throw std::runtime_error("should not reach: release unit");
 }
 
-optional<tuple<int, bool>>
-group_manager_t::try_to_acquire_impl(int const& group_id) {
-  std::unique_lock lk(m);
-  if(busy_groups.count(group_id) == 0) {
-    busy_groups.insert(group_id);
-    bool is_first = seen_groups.count(group_id) == 0;
-    return tuple<int, bool>(group_id, is_first);
-  } else {
-    return std::nullopt;
-  }
-}
-
-void group_manager_t::release_impl(tuple<int, bool> const& info) {
-  auto const& [group_id, is_first] = info;
-  std::unique_lock lk(m);
-  if(!busy_groups.erase(group_id)) {
-    throw std::runtime_error("trying to release a group id that isn't busy");
-  }
-  seen_groups.insert(group_id);
-}
-

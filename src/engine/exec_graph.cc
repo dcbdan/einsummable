@@ -43,24 +43,24 @@ exec_graph_t::wait_recv_ready_t::resource_description() const {
 
 desc_ptr_t
 exec_graph_t::send_t::resource_description() const {
-  // TODO: need to grab a thread resource
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
       notifier_t::make_desc(unit_t{}),
       channel_manager_t::make_desc({ true, dst }),
-      global_buffers_t::make_desc()
+      global_buffers_t::make_desc(),
+      threadpool_manager_t::make_desc()
     }
   );
 }
 
 desc_ptr_t
 exec_graph_t::recv_t::resource_description() const {
-  // TODO: need to grab a thread resource
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
       notifier_t::make_desc(unit_t{}),
       channel_manager_t::make_desc({ false, src }),
-      global_buffers_t::make_desc()
+      global_buffers_t::make_desc(),
+      threadpool_manager_t::make_desc()
     }
   );
 }
@@ -109,7 +109,6 @@ exec_graph_t::send_t::launch(
   resource_ptr_t resource,
   std::function<void()> callback) const
 {
-  // TODO: use a thread resource
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(resource);
 
@@ -121,15 +120,15 @@ exec_graph_t::send_t::launch(
     global_buffers_t::get_resource(resources[2]),
     mem.offset);
 
-  std::thread thread([this, callback, notifier, wire, ptr] {
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
+
+  thread_resource.launch([this, callback, notifier, wire, ptr] {
     notifier->notify_send_ready(this->dst, this->id, wire.get_channel());
 
     wire.send(ptr, this->mem.size);
 
     callback();
   });
-
-  thread.detach();
 }
 
 void
@@ -137,7 +136,6 @@ exec_graph_t::recv_t::launch(
   resource_ptr_t resource,
   std::function<void()> callback) const
 {
-  // TODO: use a thread resource
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(resource);
 
@@ -149,13 +147,13 @@ exec_graph_t::recv_t::launch(
     global_buffers_t::get_resource(resources[2]),
     mem.offset);
 
-  std::thread thread([this, callback, notifier, wire, ptr] {
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
+
+  thread_resource.launch([this, callback, notifier, wire, ptr] {
     int channel = notifier->get_channel(this->id);
 
     wire.recv(ptr, this->mem.size, channel);
 
     callback();
   });
-
-  thread.detach();
 }

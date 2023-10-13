@@ -3,6 +3,8 @@
 
 #include "../base.h"
 
+#include "../../engine/threadpool.h"
+
 #include "../../engine/cpu/kernel_executor.h"
 #include "../../engine/cpu/storage.h"
 
@@ -10,8 +12,9 @@ struct cpu_mg_server_t : server_mg_base_t
 {
   cpu_mg_server_t(
     communicator_t& c,
-    uint64_t buffer_size)
-    : server_mg_base_t(c), mem(make_buffer(buffer_size))
+    uint64_t buffer_size,
+    int num_threads)
+    : server_mg_base_t(c), mem(make_buffer(buffer_size)), threadpool(num_threads)
   {}
 
   void execute_memgraph(memgraph_t const& memgraph);
@@ -40,5 +43,7 @@ private:
   cpu_storage_t storage;
 
   cpu_kernel_executor_t kernel_executor;
+
+  threadpool_t threadpool;
 };
 
