@@ -3,7 +3,7 @@
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
 
-#include "../../engine/resource_manager.h"
+#include "../../engine/managers.h"
 #include "../../engine/channel_manager.h"
 #include "../../engine/notifier.h"
 
@@ -26,7 +26,8 @@ void cpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new global_buffers_t(mem->raw())),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
       rm_ptr_t(new notifier_t(comm)),
-      rm_ptr_t(new channel_manager_t(comm))
+      rm_ptr_t(new channel_manager_t(comm)),
+      rm_ptr_t(new threadpool_manager_t(threadpool))
     }
   ));
 

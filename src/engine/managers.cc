@@ -21,16 +21,12 @@ void group_manager_t::release_impl(tuple<int, bool> const& info) {
   seen_groups.insert(group_id);
 }
 
-void threadpool_resource_t::launch(std::function<void()> f) {
-  if(did_call) {
-    throw std::runtime_error("launch has already been called");
-  }
-  threadpool.insert(f);
-  did_call = true;
+void threadpool_resource_t::launch(std::function<void()> f) const {
+  self->launch(id, f);
 }
 
 threadpool_manager_t::threadpool_manager_t(threadpool_t& tp)
-  : num_avail(tp.num_runners()), threadpool(tp)
+  : num_avail(tp.num_runners()), threadpool(tp), id_(0)
 {}
 
 optional<threadpool_resource_t>
@@ -40,10 +36,22 @@ threadpool_manager_t::try_to_acquire_impl(unit_t const&)
     return std::nullopt;
   }
   num_avail--;
-  return threadpool_resource_t(threadpool);
+
+  int new_id = id_;
+  id_++;
+
+  return threadpool_resource_t(new_id, this);
 }
 
-void threadpool_manager_t::release_impl(threadpool_resource_t const&) {
+void threadpool_manager_t::release_impl(threadpool_resource_t const& r) {
   num_avail++;
+  was_called.erase(r.id);
+}
+
+void threadpool_manager_t::launch(int which, std::function<void()> f) {
+  if(was_called.count(which) > 0) {
+    throw std::runtime_error("this resource already called launch");
+  }
+  threadpool.insert(f);
 }
 

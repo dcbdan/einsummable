@@ -1,6 +1,7 @@
 #include "../src/engine/exec_state.h"
 #include "../src/engine/exec_graph.h"
 #include "../src/engine/resource_manager.h"
+#include "../src/engine/managers.h"
 #include "../src/engine/communicator.h"
 
 #include "../src/engine/cpu/storage_manager.h"
@@ -167,12 +168,15 @@ void execute_memgraph_cpu(
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(memgraph, 0, executor);
 
+  threadpool_t threadpool(12); // TODO: hardcoded number of threads
+
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new cpu_workspace_manager_t()),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
       rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(buffer->raw()))
+      rm_ptr_t(new global_buffers_t(buffer->raw())),
+      rm_ptr_t(new threadpool_manager_t(threadpool))
     }
   ));
 

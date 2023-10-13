@@ -54,16 +54,20 @@ private:
   set<int> seen_groups;
 };
 
+struct threadpool_manager_t;
+
 struct threadpool_resource_t {
-  threadpool_resource_t(threadpool_t& tp)
-    : did_call(false), threadpool(tp)
+  threadpool_resource_t(int i, threadpool_manager_t* s)
+    : id(i), self(s)
   {}
 
-  void launch(std::function<void()> f);
+  void launch(std::function<void()> f) const;
 
 private:
-  bool did_call;
-  threadpool_t& threadpool;
+  friend class threadpool_manager_t;
+
+  int id;
+  threadpool_manager_t* self;
 };
 
 struct threadpool_manager_t
@@ -84,4 +88,11 @@ private:
 
   int num_avail;
   threadpool_t& threadpool;
+
+  int id_;
+  set<int> was_called;
+private:
+  friend class threadpool_resource_t;
+
+  void launch(int which, std::function<void()> f);
 };

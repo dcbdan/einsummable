@@ -4,6 +4,7 @@
 #include <sys/sysinfo.h>
 
 threadpool_t::threadpool_t(int num_to_launch)
+  : is_stopped(false)
 {
   int max_num_threads = get_nprocs();
 

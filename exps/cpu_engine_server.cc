@@ -15,6 +15,7 @@ tuple<graph_t, vector<placement_t>> build_graph_pls(
   int world_size, int argc, char** argv);
 
 int main(int argc, char** argv) {
+  set_seed(0);
   set_default_dtype(dtype_t::f64);
 
   if(argc < 4) {
@@ -29,7 +30,9 @@ int main(int argc, char** argv) {
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
 
-  cpu_mg_server_t server(communicator, mem_size);
+  int num_threads = 4;
+  DOUT("number of threads in threadpool: " << num_threads)
+  cpu_mg_server_t server(communicator, mem_size, num_threads);
 
   if(is_rank_zero) {
     // execute this

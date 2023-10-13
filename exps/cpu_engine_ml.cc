@@ -1,6 +1,7 @@
 #include "../src/engine/exec_state.h"
 #include "../src/engine/exec_graph.h"
 #include "../src/engine/resource_manager.h"
+#include "../src/engine/managers.h"
 #include "../src/engine/communicator.h"
 #include "../src/engine/channel_manager.h"
 #include "../src/engine/notifier.h"
@@ -195,6 +196,8 @@ void execute_memgraph_cpu(
       communicator.get_this_rank(),
       executor);
 
+  threadpool_t threadpool(12); // TODO: hardcoded number of threads
+
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new cpu_workspace_manager_t()),
@@ -202,7 +205,8 @@ void execute_memgraph_cpu(
       rm_ptr_t(new global_buffers_t(buffer->raw())),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
       rm_ptr_t(new notifier_t(communicator)),
-      rm_ptr_t(new channel_manager_t(communicator))
+      rm_ptr_t(new channel_manager_t(communicator)),
+      rm_ptr_t(new threadpool_manager_t(threadpool))
     }
   ));
 
