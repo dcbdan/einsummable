@@ -2,11 +2,9 @@
 #include "../base/setup.h"
 
 #include "resource_manager.h"
+#include "managers.h"
 
 #include "../einsummable/memgraph.h"
-
-// RM this; used to show compile messages
-// #define GPU_EXEC
 
 #ifdef CPU_EXEC
 #include "cpu/kernel_executor.h"
