@@ -2544,7 +2544,60 @@ void memgraph_make_state_t2::add_to_memgraph(
 */
 
 bool allocate_op(int oid, bool force=false) {
-  
+
+  vector<tuple<int, mem_t>> ret;
+  for(auto const& tid: task_ids) {
+    auto iter = task_tensor_to_mem_node.find(tid);
+    if(iter != task_tensor_to_mem_node.end()) {
+      int const& memid = iter->second;
+      auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
+      if(maybe_mem.is_memloc()) {
+        ret.emplace_back(memid, maybe_mem.get_memloc().as_mem());
+      } else {
+        if (forced == true) {
+          // This tensor is not in memory, so load it without
+          // evicting any of the other task_ids
+          load_tensor_with_evict(tid, task_ids);
+          int const& memid = task_tensor_to_mem_node.at(tid);
+          mem_t const& mem = memgraph.nodes[memid].op.get_output_mem();
+          ret.emplace_back(memid, mem);
+        } else { //forced=false, we don't force evict
+          bool load_success = load_tensor_without_evict(tid, task_ids);
+          if (load_success) {
+            //if load without evict succeeded, then add to return list
+            int const& memid = task_tensor_to_mem_node.at(tid);
+            mem_t const& mem = memgraph.nodes[memid].op.get_output_mem();
+            ret.emplace_back(memid, mem);
+          } else {
+            //if cannot alloc, then just do nothing, so the return list only consists of tensors that we successfully load on memory.
+          }
+        }
+      }
+    } else {
+      auto const& node = taskgraph.nodes[tid];
+      // This else branch should be allocating memory for _output tensors_
+      // being formed as part of a computation.
+      // Actual taskgraph input tensors are expected to be dealt with separately.
+      if(node.op.is_input()) {
+        throw std::runtime_error(
+          "The input node must already be in task_tensor_to_mem_node!");
+      }
+
+      // See to it that the memory gets allocated, possibly with evictions.
+      int loc = node.op.out_loc();
+      uint64_t size = node.op.out_size();
+      int alloc_mid = allocate_with_evict(loc, size, task_ids);
+      mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
+
+      ret.emplace_back(alloc_mid, alloc_mem);
+
+      // make sure to add the memid into task_tensor_to_mem_node
+      // so we don't keep allocating this output memory!
+      task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
+    }
+  }
+  return ret;
+
   return true;
 }
 
@@ -2595,8 +2648,13 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
 
     used_tids = out_then_inns;
 
-    auto [vector_deps, mems] = vector_unzip(
-      get_tensors_in_memory(out_then_inns));
+    // TODO: the next two lines gets the info about allocated memory. 
+    //    Should look into get_tensors_in_memory and then write another helper function according to that func, 
+    //    that only has one case: tensor is on memory already. Because our new "process" loop make sure that before we call add_op, all used_tid is brought on mem.
+
+    // auto [vector_deps, mems] = vector_unzip(
+    //   get_tensors_in_memory(out_then_inns));
+    [vector_deps, mems] = new_get_tensor_from_memory(); 
     deps = set<int>(vector_deps.begin(), vector_deps.end());
 
     for(auto const& task_inn: inns) {
@@ -2613,7 +2671,7 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();
 
     used_tids = {task_inn, id};
-    auto info = get_tensors_in_memory(used_tids);
+    auto info = new_get_tensor_from_memory(used_tids);
     auto const& [src_mem_id, src_mem] = info[0];
     auto const& [dst_mem_id, dst_mem] = info[1];
 
@@ -2634,7 +2692,7 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
-    auto info = get_tensors_in_memory(used_tids);
+    auto info = new_get_tensor_from_memory(used_tids);
     auto const& [inn_mem_id, inn_mem] = info[0];
     auto const& [out_mem_id, out_mem] = info[1];
 
