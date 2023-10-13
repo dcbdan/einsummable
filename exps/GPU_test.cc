@@ -537,10 +537,9 @@ void execute_memgraph_gpu(
   std::vector<void*> buffers)
 {
   kernel_manager_t km;
-  gpu_comm_t comm;
 
   exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, comm);
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km);
 
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {

@@ -14,7 +14,6 @@
 
 #ifdef GPU_EXEC
 #include "gpu/gpu_kernel_manager.h"
-#include "gpu/gpu_communicator.h"
 #endif
 
 struct exec_graph_t {
@@ -33,8 +32,7 @@ struct exec_graph_t {
   static exec_graph_t make_gpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
-    kernel_manager_t& gpu_km,
-    gpu_comm_t& gpu_comm);
+    kernel_manager_t& gpu_km);
 #endif
 
   struct op_base_t {

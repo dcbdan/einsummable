@@ -53,7 +53,7 @@ void gpu_workspace_manager_t::release_impl(
   gpu_workspace_resource_t const& resource)
 {
   std::unique_lock lk(m);
-  auto const& [device, ptr, size];
-  data[device].emplace_back(mem, sz);
+  auto const& [device, ptr, size] = resource;
+  data[device].emplace_back(ptr, size);
 }
 
