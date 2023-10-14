@@ -8,8 +8,7 @@
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
-  kernel_manager_t& gpu_km,
-  gpu_comm_t& gpu_comm)
+  kernel_manager_t& gpu_km)
 {
   exec_graph_t graph;
 
@@ -91,7 +90,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
-      gpu_copy_t* op = new gpu_copy_t(node.op.get_move(), gpu_comm);
+      gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
@@ -280,5 +279,4 @@ void gpu_copy_t::launch(
     fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
     throw std::runtime_error("cudaMemcpy failed");
   }
-  // gpu_comm.send(dst_mem, src_mem, move.size, stream);
 }

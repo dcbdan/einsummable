@@ -43,12 +43,11 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
 };
 
 struct gpu_copy_t : exec_graph_t::op_base_t {
-  gpu_copy_t(memgraph_t::move_t const& m, gpu_comm_t gc)
-    : move(m), gpu_comm(gc)
+  gpu_copy_t(memgraph_t::move_t const& m)
+    : move(m)
   {}
 
   memgraph_t::move_t move;
-  gpu_comm_t gpu_comm;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   desc_ptr_t resource_description() const;
