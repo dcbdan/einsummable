@@ -187,7 +187,7 @@ void cpu_mg_server_t::local_insert_tensors(
   int this_rank = comm.get_this_rank();
 
   // create an allocator and fill it in
-  allocator_t allocator(mem->size);
+  allocator_t allocator(mem->size, alloc_settings);
 
   for(auto const& [id, memsto]: data_locs) {
     if(memsto.is_mem()) {

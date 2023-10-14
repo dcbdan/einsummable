@@ -187,6 +187,8 @@ if(${GPU_EXECUTION_ENGINE})
   file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB GP_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cc)
+  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
+  file(GLOB SS_FILES ${PROJECT_SOURCE_DIR}/src/server/gpu/*.cc)
 
   add_library(cutensor SHARED IMPORTED)
   set_target_properties(cutensor PROPERTIES
@@ -203,6 +205,8 @@ if(${GPU_EXECUTION_ENGINE})
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}
+    ${SE_FILES}
+    ${SS_FILES}
   )
 
   function(add_gpu_application exec dir filename)
