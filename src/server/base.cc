@@ -118,16 +118,15 @@ void server_mg_base_t::listen() {
     } else if(cmd == cmd_t::get_tensor) {
       remap_relations_t remap = remap_relations_t::from_wire(comm.recv_string(0));
       map<int, buffer_t> data = local_copy_source_data(remap);
+      convert_remap_to_compute_node(remap);
       repartition(comm, remap, data);
     } else if(cmd == cmd_t::insert_relation) {
-      remap_relations_t remap = remap_relations_t::from_wire(comm.recv_string(0));
-      map<int, buffer_t> tmp;
-      repartition(comm, remap, tmp);
-      local_insert_tensors(tmp);
+      insert_relation_helper(
+        remap_relations_t::from_wire(comm.recv_string(0)),
+        map<int, buffer_t>());
     } else if(cmd == cmd_t::max_tid) {
-      int max_tid_here = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
-      int dst = 0;
-      comm.send_int(dst, max_tid_here);
+      int max_tid_here = local_get_max_tid();
+      comm.send_int(0, max_tid_here);
     } else if(cmd == cmd_t::registered_cmd) {
       string key = comm.recv_string(0);
       listeners.at(key)(this);
@@ -150,7 +149,7 @@ void server_mg_base_t::register_listen(
 }
 
 int server_mg_base_t::get_max_tid() {
-  int ret = data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
+  int ret = local_get_max_tid();
 
   broadcast_cmd(cmd_t::max_tid);
 
@@ -174,13 +173,18 @@ dbuffer_t server_mg_base_t::get_tensor(
 
   remap_relations_t remap;
 
+  // remap here is with respect to locations
   remap.insert(
-    relation, relation.as_singleton(99));
+    relation,
+    relation.as_singleton(99, local_candidate_location()));
 
   comm.broadcast_string(remap.to_wire());
 
   map<int, buffer_t> data = local_copy_source_data(remap);
 
+  convert_remap_to_compute_node(remap);
+
+  // remap here is with respect to compute-node
   repartition(comm, remap, data);
 
   return dbuffer_t(relation.dtype, data.at(99));
@@ -196,17 +200,56 @@ void server_mg_base_t::insert_relation(
 
   broadcast_cmd(cmd_t::insert_relation);
 
+  // remap here is with respect to locations
   remap_relations_t remap;
   remap.insert(
-    relation.as_singleton(99), relation);
+    relation.as_singleton(99, local_candidate_location()),
+    relation);
 
   comm.broadcast_string(remap.to_wire());
 
   map<int, buffer_t> tmp;
   tmp.insert({ 99, src_tensor.data });
 
-  repartition(comm, remap, tmp);
-  local_insert_tensors(tmp);
+  // remap here is with respect to locations
+  insert_relation_helper(remap, tmp);
+}
+
+void server_mg_base_t::insert_relation_helper(
+  remap_relations_t remap,
+  map<int, buffer_t> data)
+{
+  // At this point, the remap is with respect to _locations_ but
+  // it needs to be with respect to _compute-nodes_.
+
+  // First, collect a map from out tid to loc which will be used
+  // to insert the data
+  map<int, int> out_tid_to_loc;
+  for(auto const& [_, rel]: remap.remap) {
+    auto const& locs = rel.placement.locations.get();
+    auto const& tids = rel.tids.get();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      int const& loc = locs[bid];
+      int const& tid = tids[bid];
+      if(is_local_location(loc)) {
+        out_tid_to_loc.insert({tid, loc});
+      }
+    }
+  }
+
+  // Next, convert each relation to be with respect to
+  // the _compute-node_
+  convert_remap_to_compute_node(remap);
+
+  // Now we repartition with respect to the compute nodes
+  repartition(comm, remap, data);
+
+  // And insert with respect to locations
+  map<int, tuple<int, buffer_t>> ret;
+  for(auto const& [tid, buffer]: data) {
+    ret.insert({tid, {out_tid_to_loc.at(tid), buffer}});
+  }
+  local_insert_tensors(ret);
 }
 
 void server_mg_base_t::remap(remap_relations_t const& remap_relations)
@@ -254,7 +297,6 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
   rewrite_data_locs_server(out_tg_to_loc);
 }
 
-
 void server_mg_base_t::remap_client()
 {
   // This may be the same exact code as execute_tg_client--however
@@ -271,11 +313,6 @@ void server_mg_base_t::remap_client()
   rewrite_data_locs_client();
 }
 
-buffer_t
-server_mg_base_t::local_copy_data(int tid) {
-  return local_copy_data_at(data_locs.at(tid));
-}
-
 map<int, buffer_t>
 server_mg_base_t::local_copy_source_data(remap_relations_t const& remap)
 {
@@ -289,13 +326,30 @@ server_mg_base_t::local_copy_source_data(remap_relations_t const& remap)
     for(int bid = 0; bid != locs.size(); ++bid) {
       int const& loc = locs[bid];
       int const& tid = tids[bid];
-      if(loc == this_rank) {
+      if(is_local_location(loc)) {
         data.insert({tid, local_copy_data(tid)});
       }
     }
   }
 
   return data;
+}
+
+void server_mg_base_t::convert_remap_to_compute_node(
+  remap_relations_t& remap)
+{
+  auto fix = [&](relation_t& rel) {
+    auto& locs = rel.placement.locations.get();
+    for(int bid = 0; bid != locs.size(); ++bid) {
+      int& loc = locs[bid];
+      loc = loc_to_compute_node(loc);
+    }
+  };
+
+  for(auto& [inn_rel, out_rel]: remap.remap) {
+    fix(inn_rel);
+    fix(out_rel);
+  }
 }
 
 void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {

@@ -40,7 +40,9 @@ void cpu_mg_server_t::execute_memgraph(
   state.event_loop();
 }
 
-buffer_t cpu_mg_server_t::local_copy_data_at(memsto_t const& d) {
+buffer_t cpu_mg_server_t::local_copy_data(int tid) {
+  memsto_t const& d = data_locs.at(tid);
+
   if(d.is_mem()) {
     auto const& [offset, size] = d.get_mem();
     buffer_t ret = make_buffer(size);
@@ -133,7 +135,8 @@ void cpu_mg_server_t::rewrite_data_locs_server(
       return x.get_memloc().loc;
     } else {
       // Note: stoloc_t::loc is a storage location, but we are
-      //       assuming that storage loc == compute loc in this directory!
+      //       assuming that storage loc == compute-node == compute loc
+      //       here
       return x.get_stoloc().loc;
     }
   };
@@ -167,7 +170,22 @@ void cpu_mg_server_t::rewrite_data_locs_client() {
   }
 }
 
-void cpu_mg_server_t::local_insert_tensors(map<int, buffer_t> data) {
+int cpu_mg_server_t::local_get_max_tid() const {
+  return data_locs.size() == 0 ? -1 : data_locs.rbegin()->first;
+}
+int cpu_mg_server_t::local_candidate_location() const {
+  return comm.get_this_rank();
+}
+int cpu_mg_server_t::loc_to_compute_node(int loc) const {
+  // loc == compute node for the cpu mg server
+  return loc;
+}
+
+void cpu_mg_server_t::local_insert_tensors(
+  map<int, tuple<int, buffer_t>> data)
+{
+  int this_rank = comm.get_this_rank();
+
   // create an allocator and fill it in
   allocator_t allocator(mem->size);
 
@@ -178,7 +196,12 @@ void cpu_mg_server_t::local_insert_tensors(map<int, buffer_t> data) {
     }
   }
 
-  for(auto const& [tid, tensor]: data) {
+  for(auto const& [tid, loc_tensor]: data) {
+    auto const& [loc, tensor] = loc_tensor;
+    if(loc != this_rank) {
+      throw std::runtime_error("incorrect loc for this tensor");
+    }
+
     memsto_t memsto;
 
     auto maybe_offset = allocator.try_to_allocate_without_deps(tensor->size);
@@ -234,6 +257,6 @@ void cpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
 void cpu_mg_server_t::print() {
   DLINEOUT("data_locs size is " << data_locs.size());
   for(auto const& [tid, loc]: data_locs) {
-    DOUT(tid << ": " << dbuffer_t(default_dtype(), local_copy_data_at(loc)));
+    DOUT(tid << ": " << dbuffer_t(default_dtype(), local_copy_data(tid)));
   }
 }

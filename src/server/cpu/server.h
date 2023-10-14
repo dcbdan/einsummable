@@ -19,7 +19,7 @@ struct cpu_mg_server_t : server_mg_base_t
 
   void execute_memgraph(memgraph_t const& memgraph);
 
-  buffer_t local_copy_data_at(memsto_t const& loc);
+  buffer_t local_copy_data(int tid);
 
   // server, client pairs {{{
   make_mg_info_t recv_make_mg_info();
@@ -33,13 +33,17 @@ struct cpu_mg_server_t : server_mg_base_t
   void rewrite_data_locs_client();
   // }}}
 
-  void local_insert_tensors(map<int, buffer_t> data);
+  int local_get_max_tid() const;
+  int local_candidate_location() const;
+  int loc_to_compute_node(int loc) const;
+
+  void local_insert_tensors(map<int, tuple<int, buffer_t>> data);
   void local_erase_tensors(vector<int> const& tids);
 
   // for debugging
   void print();
 private:
-  // server_mg_base_t has a communicator_t&
+  map<int, memsto_t> data_locs;
 
   buffer_t mem;
   cpu_storage_t storage;

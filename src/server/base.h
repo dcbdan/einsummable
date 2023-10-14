@@ -9,6 +9,19 @@
 
 #include "../engine/communicator.h"
 
+// Some definitions:
+// * compute-node: The place where an excutable is running on. A single
+//   server_mg_base_t object will exist on each compute-node. The compute-node
+//   can be identified by the communicator's rank.
+// * location: The place where a tid lives. A compute-node may have many
+//   locations in it's purview. For example: 1 compute-node with 4 gpus (locations).
+// * storage-location: The place where data can be offloaded to. Just like a compute-node,
+//   it may may have many locations in it's purview. (only relevant with memgraphs)
+//
+// Assumption:
+// * storage-location == compute-node. That is, all locations on a compute-node use
+//   the same storage-location.
+
 // The server maintains the following maps:
 //   gid -> relation
 //      * given a gid, return the relation
@@ -76,17 +89,23 @@ struct server_base_t {
 
   virtual string get_registered_cmd() const = 0;
 
-  // it is error if any of the tids in these methods do not live on
-  // _this_ rank.
-  virtual void local_insert_tensors(map<int, buffer_t> data) = 0;
+  // it is error if any of the tids in local_insert_tensors and local_erase_tensors
+  // do not live on _this_ compute-node.
+
+  // data is a mapping from tid -> (buffer, location) pair
+  // (since every compute-node may have multiple locations, we can't tell
+  //  where to insert the tensors unless told)
+  virtual void local_insert_tensors(
+    map<int, tuple<int, buffer_t>> data) = 0;
+
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
-  // TODO: note that data_locs lives here but these guys have to manage data locs
 
 private:
+  // Note: gid_map only exists at the server
   map<int, relation_t> gid_map;
 };
 
-// This is a server_base object but it executes all taskgraphs by first
+// This is a server_base object that executes all taskgraphs by first
 // converting them into memgraphs.
 struct server_mg_base_t : server_base_t {
   server_mg_base_t(
@@ -105,6 +124,9 @@ struct server_mg_base_t : server_base_t {
 
   int get_max_tid();
 
+  // get the max tid locally
+  virtual int local_get_max_tid() const = 0;
+
   void shutdown() {
     broadcast_cmd(cmd_t::shutdown);
   }
@@ -119,14 +141,26 @@ struct server_mg_base_t : server_base_t {
   void insert_relation(
     relation_t const& dst_relation,
     dbuffer_t src_tensor);
+  void insert_relation_helper(
+    remap_relations_t remap,
+    map<int, buffer_t> data);
 
   void remap(remap_relations_t const& remap);
 
-  virtual buffer_t local_copy_data_at(memsto_t const& loc) = 0;
+  virtual buffer_t local_copy_data(int tid) = 0;
 
-  buffer_t local_copy_data(int tid);
+  // return a location that exists at this compute-node
+  virtual int local_candidate_location() const = 0;
 
+  bool is_local_location(int loc) {
+    return comm.get_this_rank() == loc_to_compute_node(loc);
+  }
+  virtual int loc_to_compute_node(int loc) const = 0;
+
+  // Note: this remap is with respect to locations
   map<int, buffer_t> local_copy_source_data(remap_relations_t const& remap);
+
+  void convert_remap_to_compute_node(remap_relations_t& remap);
 
   // server, client pairs {{{
   void execute_tg_server(taskgraph_t const& taskgraph);
@@ -159,12 +193,9 @@ struct server_mg_base_t : server_base_t {
     map<int, memstoloc_t> const& inn_tg_to_loc);
 
 public:
-  // mapping from tid to where the data lives
-  map<int, memsto_t> data_locs;
+  communicator_t& comm;
 
   allocator_settings_t alloc_settings;
-
-  communicator_t& comm;
 
 private:
   map<string, std::function<void(server_base_t*)>> listeners;
