@@ -3,6 +3,7 @@
 
 #include "resource_manager.h"
 #include "communicator.h"
+#include "channel_manager.h"
 
 #include <future>
 #include <mutex>
@@ -17,7 +18,9 @@ struct notifier_t
   : rm_template_t<unit_t, notifier_resource_t>
 {
   // starts a notifier on comm
-  notifier_t(communicator_t& comm);
+  notifier_t(
+    communicator_t& comm,
+    recv_channel_manager_t& recv_channel_manager);
 
   // stops the notifier
   ~notifier_t();
@@ -25,7 +28,6 @@ struct notifier_t
   // Called on the recv side
   void notify_recv_ready(int dst, int id);
   void wait_send_ready(int id);
-  int get_channel(int id);
 
   // Called on the send side
   void wait_recv_ready(int id);
@@ -33,6 +35,7 @@ struct notifier_t
 
 private:
   communicator_t& comm;
+  recv_channel_manager_t& recv_channel_manager;
 
   struct msg_t {
     enum {
@@ -46,6 +49,7 @@ private:
       } recv_info;
       struct {
         int id;
+        int loc;
         int channel;
       } send_info;
     } msg;
@@ -54,8 +58,6 @@ private:
   void process(msg_t const& msg);
 
   std::mutex m;
-
-  map<int, int> id_to_channel;
 
   map<int, std::promise<void>> send_promises;
   map<int, std::promise<void>> recv_promises;

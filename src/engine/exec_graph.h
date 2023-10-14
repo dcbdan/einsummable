@@ -96,6 +96,7 @@ struct exec_graph_t {
   //    * send side: notify the recv side what channel to use
   //    * send side: send data over the acquired channel
   //    * recv side: recv notification of which channel
+  //    * recv side: acquire a channel-recv resource to use
   //    * recv side: recv over channel
 
   // The following communication nodes implement portions of the handshake while

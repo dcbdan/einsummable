@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
       auto const& node = graph.nodes[gid];
       if(node.op.is_save()) {
         dbuffer_t tensor = server.get_tensor_from_gid(gid);
+        //DOUT(tensor);
         DOUT("gid sum is: " << tensor.sum());
       }
     }

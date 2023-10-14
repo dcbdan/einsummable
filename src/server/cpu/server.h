@@ -36,6 +36,8 @@ struct cpu_mg_server_t : server_mg_base_t
   void local_insert_tensors(map<int, buffer_t> data);
   void local_erase_tensors(vector<int> const& tids);
 
+  // for debugging
+  void print();
 private:
   // server_mg_base_t has a communicator_t&
 

@@ -125,12 +125,12 @@ struct rp_send_t : exec_graph_t::op_base_t {
 
     notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-    auto const& wire = channel_manager_t::get_resource(resources[1]);
+    auto const& wire = send_channel_manager_t::get_resource(resources[1]);
 
     buffer_t buffer = datamap_manager_t::get_resource(resources[2])[0];
 
     std::thread t([this, notifier, wire, buffer, callback] {
-      notifier->notify_send_ready(this->dst, this->dst_tid, wire.get_channel());
+      notifier->notify_send_ready(this->dst, this->dst_tid, wire.channel);
 
       wire.send(buffer->raw(), buffer->size);
 
@@ -144,7 +144,7 @@ struct rp_send_t : exec_graph_t::op_base_t {
     return resource_manager_t::make_desc(
       vector<desc_ptr_t> {
         notifier_t::make_desc(unit_t{}),
-        channel_manager_t::make_desc({ true, dst }),
+        send_channel_manager_t::make_desc(dst),
         datamap_manager_t::make_desc(src_tid)
       }
     );
@@ -168,20 +168,17 @@ struct rp_recv_t : exec_graph_t::op_base_t {
     vector<resource_ptr_t> const& resources =
       resource_manager_t::get_resource(rsrc);
 
-    notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
+    buffer_t buffer = datamap_manager_t::get_resource(resources[0])[0];
 
-    buffer_t buffer = datamap_manager_t::get_resource(resources[1])[0];
-
-    auto const& wire = channel_manager_t::get_resource(resources[2]);
+    auto const& wire = recv_channel_manager_t::get_resource(resources[1]);
 
     if(buffer->size != size) {
       throw std::runtime_error("how come buffer has incorrect size?");
     }
 
-    std::thread t([this, notifier, wire, buffer, callback] {
-      int channel = notifier->get_channel(this->dst_tid);
+    std::thread t([this, wire, buffer, callback] {
 
-      wire.recv(buffer->raw(), this->size, channel);
+      wire.recv(buffer->raw(), this->size);
 
       callback();
     });
@@ -192,9 +189,8 @@ struct rp_recv_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const {
     return resource_manager_t::make_desc(
       vector<desc_ptr_t> {
-        notifier_t::make_desc(unit_t{}),
         datamap_manager_t::make_desc(dst_tid, size),
-        channel_manager_t::make_desc({ false, src })
+        recv_channel_manager_t::make_desc({ dst_tid, src })
       }
     );
   }
@@ -289,10 +285,15 @@ rm_ptr_t create_repartition_resource_manager(
   map<int, buffer_t>& data)
 {
   vector<rm_ptr_t> managers;
+
   managers.reserve(3);
   managers.emplace_back(new datamap_manager_t(data));
-  managers.emplace_back(new notifier_t(communicator));
-  managers.emplace_back(new channel_manager_t(communicator));
+  managers.emplace_back(new recv_channel_manager_t(communicator));
+
+  auto& rcm = *static_cast<recv_channel_manager_t*>(managers.back().get());
+  managers.emplace_back(new notifier_t(communicator, rcm));
+
+  managers.emplace_back(new send_channel_manager_t(communicator));
   return rm_ptr_t(new resource_manager_t(managers));
 }
 

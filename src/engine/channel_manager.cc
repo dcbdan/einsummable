@@ -1,6 +1,6 @@
 #include "channel_manager.h"
 
-channel_manager_t::channel_manager_t(communicator_t& comm)
+send_channel_manager_t::send_channel_manager_t(communicator_t& comm)
   : comm(comm)
 {
   int world_size = comm.get_world_size();
@@ -12,53 +12,33 @@ channel_manager_t::channel_manager_t(communicator_t& comm)
   }
 }
 
-optional<channel_manager_resource_t>
-channel_manager_t::try_to_acquire_impl(tuple<bool, int> const&  desc)
+optional<send_channel_manager_resource_t>
+send_channel_manager_t::try_to_acquire_impl(int const& loc)
 {
-  auto const& [is_send, loc] = desc;
-  if(is_send) {
-    auto maybe_channel = acquire_channel(loc);
-    if(maybe_channel) {
-      return channel_manager_resource_t {
-        .self = this,
-        .loc = loc,
-        .channel = maybe_channel.value()
-      };
-    } else {
-      return std::nullopt;
-    }
-  } else {
-    return channel_manager_resource_t {
+  auto maybe_channel = acquire_channel(loc);
+  if(maybe_channel) {
+    return send_channel_manager_resource_t {
       .self = this,
       .loc = loc,
-      .channel = -1
+      .channel = maybe_channel.value()
     };
+  } else {
+    return std::nullopt;
   }
 }
 
-void channel_manager_t::release_impl(channel_manager_resource_t const& rsrc) {
-  if(rsrc.channel >= 0) {
-    release_channel(rsrc.loc, rsrc.channel);
-  }
+void send_channel_manager_t::release_impl(send_channel_manager_resource_t const& rsrc) {
+  release_channel(rsrc.loc, rsrc.channel);
 }
 
 void
-channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
+send_channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
 {
-  if(channel < 0) {
-    throw std::runtime_error("invalid channel for send");
-  }
   self->comm.send(loc, channel, ptr, bytes);
 }
 
-void
-channel_manager_resource_t::recv(void* ptr, uint64_t bytes, int channel_) const
-{
-  self->comm.recv(loc, channel_, ptr, bytes);
-}
-
 optional<int>
-channel_manager_t::acquire_channel(int loc)
+send_channel_manager_t::acquire_channel(int loc)
 {
   std::unique_lock lk(m);
 
@@ -74,8 +54,88 @@ channel_manager_t::acquire_channel(int loc)
   return ret;
 }
 
-void channel_manager_t::release_channel(int loc, int channel) {
+void send_channel_manager_t::release_channel(int loc, int channel) {
   std::unique_lock lk(m);
 
   avail_channels.at(loc).push_back(channel);
 }
+
+/////////
+
+recv_channel_manager_t::recv_channel_manager_t(communicator_t& c)
+  : comm(c), ready_recvs(c.get_world_size())
+{
+  for(int rank = 0; rank != c.get_world_size(); ++rank) {
+    auto& queues = ready_recvs[rank];
+    queues = vector<std::queue<int>>(comm.num_channels(rank));
+  }
+}
+
+void recv_channel_manager_t::notify(int id, int loc, int channel) {
+  std::unique_lock lk(m);
+
+  auto [_, did_insert] = id_to_channel.insert({id, channel});
+  if(!did_insert) {
+    throw std::runtime_error("this id has already been inserted into id_to_channel!");
+  }
+
+  ready_recvs[loc][channel].push(id);
+}
+
+optional<recv_channel_manager_resource_t>
+recv_channel_manager_t::try_to_acquire_impl(tuple<int,int> const& desc)
+{
+  auto const& [id, src] = desc;
+
+  std::unique_lock lk(m);
+
+  auto iter = id_to_channel.find(id);
+  if(iter == id_to_channel.end()) {
+    throw std::nullopt;
+  }
+
+  int const& channel = iter->second;
+
+  auto& queue = ready_recvs[src][channel];
+  if(queue.size() == 0) {
+    return std::nullopt;
+  }
+
+  if(queue.front() == id) {
+    return recv_channel_manager_resource_t {
+      .self = this,
+      .loc = src,
+      .channel = channel
+    };
+  } else {
+    return std::nullopt;
+  }
+}
+
+void recv_channel_manager_t::release_impl(
+  recv_channel_manager_resource_t const& r)
+{
+  // the "resource" will actually have been "released" if and only if
+  // this->recv was called
+}
+
+void recv_channel_manager_resource_t::recv(void* ptr, uint64_t bytes) const {
+  self->recv(id, loc, channel, ptr, bytes);
+}
+
+void recv_channel_manager_t::recv(
+  int id, int loc, int channel, void* ptr, uint64_t num_bytes)
+{
+  comm.recv(loc, channel, ptr, num_bytes);
+
+  // Now that the recv has happened, we will update the queue..
+  // ("releasing the resource")
+
+  std::unique_lock lk(m);
+
+  id_to_channel.erase(id);
+
+  auto& queue = ready_recvs[loc][channel];
+  queue.pop();
+}
+

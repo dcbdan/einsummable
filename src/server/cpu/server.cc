@@ -19,14 +19,18 @@ void cpu_mg_server_t::execute_memgraph(
       comm.get_this_rank(),
       kernel_executor);
 
+  rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
+  recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
+
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new cpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(mem->raw())),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
-      rm_ptr_t(new notifier_t(comm)),
-      rm_ptr_t(new channel_manager_t(comm)),
+      rm_ptr_t(new notifier_t(comm, rcm)),
+      rm_ptr_t(new send_channel_manager_t(comm)),
+      rcm_ptr,
       rm_ptr_t(new threadpool_manager_t(threadpool))
     }
   ));
@@ -227,3 +231,9 @@ void cpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
   }
 }
 
+void cpu_mg_server_t::print() {
+  DLINEOUT("data_locs size is " << data_locs.size());
+  for(auto const& [tid, loc]: data_locs) {
+    DOUT(tid << ": " << dbuffer_t(default_dtype(), local_copy_data_at(loc)));
+  }
+}

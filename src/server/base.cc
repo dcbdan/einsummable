@@ -17,6 +17,12 @@ void server_base_t::execute_graph(
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
     taskgraph_t::make(graph, placements);
 
+  //{
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //  DOUT("printed tg.gv");
+  //}
+
   remap_relations_t r;
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
     r.insert(

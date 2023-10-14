@@ -80,6 +80,7 @@ struct server_base_t {
   // _this_ rank.
   virtual void local_insert_tensors(map<int, buffer_t> data) = 0;
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
+  // TODO: note that data_locs lives here but these guys have to manage data locs
 
 private:
   map<int, relation_t> gid_map;

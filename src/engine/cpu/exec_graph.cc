@@ -5,6 +5,8 @@
 #include "workspace_manager.h"
 #include "storage_manager.h"
 
+#include "../../einsummable/dbuffer.h" // TODO: remove
+
 exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,

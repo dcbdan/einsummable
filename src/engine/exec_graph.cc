@@ -4,6 +4,9 @@
 #include "notifier.h"
 #include "channel_manager.h"
 
+#include "../base/buffer.h"
+#include "../einsummable/dbuffer.h"
+
 int exec_graph_t::insert(
   exec_graph_t::op_ptr_t op,
   vector<int> const& inns)
@@ -46,7 +49,7 @@ exec_graph_t::send_t::resource_description() const {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
       notifier_t::make_desc(unit_t{}),
-      channel_manager_t::make_desc({ true, dst }),
+      send_channel_manager_t::make_desc(dst),
       global_buffers_t::make_desc(),
       threadpool_manager_t::make_desc()
     }
@@ -57,8 +60,7 @@ desc_ptr_t
 exec_graph_t::recv_t::resource_description() const {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
-      notifier_t::make_desc(unit_t{}),
-      channel_manager_t::make_desc({ false, src }),
+      recv_channel_manager_t::make_desc({ id, src }),
       global_buffers_t::make_desc(),
       threadpool_manager_t::make_desc()
     }
@@ -114,7 +116,7 @@ exec_graph_t::send_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-  auto const& wire = channel_manager_t::get_resource(resources[1]);
+  auto const& wire = send_channel_manager_t::get_resource(resources[1]);
 
   void* ptr = increment_void_ptr(
     global_buffers_t::get_resource(resources[2]),
@@ -123,7 +125,7 @@ exec_graph_t::send_t::launch(
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
   thread_resource.launch([this, callback, notifier, wire, ptr] {
-    notifier->notify_send_ready(this->dst, this->id, wire.get_channel());
+    notifier->notify_send_ready(this->dst, this->id, wire.channel);
 
     wire.send(ptr, this->mem.size);
 
@@ -139,20 +141,16 @@ exec_graph_t::recv_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(resource);
 
-  notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
-
-  auto const& wire = channel_manager_t::get_resource(resources[1]);
+  auto const& wire = recv_channel_manager_t::get_resource(resources[0]);
 
   void* ptr = increment_void_ptr(
-    global_buffers_t::get_resource(resources[2]),
+    global_buffers_t::get_resource(resources[1]),
     mem.offset);
 
-  auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
 
-  thread_resource.launch([this, callback, notifier, wire, ptr] {
-    int channel = notifier->get_channel(this->id);
-
-    wire.recv(ptr, this->mem.size, channel);
+  thread_resource.launch([this, callback, wire, ptr] {
+    wire.recv(ptr, this->mem.size);
 
     callback();
   });

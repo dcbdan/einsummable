@@ -4,25 +4,21 @@
 #include "resource_manager.h"
 #include "communicator.h"
 
-struct channel_manager_t;
+struct send_channel_manager_t;
 
-struct channel_manager_resource_t {
+struct send_channel_manager_resource_t {
   void send(void* ptr, uint64_t bytes) const;
-  void recv(void* ptr, uint64_t bytes, int channel) const;
 
-  int get_channel() const { return channel; }
-
-  channel_manager_t* self;
+  send_channel_manager_t* self;
   int loc;
-  int channel; // -1 if no send channel reserved;
-               // then it can only recv
+  int channel;
 };
 
-struct channel_manager_t
-  : rm_template_t<tuple<bool, int>, channel_manager_resource_t>
-    // desc_t { bool is_send, int the_loc }
+struct send_channel_manager_t
+  : rm_template_t<int, send_channel_manager_resource_t>
+    // desc_t { int the_loc }
 {
-  channel_manager_t(communicator_t& comm);
+  send_channel_manager_t(communicator_t& comm);
 
 private:
   communicator_t& comm;
@@ -33,12 +29,57 @@ private:
   optional<int> acquire_channel(int loc);
   void release_channel(int loc, int channel);
 
-  friend class channel_manager_resource_t;
+  friend class send_channel_manager_resource_t;
 
 private:
-  optional<channel_manager_resource_t>
-  try_to_acquire_impl(
-    tuple<bool, int> const& is_send_and_the_loc);
+  optional<send_channel_manager_resource_t>
+  try_to_acquire_impl(int const& loc);
 
-  void release_impl(channel_manager_resource_t const& rsrc);
+  void release_impl(send_channel_manager_resource_t const& rsrc);
 };
+
+/////////
+
+struct recv_channel_manager_t;
+
+struct recv_channel_manager_resource_t {
+  void recv(void* ptr, uint64_t bytes) const;
+
+  recv_channel_manager_t* self;
+  int id;
+  int loc;
+  int channel;
+};
+
+struct recv_channel_manager_t
+  : rm_template_t<tuple<int, int>, recv_channel_manager_resource_t>
+    // desc_t { int the_id, int src_loc }
+{
+  recv_channel_manager_t(communicator_t& comm);
+
+  // the only way for any resources to be acquirable is to
+  // call this method
+  void notify(int id, int loc, int channel);
+
+private:
+  communicator_t& comm;
+
+  std::mutex m;
+
+  // loc -> channel -> queue of ids that are ready
+  vector<vector<std::queue<int>>> ready_recvs;
+
+  // id -> channel
+  map<int, int> id_to_channel;
+
+  friend class recv_channel_manager_resource_t;
+
+  void recv(int id, int loc, int channel, void* ptr, uint64_t num_bytes);
+
+private:
+  optional<recv_channel_manager_resource_t>
+  try_to_acquire_impl(tuple<int,int> const& desc);
+
+  void release_impl(recv_channel_manager_resource_t const& rsrc);
+};
+

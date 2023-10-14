@@ -198,14 +198,18 @@ void execute_memgraph_cpu(
 
   threadpool_t threadpool(12); // TODO: hardcoded number of threads
 
+  rm_ptr_t rcm_ptr(new recv_channel_manager_t(communicator));
+  recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
+
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new cpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(buffer->raw())),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
-      rm_ptr_t(new notifier_t(communicator)),
-      rm_ptr_t(new channel_manager_t(communicator)),
+      rm_ptr_t(new notifier_t(communicator, rcm)),
+      rm_ptr_t(new send_channel_manager_t(communicator)),
+      rcm_ptr,
       rm_ptr_t(new threadpool_manager_t(threadpool))
     }
   ));
