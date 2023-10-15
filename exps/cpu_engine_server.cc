@@ -15,9 +15,6 @@ tuple<graph_t, vector<placement_t>> build_graph_pls(
   int world_size, int argc, char** argv);
 
 int main(int argc, char** argv) {
-  set_seed(0);
-  set_default_dtype(dtype_t::f64);
-
   if(argc < 4) {
     usage();
     throw std::runtime_error("provide addr_zero is_client world_size");
@@ -30,7 +27,7 @@ int main(int argc, char** argv) {
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
 
-  int num_threads = 4;
+  int num_threads = 4; // std::max(1, int(std::thread::hardware_concurrency()));
   DOUT("number of threads in threadpool: " << num_threads)
   cpu_mg_server_t server(communicator, mem_size, num_threads);
 
@@ -38,29 +35,32 @@ int main(int argc, char** argv) {
     // execute this
     auto [graph, pls] = build_graph_pls(world_size, argc - 4, argv + 4);
 
-    // initialize input tensors and distribute across the cluster
-    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      auto const& node = graph.nodes[gid];
-      if(node.op.is_input()) {
-        auto const& input = node.op.get_input();
-        dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-        //tensor.random("-0.01", "0.01");
-        tensor.ones();
-        server.insert_tensor(gid, pls[gid], tensor);
+    int nrep = 1;
+    for(int i = 0; i != nrep; ++i) {
+      // initialize input tensors and distribute across the cluster
+      for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+        auto const& node = graph.nodes[gid];
+        if(node.op.is_input()) {
+          auto const& input = node.op.get_input();
+          dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+          tensor.random("-0.01", "0.01");
+          //tensor.ones();
+          server.insert_tensor(gid, pls[gid], tensor);
+        }
       }
-    }
 
-    // execute
-    server.execute_graph(graph, pls);
+      // execute
+      server.execute_graph(graph, pls);
 
-    // get the outputs to here
-    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      auto const& node = graph.nodes[gid];
-      if(node.op.is_save()) {
-        dbuffer_t tensor = server.get_tensor_from_gid(gid);
-        //DOUT(tensor);
-        DOUT("gid sum is: " << tensor.sum());
-      }
+      //// get the outputs to here
+      //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+      //  auto const& node = graph.nodes[gid];
+      //  if(node.op.is_save()) {
+      //    dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      //    //DOUT(tensor);
+      //    //DOUT("gid sum is: " << tensor.sum());
+      //  }
+      //}
     }
 
     server.shutdown();

@@ -37,7 +37,10 @@ void cpu_mg_server_t::execute_memgraph(
 
   exec_state_t state(graph, resource_manager);
 
-  state.event_loop();
+  {
+    gremlin_t gremlin("cpu_mg_server_t::execute_memgraph event loop time");
+    state.event_loop();
+  }
 }
 
 buffer_t cpu_mg_server_t::local_copy_data(int tid) {

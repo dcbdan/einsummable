@@ -27,7 +27,7 @@ void exec_state_t::event_loop() {
       processing.pop();
       is_running.erase(id);
 
-      decrement_outs(id); // just adding to ready to run?
+      decrement_outs(id);
 
       num_remaining--;
     }

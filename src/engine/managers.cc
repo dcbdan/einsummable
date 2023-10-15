@@ -52,6 +52,7 @@ void threadpool_manager_t::launch(int which, std::function<void()> f) {
   if(was_called.count(which) > 0) {
     throw std::runtime_error("this resource already called launch");
   }
+  was_called.insert(which);
   threadpool.insert(f);
 }
 
