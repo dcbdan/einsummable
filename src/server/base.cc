@@ -289,6 +289,7 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
 
   comm.broadcast_string(memgraph.to_wire());
 
+  DLINEOUT("remapin...");
   execute_memgraph(memgraph);
 
   _update_map_with_new_tg_outs(
@@ -379,6 +380,7 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
 
   comm.broadcast_string(memgraph.to_wire());
 
+  DLINEOUT("execute tg");
   execute_memgraph(memgraph);
 
   rewrite_data_locs_server(out_tg_to_loc);

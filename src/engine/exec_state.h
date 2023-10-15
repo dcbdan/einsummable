@@ -4,6 +4,18 @@
 #include "exec_graph.h"
 #include "resource_manager.h"
 
+ghost_t make_callback_ghost();
+double get_callback_total();
+
+ghost_t make_launch_ghost();
+double get_launch_total();
+
+ghost_t make_trylaunch_ghost();
+double get_trylaunch_total();
+
+ghost_t make_do_ghost();
+double get_do_total();
+
 struct exec_state_t {
   exec_state_t(exec_graph_t const& g, rm_ptr_t r);
 

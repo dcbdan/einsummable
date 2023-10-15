@@ -7,6 +7,15 @@
 #include "../base/buffer.h"
 #include "../einsummable/dbuffer.h"
 
+std::mutex einsummable_total_mutex;
+double einsummable_total = 0.0;
+
+ghost_t make_einsummable_ghost() {
+  return ghost_t(einsummable_total_mutex, einsummable_total);
+}
+
+double get_einsummable_total() { return einsummable_total; }
+
 int exec_graph_t::insert(
   exec_graph_t::op_ptr_t op,
   vector<int> const& inns)

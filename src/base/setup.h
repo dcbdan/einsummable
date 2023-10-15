@@ -598,6 +598,26 @@ struct raii_print_time_elapsed_t {
 
 using gremlin_t = raii_print_time_elapsed_t;
 
+struct raii_add_time_elapsed_t {
+  raii_add_time_elapsed_t(std::mutex& m, double& ret)
+    : m(m), ret(ret), start(clock_now())
+  {}
+  ~raii_add_time_elapsed_t() {
+    auto end = clock_now();
+    using namespace std::chrono;
+    auto duration = (double) duration_cast<microseconds>(end - start).count()
+                  / (double) duration_cast<microseconds>(1s         ).count();
+    std::unique_lock lk(m);
+    ret += duration;
+  }
+
+  std::mutex& m;
+  double& ret;
+  timestamp_t const start;
+};
+
+using ghost_t = raii_add_time_elapsed_t;
+
 // Example:
 //   struct ab_t {
 //     int a;

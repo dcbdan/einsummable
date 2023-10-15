@@ -79,6 +79,9 @@ private:
   virtual void release_impl(R const& r) = 0;
 };
 
+ghost_t make_rmacquire_ghost();
+double get_rmacquire_total();
+
 struct resource_manager_t
   : rm_template_t<vector<desc_ptr_t>, vector<resource_ptr_t>>
 {

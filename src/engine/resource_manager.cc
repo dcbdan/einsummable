@@ -3,6 +3,7 @@
 optional<vector<resource_ptr_t>>
 resource_manager_t::try_to_acquire_impl(vector<desc_ptr_t> const& descs)
 {
+  ghost_t ghost = make_rmacquire_ghost();
   vector<resource_ptr_t> ret;
   ret.reserve(descs.size());
   for(auto desc: descs) {
@@ -47,4 +48,14 @@ void resource_manager_t::release_unit(
   }
   throw std::runtime_error("should not reach: release unit");
 }
+
+///
+std::mutex rmacquire_total_mutex;
+double rmacquire_total = 0.0;
+
+ghost_t make_rmacquire_ghost() {
+  return ghost_t(rmacquire_total_mutex, rmacquire_total);
+}
+
+double get_rmacquire_total() { return rmacquire_total; }
 

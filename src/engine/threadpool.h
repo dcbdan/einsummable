@@ -5,6 +5,9 @@
 #include <mutex>
 #include <condition_variable>
 
+ghost_t make_threadpool_ghost();
+double get_threadpool_total();
+
 struct threadpool_t {
   threadpool_t(int num_to_launch);
 
@@ -22,6 +25,7 @@ private:
   bool is_stopped;
 
   vector<std::thread> threads;
+  timestamp_t const start;
 
 private:
   void runner(int which);

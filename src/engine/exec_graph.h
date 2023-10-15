@@ -14,6 +14,9 @@
 #include "gpu/gpu_kernel_manager.h"
 #endif
 
+ghost_t make_einsummable_ghost();
+double get_einsummable_total();
+
 struct exec_graph_t {
 #ifdef CPU_EXEC
   // note: the nodes of this graph may reference

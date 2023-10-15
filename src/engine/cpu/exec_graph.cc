@@ -208,7 +208,10 @@ void cpu_einsummable_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
-      cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
+      {
+        ghost_t ghost = make_einsummable_ghost();
+        cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
+      }
       callback();
     });
   // Note: capturing this under the assumption that the exec_graph will not

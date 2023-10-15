@@ -3,36 +3,42 @@
 notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
   : comm(cm), recv_channel_manager(rcm)
 {
-  comm.start_listen_notify(
-    sizeof(msg_t),
-    [this](vector<uint8_t> data) {
-      if(data.size() != sizeof(msg_t)) {
-        throw std::runtime_error("recv notify of incorrect size");
-      }
-      msg_t& msg = *reinterpret_cast<msg_t*>(data.data());
-      if(msg.msg_type == msg_t::stop) {
-        return true;
-      } else {
-        this->process(msg);
-        return false;
-      }
-  });
+  int world_size = comm.get_world_size();
+
+  if(world_size > 1) {
+    comm.start_listen_notify(
+      sizeof(msg_t),
+      [this](vector<uint8_t> data) {
+        if(data.size() != sizeof(msg_t)) {
+          throw std::runtime_error("recv notify of incorrect size");
+        }
+        msg_t& msg = *reinterpret_cast<msg_t*>(data.data());
+        if(msg.msg_type == msg_t::stop) {
+          return true;
+        } else {
+          this->process(msg);
+          return false;
+        }
+    });
+  }
 }
 
 notifier_t::~notifier_t() {
   int this_rank = comm.get_this_rank();
   int world_size = comm.get_world_size();
 
-  msg_t msg;
-  msg.msg_type = msg_t::stop;
+  if(world_size > 1) {
+    msg_t msg;
+    msg.msg_type = msg_t::stop;
 
-  for(int rank = 0; rank != world_size; ++rank) {
-    if(rank != this_rank) {
-      comm.notify(rank, reinterpret_cast<void*>(&msg), sizeof(msg));
+    for(int rank = 0; rank != world_size; ++rank) {
+      if(rank != this_rank) {
+        comm.notify(rank, reinterpret_cast<void*>(&msg), sizeof(msg));
+      }
     }
-  }
 
-  comm.stop_listen_notify();
+    comm.stop_listen_notify();
+  }
 }
 
 void notifier_t::notify_recv_ready(int dst, int id) {
