@@ -27,15 +27,16 @@ int main(int argc, char** argv) {
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
 
-  int num_threads = 4; // std::max(1, int(std::thread::hardware_concurrency()));
+  int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
   DOUT("number of threads in threadpool: " << num_threads)
+
   cpu_mg_server_t server(communicator, mem_size, num_threads);
 
   if(is_rank_zero) {
     // execute this
     auto [graph, pls] = build_graph_pls(world_size, argc - 4, argv + 4);
 
-    int nrep = 1;
+    int nrep = 5;
     for(int i = 0; i != nrep; ++i) {
       // initialize input tensors and distribute across the cluster
       for(int gid = 0; gid != graph.nodes.size(); ++gid) {

@@ -8,6 +8,8 @@
 #include "../../engine/cpu/kernel_executor.h"
 #include "../../engine/cpu/storage.h"
 
+//#include <sys/mman.h>
+
 struct cpu_mg_server_t : server_mg_base_t
 {
   cpu_mg_server_t(
@@ -15,7 +17,12 @@ struct cpu_mg_server_t : server_mg_base_t
     uint64_t buffer_size,
     int num_threads)
     : server_mg_base_t(c), mem(make_buffer(buffer_size)), threadpool(num_threads)
-  {}
+  {
+    //if(mlock(mem->data, mem->size) != 0) {
+    //  //DOUT(strerror(errno));
+    //  throw std::runtime_error("could not lock memory");
+    //}
+  }
 
   void execute_memgraph(memgraph_t const& memgraph);
 

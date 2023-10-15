@@ -40,6 +40,7 @@ threadpool_t::~threadpool_t() {
 }
 
 void threadpool_t::runner(int which) {
+  //get_numa_info().pin_to_this_numa_thread(which);
   get_numa_info().pin_to_thread(which);
 
   std::function<void()> f;
@@ -92,11 +93,13 @@ void threadpool_t::insert(std::function<void()> f) {
 }
 
 void threadpool_t::print_time(int which) {
+  return;
+
   auto end = clock_now();
   using namespace std::chrono;
   auto duration = (double) duration_cast<microseconds>(end - start).count()
                 / (double) duration_cast<microseconds>(1s         ).count();
-  //std::unique_lock lk(m_print);
-  //DOUT(which << " " << duration);
+  std::unique_lock lk(m_print);
+  DOUT(which << " " << duration);
 }
 

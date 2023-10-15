@@ -89,6 +89,8 @@ private:
   int num_avail;
   threadpool_t& threadpool;
 
+  std::mutex m;
+
   int id_;
   set<int> was_called;
 private:

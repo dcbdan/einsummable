@@ -32,6 +32,8 @@ threadpool_manager_t::threadpool_manager_t(threadpool_t& tp)
 optional<threadpool_resource_t>
 threadpool_manager_t::try_to_acquire_impl(unit_t const&)
 {
+  std::unique_lock lk(m);
+
   if(num_avail == 0) {
     return std::nullopt;
   }
@@ -44,15 +46,19 @@ threadpool_manager_t::try_to_acquire_impl(unit_t const&)
 }
 
 void threadpool_manager_t::release_impl(threadpool_resource_t const& r) {
+  std::unique_lock lk(m);
   num_avail++;
   was_called.erase(r.id);
 }
 
 void threadpool_manager_t::launch(int which, std::function<void()> f) {
-  if(was_called.count(which) > 0) {
-    throw std::runtime_error("this resource already called launch");
+  {
+    std::unique_lock lk(m);
+    if(was_called.count(which) > 0) {
+      throw std::runtime_error("this resource already called launch");
+    }
+    was_called.insert(which);
   }
-  was_called.insert(which);
   threadpool.insert(f);
 }
 

@@ -17,6 +17,9 @@ struct resource_manager_base_t {
 
   virtual void release(resource_ptr_t resource) = 0;
 
+  // NOTE: try_to_acquire and release should support being called
+  //       from multiple threads at the same time
+
   // TODO: Should handles exist as part of the base or just as part of
   //       rm_template_t? If resource_manager_t is to hold something that is
   //       not a rm_template_t, then these need to be here.
