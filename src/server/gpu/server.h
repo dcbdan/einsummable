@@ -10,7 +10,7 @@ struct gpu_mg_server_t : server_mg_base_t
     // one buffer per gpu
     vector<uint64_t> buffer_sizes);
 
-  void execute_memgraph(memgraph_t const& memgraph);
+  void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
 
   // server, client pairs {{{
   make_mg_info_t recv_make_mg_info();

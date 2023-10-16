@@ -34,3 +34,8 @@ optional<partition_t> make_coarser_via_halving(partition_t const& p);
 optional<partition_t> make_finer_via_increment(partition_t const& p);
 optional<partition_t> make_coarser_via_decrement(partition_t const& p);
 
+// Given the partitions to inputs, fill out the rest by forcing there to never
+// be a repartition. Return None if unimplemented or cannot be done.
+// It is an error if an input in graph does not have a partition.
+optional<vector<partition_t>>
+autopart_from_inputs(graph_t const& graph, map<int, partition_t> const& input_to_part);

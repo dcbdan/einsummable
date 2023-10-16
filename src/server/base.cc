@@ -289,7 +289,7 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
 
   comm.broadcast_string(memgraph.to_wire());
 
-  execute_memgraph(memgraph);
+  execute_memgraph(memgraph, true);
 
   _update_map_with_new_tg_outs(
     out_tg_to_loc, remap_gid, gid_to_out, remap_relations, std::nullopt);
@@ -308,7 +308,7 @@ void server_mg_base_t::remap_client()
 
   memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
 
-  execute_memgraph(memgraph);
+  execute_memgraph(memgraph, true);
 
   rewrite_data_locs_client();
 }
@@ -379,7 +379,7 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
 
   comm.broadcast_string(memgraph.to_wire());
 
-  execute_memgraph(memgraph);
+  execute_memgraph(memgraph, false);
 
   rewrite_data_locs_server(out_tg_to_loc);
 }
@@ -391,7 +391,7 @@ void server_mg_base_t::execute_tg_client() {
 
   memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
 
-  execute_memgraph(memgraph);
+  execute_memgraph(memgraph, false);
 
   rewrite_data_locs_client();
 }

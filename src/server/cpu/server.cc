@@ -11,7 +11,8 @@
 #include "../../engine/cpu/workspace_manager.h"
 
 void cpu_mg_server_t::execute_memgraph(
-  memgraph_t const& memgraph)
+  memgraph_t const& memgraph,
+  bool for_remap)
 {
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
@@ -37,7 +38,9 @@ void cpu_mg_server_t::execute_memgraph(
 
   exec_state_t state(graph, resource_manager);
 
-  {
+  if(for_remap) {
+    state.event_loop();
+  } else {
     gremlin_t gremlin("cpu_mg_server_t::execute_memgraph event loop time");
     state.event_loop();
   }

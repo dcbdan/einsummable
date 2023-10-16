@@ -36,7 +36,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   // TODO: allocate memory on each gpu into mems
 }
 
-void gpu_mg_server_t::execute_memgraph(memgraph_t const& memgraph)
+void gpu_mg_server_t::execute_memgraph(
+  memgraph_t const& memgraph,
+  bool for_remap)
 {
   // TODO:
   // 1. make the exec graph

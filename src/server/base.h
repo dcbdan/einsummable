@@ -134,7 +134,9 @@ struct server_mg_base_t : server_base_t {
   void execute(taskgraph_t const& taskgraph);
 
   // this must be called from all locations
-  virtual void execute_memgraph(memgraph_t const& memgraph) = 0;
+  virtual void execute_memgraph(memgraph_t const& memgraph, bool for_remap) = 0;
+  // the for_remap should be true if the computation is just a remap instead of
+  // a general taskgraph
 
   dbuffer_t get_tensor(relation_t const& src_relation);
 
