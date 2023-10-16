@@ -4,6 +4,8 @@
 #include <cstring>
 #include <unistd.h>
 
+#include <thread>
+
 // TODO: put this somewhere
 static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
@@ -129,7 +131,14 @@ communicator_t::communicator_t(
     }
   } else {
     int oob_sock = -1;
-    oob_sock = connect_common(addr_zero.c_str(), server_port, ai_family);
+    for(int i = 0; i != 10; ++i) {
+      using namespace std::chrono_literals;
+      std::this_thread::sleep_for(200ms);
+      oob_sock = connect_common(addr_zero.c_str(), server_port, ai_family);
+      if(oob_sock != -1) {
+        break;
+      }
+    }
     if(oob_sock == -1) {
       throw std::runtime_error("_client_send_addrs failed to connect");
     }
