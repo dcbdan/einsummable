@@ -58,10 +58,11 @@ void rank_zero_main(
     DOUT(ts);
   }
 
+  int npart = pargs.get<int>("npart");
   auto [graph, placements] = make_graph_ff(
-    batch * seqlen, 2,
-    hidden,         2,
-    dim,            2
+    batch * seqlen, npart,
+    hidden,         npart,
+    dim,            npart
   );
 
   map<int, dbuffer_t> input_data;
