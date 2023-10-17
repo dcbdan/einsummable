@@ -1,10 +1,13 @@
 #include "../src/einsummable/memgraph.h"
-
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/scalarop.h"
-#include "../src/execution/gpu/execute_multi_gpu.h"
-#include "../src/execution/gpu/utility.h"
+
+#include "../src/engine/exec_state.h"
+#include "../src/engine/exec_graph.h"
+#include "../src/engine/resource_manager.h"
+#include "../src/engine/communicator.h"
+#include "../src/engine/gpu/workspace.h"
 
 #include <cstddef>
 #include <fstream>
@@ -120,6 +123,41 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
+void translate_execute(memgraph_t memgraph, bool debug){
+  if (debug){
+    print_memgraph(memgraph);
+  }
+
+  auto num_gpu = memgraph.mem_sizes().size();
+  // allocate ptrs for gpu
+  std::vector<void*> gpu_ptrs;
+  auto mem_sizes = memgraph.mem_sizes();
+  for (int i = 0; i < num_gpu; ++i){
+    gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
+  }
+
+  kernel_manager_t km;
+
+  DOUT("Making exec graph...");
+  exec_graph_t graph =
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km);
+  DOUT("Finished making exec graph...");
+
+  rm_ptr_t resource_manager(new resource_manager_t(
+    vector<rm_ptr_t> {
+      rm_ptr_t(new gpu_workspace_manager_t()),
+      rm_ptr_t(new group_manager_t()),
+      rm_ptr_t(new global_buffers_t(gpu_ptrs))
+    }
+  ));
+
+  exec_state_t state(graph, resource_manager);
+
+  DOUT("executing...");
+  state.event_loop();
+  DOUT("executed.");
+}
+
 //void execute_test(memgraph_t memgraph) {
 //
 //  // print a message
@@ -157,49 +195,49 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
 //  // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
 //}
 
-void execute_multi_gpu_test(memgraph_t memgraph) {
-  // print a message
-  //std::cout << "Checking correctness" << std::endl;
-  // create a buffer
-  // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
-  // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-  // d.random("-1.0", "1.0");
-  // // d.fill(scalar_t(float(17.63)));
-  // buffer_t b = d.data;
-  // auto cpu_ptr = b->data;
-  // auto size = b->size;
+// void execute_multi_gpu_test(memgraph_t memgraph) {
+//   // print a message
+//   //std::cout << "Checking correctness" << std::endl;
+//   // create a buffer
+//   // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
+//   // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
+//   // d.random("-1.0", "1.0");
+//   // // d.fill(scalar_t(float(17.63)));
+//   // buffer_t b = d.data;
+//   // auto cpu_ptr = b->data;
+//   // auto size = b->size;
 
-  // std::unordered_map<int, int> gpu_mapping;
-  // gpu_mapping[0] = 0;
-  // gpu_mapping[1] = 2;
-  // gpu_mapping[2] = 3;
+//   // std::unordered_map<int, int> gpu_mapping;
+//   // gpu_mapping[0] = 0;
+//   // gpu_mapping[1] = 2;
+//   // gpu_mapping[2] = 3;
 
-  // print the number of nodes in the graph
-  //std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
-  //          << std::endl;
-  bool debug = true;
-  //if (debug) {
-  //  print_memgraph(memgraph);
-  //}
+//   // print the number of nodes in the graph
+//   //std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
+//   //          << std::endl;
+//   bool debug = true;
+//   //if (debug) {
+//   //  print_memgraph(memgraph);
+//   //}
 
-  auto num_gpu = memgraph.mem_sizes().size();
-  // allocate ptrs for gpu
-  std::vector<void*> gpu_ptrs;
-  auto mem_sizes = memgraph.mem_sizes();
-  for (int i = 0; i < num_gpu; ++i){
-    gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
-  }
-  // copy data from CPU to GPU
-  // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-  // cudaSuccess) {
-  //     throw std::runtime_error("cudaMemcpy");
-  // }
-  // execute the memgraph on the GPU ptr
-  execute_multi_gpu(memgraph, gpu_ptrs);
-  std::cout << "GPU execution has finished" << std::endl;
-  // bring the data back
-  // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-}
+//   auto num_gpu = memgraph.mem_sizes().size();
+//   // allocate ptrs for gpu
+//   std::vector<void*> gpu_ptrs;
+//   auto mem_sizes = memgraph.mem_sizes();
+//   for (int i = 0; i < num_gpu; ++i){
+//     gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
+//   }
+//   // copy data from CPU to GPU
+//   // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
+//   // cudaSuccess) {
+//   //     throw std::runtime_error("cudaMemcpy");
+//   // }
+//   // execute the memgraph on the GPU ptr
+//   execute_multi_gpu(memgraph, gpu_ptrs);
+//   std::cout << "GPU execution has finished" << std::endl;
+//   // bring the data back
+//   // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
+// }
 
 // NOTE: Since the correctness test fills the entire buffer with random values
 // without any consideration on the alignment The test only works with alignment
