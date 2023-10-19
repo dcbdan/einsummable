@@ -809,4 +809,7 @@ struct memgraph_make_state_t2 {
     // increased.
   };
   optional<order_state_t> order_state;
+
+  //The set of tids that are not evictable in current op
+  unordered_set<int> unevictable_set;
 };

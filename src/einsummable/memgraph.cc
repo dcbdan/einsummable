@@ -2544,6 +2544,25 @@ void memgraph_make_state_t2::add_to_memgraph(
 */
 
 bool allocate_op(int oid, bool force=false) {
+  /* Note to myself: should be looping through the used_tensor for current oid. 
+    Each iteration: determine the type of node, then copy the structure from add_to_memgraph.
+    When we alloc a tid, we add to the list of tids we alloced. Then later when we evict, 
+    we check if the tensor we want to evict is currently in the non-evictable set.
+    
+    Keep a flag: if_failed = false.(actually might not needed) In the loop, when we fails from alloc_without_evict, 
+    then we loop through all the currently allocated tensors, remove them from non-evictable set, and deallocate them. 
+    And then return false.
+    
+    If no one failed, then return true.
+    
+    Ps: This might hurt thruput bc we're constantly allocating and deallocating. Pps.: We are only calling some malloc&free, not actually loading stuff in, so should be fine.
+    If really needed, I could change to half-allocated op tracked. */
+
+}
+
+/* The following is previous allocate_op*/
+
+bool allocate_op(int oid, bool force=false) {
 
   vector<tuple<int, mem_t>> ret;
   for(auto const& tid: task_ids) {
@@ -2654,7 +2673,7 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
 
     // auto [vector_deps, mems] = vector_unzip(
     //   get_tensors_in_memory(out_then_inns));
-    [vector_deps, mems] = new_get_tensor_from_memory(); 
+    auto [vector_deps, mems] = vector_unzip(get_tensors_in_memory_without_alloc(out_then_inns));
     deps = set<int>(vector_deps.begin(), vector_deps.end());
 
     for(auto const& task_inn: inns) {
@@ -2671,7 +2690,7 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();
 
     used_tids = {task_inn, id};
-    auto info = new_get_tensor_from_memory(used_tids);
+    auto info = get_tensors_in_memory_without_alloc(used_tids);
     auto const& [src_mem_id, src_mem] = info[0];
     auto const& [dst_mem_id, dst_mem] = info[1];
 
@@ -2692,7 +2711,7 @@ bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
-    auto info = new_get_tensor_from_memory(used_tids);
+    auto info = get_tensors_in_memory_without_alloc(used_tids);
     auto const& [inn_mem_id, inn_mem] = info[0];
     auto const& [out_mem_id, out_mem] = info[1];
 
@@ -3348,4 +3367,30 @@ void memgraph_make_state_t2::_load_tensor_helper(int tid, int alloc_mid)
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
   task_tensor_to_mem_node_update_on_memory(tid, mid);
+}
+
+
+/* Get one tensor from memory without allocating for it.
+  Before we call this func, we assume that the task_id has been allocated previously. 
+  The difference between this and the old one: 
+    1. not calling allocating func at all
+    2. only processing one task_id at a time, instead of a list of all used tid for current op */
+vector<tuple<int, mem_t>>
+memgraph_make_state_t2::get_tensors_in_memory_without_alloc(vector<int> const& task_ids) {
+  vector<tuple<int, mem_t>> ret;
+  for(auto const& tid: task_ids) {
+    auto iter = task_tensor_to_mem_node.find(tid);
+    if(iter != task_tensor_to_mem_node.end()) {
+      int const& memid = iter->second;
+      auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
+      if(maybe_mem.is_memloc()) {
+        ret.emplace_back(memid, maybe_mem.get_memloc().as_mem());
+      } else {
+        throw std::runtime_error("get_tensors_in_memory_without_alloc: tid not in memory, tid is on storage. ");
+      }
+    } else {
+      throw std::runtime_error("get_tensors_in_memory_without_alloc: tid not exist yet. ");
+    }
+  }
+  return ret;
 }
