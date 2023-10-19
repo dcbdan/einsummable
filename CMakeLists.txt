@@ -184,8 +184,8 @@ if(${GPU_EXECUTION_ENGINE})
   SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_60")
   set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
 
-  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
-  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
+  # file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
+  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cu)
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB GP_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
@@ -202,7 +202,6 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
-    ${CP_FILES}
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}
@@ -213,15 +212,25 @@ if(${GPU_EXECUTION_ENGINE})
   function(add_gpu_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)
 
+  # target_link_libraries(${exec}
+  #   gpu_execution_engine
+  #   proto
+  #   ${Protobuf_LIBRARIES}
+  #   ${CUDA_LIBRARIES}
+  #   cutensor
+  #   cudart
+  #   cublasLt
+  #   cublas
+  #   ucx::ucp ucx::ucs)
   target_link_libraries(${exec}
     gpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    cudart
-    cublasLt
-    cublas
+    /usr/local/cuda-11.0/lib64/libcudart.so
+    /usr/local/cuda-11.0/lib64/libcublasLt.so
+    /usr/local/cuda-11.0/lib64/libcublas.so
     ucx::ucp ucx::ucs)
 
   endfunction()

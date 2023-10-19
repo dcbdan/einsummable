@@ -9,6 +9,11 @@
 #include "../src/engine/communicator.h"
 #include "../src/engine/gpu/workspace.h"
 
+#include <cutensor.h>
+#include <cuda_runtime.h>
+
+#include "../src/base/setup.h"
+
 #include <cstddef>
 #include <fstream>
 #include <iostream>
@@ -20,22 +25,30 @@
 void print_memgraph(memgraph_t memgraph){
   // print the input and output of every node
   for (int i = 0; i < memgraph.nodes.size(); ++i) {
+    auto node = memgraph.nodes[i];
+    // print device location
+    std::cout << "Device: " << node.op.get_loc() << " ";
     std::cout << "Node " << i << " has input: ";
-    for (auto in : memgraph.nodes[i].inns) {
+    for (auto in : node.inns) {
       std::cout << in << " ";
     }
     std::cout << "and output: ";
-    for (auto out : memgraph.nodes[i].outs) {
+    for (auto out : node.outs) {
       std::cout << out << " ";
     }
     std::cout << "Node type: ";
-    memgraph.nodes[i].op.print_type();
-    if (memgraph.nodes[i].op.is_touch()){
+    node.op.print_type();
+    if (node.op.is_touch()){
       // print the group id
-      std::cout << " Group id: " << memgraph.nodes[i].op.get_apply().group;
-      auto mem_touch = memgraph.nodes[i].op.get_apply().mems[0];
+      std::cout << " Group id: " << node.op.get_apply().group;
+      auto mem_touch = node.op.get_apply().mems[0];
       // print the touch size
       std::cout << " Touch size: " << mem_touch.size;
+    }
+    if (node.op.is_move()){
+      // print src and dst device
+      std::cout << " Src device: " << node.op.get_move().get_src_loc();
+      std::cout << " Dst device: " << node.op.get_move().get_dst_loc();
     }
     std::cout << std::endl;
   }
@@ -123,7 +136,7 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
-void translate_execute(memgraph_t memgraph, bool debug){
+void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
   if (debug){
     print_memgraph(memgraph);
   }
@@ -140,7 +153,7 @@ void translate_execute(memgraph_t memgraph, bool debug){
 
   DOUT("Making exec graph...");
   exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km);
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(

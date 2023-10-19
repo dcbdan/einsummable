@@ -1,17 +1,5 @@
 #include "GPU_correctness.cc"
 
-#include "../src/einsummable/memgraph.h"
-#include "../src/einsummable/einsummable.h"
-#include "../src/einsummable/reference.h"
-#include "../src/einsummable/scalarop.h"
-
-#include "../src/engine/exec_state.h"
-#include "../src/engine/exec_graph.h"
-#include "../src/engine/resource_manager.h"
-#include "../src/engine/communicator.h"
-#include "../src/engine/gpu/workspace.h"
-
-
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
     auto const &node = m.nodes[idx];
@@ -344,29 +332,6 @@ void mm_test3() {
   }
 }
 
-
-void execute_memgraph_gpu(
-  memgraph_t const& memgraph,
-  std::vector<void*> buffers)
-{
-  kernel_manager_t km;
-
-  exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km);
-
-  rm_ptr_t resource_manager(new resource_manager_t(
-    vector<rm_ptr_t> {
-      rm_ptr_t(new gpu_workspace_manager_t()),
-      rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(buffers))
-    }
-  ));
-
-  exec_state_t state(graph, resource_manager);
-
-  state.event_loop();
-}
-
 void engine_1(int argc, char** argv){
   if (argc != 8) {
     usage();
@@ -396,17 +361,8 @@ void engine_1(int argc, char** argv){
 
   memgraph_t memgraph = taskgraph_to_memgraph(taskgraph);
 
-  auto num_gpu = memgraph.mem_sizes().size();
-  // allocate ptrs for gpu
-  std::vector<void*> gpu_ptrs;
-  auto mem_sizes = memgraph.mem_sizes();
-  for (int i = 0; i < num_gpu; ++i){
-    gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
-  }
-
-  DOUT("executing...");
-  execute_memgraph_gpu(memgraph, gpu_ptrs);
-  DOUT("executed.");
+  int num_gpus_per_node = 4;
+  translate_execute(memgraph, true, num_gpus_per_node);
 }
 
 int main(int argc, char **argv) {

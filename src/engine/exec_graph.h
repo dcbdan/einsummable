@@ -30,7 +30,8 @@ struct exec_graph_t {
   static exec_graph_t make_gpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
-    kernel_manager_t& gpu_km);
+    kernel_manager_t& gpu_km,
+    int num_gpus_per_node);
 #endif
 
   struct op_base_t {

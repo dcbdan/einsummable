@@ -8,7 +8,8 @@
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
-  kernel_manager_t& gpu_km)
+  kernel_manager_t& gpu_km,
+  int num_gpus_per_node)
 {
   exec_graph_t graph;
 
@@ -32,7 +33,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     auto const& node = memgraph.nodes[mid];
-    if(!node.op.is_local_to(this_rank)) {
+    if(!node.op.is_local_to_gpu(this_rank, num_gpus_per_node)) {
       continue;
     }
 

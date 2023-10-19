@@ -1,5 +1,10 @@
 #include "server.h"
 
+#include "../../engine/exec_graph.h"
+#include "../../engine/exec_state.h"
+
+#include "../../engine/gpu/workspace.h"
+
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
   // one buffer per gpu
@@ -34,6 +39,9 @@ gpu_mg_server_t::gpu_mg_server_t(
     0);
 
   // TODO: allocate memory on each gpu into mems
+  for (int i = 0; i < get_num_gpus(); i++) {
+    mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
+  }
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -44,6 +52,27 @@ void gpu_mg_server_t::execute_memgraph(
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
+
+  kernel_manager_t km;
+
+  DOUT("Making exec graph...");
+  exec_graph_t graph =
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node[comm.get_this_rank()]);
+  DOUT("Finished making exec graph...");
+
+  rm_ptr_t resource_manager(new resource_manager_t(
+    vector<rm_ptr_t> {
+      rm_ptr_t(new gpu_workspace_manager_t()),
+      rm_ptr_t(new group_manager_t()),
+      rm_ptr_t(new global_buffers_t(mems))
+    }
+  ));
+
+  exec_state_t state(graph, resource_manager);
+
+  DOUT("executing...");
+  state.event_loop();
+  DOUT("executed.");
 }
 
 // memstoloc_t is not a contiguous data structure,
@@ -191,7 +220,13 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     //
     // TODO: copy from gpu at mems[local_gpu] from [offset, offset+size) into
     //       buffer at this location and return
-    return make_buffer(1);
+    auto ret_buffer = make_buffer(size);
+    cudaMemcpy(
+      increment_void_ptr(mems[local_gpu], offset),
+      ret_buffer->data,
+      ret_buffer->size,
+      cudaMemcpyDeviceToHost);
+    return ret_buffer;
   } else if(d.is_stoloc()) {
     auto const& [sto_loc, sto_id] = d.get_stoloc();
     if(sto_loc != this_rank) {
@@ -213,8 +248,9 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
   allocators.reserve(num_gpus_here);
   for(int local_gpu = 0; local_gpu != num_gpus_here; ++local_gpu) {
     allocators.emplace_back(
-      mems[local_gpu]->size,
-      alloc_settings);
+      // mems[local_gpu]->size,
+      all_mem_sizes[start_gpus_per_node[this_rank] + local_gpu],
+      alloc_settings); 
   }
 
   for(auto const& [tid, memstoloc]: data_locs) {
@@ -237,7 +273,12 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
       auto const& offset = maybe_offset.value();
 
       // TODO: copy tensor onto gpu memory at mems[local_gpu] + offset
-
+      cudaMemcpy(
+        increment_void_ptr(mems[local_gpu], offset),
+        tensor->data,
+        tensor->size,
+        cudaMemcpyHostToDevice)
+      
       memloc_t memloc {
         .offset = offset,
         .size = tensor->size,

@@ -385,6 +385,8 @@ public:
     stoloc_t    get_stoloc() const;
 
     bool is_local_to(int loc) const;
+
+    bool is_local_to_gpu(int loc, int num_gpu_per_node) const;
   private:
     _op_t op;
 
