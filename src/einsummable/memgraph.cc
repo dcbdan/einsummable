@@ -2543,7 +2543,7 @@ void memgraph_make_state_t2::add_to_memgraph(
   > return whether or not a delete occurred in one of the register usages
 */
 
-bool allocate_op(int oid, bool force=false) {
+bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touch_t> const& which_op, bool force=false) {
   /* Note to myself: should be looping through the used_tensor for current oid. 
     Each iteration: determine the type of node, then copy the structure from add_to_memgraph.
     When we alloc a tid, we add to the list of tids we alloced. Then later when we evict, 
@@ -2557,15 +2557,70 @@ bool allocate_op(int oid, bool force=false) {
     
     Ps: This might hurt thruput bc we're constantly allocating and deallocating. Pps.: We are only calling some malloc&free, not actually loading stuff in, so should be fine.
     If really needed, I could change to half-allocated op tracked. */
+  int id;
+  if(std::holds_alternative<_which_node_t>(which_op)) {
+    id = std::get<_which_node_t>(which_op).task_id;
+  } else {
+    id = std::get<_which_touch_t>(which_op).task_id;
+  }
 
-}
+  auto const& node = taskgraph.nodes[id];
 
-/* The following is previous allocate_op*/
+  // // loop through all inns so we make sure all inns are
+  // // ready for this node before starts
+  // for (int const& inn: node.op.inputs()){
+  //   auto const& inn_node = taskgraph.nodes[inn];
+  //   if(inn_node.op.is_input() && !input_has_been_initialized(inn)) {
+  //     initialize_input(inn);
+  //   }
+  // }
 
-bool allocate_op(int oid, bool force=false) {
+  set<int> used_task_tensors;
+  set<int> deps;
+  optional<op_t> op;
 
-  vector<tuple<int, mem_t>> ret;
-  for(auto const& tid: task_ids) {
+  optional<int> touch_output_memid;
+
+  // All all tids passed into get_tensors_in_memory will be added here.
+  // Get tensors in memory has two parts: it'll allocate
+  // brand new output tensors or it will load or find existing
+  // tensors. It is probably sufficient to only add the latter group
+  // of tids to used_tids, but that'd require more bookkeeping and being
+  // more conservative with used_tids in this case should lead to the same
+  // result.
+  vector<int> used_tids;
+
+  // The following we have difference node type cases, because we need to get the used_tids. 
+
+  if(node.op.is_apply()) {
+    auto const& [loc, inns, es] = node.op.get_apply();
+
+    vector<int>& out_then_inns = used_tids;
+    out_then_inns = vector<int>(inns.size() + 1);
+    out_then_inns[0] = id;
+    std::copy(inns.begin(), inns.end(), out_then_inns.begin()+1);
+
+    used_tids = out_then_inns;
+
+  } else if(node.op.is_move()) {
+    auto const& [src,dst,task_inn,size] = node.op.get_move();
+    used_tids = {task_inn, id};
+
+  } else if(node.op.is_partialize()) {
+    auto const& partialize = node.op.get_partialize();
+
+    auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
+    auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
+
+    used_tids = {task_inn, id};
+    
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+
+  //Now we have the used_tids, allocate for each of them.
+
+  for(auto const& tid: used_tids) {
     auto iter = task_tensor_to_mem_node.find(tid);
     if(iter != task_tensor_to_mem_node.end()) {
       int const& memid = iter->second;
@@ -2573,7 +2628,7 @@ bool allocate_op(int oid, bool force=false) {
       if(maybe_mem.is_memloc()) {
         ret.emplace_back(memid, maybe_mem.get_memloc().as_mem());
       } else {
-        if (forced == true) {
+        if (force == true) {
           // This tensor is not in memory, so load it without
           // evicting any of the other task_ids
           load_tensor_with_evict(tid, task_ids);
@@ -2587,8 +2642,9 @@ bool allocate_op(int oid, bool force=false) {
             int const& memid = task_tensor_to_mem_node.at(tid);
             mem_t const& mem = memgraph.nodes[memid].op.get_output_mem();
             ret.emplace_back(memid, mem);
-          } else {
-            //if cannot alloc, then just do nothing, so the return list only consists of tensors that we successfully load on memory.
+          } else {          
+            //if cannot alloc, then need to deallocate all memid in ret, and return false 
+            //TODO: Look at the allocator.free() function and determine if it's possible to deallocate without having a delete node.
           }
         }
       }
@@ -2602,11 +2658,25 @@ bool allocate_op(int oid, bool force=false) {
           "The input node must already be in task_tensor_to_mem_node!");
       }
 
-      // See to it that the memory gets allocated, possibly with evictions.
-      int loc = node.op.out_loc();
-      uint64_t size = node.op.out_size();
-      int alloc_mid = allocate_with_evict(loc, size, task_ids);
-      mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
+      if (force == true) {
+        // See to it that the memory gets allocated, possibly with evictions.
+        int loc = node.op.out_loc();
+        uint64_t size = node.op.out_size();
+        int alloc_mid = allocate_with_evict(loc, size, task_ids);
+        mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
+        ret.emplace_back(alloc_mid, alloc_mem);
+      } else {
+        bool load_success = load_tensor_without_evict(tid, task_ids);
+        if (load_success) {
+          //if load without evict succeeded, then add to return list
+          int const& memid = task_tensor_to_mem_node.at(tid);
+          mem_t const& mem = memgraph.nodes[memid].op.get_output_mem();
+          ret.emplace_back(memid, mem);
+        } else {
+          //if cannot alloc, then need to deallocate all memid in ret, and return false 
+          //TODO: Look at the allocator.free() function and determine if it's possible to deallocate without having a delete node.
+        }
+      }
 
       ret.emplace_back(alloc_mid, alloc_mem);
 
@@ -2615,13 +2685,10 @@ bool allocate_op(int oid, bool force=false) {
       task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
     }
   }
-  return ret;
-
   return true;
 }
 
-
-bool add_op(td::variant<_which_node_t, _which_touch_t> const& which_op) {
+bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> const& which_op) {
   int id;
   if(std::holds_alternative<_which_node_t>(which_op)) {
     id = std::get<_which_node_t>(which_op).task_id;
@@ -2844,7 +2911,7 @@ void memgraph_make_state_t2::process(
   bool do_alloc = true; //if we deleted any tensor in the last iteration
   while (done_oid < all_ops.size()) {
     if (do_alloc) {
-      while (allocate_op(alloc_oid, false) && alloc_oid < all_ops.size()) {
+      while (allocate_op(all_ops[alloc_oid], false) && alloc_oid < all_ops.size()) {
         alloc_oid ++;
       }
     }
@@ -2853,7 +2920,7 @@ void memgraph_make_state_t2::process(
     }
     alloc_oid++;
     //then add the op to memgraph
-    do_alloc = add_op(done_oid);
+    do_alloc = add_op(all_ops[done_oid]);
     done_oid++;
   }
 }
