@@ -58,6 +58,8 @@ add_base_application("memgraph_test"    "exps" "memgraph_test")
 add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
 add_base_application("engine"           "exps" "engine")
+add_base_application("apart"            "exps" "apart")
+add_base_application("hello"            "exps" "exp_hello")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
