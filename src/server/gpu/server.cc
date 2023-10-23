@@ -64,7 +64,8 @@ void gpu_mg_server_t::execute_memgraph(
     vector<rm_ptr_t> {
       rm_ptr_t(new gpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(mems))
+      rm_ptr_t(new global_buffers_t(mems)),
+      rm_ptr_t(new gpu_storage_manager_t(&storage))
     }
   ));
 
@@ -144,7 +145,7 @@ void gpu_mg_server_t::storage_remap_server(
 {
   int world_size = comm.get_world_size();
 
-  // TODO: remap storage here with remaps[0]
+  storage.remap(remaps[0]);
 
   for(int dst = 1; dst != world_size; ++dst) {
     comm.send_vector(dst, remaps[dst]);
@@ -154,7 +155,7 @@ void gpu_mg_server_t::storage_remap_server(
 void gpu_mg_server_t::storage_remap_client()
 {
   auto remap = comm.recv_vector<std::array<int, 2>>(0);
-  // TODO: remap storage here with remap
+  storage.remap(remap);
 }
 
 void gpu_mg_server_t::rewrite_data_locs_server(
@@ -232,8 +233,7 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     if(sto_loc != this_rank) {
       throw std::runtime_error("invalid storage location");
     }
-    // TODO: copy data from the storage object at sto_id into a new buffer
-    return make_buffer(1);
+    return storage.read(sto_id);
   } else {
     throw std::runtime_error("local_copy_data should not reach");
   }
@@ -287,8 +287,9 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
 
       memstoloc = memstoloc_t(memloc);
     } else {
-      // TODO: create an id and insert copy tensor into the storage object
-      int id = 99999;
+      int id = 1 + storage.get_max_id();
+
+      storage.write(tensor, id);
 
       stoloc_t stoloc {
         .loc = comm.get_this_rank(),
@@ -316,7 +317,7 @@ void gpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
       // nothing to do
     } else {
       auto const& [_,id] = memstoloc.get_stoloc();
-      // TODO: tell storage to remove id
+      storage.remove(id);
     }
     data_locs.erase(iter);
   }

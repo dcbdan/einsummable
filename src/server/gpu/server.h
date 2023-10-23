@@ -3,6 +3,8 @@
 
 #include "../base.h"
 
+#include "../../engine/gpu/storage_manager.h"
+
 struct gpu_mg_server_t : server_mg_base_t
 {
   gpu_mg_server_t(
@@ -55,5 +57,7 @@ private:
   vector<int> get_which_storage() const;
 
   kernel_manager_t kernel_manager;
+
+  gpu_storage_t storage;
 };
 
