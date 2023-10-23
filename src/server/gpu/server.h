@@ -36,9 +36,8 @@ struct gpu_mg_server_t : server_mg_base_t
 private:
   map<int, memstoloc_t> data_locs;
 
-  // vector<buffer_t> mems;
   vector<void*> mems;
-  
+
   // Example:
   //   compute-node 0: 4 gpus,
   //   compute-node 1: 3 gpus,
@@ -54,5 +53,7 @@ private:
   int which_local_gpu(int loc) const;
   int get_num_gpus() const;
   vector<int> get_which_storage() const;
+
+  kernel_manager_t kernel_manager;
 };
 

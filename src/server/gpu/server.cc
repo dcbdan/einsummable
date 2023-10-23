@@ -38,8 +38,9 @@ gpu_mg_server_t::gpu_mg_server_t(
     start_gpus_per_node.begin(),
     0);
 
-  // TODO: allocate memory on each gpu into mems
-  for (int i = 0; i < get_num_gpus(); i++) {
+  // allocate memory on each gpu into mems
+  int num_gpus_here = num_gpus_per_node[this_rank];
+  for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
 }
@@ -48,16 +49,15 @@ void gpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
   bool for_remap)
 {
-  // TODO:
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
 
-  kernel_manager_t km;
-
   DOUT("Making exec graph...");
+  // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node[comm.get_this_rank()]);
+    exec_graph_t::make_gpu_exec_graph(
+      memgraph, 0, kernel_manager, num_gpus_per_node[comm.get_this_rank()]);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
@@ -217,9 +217,9 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
   if(d.is_memloc()) {
     auto const& [offset, size, global_gpu] = d.get_memloc();
     int local_gpu = which_local_gpu(global_gpu);
-    //
-    // TODO: copy from gpu at mems[local_gpu] from [offset, offset+size) into
-    //       buffer at this location and return
+
+    // copy from gpu at mems[local_gpu] from [offset, offset+size) into
+    // buffer at this location and return
     auto ret_buffer = make_buffer(size);
     cudaMemcpy(
       increment_void_ptr(mems[local_gpu], offset),
@@ -250,7 +250,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     allocators.emplace_back(
       // mems[local_gpu]->size,
       all_mem_sizes[start_gpus_per_node[this_rank] + local_gpu],
-      alloc_settings); 
+      alloc_settings);
   }
 
   for(auto const& [tid, memstoloc]: data_locs) {
@@ -272,13 +272,13 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     if(maybe_offset) {
       auto const& offset = maybe_offset.value();
 
-      // TODO: copy tensor onto gpu memory at mems[local_gpu] + offset
+      // copy tensor onto gpu memory at mems[local_gpu] + offset
       cudaMemcpy(
         increment_void_ptr(mems[local_gpu], offset),
         tensor->data,
         tensor->size,
         cudaMemcpyHostToDevice)
-      
+
       memloc_t memloc {
         .offset = offset,
         .size = tensor->size,
