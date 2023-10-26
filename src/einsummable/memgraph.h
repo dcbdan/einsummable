@@ -688,7 +688,6 @@ struct memgraph_make_state_t2 {
   bool add_op(std::variant<_which_node_t, _which_touch_t> const& which_op) {
 
 
-
   int get_group_at(int task_id, int unit_id);
 
   // At the end of this call, these tensors should be in memory. If they can't
