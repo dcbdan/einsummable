@@ -7,9 +7,6 @@
 #include "../../einsummable/memgraph.h"
 #include "utility.h"
 
-#include <mutex>
-#include <fstream>
-
 struct gpu_storage_t
 {
   gpu_storage_t();

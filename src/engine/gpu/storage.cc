@@ -1,8 +1,10 @@
 #include "storage.h"
 #include <stdlib.h>
 
+gpu_storage_t::gpu_storage_t() {}
+
 void gpu_storage_t::write(buffer_t data, int id) {
-  buffer_t ret(data->size);
+  buffer_t ret = make_buffer(data->size);
   std::copy(data->data, data->data + data->size, ret->data);
   insert(id, ret);
 }
@@ -10,7 +12,7 @@ void gpu_storage_t::write(buffer_t data, int id) {
 void gpu_storage_t::insert(int id, buffer_t data) {
   std::unique_lock lk(m);
 
-  auto [_, did_insert] = data.insert({id, data});
+  auto [_, did_insert] = this->data.insert({id, data});
   if(!did_insert) {
     throw std::runtime_error("id already in gpu storage");
   }
@@ -42,7 +44,6 @@ void gpu_storage_t::remap(map<int, int> const& rmap) {
 }
 
 int gpu_storage_t::get_max_id() const {
-  std::unique_lock lk(m);
   if(data.size() == 0) {
     return -1;
   }
@@ -56,7 +57,7 @@ buffer_t gpu_storage_t::load(int id) {
     throw std::runtime_error("id not in storage.");
   }
   buffer_t data = iter->second;
-  data.erase(iter);
+  this->data.erase(iter);
   return data;
 }
 
