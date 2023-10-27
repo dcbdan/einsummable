@@ -464,6 +464,24 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
   return ret;
 }
 
+template <typename T>
+bool set_has_empty_intersection(set<T> const& lhs, set<T> const& rhs)
+{
+  for(auto const& v: lhs) {
+    if(rhs.count(v) > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T>
+void set_union_inplace(set<T>& ret, set<T> const& these) {
+  for(auto const& x: these) {
+    ret.insert(x);
+  }
+}
+
 template <typename Iter, typename F>
 Iter max_element_transform(
   Iter first,
