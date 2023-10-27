@@ -383,6 +383,11 @@ struct allocator_t {
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate(uint64_t size);
 
+  // Takes a vector of sizes as input (size of each tensor we want to allocate for)
+  // Return a vector of what try_to_allocate originally would return. (offset and deps of each created alloc node)
+  vector<tuple<uint64_t, vector<int>>>
+  try_to_allocate_multiple(vector<uint64_t> sizes);
+
   tuple<uint64_t, vector<int>>
   allocate(uint64_t size);
 
@@ -414,6 +419,7 @@ private:
   struct block_t {
     uint64_t beg;
     uint64_t end;
+    bool available = true;
 
     // dep is none:
     //   this memory is occupied

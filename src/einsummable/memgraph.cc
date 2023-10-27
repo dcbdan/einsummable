@@ -1944,13 +1944,17 @@ allocator_t::find_first_available(uint64_t size) {
       iter_t ret = iter;
       uint64_t sz  = 0;
       uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
-      for(; iter != blocks.end() && iter->available(); ++iter) {
+      for(; iter != blocks.end() && iter->available() && iter->available == true; ++iter) {
         sz += iter->size();
         if(rem != 0 && sz > rem) {
           rem = 0;
           sz -= rem;
         }
         if(rem == 0 && sz >= size) {
+          //set the parameter available to false 
+          for (auto inner_iter = ret; inner_iter != iter+1; ++inner_iter) {
+            iter->available = false;
+          }
           return optional<return_t>({ret, iter + 1, sz});
         }
       }
@@ -1972,7 +1976,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
       uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       int inner_max_dep = -1;
       for(iter_t inner_iter = iter;
-          inner_iter != blocks.end() && inner_iter->available();
+          inner_iter != blocks.end() && inner_iter->available() && inner_iter->available == true;
           ++inner_iter)
       {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
@@ -1988,6 +1992,10 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
         }
       }
     }
+  }
+  //set the parameter available to false 
+  for (auto iter = return_block.get<0>; iter != return_block.get<1>; ++iter) {
+    iter->available = false;
   }
   return return_block;
 }
@@ -2060,6 +2068,87 @@ optional< tuple<uint64_t, vector<int>> >
 allocator_t::try_to_allocate(uint64_t size_without_rem)
 {
  return try_to_allocate_impl(size_without_rem, false);
+}
+
+optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_multiple(vector<uint64_t> sizes)
+{
+  using return_t = tuple<uint64_t, vector<int>>;
+  bool failed = false;
+
+  optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
+  vector<optional<tuple<iter_t, iter_t, uint64_t>>> maybe_infos;
+  vector<return_t> return_vec;
+
+  for (int size: sizes) {
+    if(strat == allocator_strat_t::lowest_dependency) {
+      maybe_info = find_lowest_dependency_available(size_without_rem);
+    } else if(strat == allocator_strat_t::first) {
+      maybe_info = find_first_available(size_without_rem);
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+
+    if(maybe_info) {
+      maybe_infos.push_back(maybe_info);
+    } else {
+      failed = true;
+      break;
+    }
+  }
+
+  if (failed == true) {
+    //set available field of the blocks to false
+    for (auto iter = maybe_infos.begin(); iter != maybe_infos.end(); ++iter) {
+      for(auto iter = beg; iter != end; ++iter) {
+        iter->available = true;
+      }
+    }
+    return vector<tuple<uint64_t, vector<int>>>();
+  }
+  //if succeeded, then need to actually allocate the blocks. Else just do nothing
+  for (auto iter = maybe_infos.begin(); iter != maybe_infos.end(); ++iter) {
+    auto const& [beg,end,sz] = (*iter).value();
+
+    // collect the output information
+    uint64_t offset = beg->beg;
+    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
+
+    uint64_t size = size_without_rem + (aligned_offset - offset);
+
+    vector<int> deps;
+    for(auto iter = beg; iter != end; ++iter) {
+      if(!iter->dep) {
+        throw std::runtime_error("invalid find_available return");
+      }
+      int const& d = iter->dep.value();
+      if(d >= 0) {
+        deps.push_back(d);
+      }
+    }
+
+    if(no_deps && deps.size() > 0) {
+      // if deps aren't allowed and there would be some, then fail here
+      return optional<return_t>();
+    }
+
+    // fix blocks
+    block_t last_block_copy = *(end-1);
+
+    auto iter = blocks.erase(beg, end);
+    auto occupied_iter = blocks.insert(iter, block_t {
+      .beg = offset,
+      .end = offset+size,
+      .dep = optional<int>()
+    });
+    if(size != sz) {
+      blocks.insert(occupied_iter+1, block_t {
+        .beg = offset + size,
+        .end = last_block_copy.end,
+        .dep = last_block_copy.dep
+      });
+    }
+    return_vec.emplace_back(optional<return_t>({aligned_offset, deps}));
+  }
 }
 
 tuple<uint64_t, vector<int>>
