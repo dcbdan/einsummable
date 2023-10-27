@@ -1,5 +1,10 @@
 #include "../src/engine/communicator.h"
 
+struct silly_msg_t {
+  int src;
+  bool done;
+};
+
 int main(int argc, char** argv) {
   if(argc < 4) {
     throw std::runtime_error("provide addr_zero is_client world_size");
@@ -33,4 +38,42 @@ int main(int argc, char** argv) {
   }
 
   comm.barrier();
+
+  bool constant_poll = false;
+
+  auto start = clock_now();
+
+  map<int, int> counts;
+  comm.start_listen_notify_type<silly_msg_t>(
+    [&counts](silly_msg_t const& msg) -> bool
+    {
+      auto const& [src, done] = msg;
+      counts[src]++;
+      return done;
+    },
+    constant_poll
+  );
+
+  for(int i = 0; i != 100000; ++i) {
+    int dst = runif(world_size-1);
+    if(dst >= this_rank) {
+      dst += 1;
+    }
+    comm.notify(dst, silly_msg_t { this_rank, false });
+  }
+
+  for(int rank = 0; rank != world_size; ++rank) {
+    if(rank != this_rank) {
+      comm.notify(rank, silly_msg_t { this_rank, true });
+    }
+  }
+
+  comm.stop_listen_notify();
+  auto end = clock_now();
+
+  for(auto const& [src, count]: counts) {
+    DOUT("From " << src << ": " << count << " number of messages");
+  }
+  double total_time = std::chrono::duration<double>(end-start).count();
+  DOUT("Total time: " << total_time);
 }

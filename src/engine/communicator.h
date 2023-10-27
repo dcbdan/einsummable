@@ -40,12 +40,31 @@ struct communicator_t {
   //       last message on the wire.
   void start_listen_notify(
     uint64_t msg_size,
-    std::function<bool(vector<uint8_t> data)> callback,
+    std::function<bool(vector<uint8_t>)> callback,
     bool constant_poll = false);
+
+  template <typename T>
+  void start_listen_notify_type(
+    std::function<bool(T const&)> callback,
+    bool constant_poll = false)
+  {
+    start_listen_notify(
+      sizeof(T),
+      [&callback](vector<uint8_t> data) {
+        T& obj = *reinterpret_cast<T*>(data.data());
+        return callback(obj);
+      },
+      constant_poll);
+  }
 
   void stop_listen_notify();
 
   void notify(int dst, void const* data, uint64_t size);
+
+  template <typename T>
+  void notify(int dst, T const& msg) {
+    notify(dst, reinterpret_cast<void const*>(&msg), sizeof(msg));
+  }
 
   void barrier();
 
@@ -195,13 +214,14 @@ private:
 
       void wait() { while(!is_done) { progress(); } }
 
+      ucp_worker_h& get_worker() { return self.worker; }
     private:
       ucp_request_param_t param;
       vector<uint8_t> data;
       uint64_t size;
       bool is_done;
       wire_t& self;
-      ucs_status_ptr_t status;
+      ucs_status_ptr_t request_status;
 
       int _efd;
       int make_worker_efd();
