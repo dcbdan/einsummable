@@ -5,7 +5,7 @@
 
 #include "buildtrees.h"
 
-#include <fstream> // TODO: remove
+//#include <fstream>
 
 using ap_graph_t     = typename build_trees_ns::bgraph_t<unit_t>;
 using ap_tree_t      = typename build_trees_ns::btree_t<unit_t>;
@@ -455,11 +455,11 @@ vector<partition_t> autopartition_for_bytes(
   graph_t const& graph,
   int n_compute)
 {
-  {
-    std::ofstream f("g.gv");
-    graph.print_graphviz(f);
-    DOUT("printed g.gv");
-  }
+  //{
+  //  std::ofstream f("g.gv");
+  //  graph.print_graphviz(f);
+  //  DOUT("printed g.gv");
+  //}
 
   int max_branching = 2;
   int log2_n = log2(n_compute);
@@ -496,54 +496,54 @@ vector<partition_t> autopartition_for_bytes(
 
     bgraph.insert(gid, unit_t{}, inns);
   }
-  {
-    std::ofstream f("bg.gv");
-    bgraph.print_graphviz(f);
-    DOUT("printed bg.gv");
-  }
+  //{
+  //  std::ofstream f("bg.gv");
+  //  bgraph.print_graphviz(f);
+  //  DOUT("printed bg.gv");
+  //}
 
   // 2.
   ap_graphtree_t btrees = build_trees_ns::build_trees(bgraph);
-  {
-    std::ofstream f("bt.gv");
-    btrees.print_graphviz(f);
-    DOUT("printed bt.gv");
-  }
+  //{
+  //  std::ofstream f("bt.gv");
+  //  btrees.print_graphviz(f);
+  //  DOUT("printed bt.gv");
+  //}
 
-  {
-    vector<string> color_list{
-      "#61B292",
-      "#AED09E",
-      "#F1E8A7",
-      "#A8896C",
-      "#A8D8EA",
-      "#AA96DA",
-      "#FCBAD3",
-      "#FFFFD2",
-      "#F0FFFF",
-      "#DEB887",
-      "yellow",
-      "red",
-      "orange"
-    };
-    int i = 0;
+  //{
+  //  vector<string> color_list{
+  //    "#61B292",
+  //    "#AED09E",
+  //    "#F1E8A7",
+  //    "#A8896C",
+  //    "#A8D8EA",
+  //    "#AA96DA",
+  //    "#FCBAD3",
+  //    "#FFFFD2",
+  //    "#F0FFFF",
+  //    "#DEB887",
+  //    "yellow",
+  //    "red",
+  //    "orange"
+  //  };
+  //  int i = 0;
 
-    map<int, string> colors;
+  //  map<int, string> colors;
 
-    for(auto const& [_, node]: btrees.get()) {
-      string color = color_list[i];
-      i = (i + 1) % color_list.size();
+  //  for(auto const& [_, node]: btrees.get()) {
+  //    string color = color_list[i];
+  //    i = (i + 1) % color_list.size();
 
-      auto const& tree = node.item;
-      for(int const& id: tree.dfs_from_root()) {
-        colors.insert({id, color});
-      }
-    }
+  //    auto const& tree = node.item;
+  //    for(int const& id: tree.dfs_from_root()) {
+  //      colors.insert({id, color});
+  //    }
+  //  }
 
-    std::ofstream f("bg_color.gv");
-    bgraph.print_graphviz(f, colors);
-    DOUT("printed bg_color.gv");
-  }
+  //  std::ofstream f("bg_color.gv");
+  //  bgraph.print_graphviz(f, colors);
+  //  DOUT("printed bg_color.gv");
+  //}
 
   // 3.
   get_parts_t get_possible_partitions {
@@ -562,7 +562,6 @@ vector<partition_t> autopartition_for_bytes(
       partitions_so_far, graph, tree, max_branching,
       get_possible_partitions,
       compute_cost);
-    DOUT(cost_tree);
   }
 
   // 4.
