@@ -61,29 +61,33 @@ struct args_t {
     } else if constexpr (std::is_same<T, bool>::value) {
       return d_bool.at(key);
     } else {
-      throw std::runtime_error("unsupported default type");
+      throw std::runtime_error("get_default: unsupported default type");
     }
   }
 
   template <typename T>
   void set_default(string key, T const& value) {
     if constexpr (std::is_same<T, int>::value) {
-      d_int.insert({key, value});
+      d_int.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, int64_t>::value) {
-      d_int64_t.insert({key, value});
+      d_int64_t.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, uint64_t>::value) {
-      d_uint64_t.insert({key, value});
+      d_uint64_t.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, float>::value) {
-      d_float.insert({key, value});
+      d_float.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, double>::value) {
-      d_double.insert({key, value});
+      d_double.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, string>::value) {
-      d_string.insert({key, value});
+      d_string.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, bool>::value) {
-      d_bool.insert({key, value});
+      d_bool.insert_or_assign(key, value);
     } else {
-      throw std::runtime_error("unsupported default type");
+      throw std::runtime_error("set_default: unsupported default type");
     }
+  }
+
+  void set_default(string key, const char* value) {
+    d_string.insert_or_assign(key, value);
   }
 
 private:
