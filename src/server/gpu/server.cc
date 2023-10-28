@@ -2,7 +2,7 @@
 
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
-
+#include "../../engine/managers.h"
 #include "../../engine/gpu/workspace.h"
 
 gpu_mg_server_t::gpu_mg_server_t(
@@ -277,7 +277,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
         increment_void_ptr(mems[local_gpu], offset),
         tensor->data,
         tensor->size,
-        cudaMemcpyHostToDevice)
+        cudaMemcpyHostToDevice);
 
       memloc_t memloc {
         .offset = offset,
@@ -344,5 +344,12 @@ vector<int> gpu_mg_server_t::get_which_storage() const {
   }
   // Note: storage loc == compute node
   return ret;
+}
+
+gpu_mg_server_t::~gpu_mg_server_t(){
+  // free all gpu memories
+  for (auto mem : mems){
+    cudaFree(mem);
+  }
 }
 

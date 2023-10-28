@@ -13,8 +13,8 @@ struct gpu_storage_resource_t {
 struct gpu_storage_manager_t
   : rm_template_t<unit_t, gpu_storage_resource_t>
 {
-  gpu_storage_manager_t(gpu_storage_resource_t* p)
-    : ptr(p->ptr)
+  gpu_storage_manager_t(gpu_storage_t* p)
+    : ptr(p)
   {}
 
   static desc_ptr_t make_desc() { return rm_template_t::make_desc(unit_t{}); }

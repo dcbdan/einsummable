@@ -4,6 +4,7 @@
 #include "../base.h"
 
 #include "../../engine/gpu/storage_manager.h"
+#include "../../engine/gpu/gpu_kernel_manager.h"
 
 struct gpu_mg_server_t : server_mg_base_t
 {
@@ -11,6 +12,8 @@ struct gpu_mg_server_t : server_mg_base_t
     communicator_t& c,
     // one buffer per gpu
     vector<uint64_t> buffer_sizes);
+
+  ~gpu_mg_server_t();
 
   void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
 

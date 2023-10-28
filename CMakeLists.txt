@@ -160,9 +160,10 @@ if(${GPU_EXECUTION_ENGINE})
   find_package(CUDA 11.0 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
-  include_directories(${PROJECT_SOURCE_DIR}/src/execution/gpu)
   include_directories(${PROJECT_SOURCE_DIR}/src/engine)
   include_directories(${PROJECT_SOURCE_DIR}/src/engine/gpu)
+  include_directories(${PROJECT_SOURCE_DIR}/src/server)
+  include_directories(${PROJECT_SOURCE_DIR}/src/server/gpu)
 
   add_compile_definitions(GPU_EXEC)
 

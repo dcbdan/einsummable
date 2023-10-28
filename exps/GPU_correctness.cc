@@ -1,14 +1,13 @@
-#include "../src/einsummable/memgraph.h"
-#include "../src/einsummable/einsummable.h"
-#include "../src/einsummable/reference.h"
-#include "../src/einsummable/scalarop.h"
-
 #include "../src/engine/exec_state.h"
 #include "../src/engine/exec_graph.h"
 #include "../src/engine/resource_manager.h"
 #include "../src/engine/communicator.h"
 #include "../src/engine/gpu/workspace.h"
+#include "../src/server/gpu/server.h"
 
+#include "../src/server/base.h"
+
+#include <cstdint>
 #include <cutensor.h>
 #include <cuda_runtime.h>
 
@@ -20,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <sys/types.h>
+#include <tuple>
 
 // print the information of the memgraph
 void print_memgraph(memgraph_t memgraph){
@@ -171,300 +171,47 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
   DOUT("executed.");
 }
 
-//void execute_test(memgraph_t memgraph) {
-//
-//  // print a message
-//  std::cout << "Checking correctness" << std::endl;
-//  // create a buffer
-//  // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
-//  // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-//  // d.random("-1.0", "1.0");
-//  // // d.fill(scalar_t(float(17.63)));
-//  // buffer_t b = d.data;
-//  // auto cpu_ptr = b->data;
-//  // auto size = b->size;
-//
-//  // print the number of nodes in the graph
-//  std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
-//            << std::endl;
-//  bool debug = true;
-//  if (debug) {
-//    print_memgraph(memgraph);
-//  }
-//
-//  // allocate a buffer on GPU
-//  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
-//  // print the memgraph size
-//  std::cout << "Memgraph size: " << memgraph.mem_sizes()[0] << std::endl;
-//  // copy data from CPU to GPU
-//  // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-//  // cudaSuccess) {
-//  //     throw std::runtime_error("cudaMemcpy");
-//  // }
-//  // execute the memgraph on the GPU ptr
-//  execute(memgraph, gpu_ptr);
-//  std::cout << "GPU execution has finished" << std::endl;
-//  // bring the data back
-//  // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-//}
 
-// void execute_multi_gpu_test(memgraph_t memgraph) {
-//   // print a message
-//   //std::cout << "Checking correctness" << std::endl;
-//   // create a buffer
-//   // auto num_elems =  memgraph.mem_sizes()[0] / sizeof(float);
-//   // dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-//   // d.random("-1.0", "1.0");
-//   // // d.fill(scalar_t(float(17.63)));
-//   // buffer_t b = d.data;
-//   // auto cpu_ptr = b->data;
-//   // auto size = b->size;
-
-//   // std::unordered_map<int, int> gpu_mapping;
-//   // gpu_mapping[0] = 0;
-//   // gpu_mapping[1] = 2;
-//   // gpu_mapping[2] = 3;
-
-//   // print the number of nodes in the graph
-//   //std::cout << "Number of nodes in the graph: " << memgraph.nodes.size()
-//   //          << std::endl;
-//   bool debug = true;
-//   //if (debug) {
-//   //  print_memgraph(memgraph);
-//   //}
-
-//   auto num_gpu = memgraph.mem_sizes().size();
-//   // allocate ptrs for gpu
-//   std::vector<void*> gpu_ptrs;
-//   auto mem_sizes = memgraph.mem_sizes();
-//   for (int i = 0; i < num_gpu; ++i){
-//     gpu_ptrs.push_back(gpu_allocate_memory(mem_sizes[i], i));
-//   }
-//   // copy data from CPU to GPU
-//   // if(cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-//   // cudaSuccess) {
-//   //     throw std::runtime_error("cudaMemcpy");
-//   // }
-//   // execute the memgraph on the GPU ptr
-//   execute_multi_gpu(memgraph, gpu_ptrs);
-//   std::cout << "GPU execution has finished" << std::endl;
-//   // bring the data back
-//   // dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-// }
-
-// NOTE: Since the correctness test fills the entire buffer with random values
-// without any consideration on the alignment The test only works with alignment
-// = 1
-//void check_correctness(memgraph_t memgraph, bool debug = false) {
-//  if (debug) {
-//    print_memgraph(memgraph);
-//  }
-//
-//  // print a message
-//  std::cout << "Checking correctness" << std::endl;
-//  // create a buffer
-//  auto num_elems = memgraph.mem_sizes()[0] / sizeof(float);
-//  dbuffer_t d = make_dbuffer(dtype_t::f32, num_elems);
-//  d.random("-1.0", "1.0");
-//  // d.fill(scalar_t(float(17.63)));
-//  buffer_t b = d.data;
-//  auto cpu_ptr = b->data;
-//  auto size = b->size;
-//  if (debug) {
-//    std::cout << "Original buffer: " << std::endl;
-//    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
-//  }
-//  // allocate a buffer on GPU
-//  auto gpu_ptr = gpu_allocate_memory(memgraph.mem_sizes()[0], 0);
-//  // copy data from CPU to GPU
-//  if (cudaMemcpy(gpu_ptr, cpu_ptr, size, cudaMemcpyHostToDevice) !=
-//      cudaSuccess) {
-//    throw std::runtime_error("cudaMemcpy");
-//  }
-//  // execute the memgraph on the GPU ptr
-//  execute(memgraph, gpu_ptr);
-//  std::cout << "GPU execution has finished" << std::endl;
-//  // bring the data back
-//  dbuffer_t out = make_dbuffer(dtype_t::f32, num_elems);
-//  if (cudaMemcpy(out.data->data, gpu_ptr, size, cudaMemcpyDeviceToHost) !=
-//      cudaSuccess) {
-//    throw std::runtime_error("cudaMemcpy");
-//  }
-//  std::cout << "Copying from GPU to CPU has finished" << std::endl;
-//
-//  // run the same computation on CPU
-//  vector<buffer_t> buffers;
-//  buffers.push_back(b);
-//  reference_compute_memgraph(memgraph, buffers);
-//  std::cout << "CPU reference has finished" << std::endl;
-//
-//  // compare the results
-//  auto result = is_close(d, out);
-//  // print messages based on the result
-//  if (result) {
-//    std::cout << "Correctness test passed" << std::endl;
-//  } else {
-//    std::cout << "Correctness test failed" << std::endl;
-//  }
-//
-//  if (debug && !result) {
-//    std::cout << "Expected result: " << std::endl;
-//    printFloatCPU(reinterpret_cast<const float *>(cpu_ptr), num_elems);
-//    std::cout << "Actual result: " << std::endl;
-//    printFloatCPU(reinterpret_cast<const float *>(out.data->data), num_elems);
-//  }
-//}
-
-// ij,jk->ik
-/*
-void contractionTest(int di, int dj, int dk) {
-  auto num_elems = di * dj + dj * dk + di * dk;
-  auto buffer_size = num_elems * sizeof(float);
-  // create the einsummable
-  auto einsummable = einsummable_t::from_matmul(di, dj, dk);
-  einsummable = einsummable.merge_adjacent_dims();
-  // create two input dbuffers
-  dbuffer_t input1 = make_dbuffer(dtype_t::f32, di * dj);
-  dbuffer_t input2 = make_dbuffer(dtype_t::f32, dj * dk);
-  input1.random("-1.0", "1.0");
-  input2.random("-1.0", "1.0");
-
-  auto gpu_ptr = gpu_allocate_memory(buffer_size);
-  if (cudaMemcpy(gpu_ptr, input1.data->data, input1.data->size,
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy input 1");
-  }
-  if (cudaMemcpy(gpu_ptr + di * dj, input2.data->data, input2.data->size,
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy input 2");
+void server_execute(memgraph_t memgraph, bool debug, vector<uint64_t>buffer_sizes){
+  // auto num_gpu = memgraph.mem_sizes().size();
+  if (debug){
+    print_memgraph(memgraph);
   }
 
-  // print inputs
-  // std::cout << "Input 1: " << std::endl;
-  // printFloatCPU(reinterpret_cast<const float*>(input1.data->data), di * dj);
-  // std::cout << "Input 2: " << std::endl;
-  // printFloatCPU(reinterpret_cast<const float*>(input2.data->data), dj * dk);
+  communicator_t c("0.0.0.0", true, 1);
+  gpu_mg_server_t server(c, buffer_sizes);
 
-  dbuffer_t cpu_out = reference_einsummable(einsummable, {input1, input2});
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
 
-  // print GPU layout
-  // std::cout << "GPU layout before execution: " << std::endl;
-  // printFloatGPU(reinterpret_cast<const float*>(gpu_ptr), num_elems);
-
-  auto gpu_input1 = gpu_allocate_memory(input1.data->size);
-  auto gpu_input2 = gpu_allocate_memory(input2.data->size);
-  auto gpu_output = gpu_allocate_memory(cpu_out.data->size);
-
-  // copy data from CPU to GPU
-  if (cudaMemcpy(gpu_input1, input1.data->data, input1.data->size,
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy input 1");
-  }
-  if (cudaMemcpy(gpu_input2, input2.data->data, input2.data->size,
-                 cudaMemcpyHostToDevice) != cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy input 2");
+  for(int gid = 0; gid != memgraph.nodes.size(); ++gid) {
+    auto const& node = memgraph.nodes[gid];
+    if(node.op.is_inputmem()) {
+      auto const& input_mem = node.op.get_inputmem();
+      // how do we know d_type of the input?
+      dbuffer_t tensor = make_dbuffer();
+      // tensor.random("-0.01", "0.01");
+      tensor.ones();
+      data[gid] = std::make_tuple(node.op.get_loc(), tensor);
+    }
   }
 
-  cutensorHandle_t *handle;
-  HANDLE_ERROR(cutensorCreate(&handle));
-  cutensorContractionDescriptor_t desc;
-  build_contraction(&desc, handle, einsummable);
-  cudaStream_t stream = cuda_create_stream();
-  execute_contraction(stream, handle, &desc, gpu_output, gpu_input1,
-                      gpu_input2);
+  server.local_insert_tensors(data);
 
-  // print GPU inputs and output
-  // std::cout << "GPU input 1: " << std::endl;
-  // printFloatGPU(reinterpret_cast<const float*>(gpu_input1), di * dj);
-  // std::cout << "GPU input 2: " << std::endl;
-  // printFloatGPU(reinterpret_cast<const float*>(gpu_input2), dj * dk);
-  // std::cout << "GPU output: " << std::endl;
-  // printFloatGPU(reinterpret_cast<const float*>(gpu_output), di * dk);
+  server.execute_memgraph(memgraph, false);
 
-  dbuffer_t gpu_out = make_dbuffer(
-      dtype_t::f32, std::floor(cpu_out.data->size / sizeof(float)));
-  if (cudaMemcpy(gpu_out.data->data, gpu_output, cpu_out.data->size,
-                 cudaMemcpyDeviceToHost) != cudaSuccess) {
-    throw std::runtime_error("cudaMemcpy");
-  }
+  //// get the outputs to here
+  // for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //   auto const& node = graph.nodes[gid];
+  //   if(node.op.is_save()) {
+  //     dbuffer_t tensor = server.get_tensor_from_gid(gid);
+  //     //DOUT(tensor);
+  //     //DOUT("gid sum is: " << tensor.sum());
+  //   }
+  // }
 
-  // compare the results
-  auto result = is_close(cpu_out, gpu_out);
-  // print messages based on the result
-  if (result) {
-    std::cout << "Contraction test passed" << std::endl;
-  } else {
-    std::cout << "Contraction test failed" << std::endl;
-  }
 
-  if (!result) {
-    std::cout << "Expected result: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float *>(cpu_out.data->data),
-                  std::floor(cpu_out.data->size / sizeof(float)));
-    std::cout << "Actual result: " << std::endl;
-    printFloatCPU(reinterpret_cast<const float *>(gpu_out.data->data),
-                  std::floor(gpu_out.data->size / sizeof(float)));
-  }
+  server.shutdown();
+
+
 }
-
-void alignmentTest(int di, int dj, int dk) {
-  int num_elems = di * dj + dj * dk + di * dk;
-  int total_size = num_elems * sizeof(float) * 200;
-  auto my_allocator =
-      allocator_t(total_size, allocator_settings_t::gpu_alignment_settings());
-
-  // randomly initialize the inputs
-  dbuffer_t input1 = make_dbuffer(dtype_t::f32, di * dj);
-  dbuffer_t input2 = make_dbuffer(dtype_t::f32, dj * dk);
-  dbuffer_t output = make_dbuffer(dtype_t::f32, di * dk);
-  input1.random("-1.0", "1.0");
-  input2.random("-1.0", "1.0");
-
-  auto input_mem1 = my_allocator.allocate(input1.data->size);
-  auto offset_input1 = std::get<0>(input_mem1);
-  auto input_mem2 = my_allocator.allocate(input2.data->size);
-  auto offset_input2 = std::get<0>(input_mem2);
-  auto output_mem = my_allocator.allocate(output.data->size);
-  // print the offsets
-  std::cout << "Input 1 offset: " << std::get<0>(input_mem1) << std::endl;
-  // print the offsets
-  std::cout << "Input 2 offset: " << std::get<0>(input_mem2) << std::endl;
-  // print the offsets
-  std::cout << "Output offset: " << std::get<0>(output_mem) << std::endl;
-
-  // cuda malloc
-  auto gpu_ptr = gpu_allocate_memory(total_size);
-
-  auto einsummable = einsummable_t::from_matmul(di, dj, dk);
-  einsummable = einsummable.merge_adjacent_dims();
-  cutensorHandle_t *handle;
-  HANDLE_ERROR(cutensorCreate(&handle));
-  cutensorContractionDescriptor_t desc;
-  build_contraction(&desc, handle, einsummable);
-  cudaStream_t stream = cuda_create_stream();
-  execute_contraction(stream, handle, &desc,
-                      offset_increment(gpu_ptr, std::get<0>(output_mem)),
-                      offset_increment(gpu_ptr, std::get<0>(output_mem)),
-                      offset_increment(gpu_ptr, std::get<0>(output_mem)));
-}
-
-void contractionTest2() {
-  size_t my_size = 64000000;
-  mem_t input1 = {.offset = 1984000000, .size = my_size};
-  mem_t input2 = {.offset = 1152000000, .size = my_size};
-  mem_t output = {.offset = 2304000000, .size = my_size};
-
-  auto gpu_ptr = gpu_allocate_memory(2560000000);
-
-  auto einsummable = einsummable_t::from_matmul(4000, 4000, 4000);
-  cutensorHandle_t *handle;
-  HANDLE_ERROR(cutensorCreate(&handle));
-  cutensorContractionDescriptor_t desc;
-  build_contraction(&desc, handle, einsummable);
-  cudaStream_t stream = cuda_create_stream();
-  execute_contraction(stream, handle, &desc,
-                      offset_increment(gpu_ptr, output.offset),
-                      offset_increment(gpu_ptr, input1.offset),
-                      offset_increment(gpu_ptr, input2.offset));
-}
-*/
