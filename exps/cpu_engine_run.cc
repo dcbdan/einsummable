@@ -15,7 +15,7 @@ void usage() {
   std::cout << "Plus args for graphs\n";
 }
 
-graph_t build_graph(int argc, char** argv);
+graph_t build_graph(args_t& args);
 
 vector<placement_t> autoplace(
   graph_t const& graph,
@@ -46,8 +46,12 @@ int main(int argc, char** argv) {
   cpu_mg_server_t server(communicator, mem_size, num_threads);
 
   if(is_rank_zero) {
+    args_t args(argc-4, argv+4);
+    args.set_default("pp", true);
+    server.set_parallel_partialize(args.get<bool>("pp"));
+
     // execute this
-    graph_t graph = build_graph(argc - 4, argv + 4);
+    graph_t graph = build_graph(args);
     vector<placement_t> pls = autoplace(graph, world_size, num_threads);
 
     // initialize input tensors and distribute across the cluster
@@ -134,9 +138,8 @@ uint64_t compute_hidden(
   return ret;
 }
 
-graph_t build_graph(int argc, char** argv)
+graph_t build_graph(args_t& args)
 {
-  args_t args(argc, argv);
   args.set_default("graph", "matmul");
 
   if(args.get<string>("graph") == "matmul") {

@@ -16,6 +16,15 @@ void server_base_t::execute_graph(
 
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
     taskgraph_t::make(graph, placements);
+  if(make_parallel_partialize_groups()) {
+    for(auto& node: taskgraph.nodes) {
+      auto& op = node.op;
+      if(op.is_partialize()) {
+        auto& partialize = op.get_partialize();
+        partialize.make_parallel();
+      }
+    }
+  }
 
   //{
   //  std::ofstream f("tg.gv");
