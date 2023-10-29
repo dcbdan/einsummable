@@ -318,7 +318,7 @@ double _solve_tree(
   auto all_gids = tree.dfs_from_root();
   std::reverse(all_gids.begin(), all_gids.end());
   for(int const& gid: all_gids) {
-    vector<int> inns = tree.get_inns_as_vec(gid);
+    vector<int> tree_inns = tree.get_inns_as_vec(gid);
 
     // Note: cost_from_fixed is a bit goofy in that it won't be
     //       changing so isn't needed in the solve
@@ -326,20 +326,20 @@ double _solve_tree(
 
     // solve any trees past max_branching; the partitions
     // therein will be grabbed from ret
-    if(inns.size() > max_branching) {
-      for(int i = max_branching; i != inns.size(); ++i) {
-        int const& inn_gid = inns[i];
+    if(tree_inns.size() > max_branching) {
+      for(int i = max_branching; i != tree_inns.size(); ++i) {
+        int const& inn_gid = tree_inns[i];
         cost_from_fixed += _add_to_ret(ret, solved, tree, inn_gid);
       }
     }
 
-    int num_inns = std::min(max_branching, int(inns.size()));
-    inns.resize(num_inns);
-    bool has_inns = num_inns > 0;
+    int num_tree_inns = std::min(max_branching, int(tree_inns.size()));
+    tree_inns.resize(num_tree_inns);
+    bool has_tree_inns = num_tree_inns > 0;
 
     vector<int> inn_num_plans;
-    for(int i = 0; i != num_inns; ++i) {
-      int const& inn_gid = inns[i];
+    for(int i = 0; i != num_tree_inns; ++i) {
+      int const& inn_gid = tree_inns[i];
       inn_num_plans.push_back(solved.at(inn_gid).size());
     }
 
@@ -349,12 +349,12 @@ double _solve_tree(
       vector<int> best_which;
       double best_cost = -1.0;
 
-      vector<int> which(num_inns, 0);
+      vector<int> which(num_tree_inns, 0);
       do {
         auto get_partition = [&](int gid) -> partition_t const& {
           for(int i = 0; i != which.size(); ++i) {
             int const& w = which[i];
-            int const& g = inns[i];
+            int const& g = tree_inns[i];
             if(g == gid) {
               return solved.at(g)[w].partition;
             }
@@ -367,14 +367,14 @@ double _solve_tree(
         };
 
         double cost_from_children = 0.0;
-        for(int i = 0; i != num_inns; ++i) {
+        for(int i = 0; i != num_tree_inns; ++i) {
           int const& w = which[i];
-          int const& g = inns[i];
+          int const& g = tree_inns[i];
           cost_from_children += solved.at(g)[w].cost;
         }
 
         optional<partition_t> refi_partition;
-        if(has_inns) {
+        {
           int gid_fix = gid;
 
           auto const& node = graph.nodes[gid];
@@ -383,8 +383,10 @@ double _solve_tree(
             gid_fix = out_gid;
           }
 
-          refi_partition = twolayer_construct_refinement_partition(
-            graph, gid_fix, get_partition);
+          if(graph.nodes[gid_fix].outs.size() > 0) {
+            refi_partition = twolayer_construct_refinement_partition(
+              graph, gid_fix, get_partition);
+          }
         }
 
         double cost_from_node = compute_cost(gid, part, refi_partition);
@@ -395,7 +397,7 @@ double _solve_tree(
           best_cost = cost;
           best_which = which;
         }
-      } while(has_inns && increment_idxs(inn_num_plans, which));
+      } while(has_tree_inns && increment_idxs(inn_num_plans, which));
 
       plans.push_back(_plan_t {
         .partition = part,

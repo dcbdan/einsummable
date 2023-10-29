@@ -24,6 +24,10 @@ struct cpu_mg_server_t : server_mg_base_t
     //}
   }
 
+  int get_num_threads() const {
+    return threadpool.num_runners();
+  }
+
   void set_parallel_partialize(bool new_val) {
     this->make_parallel_partialize_groups_ = new_val;
   }
