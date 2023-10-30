@@ -178,10 +178,13 @@ void main04(int argc, char** argv) {
   uint64_t GB = 1000000000;
   uint64_t nGB = 3;
 
-  vector<vector<uint8_t>> ds;
-  ds.reserve(nchannels);
+  vector<vector<uint8_t>> ds0;
+  vector<vector<uint8_t>> ds1;
+  ds0.reserve(nchannels);
+  ds1.reserve(nchannels);
   for(int i = 0; i != nchannels; ++i) {
-    ds.emplace_back(nGB*GB, this_rank == 0 ? 9 : 8);
+    ds0.emplace_back(nGB*GB, this_rank == 0 ? 9 : 8);
+    ds1.emplace_back(nGB*GB, this_rank == 0 ? 9 : 8);
   }
 
   auto start = clock_now();
@@ -189,8 +192,8 @@ void main04(int argc, char** argv) {
     vector<std::future<void>> fs;
     fs.reserve(nchannels);
     for(int i = 0; i != nchannels; ++i) {
-      fs.push_back(comm.send_async(1, i, ds[i].data(), ds[i].size()));
-      fs.push_back(comm.recv_async(1, i, ds[i].data(), ds[i].size()));
+      fs.push_back(comm.send_async(1, i, ds0[i].data(), ds0[i].size()));
+      fs.push_back(comm.recv_async(1, i, ds1[i].data(), ds1[i].size()));
     }
     for(auto& f: fs) {
       f.get();
@@ -199,8 +202,8 @@ void main04(int argc, char** argv) {
     vector<std::future<void>> fs;
     fs.reserve(nchannels);
     for(int i = 0; i != nchannels; ++i) {
-      fs.push_back(comm.send_async(0, i, ds[i].data(), ds[i].size()));
-      fs.push_back(comm.recv_async(0, i, ds[i].data(), ds[i].size()));
+      fs.push_back(comm.send_async(0, i, ds0[i].data(), ds0[i].size()));
+      fs.push_back(comm.recv_async(0, i, ds1[i].data(), ds1[i].size()));
     }
     for(auto& f: fs) {
       f.get();
