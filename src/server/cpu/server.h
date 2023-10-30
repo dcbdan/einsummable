@@ -13,10 +13,11 @@
 struct cpu_mg_server_t : server_mg_base_t
 {
   cpu_mg_server_t(
-    communicator_t& c,
+    communicator_t& c_,
     uint64_t buffer_size,
     int num_threads)
-    : server_mg_base_t(c), mem(make_buffer(buffer_size)), threadpool(num_threads)
+    : server_mg_base_t(c_), mem(make_buffer(buffer_size)), 
+      threadpool("tp" + write_with_ss(c_.get_this_rank()), num_threads)
   {
     //if(mlock(mem->data, mem->size) != 0) {
     //  //DOUT(strerror(errno));

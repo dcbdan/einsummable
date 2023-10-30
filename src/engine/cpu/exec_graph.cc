@@ -206,6 +206,7 @@ void cpu_einsummable_t::launch(
   }
 
   thread_resource.launch(
+    "einsummable",
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
@@ -261,10 +262,13 @@ void cpu_touch_t::launch(
     this_touch.castable = std::nullopt;
   }
 
-  thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
-    cpu_executor(this_touch, out_mem, inn_mem);
-    callback();
-  });
+  thread_resource.launch(
+    "touch",
+    [this, callback, this_touch, out_mem, inn_mem] {
+      cpu_executor(this_touch, out_mem, inn_mem);
+      callback();
+    }
+  );
 }
 
 desc_ptr_t

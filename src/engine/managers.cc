@@ -21,8 +21,8 @@ void group_manager_t::release_impl(tuple<int, bool> const& info) {
   seen_groups.insert(group_id);
 }
 
-void threadpool_resource_t::launch(std::function<void()> f) const {
-  self->launch(id, f);
+void threadpool_resource_t::launch(string label, std::function<void()> f) const {
+  self->launch(id, label, f);
 }
 
 threadpool_manager_t::threadpool_manager_t(threadpool_t& tp)
@@ -51,7 +51,7 @@ void threadpool_manager_t::release_impl(threadpool_resource_t const& r) {
   was_called.erase(r.id);
 }
 
-void threadpool_manager_t::launch(int which, std::function<void()> f) {
+void threadpool_manager_t::launch(int which, string label, std::function<void()> f) {
   {
     std::unique_lock lk(m);
     if(was_called.count(which) > 0) {
@@ -59,6 +59,6 @@ void threadpool_manager_t::launch(int which, std::function<void()> f) {
     }
     was_called.insert(which);
   }
-  threadpool.insert(f);
+  threadpool.insert(label, f);
 }
 
