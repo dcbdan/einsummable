@@ -23,6 +23,9 @@ struct communicator_t {
   void send(int dst, int channel, void const* data, uint64_t size);
   void recv(int src, int channel, void* data,       uint64_t size);
 
+  std::future<void> send_async(int dst, int channel, void const* data, uint64_t size);
+  std::future<void> recv_async(int src, int channel, void* data,       uint64_t size);
+
   void send_int(int dst, int channel, int val);
   int  recv_int(int src, int channel);
 

@@ -308,6 +308,40 @@ void communicator_t::recv(int src, int channel, void* data, uint64_t size) {
   get_stream_recv_wire(src, channel).recv(data, size);
 }
 
+std::future<void> communicator_t::send_async(
+  int dst, int channel, void const* data, uint64_t size)
+{
+  std::promise<void> barrier_;
+  std::future<void> ret = barrier_.get_future();
+  std::thread t(
+    [dst, channel, data, size, this](std::promise<void>&& barrier)
+    {
+      this->send(dst, channel, data, size);
+      barrier.set_value();
+    },
+    std::move(barrier_)
+  );
+  t.detach();
+  return std::move(ret);
+}
+
+std::future<void> communicator_t::recv_async(
+  int src, int channel, void* data, uint64_t size)
+{
+  std::promise<void> barrier_;
+  std::future<void> ret = barrier_.get_future();
+  std::thread t(
+    [src, channel, data, size, this](std::promise<void>&& barrier)
+    {
+      this->recv(src, channel, data, size);
+      barrier.set_value();
+    },
+    std::move(barrier_)
+  );
+  t.detach();
+  return std::move(ret);
+}
+
 void communicator_t::send_int(int dst, int channel, int val) {
   send(dst, channel, &val, sizeof(int));
 }
