@@ -170,7 +170,7 @@ void main04(int argc, char** argv) {
     throw std::runtime_error("expect world size == 2");
   }
 
-  int nchannels = 2;
+  int nchannels = 4;
   communicator_t comm(addr_zero, is_rank_zero, world_size, nchannels);
 
   int this_rank = comm.get_this_rank();
@@ -178,25 +178,39 @@ void main04(int argc, char** argv) {
   uint64_t GB = 1000000000;
   uint64_t nGB = 3;
 
-  vector<uint8_t> d0(nGB*GB, this_rank == 0 ? 9 : 8);
-  vector<uint8_t> d1(nGB*GB, this_rank == 0 ? 9 : 8);
+  vector<vector<uint8_t>> ds;
+  ds.reserve(nchannels);
+  for(int i = 0; i != nchannels; ++i) {
+    ds.emplace_back(nGB*GB, this_rank == 0 ? 9 : 8);
+  }
+
   auto start = clock_now();
   if(this_rank == 0) {
-    auto f1 = comm.send_async(1, 0, d0.data(), d0.size());
-    auto f2 = comm.recv_async(1, 1, d1.data(), d1.size());
-    f1.get();
-    f2.get();
+    vector<std::future<void>> fs;
+    fs.reserve(nchannels);
+    for(int i = 0; i != nchannels; ++i) {
+      fs.push_back(comm.send_async(1, i, ds[i].data(), ds[i].size()));
+      fs.push_back(comm.recv_async(1, i, ds[i].data(), ds[i].size()));
+    }
+    for(auto& f: fs) {
+      f.get();
+    }
   } else if(this_rank == 1) {
-    auto f1 = comm.recv_async(0, 0, d0.data(), d0.size());
-    auto f2 = comm.send_async(0, 1, d1.data(), d1.size());
-    f1.get();
-    f2.get();
+    vector<std::future<void>> fs;
+    fs.reserve(nchannels);
+    for(int i = 0; i != nchannels; ++i) {
+      fs.push_back(comm.send_async(0, i, ds[i].data(), ds[i].size()));
+      fs.push_back(comm.recv_async(0, i, ds[i].data(), ds[i].size()));
+    }
+    for(auto& f: fs) {
+      f.get();
+    }
   }
   comm.barrier();
   auto end = clock_now();
 
   double total_time = std::chrono::duration<double>(end-start).count();
-  double bandwidth = double(2*nGB) / total_time;
+  double bandwidth = double(2*nchannels*nGB) / total_time;
   DOUT("Bandwidth: " << bandwidth << " GB/s");
 }
 
