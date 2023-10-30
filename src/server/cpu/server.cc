@@ -19,7 +19,8 @@ void cpu_mg_server_t::execute_memgraph(
     exec_graph_t::make_cpu_exec_graph(
       memgraph,
       this_rank,
-      kernel_executor);
+      kernel_executor,
+      num_channels_per_move);
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());

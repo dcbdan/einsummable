@@ -21,7 +21,8 @@ struct exec_graph_t {
   static exec_graph_t make_cpu_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
-    cpu_kernel_executor_t& cpu_executor);
+    cpu_kernel_executor_t& cpu_executor,
+    int channels_per_move = 1);
 #endif
 
 #ifdef GPU_EXEC
