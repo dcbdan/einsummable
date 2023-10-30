@@ -16,6 +16,15 @@ void server_base_t::execute_graph(
 
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
     taskgraph_t::make(graph, placements);
+  if(make_parallel_partialize_groups()) {
+    for(auto& node: taskgraph.nodes) {
+      auto& op = node.op;
+      if(op.is_partialize()) {
+        auto& partialize = op.get_partialize();
+        partialize.make_parallel();
+      }
+    }
+  }
 
   //{
   //  std::ofstream f("tg.gv");
@@ -275,7 +284,7 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
   auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
     memgraph_t::make(
       taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, true);
+      full_data_locs, alloc_settings, use_storage_);
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is

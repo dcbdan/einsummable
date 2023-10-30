@@ -100,6 +100,8 @@ struct server_base_t {
 
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
 
+  virtual bool make_parallel_partialize_groups() = 0;
+
 private:
   // Note: gid_map only exists at the server
   map<int, relation_t> gid_map;
@@ -111,8 +113,18 @@ struct server_mg_base_t : server_base_t {
   server_mg_base_t(
     communicator_t& c,
     allocator_settings_t s = allocator_settings_t::default_settings())
-    : comm(c), alloc_settings(s)
+    : comm(c), alloc_settings(s),
+      make_parallel_partialize_groups_(true),
+      use_storage_(true)
   {}
+
+  void set_parallel_partialize(bool new_val) {
+    this->make_parallel_partialize_groups_ = new_val;
+  }
+
+  void set_use_storage(bool new_val) {
+    this->use_storage_ = new_val;
+  }
 
   void listen();
 
@@ -194,10 +206,16 @@ struct server_mg_base_t : server_base_t {
     map<int, memstoloc_t> const& full_data_locs,
     map<int, memstoloc_t> const& inn_tg_to_loc);
 
+  bool make_parallel_partialize_groups() {
+    return make_parallel_partialize_groups_;
+  }
 public:
   communicator_t& comm;
 
   allocator_settings_t alloc_settings;
+
+  bool make_parallel_partialize_groups_;
+  bool use_storage_;
 
 private:
   map<string, std::function<void(server_base_t*)>> listeners;

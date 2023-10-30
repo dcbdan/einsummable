@@ -58,6 +58,7 @@ add_base_application("memgraph_test"    "exps" "memgraph_test")
 add_base_application("gwise"            "exps" "gwise")
 add_base_application("mm"               "exps" "mm")
 add_base_application("engine"           "exps" "engine")
+add_base_application("apart"            "exps" "apart")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -137,6 +138,8 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpu_engine_ml"         "exps" "cpu_engine_ml")
   add_cpu_application("cpu_engine_server"     "exps" "cpu_engine_server")
   add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
+  add_cpu_application("cpu_comm"              "exps" "cpu_comm")
+  add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

@@ -4,7 +4,7 @@
 #include <sys/sysinfo.h>
 
 threadpool_t::threadpool_t(int num_to_launch)
-  : is_stopped(false), start(clock_now())
+  : is_stopped(false), start_threadpool(clock_now())
 {
   get_numa_info();
 
@@ -70,14 +70,14 @@ void threadpool_t::runner(int which) {
       }
     }
 
-    print_time(which);
+    auto start = clock_now();
     f();
-    print_time(which);
+    auto end = clock_now();
+    print_time(which, start, end);
   }
 }
 
 void threadpool_t::insert(std::function<void()> f) {
-  print_time(-1);
   {
     std::unique_lock lk(m);
 
@@ -87,19 +87,17 @@ void threadpool_t::insert(std::function<void()> f) {
 
     work_queue.push(f);
   }
-  print_time(-1);
 
   cv.notify_one();
 }
 
-void threadpool_t::print_time(int which) {
-  return;
-
-  auto end = clock_now();
+void threadpool_t::print_time(int which, timestamp_t const& start, timestamp_t const& end) 
+{
+  //return;
   using namespace std::chrono;
-  auto duration = (double) duration_cast<microseconds>(end - start).count()
-                / (double) duration_cast<microseconds>(1s         ).count();
+  double s = duration<double>(start - start_threadpool).count();
+  double e = duration<double>(end   - start_threadpool).count();
   std::unique_lock lk(m_print);
-  DOUT(which << " " << duration);
+  DOUT(which << " " << s << " " << e);
 }
 

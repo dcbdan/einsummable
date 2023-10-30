@@ -187,6 +187,12 @@ private:
   // It must be the case that each partial_unit is representing
   // a disjoint portion of the output.
   //
+  // Since all units are writing to different output memories, they can
+  // all be done in parallel. However, all writes within a unit cannot
+  // be done at the same time because they are all writing into the
+  // same output memory. A unit can be split into many units by
+  // partitioning the unit's output region.
+  //
   // Another tidbit: every input that has the same shape as the output may
   // be "consumed"--that is, if a consumable input is the first input ready, the
   // memory referred to by the input becomes consumed and used as the output
@@ -238,6 +244,10 @@ private:
 
     static partialize_t make_from_touches(
       int loc, vector<tuple<int, touch_t>> const&);
+
+    // For each unit with n inputs, try to split that unit into
+    // n sub-units.
+    void make_parallel();
 
     // determine if the entire write shape has been touched
     // by exactly one unit

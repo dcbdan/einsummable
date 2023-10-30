@@ -792,7 +792,18 @@ void graph_t::print() const {
   }
 }
 
-void graph_t::print_graphviz(std::ostream& out) const {
+void graph_t::print_graphviz(
+  std::ostream& out,
+  map<int, string> get_color) const
+{
+  print_graphviz(out, make_singleton_partition(), get_color);
+}
+
+void graph_t::print_graphviz(
+  std::ostream& out,
+  vector<partition_t> const& parts,
+  map<int, string> get_color) const
+{
   using std::endl;
   string tab = "  ";
   out << "digraph {" << endl;
@@ -810,7 +821,11 @@ void graph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
-      label = "einsummable" + write_with_ss(id);
+      label = "einsummable" + write_with_ss(id) +
+        ":" + op.get_einsummable().str();
+      if(op.get_einsummable().is_contraction()) {
+        color = "pink";
+      }
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -819,9 +834,20 @@ void graph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
     label += ":" + write_with_ss(out_dtype(id));
+    label += "\n" + write_with_ss(parts[id].block_shape());
+    label += "\n" + write_with_ss(parts[id].total_shape());
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";
+
+    // set the color with get_color as precedent
+    {
+      auto iter = get_color.find(id);
+      if(iter != get_color.end()) {
+        color = iter->second;
+      }
+    }
+
     if(color != "") {
       out << ",color=\"" << color << "\"";
     }

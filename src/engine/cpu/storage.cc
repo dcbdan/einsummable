@@ -1,6 +1,7 @@
 #include "storage.h"
 
 #include <stdlib.h>
+#include <unistd.h>
 
 // stolen from
 //   https://stackoverflow.com/questions/499636/

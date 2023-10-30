@@ -24,6 +24,10 @@ struct cpu_mg_server_t : server_mg_base_t
     //}
   }
 
+  int get_num_threads() const {
+    return threadpool.num_runners();
+  }
+
   void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
 
   buffer_t local_copy_data(int tid);

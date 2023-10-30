@@ -8,7 +8,8 @@
 #include <memory>
 
 struct communicator_t {
-  communicator_t(string addr_zero, bool is_server, int world_size_, int n_channels = 1);
+  communicator_t(
+    string addr_zero, bool is_server, int world_size_, int n_channels = 1);
 
   ~communicator_t();
 
@@ -22,11 +23,12 @@ struct communicator_t {
   void send(int dst, int channel, void const* data, uint64_t size);
   void recv(int src, int channel, void* data,       uint64_t size);
 
+  std::future<void> send_async(int dst, int channel, void const* data, uint64_t size);
+  std::future<void> recv_async(int src, int channel, void* data,       uint64_t size);
+
   void send_int(int dst, int channel, int val);
   int  recv_int(int src, int channel);
 
-  // TODO: right now, start_listen_notify launches a thread that constantly polls.
-  //       maybe this is not what we want
   // TODO: In practice, it appears to be the case that a recv post on a stream cannot
   //       be cancelled. The problem with this is that start_listen_notify originally
   //       just waited until a stop_listen_notify was called and then it would attempt
@@ -41,11 +43,31 @@ struct communicator_t {
   //       last message on the wire.
   void start_listen_notify(
     uint64_t msg_size,
-    std::function<bool(vector<uint8_t> data)> callback);
+    std::function<bool(vector<uint8_t>)> callback,
+    bool constant_poll = false);
+
+  template <typename T>
+  void start_listen_notify_type(
+    std::function<bool(T const&)> callback,
+    bool constant_poll = false)
+  {
+    start_listen_notify(
+      sizeof(T),
+      [&callback](vector<uint8_t> data) {
+        T& obj = *reinterpret_cast<T*>(data.data());
+        return callback(obj);
+      },
+      constant_poll);
+  }
 
   void stop_listen_notify();
 
   void notify(int dst, void const* data, uint64_t size);
+
+  template <typename T>
+  void notify(int dst, T const& msg) {
+    notify(dst, reinterpret_cast<void const*>(&msg), sizeof(msg));
+  }
 
   void barrier();
 
@@ -187,13 +209,25 @@ private:
 
       vector<uint8_t>& payload() { return data; }
 
+      bool get_is_done() const { return is_done; }
+
+      void arm_worker();
+
+      int get_worker_efd() { return _efd; }
+
+      void wait() { while(!is_done) { progress(); } }
+
+      ucp_worker_h& get_worker() { return self.worker; }
     private:
       ucp_request_param_t param;
       vector<uint8_t> data;
       uint64_t size;
       bool is_done;
       wire_t& self;
-      ucs_status_ptr_t status;
+      ucs_status_ptr_t request_status;
+
+      int _efd;
+      int make_worker_efd();
     };
 
     std::unique_ptr<listener_t> make_listener(uint64_t msg_size) {
@@ -213,7 +247,6 @@ private:
     // stay alive after the constructor TODO (that is the hypothesis)
     ucp_worker_params_t worker_params;
     ucp_worker_attr_t worker_attr;
-
 
     friend class listen_t;
   };

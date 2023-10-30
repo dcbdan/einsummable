@@ -26,6 +26,8 @@ int main(int argc, char** argv) {
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
+  uint64_t GB = 1000000000;
+  mem_size *= GB;
 
   int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
   DOUT("number of threads in threadpool: " << num_threads)
@@ -36,7 +38,7 @@ int main(int argc, char** argv) {
     // execute this
     auto [graph, pls] = build_graph_pls(world_size, argc - 4, argv + 4);
 
-    int nrep = 5;
+    int nrep = 1;
     for(int i = 0; i != nrep; ++i) {
       // initialize input tensors and distribute across the cluster
       for(int gid = 0; gid != graph.nodes.size(); ++gid) {
