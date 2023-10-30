@@ -58,11 +58,17 @@ void rank_zero_main(
     DOUT(ts);
   }
 
-  int npart = pargs.get<int>("npart");
+  pargs.set_default<int>("npart_batch", server.get_num_threads());
+  pargs.set_default<int>("npart_hidden", 1);
+  pargs.set_default<int>("npart_dims", 1);
+
+  int npart_batch = pargs.get<int>("npart_batch");
+  int npart_hidden = pargs.get<int>("npart_hidden");
+  int npart_dims = pargs.get<int>("npart_dims");
   auto [graph, placements] = make_graph_ff(
-    batch * seqlen, npart,
-    hidden,         npart,
-    dim,            npart
+    batch * seqlen, npart_batch,
+    hidden,         npart_hidden,
+    dim,            npart_dims
   );
 
   map<int, dbuffer_t> input_data;
@@ -94,6 +100,8 @@ int main(int argc, char** argv) {
   bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
+  uint64_t GB = 1000000000;
+  mem_size *= GB;
 
   int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
   DOUT("number of threads in threadpool: " << num_threads)

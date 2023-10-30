@@ -114,8 +114,17 @@ struct server_mg_base_t : server_base_t {
     communicator_t& c,
     allocator_settings_t s = allocator_settings_t::default_settings())
     : comm(c), alloc_settings(s),
-      make_parallel_partialize_groups_(true)
+      make_parallel_partialize_groups_(true),
+      use_storage_(true)
   {}
+
+  void set_parallel_partialize(bool new_val) {
+    this->make_parallel_partialize_groups_ = new_val;
+  }
+
+  void set_use_storage(bool new_val) {
+    this->use_storage_ = new_val;
+  }
 
   void listen();
 
@@ -206,6 +215,7 @@ public:
   allocator_settings_t alloc_settings;
 
   bool make_parallel_partialize_groups_;
+  bool use_storage_;
 
 private:
   map<string, std::function<void(server_base_t*)>> listeners;

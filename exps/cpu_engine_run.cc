@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
   DOUT("world size:                      " << world_size);
   DOUT("memory allocated:                " << (mem_size/GB) << " GB");
   DOUT("number of threads in threadpool: " << num_threads)
+  DOUT("dtype:                           " << default_dtype());
 
   cpu_mg_server_t server(communicator, mem_size, num_threads);
 
@@ -50,24 +51,32 @@ int main(int argc, char** argv) {
     args.set_default("pp", true);
     server.set_parallel_partialize(args.get<bool>("pp"));
 
+    server.set_use_storage(false);
+
     // execute this
     graph_t graph = build_graph(args);
     vector<placement_t> pls = autoplace(graph, world_size, num_threads);
 
-    // initialize input tensors and distribute across the cluster
-    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      auto const& node = graph.nodes[gid];
-      if(node.op.is_input()) {
-        auto const& input = node.op.get_input();
-        dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-        tensor.random("-0.01", "0.01");
-        //tensor.ones();
-        server.insert_tensor(gid, pls[gid], tensor);
-      }
-    }
+    args.set_default<int>("nrep", 1);
+    int nrep = args.get<int>("nrep");
+    for(int rep = 0; rep != nrep; ++rep) {
 
-    // execute
-    server.execute_graph(graph, pls);
+      // initialize input tensors and distribute across the cluster
+      for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+        auto const& node = graph.nodes[gid];
+        if(node.op.is_input()) {
+          auto const& input = node.op.get_input();
+          dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+          tensor.random("-0.01", "0.01");
+          //tensor.ones();
+          server.insert_tensor(gid, pls[gid], tensor);
+        }
+      }
+
+      // execute
+      server.execute_graph(graph, pls);
+
+    }
 
     server.shutdown();
   } else {

@@ -22,12 +22,12 @@ private:
   bool is_stopped;
 
   vector<std::thread> threads;
-  timestamp_t const start;
+  timestamp_t const start_threadpool;
   std::mutex m_print;
 
 private:
   void runner(int which);
 
-  void print_time(int which);
+  void print_time(int which, timestamp_t const& start, timestamp_t const& end);
 };
 
