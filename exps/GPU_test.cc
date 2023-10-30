@@ -365,37 +365,57 @@ void engine_1(int argc, char** argv){
   translate_execute(memgraph, true, num_gpus_per_node);
 }
 
-void server_1(int argc, char** argv){
-  if (argc != 8) {
-    usage();
-    return;
+void server_1 (int argc, char** argv){
+  if (argc != 4){
+    DOUT("Square matrix multiplication");
+    DOUT("1) world_size 2) matrix_dim 3) num_partition");
   }
-
-  int pi, pj, pk;
-  uint64_t di, dj, dk;
-  int np;
+  int world_size, partition;
+  uint64_t matrix_dim;
   try {
-    pi = parse_with_ss<int>(argv[1]);
-    pj = parse_with_ss<int>(argv[2]);
-    pk = parse_with_ss<int>(argv[3]);
-    di = parse_with_ss<uint64_t>(argv[4]);
-    dj = parse_with_ss<uint64_t>(argv[5]);
-    dk = parse_with_ss<uint64_t>(argv[6]);
-    np = parse_with_ss<int>(argv[7]);
+    world_size = parse_with_ss<int>(argv[1]);
+    matrix_dim = parse_with_ss<uint64_t>(argv[2]);
+    partition = parse_with_ss<int>(argv[3]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
     return;
   }
 
-  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
-
-  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
-
-  memgraph_t memgraph = taskgraph_to_memgraph(taskgraph);
-
-  server_execute(memgraph, true, memgraph.mem_sizes());
+  server_execute(world_size, matrix_dim, partition);
 }
+
+// void server_2(int argc, char** argv){
+//   if (argc != 8) {
+//     usage();
+//     return;
+//   }
+
+//   int pi, pj, pk;
+//   uint64_t di, dj, dk;
+//   int np;
+//   try {
+//     pi = parse_with_ss<int>(argv[1]);
+//     pj = parse_with_ss<int>(argv[2]);
+//     pk = parse_with_ss<int>(argv[3]);
+//     di = parse_with_ss<uint64_t>(argv[4]);
+//     dj = parse_with_ss<uint64_t>(argv[5]);
+//     dk = parse_with_ss<uint64_t>(argv[6]);
+//     np = parse_with_ss<int>(argv[7]);
+//   } catch (...) {
+//     std::cout << "Parse error." << std::endl << std::endl;
+//     usage();
+//     return;
+//   }
+
+//   auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+
+//   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+
+//   memgraph_t memgraph = taskgraph_to_memgraph(taskgraph);
+
+//   server_execute(memgraph, true, memgraph.mem_sizes());
+// }
 
 int main(int argc, char **argv) {
 //  // main_ff();

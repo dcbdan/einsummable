@@ -4,6 +4,9 @@
 #include "../src/engine/communicator.h"
 #include "../src/engine/gpu/workspace.h"
 #include "../src/server/gpu/server.h"
+#include "../src/einsummable/graph.h"
+#include "../src/einsummable/taskgraph.h"
+#include "../src/engine/communicator.h"
 
 #include "../src/server/base.h"
 
@@ -171,47 +174,105 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
   DOUT("executed.");
 }
 
+tuple<graph_t, vector<placement_t>> build_graph_pls(
+  int world_size, uint64_t matrix_dim, int partition)
+{
+  uint64_t ni, nj, nk;
+  int li, lj;
+  int rj, rk;
+  int ji, jj, jk;
+  int oi, ok;
+  ni = nj = nk = matrix_dim;
+  li = lj = partition;
+  rj = rk = partition;
+  ji = jj = jk = partition;
+  oi = ok = partition;
 
-void server_execute(memgraph_t memgraph, bool debug, vector<uint64_t>buffer_sizes){
-  // auto num_gpu = memgraph.mem_sizes().size();
-  if (debug){
-    print_memgraph(memgraph);
+  graph_constructor_t g;
+  dtype_t dtype = default_dtype();
+
+  int lhs = g.insert_input(partition_t({
+    partdim_t::split(ni, li),
+    partdim_t::split(nj, lj) }));
+  int rhs = g.insert_input(partition_t({
+    partdim_t::split(nj, rj),
+    partdim_t::split(nk, rk) }));
+
+  int join = g.insert_einsummable(
+    partition_t({
+      partdim_t::split(ni, ji),
+      partdim_t::split(nk, jk),
+      partdim_t::split(nj, jj)
+    }),
+    einsummable_t::from_matmul(ni, nj, nk),
+    {lhs, rhs});
+
+  int out = g.insert_formation(
+    partition_t({
+      partdim_t::split(ni, oi),
+      partdim_t::split(nk, ok)
+    }),
+    join);
+
+  auto pls = g.get_placements();
+  for(int i = 0; i != pls.size(); ++i) {
+    DOUT(i << " " << pls[i].partition);
   }
 
-  communicator_t c("0.0.0.0", true, 1);
-  gpu_mg_server_t server(c, buffer_sizes);
-
-  // create a map for local insert tensors
-  map<int, tuple<int, buffer_t>> data;
-
-  for(int gid = 0; gid != memgraph.nodes.size(); ++gid) {
-    auto const& node = memgraph.nodes[gid];
-    if(node.op.is_inputmem()) {
-      auto const& input_mem = node.op.get_inputmem();
-      // how do we know d_type of the input?
-      dbuffer_t tensor = make_dbuffer();
-      // tensor.random("-0.01", "0.01");
-      tensor.ones();
-      data[gid] = std::make_tuple(node.op.get_loc(), tensor);
+  // randomly assign the locations
+  if(world_size > 1) {
+    for(auto& pl: pls) {
+      for(auto& loc: pl.locations.get()) {
+        loc = runif(world_size);
+      }
     }
   }
 
-  server.local_insert_tensors(data);
+  return {g.graph, pls};
+}
 
-  server.execute_memgraph(memgraph, false);
+
+void server_execute(int world_size, uint64_t matrix_dim, int partition){
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < world_size; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+
+  auto [graph, pls] = build_graph_pls(world_size, matrix_dim, partition);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      // tensor.random("-0.01", "0.01");
+      tensor.ones();
+      DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+
+  server.execute_graph(graph, pls);
 
   //// get the outputs to here
-  // for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-  //   auto const& node = graph.nodes[gid];
-  //   if(node.op.is_save()) {
-  //     dbuffer_t tensor = server.get_tensor_from_gid(gid);
-  //     //DOUT(tensor);
-  //     //DOUT("gid sum is: " << tensor.sum());
-  //   }
-  // }
-
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
 
   server.shutdown();
-
-
 }
+
