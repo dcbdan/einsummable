@@ -869,10 +869,14 @@ void communicator_t::wire_t::send(void const* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
-    // TODO: maybe we don't want this big loop
     while(!is_done) {
       ucp_worker_progress(worker);
     }
+    //while(!is_done) {
+    //  if(!ucp_worker_progress(worker)) {
+    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+    //  }
+    //}
 
     ucp_request_free(status);
   }
@@ -907,10 +911,18 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
-    // TODO: maybe we don't want this big loop
+    // Two ways to do the wait:
+    //   constant polling vs ucp_worker_wait (requires the wakeup feature)
+
     while(!is_done) {
       ucp_worker_progress(worker);
     }
+
+    //while(!is_done) {
+    //  if(!ucp_worker_progress(worker)) {
+    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+    //  }
+    //}
 
     ucp_request_free(status);
   }
