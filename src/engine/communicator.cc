@@ -573,13 +573,26 @@ void communicator_t::_setup_context() {
   ucp_params_t ucp_params;
   memset(&ucp_params, 0, sizeof(ucp_params));
 
-  ucp_params.field_mask        = UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_NAME;
+  ucp_params.field_mask        = UCP_PARAM_FIELD_FEATURES          |
+                                 UCP_PARAM_FIELD_NAME              |
+                                 UCP_PARAM_FIELD_MT_WORKERS_SHARED |
+                                 UCP_PARAM_FIELD_ESTIMATED_NUM_PPN ;
   ucp_params.name              = "c04";
   ucp_params.features          = UCP_FEATURE_STREAM | UCP_FEATURE_WAKEUP;
   ucp_params.mt_workers_shared = 1;
+  ucp_params.estimated_num_ppn = 1; // estimate processes per node to 1
 
   handle_ucs_error(
     ucp_init(&ucp_params, NULL, &ucp_context));
+
+  ucp_context_attr_t attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.field_mask = UCP_ATTR_FIELD_THREAD_MODE;
+  handle_ucs_error(
+    ucp_context_query(ucp_context, &attr));
+  if(attr.thread_mode == UCS_THREAD_MODE_SINGLE) {
+    throw std::runtime_error("ucp context does not have multi threaded enabled");
+  }
 }
 
 void communicator_t::_close_context() {
@@ -784,22 +797,27 @@ communicator_t::wire_t::wire_t(communicator_t* self)
     memset(&worker_params, 0, sizeof(worker_params));
 
     worker_params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
-    worker_params.thread_mode = UCS_THREAD_MODE_MULTI;
+    worker_params.thread_mode = UCS_THREAD_MODE_SERIALIZED;
 
     handle_ucs_error(
       ucp_worker_create(self->ucp_context, &worker_params, &worker));
   }
 
-  // create the addr
+  // create the addr; check the
   {
     memset(&worker_attr, 0, sizeof(worker_attr));
 
-    worker_attr.field_mask = UCP_WORKER_ATTR_FIELD_ADDRESS;
+    worker_attr.field_mask =
+      UCP_WORKER_ATTR_FIELD_ADDRESS | UCP_WORKER_ATTR_FIELD_THREAD_MODE;
 
     handle_ucs_error(ucp_worker_query(worker, &worker_attr));
 
     ucp_addr_size = worker_attr.address_length;
     ucp_addr      = worker_attr.address;
+
+    if(worker_attr.thread_mode != UCS_THREAD_MODE_SERIALIZED) {
+      throw std::runtime_error("could not set worker thread mode");
+    }
   }
 }
 
