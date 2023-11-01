@@ -177,9 +177,7 @@ struct rp_recv_t : exec_graph_t::op_base_t {
     }
 
     std::thread t([this, wire, buffer, callback] {
-
-      wire.recv(buffer->raw(), this->size);
-
+      wire.recv(buffer->raw(), buffer->size);
       callback();
     });
 

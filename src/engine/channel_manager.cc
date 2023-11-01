@@ -104,6 +104,7 @@ recv_channel_manager_t::try_to_acquire_impl(tuple<int,int> const& desc)
   if(queue.front() == id) {
     return recv_channel_manager_resource_t {
       .self = this,
+      .id = id,
       .loc = src,
       .channel = channel
     };
@@ -136,6 +137,9 @@ void recv_channel_manager_t::recv(
   id_to_channel.erase(id);
 
   auto& queue = ready_recvs[loc][channel];
+  if(queue.front() != id) {
+    throw std::runtime_error("front of queue must be the id");
+  }
   queue.pop();
 }
 

@@ -327,7 +327,114 @@ void main05(int argc, char** argv) {
   }}
 }
 
+void main06_send(communicator_t& comm, int channel, int num_send, uint64_t msg_size) {
+  vector<uint64_t> data(msg_size);
+
+  for(int i = 0; i != num_send; ++i) {
+    comm.send(1, channel, data.data(), data.size());
+    DLINEOUT(i + 1 << " @ channel " << channel);
+  }
+}
+
+void main06_recv(communicator_t& comm, int channel, int num_recv, uint64_t msg_size) {
+  vector<uint64_t> data(msg_size);
+
+  for(int i = 0; i != num_recv; ++i) {
+    comm.recv(0, channel, data.data(), data.size());
+  }
+}
+
+void main06(int argc, char** argv) {
+  string addr_zero = parse_with_ss<string>(argv[1]);
+  bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
+  int world_size = parse_with_ss<int>(argv[3]);
+  int nchannels = parse_with_ss<int>(argv[4]);
+
+  communicator_t comm(addr_zero, is_rank_zero, world_size, nchannels);
+
+  uint64_t msg_size = 1000000;
+  int num_msg = 100;
+  int this_rank = comm.get_this_rank();
+
+  vector<std::thread> threads;
+  if(this_rank == 0) {
+    for(int i = 0; i != nchannels; ++i) {
+      threads.emplace_back([&, i] { main06_send(comm, i, num_msg, msg_size); });
+    }
+  } else if(this_rank == 1) {
+    for(int i = 0; i != nchannels; ++i) {
+      threads.emplace_back([&, i] { main06_recv(comm, i, num_msg, msg_size); });
+    }
+  }
+
+  for(auto& t: threads) {
+    t.join();
+  }
+}
+
+#include "../src/engine/repartition.h"
+#include "../src/einsummable/dbuffer.h"
+relation_t make_dst_rel(
+  int num_split, uint64_t nrow, uint64_t ncol)
+{
+  partition_t partition(vector<partdim_t>{
+    partdim_t::split(nrow, num_split),
+    partdim_t::split(ncol, 1)
+  });
+  placement_t placement(partition);
+  {
+    auto& locs = placement.locations.get();
+    std::fill(locs.begin(), locs.end(), 1);
+  }
+
+  vtensor_t<int> tids(partition.block_shape());
+  std::iota(tids.get().begin(), tids.get().end(), 0);
+
+  return relation_t {
+    .dtype = dtype_t::f32,
+    .placement = placement,
+    .tids = tids
+  };
+}
+
+void main07(int argc, char** argv) {
+  string addr_zero = parse_with_ss<string>(argv[1]);
+  bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
+  int world_size = parse_with_ss<int>(argv[3]);
+  int nchannels = parse_with_ss<int>(argv[4]);
+
+  communicator_t comm(addr_zero, is_rank_zero, world_size, nchannels);
+
+  int this_rank = comm.get_this_rank();
+
+  int nsplit = 100;
+  uint64_t nrow = 10000;
+  uint64_t ncol = 10000;
+
+  relation_t dst_relation = make_dst_rel(nsplit, nrow, ncol);
+
+  remap_relations_t remap;
+  remap.insert(
+    dst_relation.as_singleton(99),
+    dst_relation);
+
+  if(this_rank == 0) {
+    dbuffer_t tensor = make_dbuffer(dtype_t::f32, nrow*ncol);
+    tensor.ones();
+    map<int, buffer_t> data;
+    data.insert({99, tensor.data});
+
+    repartition(comm, remap, data);
+  } else if(this_rank == 1) {
+    map<int, buffer_t> data;
+    repartition(comm, remap, data);
+  }
+
+  comm.barrier();
+  DLINEOUT("done @ rank " << this_rank);
+}
+
 int main(int argc, char** argv) {
-  main05(argc, argv);
+  main07(argc, argv);
 }
 

@@ -792,12 +792,14 @@ int communicator_t::_from_idx(int idx) const {
 communicator_t::wire_t::wire_t(communicator_t* self)
   : has_endpoint(false)
 {
+  auto thread_mode = UCS_THREAD_MODE_MULTI;
+
   // create the worker
   {
     memset(&worker_params, 0, sizeof(worker_params));
 
     worker_params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
-    worker_params.thread_mode = UCS_THREAD_MODE_SERIALIZED;
+    worker_params.thread_mode = thread_mode;
 
     handle_ucs_error(
       ucp_worker_create(self->ucp_context, &worker_params, &worker));
@@ -815,7 +817,7 @@ communicator_t::wire_t::wire_t(communicator_t* self)
     ucp_addr_size = worker_attr.address_length;
     ucp_addr      = worker_attr.address;
 
-    if(worker_attr.thread_mode != UCS_THREAD_MODE_SERIALIZED) {
+    if(worker_attr.thread_mode != thread_mode) {
       throw std::runtime_error("could not set worker thread mode");
     }
   }
@@ -926,19 +928,34 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
   if(status != NULL) {
     if (UCS_PTR_IS_ERR(status)) {
       throw std::runtime_error(
-        "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
+        "recv fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
     // Two ways to do the wait:
     //   constant polling vs ucp_worker_wait (requires the wakeup feature)
 
+    auto start = clock_now();
     while(!is_done) {
-      ucp_worker_progress(worker);
+      for(int i = 0; i != 2000000 && !is_done; ++i) {
+        ucp_worker_progress(worker);
+      }
+      if(!is_done) {
+        auto val = ucp_request_check_status(status);
+        if(val != UCS_INPROGRESS) {
+          throw std::runtime_error("request is not in progress");
+        }
+        auto now = clock_now();
+        double seconds = std::chrono::duration<double>(now - start);
+        if(seconds > 5.0) {
+          throw std::runtime_error("this recv has taken more than 5 seconds");
+        }
+      }
     }
+    // If the recv loop hangs for more than 5 seconds, something is probably amiss.
 
     //while(!is_done) {
     //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
     //  }
     //}
 
