@@ -34,21 +34,24 @@ int main(int argc, char** argv) {
 
   int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
 
-  // TODO: how to pick this?
-  int num_channels_per_move = std::min(8, std::max(1, num_threads/2));
+  // TODO: how to pick num_channels and num channels per move?
+  int num_channels = 8;
+  int num_channels_per_move = 2;
 
-  communicator_t communicator(addr_zero, is_rank_zero, world_size, num_threads);
+  communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-
-  DOUT("world size:                      " << world_size);
-  DOUT("memory allocated:                " << (mem_size/GB) << " GB");
-  DOUT("number of threads in threadpool: " << num_threads);
-  DOUT("number channels per move:        " << num_channels_per_move);
-  DOUT("dtype:                           " << default_dtype());
+  if(is_rank_zero) {
+    DOUT("world size:                      " << world_size);
+    DOUT("memory allocated:                " << (mem_size/GB) << " GB");
+    DOUT("number of threads in threadpool: " << num_threads);
+    DOUT("number of channels per move:     " << num_channels_per_move);
+    DOUT("number of channels               " << num_channels);
+    DOUT("dtype:                           " << default_dtype());
+  }
 
   cpu_mg_server_t server(communicator, mem_size, num_threads, num_channels_per_move);
 
@@ -81,7 +84,6 @@ int main(int argc, char** argv) {
 
       // execute
       server.execute_graph(graph, pls);
-
     }
 
     server.shutdown();
