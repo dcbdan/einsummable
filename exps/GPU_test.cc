@@ -369,6 +369,7 @@ void server_1 (int argc, char** argv){
   if (argc != 4){
     DOUT("Square matrix multiplication");
     DOUT("1) world_size 2) matrix_dim 3) num_partition");
+    return;
   }
   int world_size, partition;
   uint64_t matrix_dim;
@@ -378,7 +379,7 @@ void server_1 (int argc, char** argv){
     partition = parse_with_ss<int>(argv[3]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
-    usage();
+    DOUT("1) world_size 2) matrix_dim 3) num_partition");
     return;
   }
 
@@ -428,5 +429,6 @@ int main(int argc, char **argv) {
   //mm_test2();
   //mm_test();
   // dcb01();
-  server_1(argc, argv);
+  // server_1(argc, argv);
+  contractionTest(2, 2, 2);
 }

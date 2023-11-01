@@ -2,14 +2,31 @@
 #include "../exec_graph.h"
 #include "workspace.h"
 #include "utility.h"
+#include <iostream>
+#include <sys/types.h>
 
+void print_exec_graph(exec_graph_t exec_graph){
+  for (int i = 0; i < exec_graph.nodes.size(); ++i) {
+    auto node = exec_graph.nodes[i];
+    std::cout << "Node " << i << " has input: ";
+    for (auto in : node.inns) {
+      std::cout << in << " ";
+    }
+    std::cout << "and output: ";
+    for (auto out : node.outs) {
+      std::cout << out << " ";
+    }
+    std::cout << std::endl;
+  }
+}
 
 // TODO: have a stream pool implementation once creating a stream on fly works
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
   kernel_manager_t& gpu_km,
-  int num_gpus_per_node)
+  int num_gpus_per_node,
+  void* this_buffer)
 {
   exec_graph_t graph;
 
@@ -46,6 +63,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
+      std::cout << "Node id: " << mid << " is dummy" << std::endl;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -53,23 +71,43 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           throw std::runtime_error("only allowing touches to have a group");
         }
 
+        auto einsum = apply.get_einsummable();
+        auto einsum_merged = apply.get_einsummable().merge_adjacent_dims();
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(
           gpu_km,
-          apply.get_einsummable().merge_adjacent_dims(),
+          einsum,
           apply.mems,
           node.op.get_apply_loc()
         );
 
         // compile the kernel (and update the workspace size)
-        auto maybe_registered = gpu_km.build(op->einsummable);
-        if(!maybe_registered) {
+        auto maybe_built = gpu_km.build(op->einsummable);
+        if(!maybe_built) {
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
-        op->workspace_size = maybe_registered.value().value();
-
+        auto workspace_info = maybe_built.value();
+        if (workspace_info.known()){
+          op->workspace_size = workspace_info.value();
+        }
+        else{
+          // get the input and output memory ptrs
+          void* out_mem = increment_void_ptr(
+            this_buffer,
+            apply.mems[0].offset);
+          vector<void const*> inn_mems;
+          inn_mems.reserve(apply.mems.size() - 1);
+          for(int i = 1; i != apply.mems.size(); ++i) {
+            inn_mems.push_back(increment_void_ptr(
+              this_buffer,
+              apply.mems[i].offset));
+          }
+          // get the workspace size
+          op->workspace_size = gpu_km.known_workspace_size(einsum_merged, out_mem, inn_mems);
+        }
         // insert into the graph
         insert(op_ptr_t(op), mid);
+        std::cout << "Node id: " << mid << " is einsummable" << std::endl;
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
           gpu_km,
@@ -87,12 +125,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
 
         insert(op_ptr_t(op), mid);
+        std::cout << "Node id: " << mid << " is touch" << std::endl;
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
+      std::cout << "Node id: " << mid << " is copy" << std::endl;
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
     } else if(node.op.is_load()) {
@@ -101,7 +141,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       throw std::runtime_error("should not reach");
     }
   }
-
+  print_exec_graph(graph);
   return graph;
 }
 
@@ -141,7 +181,12 @@ void gpu_einsummable_t::launch(
       global_buffer,
       mems[i].offset));
   }
-
+  std::cout << "printing inputs and output for einsummable:" << std::endl;
+  printFloatGPU(inn_mems[0], 4);
+  printFloatGPU(inn_mems[1], 4);
+  printFloatGPU(out_mem, 4);
+  std::cout << "Device id: " << device << std::endl;
+  std::cout << "Workspace size: " << workspace_size << std::endl;
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
@@ -156,6 +201,18 @@ void gpu_einsummable_t::launch(
     out_mem,
     inn_mems,
     maybe_workspace);
+
+  cudaError_t error = cudaDeviceSynchronize();
+  if (error != cudaSuccess) {
+    // print the error code and error string
+    fprintf(stderr, "cudaDeviceSynchronize failed with error: %s\n", cudaGetErrorString(error));
+    throw std::runtime_error("cudaDeviceSynchronize failed");
+  }
+
+  std::cout << "printing inputs and output for einsummable after synchronize:" << std::endl;
+  printFloatGPU(inn_mems[0], 4);
+  printFloatGPU(inn_mems[1], 4);
+  printFloatGPU(out_mem, 4);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 

@@ -31,7 +31,8 @@ struct exec_graph_t {
     memgraph_t const& memgraph,
     int this_rank,
     kernel_manager_t& gpu_km,
-    int num_gpus_per_node);
+    int num_gpus_per_node,
+    void* this_buffer);
 #endif
 
   struct op_base_t {

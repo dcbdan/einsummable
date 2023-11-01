@@ -43,6 +43,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
+  // NOTE: delete when finished debugging
+  init_value((float*)mems[0], 12, 7);
+  printFloatGPU(mems[0], 12);
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -57,7 +60,7 @@ void gpu_mg_server_t::execute_memgraph(
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
-      memgraph, 0, kernel_manager, num_gpus_per_node[comm.get_this_rank()]);
+      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems[0]);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
@@ -72,8 +75,12 @@ void gpu_mg_server_t::execute_memgraph(
   exec_state_t state(graph, resource_manager);
 
   DOUT("executing...");
-  state.event_loop();
+  state.event_loop();  
+
   DOUT("executed.");
+
+  // checking the state buffer
+  printFloatGPU(mems[0], 12);
 }
 
 // memstoloc_t is not a contiguous data structure,
