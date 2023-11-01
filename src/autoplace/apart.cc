@@ -216,19 +216,29 @@ struct compute_cost_t {
           }
         }
 
+        // Way 0:
+        {
+          vector<int> out_block_shape(
+            op_block_shape.begin(),
+            op_block_shape.begin() + e.out_rank);
+          int out_n_blocks = product(out_block_shape);
+          compute_cost += product(e.out_shape()) * (op_n_blocks - out_n_blocks);
+        }
+
         // Way 1:
-        compute_cost += product(e.out_shape()) * op_n_blocks;
+        //compute_cost += product(e.out_shape()) * op_n_blocks;
 
-        // Way 2: {{{
-        //// add the amount to broadcast the output tensor across the
-        //// aggregation blocks. No agg == no work.
-        //vector<int> agg_block_shape(
-        //  op_block_shape.begin() + e.out_rank,
-        //  op_block_shape.end());
-        // }}}
+        // Way 2:
+        //{
+        //  // add the amount to broadcast the output tensor across the
+        //  // aggregation blocks. No agg == no work.
+        //  vector<int> agg_block_shape(
+        //    op_block_shape.begin() + e.out_rank,
+        //    op_block_shape.end());
 
-        //int multiplier = product(agg_block_shape) - 1;
-        //compute_cost += product(e.out_shape()) * multiplier;
+        //  int multiplier = product(agg_block_shape) - 1;
+        //  compute_cost += product(e.out_shape()) * multiplier;
+        //}
       } else {
         // ignoring einsummable that is not contraction
       }
