@@ -40,8 +40,6 @@ send_channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
 optional<int>
 send_channel_manager_t::acquire_channel(int loc)
 {
-  std::unique_lock lk(m);
-
   auto& cs = avail_channels.at(loc);
 
   if(cs.size() == 0) {
@@ -55,8 +53,6 @@ send_channel_manager_t::acquire_channel(int loc)
 }
 
 void send_channel_manager_t::release_channel(int loc, int channel) {
-  std::unique_lock lk(m);
-
   avail_channels.at(loc).push_back(channel);
 }
 

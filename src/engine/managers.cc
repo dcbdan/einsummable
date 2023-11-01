@@ -2,7 +2,6 @@
 
 optional<tuple<int, bool>>
 group_manager_t::try_to_acquire_impl(int const& group_id) {
-  std::unique_lock lk(m);
   if(busy_groups.count(group_id) == 0) {
     busy_groups.insert(group_id);
     bool is_first = seen_groups.count(group_id) == 0;
@@ -14,7 +13,6 @@ group_manager_t::try_to_acquire_impl(int const& group_id) {
 
 void group_manager_t::release_impl(tuple<int, bool> const& info) {
   auto const& [group_id, is_first] = info;
-  std::unique_lock lk(m);
   if(!busy_groups.erase(group_id)) {
     throw std::runtime_error("trying to release a group id that isn't busy");
   }
@@ -32,8 +30,6 @@ threadpool_manager_t::threadpool_manager_t(threadpool_t& tp)
 optional<threadpool_resource_t>
 threadpool_manager_t::try_to_acquire_impl(unit_t const&)
 {
-  std::unique_lock lk(m);
-
   if(num_avail == 0) {
     return std::nullopt;
   }
@@ -46,14 +42,12 @@ threadpool_manager_t::try_to_acquire_impl(unit_t const&)
 }
 
 void threadpool_manager_t::release_impl(threadpool_resource_t const& r) {
-  std::unique_lock lk(m);
   num_avail++;
   was_called.erase(r.id);
 }
 
 void threadpool_manager_t::launch(int which, string label, std::function<void()> f) {
   {
-    std::unique_lock lk(m);
     if(was_called.count(which) > 0) {
       throw std::runtime_error("this resource already called launch");
     }

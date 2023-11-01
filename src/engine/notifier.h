@@ -57,6 +57,8 @@ private:
 
   void process(msg_t const& msg);
 
+  // making sure this is thread safe since different
+  // threads can access
   std::mutex m;
 
   map<int, std::promise<void>> send_promises;

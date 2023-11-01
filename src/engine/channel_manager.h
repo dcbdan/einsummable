@@ -23,7 +23,6 @@ struct send_channel_manager_t
 private:
   communicator_t& comm;
 
-  std::mutex m;
   vector<vector<int>> avail_channels;
 
   optional<int> acquire_channel(int loc);
@@ -64,6 +63,8 @@ struct recv_channel_manager_t
 private:
   communicator_t& comm;
 
+  // Note that resource managers don't have to be thread safe, but
+  // this will be accessed from the notifier, so must be safe here
   std::mutex m;
 
   // loc -> channel -> queue of ids that are ready

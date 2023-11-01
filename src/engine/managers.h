@@ -49,7 +49,6 @@ private:
 
   void release_impl(tuple<int, bool> const& group_id_and_is_first);
 
-  std::mutex m;
   set<int> busy_groups;
   set<int> seen_groups;
 };
@@ -89,8 +88,6 @@ private:
 
   int num_avail;
   threadpool_t& threadpool;
-
-  std::mutex m;
 
   int id_;
   set<int> was_called;

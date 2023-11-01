@@ -25,7 +25,12 @@ void exec_state_t::event_loop() {
     while(processing.size() > 0) {
       int id = processing.front();
       processing.pop();
-      is_running.erase(id);
+
+      auto iter = is_running.find(id);
+
+      resource_manager->release(iter->second);
+
+      is_running.erase(iter);
 
       decrement_outs(id);
 
@@ -42,7 +47,6 @@ void exec_state_t::event_loop() {
         int const& id = *iter;
         if(try_to_launch(id)) {
           ready_to_run.erase(iter);
-          is_running.insert(id);
         } else {
           iter++;
         }
@@ -84,9 +88,7 @@ bool exec_state_t::try_to_launch(int id) {
   resource_ptr_t resources =
     resource_manager->try_to_acquire(resource_desc);
   if(resources) {
-    auto callback = [this, id, resources] {
-      resource_manager->release(resources);
-
+    auto callback = [this, id] {
       {
         std::unique_lock lk(m_notify);
         this->just_completed.push(id);
@@ -96,6 +98,7 @@ bool exec_state_t::try_to_launch(int id) {
     };
 
     node.launch(resources, callback);
+    is_running.insert({id, resources});
 
     return true;
   } else {
