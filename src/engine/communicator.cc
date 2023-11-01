@@ -11,6 +11,7 @@
 // TODO: put this somewhere
 static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
+double _timeout = 10.0;
 
 // Server (rank == 0):
 //   for(int rank = 1; rank != world_size; ++rank) {
@@ -792,7 +793,7 @@ int communicator_t::_from_idx(int idx) const {
 communicator_t::wire_t::wire_t(communicator_t* self)
   : has_endpoint(false)
 {
-  auto thread_mode = UCS_THREAD_MODE_MULTI;
+  auto thread_mode = UCS_THREAD_MODE_SERIALIZED;
 
   // create the worker
   {
@@ -889,8 +890,22 @@ void communicator_t::wire_t::send(void const* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
+    auto start = clock_now();
     while(!is_done) {
-      ucp_worker_progress(worker);
+     for(int i = 0; i != 2000000 && !is_done; ++i) {
+        ucp_worker_progress(worker);
+      }
+      if(!is_done) {
+        auto val = ucp_request_check_status(status);
+        if(val != UCS_INPROGRESS) {
+          throw std::runtime_error("request is not in progress");
+        }
+        auto now = clock_now();
+        double seconds = std::chrono::duration<double>(now - start).count();
+        if(seconds > _timeout) {
+          throw std::runtime_error("this send has timed out");
+        }
+      }
     }
     //while(!is_done) {
     //  if(!ucp_worker_progress(worker)) {
@@ -945,9 +960,9 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
           throw std::runtime_error("request is not in progress");
         }
         auto now = clock_now();
-        double seconds = std::chrono::duration<double>(now - start);
-        if(seconds > 5.0) {
-          throw std::runtime_error("this recv has taken more than 5 seconds");
+        double seconds = std::chrono::duration<double>(now - start).count();
+        if(seconds > _timeout) {
+          throw std::runtime_error("this recv has timed out");
         }
       }
     }
