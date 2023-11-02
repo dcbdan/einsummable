@@ -280,6 +280,7 @@ exec_graph_t create_repartition_execgraph(
 
 rm_ptr_t create_repartition_resource_manager(
   communicator_t& communicator,
+  threadpool_t& comm_threadpool,
   map<int, buffer_t>& data)
 {
   vector<rm_ptr_t> managers;
@@ -292,6 +293,10 @@ rm_ptr_t create_repartition_resource_manager(
   managers.emplace_back(new notifier_t(communicator, rcm));
 
   managers.emplace_back(new send_channel_manager_t(communicator));
+  managers.emplace_back(new threadpool_manager_t({ 
+    { "comm", &comm_threadpool }
+  }));
+
   return rm_ptr_t(new resource_manager_t(managers));
 }
 
@@ -314,7 +319,10 @@ void repartition(
 
   exec_graph_t execgraph = create_repartition_execgraph(this_rank, taskgraph);
 
-  rm_ptr_t resource_manager = create_repartition_resource_manager(comm, data);
+  threadpool_t comm_threadpool(32);
+
+  rm_ptr_t resource_manager = 
+    create_repartition_resource_manager(comm, comm_threadpool, data);
 
   exec_state_t state(execgraph, resource_manager);
   state.event_loop();

@@ -131,6 +131,7 @@ void server_mg_base_t::listen() {
   while(true) {
     cmd_t cmd = recv_cmd();
     if(cmd == cmd_t::execute_tg) {
+      DLINEOUT("EXECUTE TG");
       execute_tg_client();
     } else if(cmd == cmd_t::remap) {
       remap_client();

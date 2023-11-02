@@ -890,28 +890,29 @@ void communicator_t::wire_t::send(void const* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
-    auto start = clock_now();
-    while(!is_done) {
-     for(int i = 0; i != 2000000 && !is_done; ++i) {
-        ucp_worker_progress(worker);
-      }
-      if(!is_done) {
-        auto val = ucp_request_check_status(status);
-        if(val != UCS_INPROGRESS) {
-          throw std::runtime_error("request is not in progress");
-        }
-        auto now = clock_now();
-        double seconds = std::chrono::duration<double>(now - start).count();
-        if(seconds > _timeout) {
-          throw std::runtime_error("this send has timed out");
-        }
-      }
-    }
+    //auto start = clock_now();
     //while(!is_done) {
-    //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+    // for(int i = 0; i != 2000000 && !is_done; ++i) {
+    //    ucp_worker_progress(worker);
+    //  }
+    //  if(!is_done) {
+    //    auto val = ucp_request_check_status(status);
+    //    if(val != UCS_INPROGRESS) {
+    //      throw std::runtime_error("request is not in progress");
+    //    }
+    //    auto now = clock_now();
+    //    double seconds = std::chrono::duration<double>(now - start).count();
+    //    if(seconds > _timeout) {
+    //      throw std::runtime_error("this send has timed out");
+    //    }
     //  }
     //}
+
+    while(!is_done) {
+      if(!ucp_worker_progress(worker)) {
+        handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+      }
+    }
 
     ucp_request_free(status);
   }
@@ -949,30 +950,29 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
     // Two ways to do the wait:
     //   constant polling vs ucp_worker_wait (requires the wakeup feature)
 
-    auto start = clock_now();
-    while(!is_done) {
-      for(int i = 0; i != 2000000 && !is_done; ++i) {
-        ucp_worker_progress(worker);
-      }
-      if(!is_done) {
-        auto val = ucp_request_check_status(status);
-        if(val != UCS_INPROGRESS) {
-          throw std::runtime_error("request is not in progress");
-        }
-        auto now = clock_now();
-        double seconds = std::chrono::duration<double>(now - start).count();
-        if(seconds > _timeout) {
-          throw std::runtime_error("this recv has timed out");
-        }
-      }
-    }
-    // If the recv loop hangs for more than 5 seconds, something is probably amiss.
-
+    //auto start = clock_now();
     //while(!is_done) {
-    //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
+    //  for(int i = 0; i != 2000000 && !is_done; ++i) {
+    //    ucp_worker_progress(worker);
+    //  }
+    //  if(!is_done) {
+    //    auto val = ucp_request_check_status(status);
+    //    if(val != UCS_INPROGRESS) {
+    //      throw std::runtime_error("request is not in progress");
+    //    }
+    //    auto now = clock_now();
+    //    double seconds = std::chrono::duration<double>(now - start).count();
+    //    if(seconds > _timeout) {
+    //      throw std::runtime_error("this recv has timed out");
+    //    }
     //  }
     //}
+
+    while(!is_done) {
+      if(!ucp_worker_progress(worker)) {
+        handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
+      }
+    }
 
     ucp_request_free(status);
   }

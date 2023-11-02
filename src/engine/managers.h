@@ -56,8 +56,8 @@ private:
 struct threadpool_manager_t;
 
 struct threadpool_resource_t {
-  threadpool_resource_t(int i, threadpool_manager_t* s)
-    : id(i), self(s)
+  threadpool_resource_t(int i, string k, threadpool_manager_t* s)
+    : id(i), key(k), self(s)
   {}
 
   void launch(std::function<void()> f) const { launch("tp_resource_na", f); }
@@ -67,32 +67,29 @@ private:
   friend class threadpool_manager_t;
 
   int id;
+  string key;
   threadpool_manager_t* self;
 };
 
 struct threadpool_manager_t
-  : rm_template_t<unit_t, threadpool_resource_t>
+  : rm_template_t<string, threadpool_resource_t>
 {
-  threadpool_manager_t(threadpool_t& tp);
-
-  static desc_ptr_t make_desc() {
-    return rm_template_t::make_desc(unit_t {});
-  }
+  threadpool_manager_t(map<string, threadpool_t*> tps);
 
 private:
-  optional<threadpool_resource_t> try_to_acquire_impl(unit_t const&);
+  optional<threadpool_resource_t> try_to_acquire_impl(string const& which_tp);
 
   // assumption: the corresponding function that got launched is complete
   //             when this is called
   void release_impl(threadpool_resource_t const&);
 
-  int num_avail;
-  threadpool_t& threadpool;
+  map<string, int> num_avails;
+  map<string, threadpool_t*> threadpools;
 
   int id_;
   set<int> was_called;
 private:
   friend class threadpool_resource_t;
 
-  void launch(int which, string label, std::function<void()> f);
+  void launch(int which, string key, string label, std::function<void()> f);
 };

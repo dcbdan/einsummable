@@ -31,6 +31,7 @@ exec_graph_t::notify_recv_ready_t::resource_description() const {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t>{
       notifier_t::make_desc(unit_t{})
+      //threadpool_manager_t::make_desc("comm")
     }
   );
 }
@@ -40,6 +41,7 @@ exec_graph_t::wait_recv_ready_t::resource_description() const {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t>{
       notifier_t::make_desc(unit_t{})
+      //threadpool_manager_t::make_desc("comm")
     }
   );
 }
@@ -51,7 +53,7 @@ exec_graph_t::send_t::resource_description() const {
       notifier_t::make_desc(unit_t{}),
       send_channel_manager_t::make_desc(dst),
       global_buffers_t::make_desc(),
-      threadpool_manager_t::make_desc()
+      threadpool_manager_t::make_desc("comm")
     }
   );
 }
@@ -62,7 +64,7 @@ exec_graph_t::recv_t::resource_description() const {
     vector<desc_ptr_t> {
       recv_channel_manager_t::make_desc({ id, src }),
       global_buffers_t::make_desc(),
-      threadpool_manager_t::make_desc()
+      threadpool_manager_t::make_desc("comm")
     }
   );
 }
@@ -76,6 +78,8 @@ exec_graph_t::notify_recv_ready_t::launch(
     resource_manager_t::get_resource(resource);
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
+
+  //auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
 
   std::thread thread([this, callback, notifier] {
     notifier->notify_recv_ready(this->dst, this->id);
@@ -96,6 +100,8 @@ exec_graph_t::wait_recv_ready_t::launch(
     resource_manager_t::get_resource(resource);
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
+
+  //auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
 
   std::thread thread([this, callback, notifier] {
     notifier->wait_recv_ready(this->id);

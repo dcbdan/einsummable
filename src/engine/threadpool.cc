@@ -3,9 +3,13 @@
 
 #include <sys/sysinfo.h>
 
-threadpool_t::threadpool_t(string filename, int num_to_launch)
-  : is_stopped(false), start_threadpool(clock_now()), out(filename)
+threadpool_t::threadpool_t(string filename, int num_to_launch, bool pin)
+  : is_stopped(false), start_threadpool(clock_now()), out(std::nullopt)
 {
+  if(filename != "") {
+    out = std::ofstream(filename);
+  }
+
   get_numa_info();
 
   int max_num_threads = get_nprocs();
@@ -15,8 +19,8 @@ threadpool_t::threadpool_t(string filename, int num_to_launch)
 
   threads.reserve(num_to_launch);
   for(int i = 0; i != num_to_launch; ++i) {
-    threads.emplace_back([this, i, max_num_threads] {
-      this->runner(i % max_num_threads);
+    threads.emplace_back([this, i, max_num_threads, pin] {
+      this->runner(i % max_num_threads, pin);
     });
   }
 }
@@ -39,9 +43,11 @@ threadpool_t::~threadpool_t() {
   }
 }
 
-void threadpool_t::runner(int which) {
-  //get_numa_info().pin_to_this_numa_thread(which);
-  get_numa_info().pin_to_thread(which);
+void threadpool_t::runner(int which, bool pin) {
+  if(pin) {
+    //get_numa_info().pin_to_this_numa_thread(which);
+    get_numa_info().pin_to_thread(which);
+  }
 
   string label;
   std::function<void()> f;
@@ -98,10 +104,12 @@ void threadpool_t::print_time(
    int which, string label, 
    timestamp_t const& start, timestamp_t const& end) 
 {
+  if(!out) { return; }
+
   using namespace std::chrono;
   double s = duration<double>(start - start_threadpool).count();
   double e = duration<double>(end   - start_threadpool).count();
   std::unique_lock lk(m_print);
-  out << which << " " << label << " " << s << " " << e << std::endl;
+  out.value() << which << " " << label << " " << s << " " << e << std::endl;
 }
 

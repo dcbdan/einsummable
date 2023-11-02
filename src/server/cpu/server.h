@@ -18,7 +18,8 @@ struct cpu_mg_server_t : server_mg_base_t
     int num_threads,
     int num_channels_per_move = 1)
     : server_mg_base_t(c_), mem(make_buffer(buffer_size)),
-      threadpool("tp" + write_with_ss(c_.get_this_rank()), num_threads),
+      exec_threadpool("tp_e" + write_with_ss(c_.get_this_rank()), num_threads, true),
+      comm_threadpool("tp_c" + write_with_ss(c_.get_this_rank()), num_threads, false),
       num_channels_per_move(num_channels_per_move)
   {
     //if(mlock(mem->data, mem->size) != 0) {
@@ -34,7 +35,7 @@ struct cpu_mg_server_t : server_mg_base_t
   }
 
   int get_num_threads() const {
-    return threadpool.num_runners();
+    return exec_threadpool.num_runners();
   }
 
   void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
@@ -70,7 +71,8 @@ private:
 
   cpu_kernel_executor_t kernel_executor;
 
-  threadpool_t threadpool;
+  threadpool_t exec_threadpool;
+  threadpool_t comm_threadpool;
 
   int num_channels_per_move;
 };

@@ -8,7 +8,11 @@
 #include <fstream>
 
 struct threadpool_t {
-  threadpool_t(string filename, int num_to_launch);
+  threadpool_t(int num_to_launch, bool pin=false)
+    : threadpool_t("", num_to_launch, pin)
+  {}
+
+  threadpool_t(string filename, int num_to_launch, bool pin=false);
 
   ~threadpool_t();
 
@@ -28,10 +32,10 @@ private:
   timestamp_t const start_threadpool;
   std::mutex m_print;
 
-  std::ofstream out;
+  optional<std::ofstream> out;
 
 private:
-  void runner(int which);
+  void runner(int which, bool pin = false);
 
   void print_time(
     int which, string label, 

@@ -25,6 +25,10 @@ void cpu_mg_server_t::execute_memgraph(
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
 
+  map<string, threadpool_t*> tps {
+    { "exec", &exec_threadpool },
+    { "comm", &comm_threadpool }
+  };
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new cpu_workspace_manager_t()),
@@ -34,7 +38,7 @@ void cpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new notifier_t(comm, rcm)),
       rm_ptr_t(new send_channel_manager_t(comm)),
       rcm_ptr,
-      rm_ptr_t(new threadpool_manager_t(threadpool))
+      rm_ptr_t(new threadpool_manager_t(tps))
     }
   ));
 

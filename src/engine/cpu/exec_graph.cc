@@ -199,7 +199,7 @@ cpu_einsummable_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc());
-  ret.emplace_back(threadpool_manager_t::make_desc());
+  ret.emplace_back(threadpool_manager_t::make_desc("exec"));
 
   if(workspace_size > 0) {
     ret.emplace_back(cpu_workspace_manager_t::make_desc(workspace_size));
@@ -252,7 +252,7 @@ cpu_touch_t::resource_description() const
   vector<desc_ptr_t> ret;
 
   ret.emplace_back(global_buffers_t::make_desc());
-  ret.emplace_back(threadpool_manager_t::make_desc());
+  ret.emplace_back(threadpool_manager_t::make_desc("exec"));
 
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::make_desc(group_id));

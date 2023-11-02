@@ -20,16 +20,22 @@ void group_manager_t::release_impl(tuple<int, bool> const& info) {
 }
 
 void threadpool_resource_t::launch(string label, std::function<void()> f) const {
-  self->launch(id, label, f);
+  self->launch(id, key, label, f);
 }
 
-threadpool_manager_t::threadpool_manager_t(threadpool_t& tp)
-  : num_avail(tp.num_runners()), threadpool(tp), id_(0)
-{}
+threadpool_manager_t::threadpool_manager_t(
+  map<string, threadpool_t*> tps)
+  : threadpools(tps), id_(0)
+{
+  for(auto const& [k,tp]: tps) {
+    num_avails.insert({k, tp->num_runners()});
+  }
+}
 
 optional<threadpool_resource_t>
-threadpool_manager_t::try_to_acquire_impl(unit_t const&)
+threadpool_manager_t::try_to_acquire_impl(string const& which_tp)
 {
+  int& num_avail = num_avails.at(which_tp);
   if(num_avail == 0) {
     return std::nullopt;
   }
@@ -38,21 +44,23 @@ threadpool_manager_t::try_to_acquire_impl(unit_t const&)
   int new_id = id_;
   id_++;
 
-  return threadpool_resource_t(new_id, this);
+  return threadpool_resource_t(new_id, which_tp, this);
 }
 
 void threadpool_manager_t::release_impl(threadpool_resource_t const& r) {
-  num_avail++;
+  num_avails[r.key]++;
   was_called.erase(r.id);
 }
 
-void threadpool_manager_t::launch(int which, string label, std::function<void()> f) {
+void threadpool_manager_t::launch(
+  int which, string key, string label, std::function<void()> f) 
+{
   {
     if(was_called.count(which) > 0) {
       throw std::runtime_error("this resource already called launch");
     }
     was_called.insert(which);
   }
-  threadpool.insert(label, f);
+  threadpools.at(key)->insert(label, f);
 }
 
