@@ -64,19 +64,21 @@ exec_graph_t::make_cpu_exec_graph(
           throw std::runtime_error("only allowing touches to have a group");
         }
 
-        // build the op (except the workspace size)
-        cpu_einsummable_t* op = new cpu_einsummable_t(
-          cpu_executor,
-          apply.get_einsummable().merge_adjacent_dims(),
-          apply.mems
-        );
-
-        // compile the kernel (and update the workspace size)
-        auto maybe_registered = cpu_executor.build(op->einsummable);
-        if(!maybe_registered) {
+        // build the kernel
+        einsummable_t e = apply.get_einsummable().merge_adjacent_dims();
+        auto maybe_worksize = cpu_executor.build(e);
+        if(!maybe_worksize) {
           throw std::runtime_error("could not compile the kernel");
         }
-        op->workspace_size = maybe_registered.value();
+
+        // build the op
+        cpu_einsummable_t* op = new cpu_einsummable_t(
+          cpu_executor,
+          e,
+          apply.mems,
+          maybe_worksize.value(),
+          cpu_executor.as_str(e)
+        );
 
         // insert into the graph
         insert_from_mid(op_ptr_t(op), mid);
@@ -234,7 +236,7 @@ void cpu_einsummable_t::launch(
   }
 
   thread_resource.launch(
-    "einsummable",
+    thread_msg_str,
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);

@@ -4,14 +4,18 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   cpu_einsummable_t(
     cpu_kernel_executor_t& a,
     einsummable_t const& b,
-    vector<mem_t> const& c)
-    : cpu_executor(a), einsummable(b), mems(c), workspace_size(0)
+    vector<mem_t> const& c,
+    uint64_t d,
+    string const& e)
+    : cpu_executor(a), einsummable(b), mems(c),
+      workspace_size(d), thread_msg_str(e)
   {}
 
   cpu_kernel_executor_t& cpu_executor;
   einsummable_t einsummable;
   vector<mem_t> mems;
   uint64_t workspace_size;
+  string thread_msg_str;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   desc_ptr_t resource_description() const;
