@@ -10,6 +10,8 @@
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/loadbalanceplace.h"
 
+#include <fstream>
+
 void usage() {
   std::cout << "Setup usage: addr_zero is_client world_size memsize(GB)\n";
   std::cout << "Plus args for graphs\n";
@@ -98,6 +100,15 @@ vector<placement_t> autoplace(
   int num_threads_per)
 {
   auto parts = autopartition_for_bytes(graph, world_size * num_threads_per);
+
+  DOUT("partition cost " << autopartition_for_bytes_cost(graph, parts));
+
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f, parts);
+    DOUT("printed g.gv");
+  }
+
   return load_balanced_placement(graph, parts, world_size, false);
 }
 
