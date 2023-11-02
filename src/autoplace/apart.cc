@@ -14,14 +14,14 @@ using ap_graphtree_t = typename build_trees_ns::bgraph_t<ap_tree_t>;
 struct _plan_t {
   partition_t partition;
   vector<int> which;
-  double cost; // TODO: why not uint64_t cost?
+  uint64_t cost;
 };
 
 bool operator<(_plan_t const& lhs, _plan_t const& rhs) {
   return lhs.cost < rhs.cost;
 }
 
-double _add_to_ret(
+uint64_t _add_to_ret(
   map<int, partition_t>& ret,
   map<int, vector<_plan_t>>& solved,
   ap_tree_t const& tree,
@@ -38,7 +38,7 @@ double _add_to_ret(
   vector<tuple<int, int>> to_process;
   to_process.emplace_back(start_id, get_which_best_plan(solved.at(start_id)));
 
-  double start_cost;
+  uint64_t start_cost;
   {
     auto const& [_, which] = to_process[0];
     start_cost = solved.at(start_id)[which].cost;
@@ -129,8 +129,13 @@ vector<vector<int>> compute_equal_sums(int n, int d) {
 struct get_parts_t {
   graph_t const& graph;
   int log2_n;
+  optional<vector<partition_t>> set_parts;
 
   vector<partition_t> operator()(int gid) const {
+    if(set_parts) {
+      return vector<partition_t>{ set_parts.value()[gid] };
+    }
+
     auto const& op = graph.nodes[gid].op;
 
     if(op.is_einsummable() && op.get_einsummable().is_contraction())
@@ -186,10 +191,9 @@ struct get_parts_t {
 
 struct compute_cost_t {
   graph_t const& graph;
-  double time_per_elem;
   std::unordered_map<string, uint64_t> cache;
 
-  double operator()(
+  tuple<uint64_t, uint64_t> cost(
     int gid,
     partition_t const& join_part,
     optional<partition_t> const& maybe_usage_part)
@@ -266,7 +270,16 @@ struct compute_cost_t {
       repart_cost = compute_repart_cost(out_part, usage_part);
     }
 
-    return time_per_elem * (compute_cost + repart_cost);
+    return {compute_cost, repart_cost};
+  }
+
+  uint64_t operator()(
+    int gid,
+    partition_t const& join_part,
+    optional<partition_t> const& maybe_usage_part)
+  {
+    auto [compute_cost, repart_cost] = cost(gid, join_part, maybe_usage_part);
+    return compute_cost + repart_cost;
   }
 
   uint64_t compute_repart_cost(
@@ -313,7 +326,35 @@ struct compute_cost_t {
   }
 };
 
-double _solve_tree(
+template <typename F>
+optional<partition_t>
+_get_refi_partition(
+  graph_t const& graph,
+  int gid,
+  F get_partition)
+{
+  optional<partition_t> refi_partition;
+  {
+    int gid_fix = gid;
+
+    auto const& node = graph.nodes[gid];
+    if(node.outs.size() > 0) {
+      int out_gid = *node.outs.begin();
+      if(graph.nodes[out_gid].op.is_formation()) {
+        gid_fix = out_gid;
+      }
+    }
+
+    if(graph.nodes[gid_fix].outs.size() > 0) {
+      refi_partition = twolayer_construct_refinement_partition(
+        graph, gid_fix, get_partition);
+    }
+  }
+
+  return refi_partition;
+}
+
+uint64_t _solve_tree(
   map<int, partition_t>& ret,
   graph_t const& graph,
   ap_tree_t const& tree,
@@ -332,7 +373,7 @@ double _solve_tree(
 
     // Note: cost_from_fixed is a bit goofy in that it won't be
     //       changing so isn't needed in the solve
-    double cost_from_fixed = 0.0;
+    uint64_t cost_from_fixed = 0;
 
     // solve any trees past max_branching; the partitions
     // therein will be grabbed from ret
@@ -357,7 +398,7 @@ double _solve_tree(
 
     for(auto const& part: get_possible_partitions(gid)) {
       vector<int> best_which;
-      double best_cost = -1.0;
+      optional<uint64_t> best_cost = std::nullopt;
 
       vector<int> which(num_tree_inns, 0);
       do {
@@ -376,34 +417,21 @@ double _solve_tree(
           return iter->second;
         };
 
-        double cost_from_children = 0.0;
+        uint64_t cost_from_children = 0.0;
         for(int i = 0; i != num_tree_inns; ++i) {
           int const& w = which[i];
           int const& g = tree_inns[i];
           cost_from_children += solved.at(g)[w].cost;
         }
 
-        optional<partition_t> refi_partition;
-        {
-          int gid_fix = gid;
+        optional<partition_t> refi_partition = 
+          _get_refi_partition(graph, gid, get_partition);
 
-          auto const& node = graph.nodes[gid];
-          int out_gid = *node.outs.begin();
-          if(graph.nodes[out_gid].op.is_formation()) {
-            gid_fix = out_gid;
-          }
+        uint64_t cost_from_node = compute_cost(gid, part, refi_partition);
 
-          if(graph.nodes[gid_fix].outs.size() > 0) {
-            refi_partition = twolayer_construct_refinement_partition(
-              graph, gid_fix, get_partition);
-          }
-        }
+        uint64_t cost = cost_from_fixed + cost_from_children + cost_from_node;
 
-        double cost_from_node = compute_cost(gid, part, refi_partition);
-
-        double cost = cost_from_fixed + cost_from_children + cost_from_node;
-
-        if(best_cost < 0.0 || cost < best_cost) {
+        if(!bool(best_cost) || cost < best_cost.value()) {
           best_cost = cost;
           best_which = which;
         }
@@ -412,7 +440,7 @@ double _solve_tree(
       plans.push_back(_plan_t {
         .partition = part,
         .which = best_which,
-        .cost = best_cost
+        .cost = best_cost.value()
       });
     }
   }
@@ -564,13 +592,12 @@ vector<partition_t> autopartition_for_bytes(
   };
   compute_cost_t compute_cost {
     .graph = graph,
-    .time_per_elem = 1e-9,
     .cache = {}
   };
   map<int, partition_t> partitions_so_far;
   for(int const& root_id: btrees.dag_order_inns_to_outs()) {
     auto const& tree = btrees[root_id];
-    double cost_tree = _solve_tree(
+    uint64_t cost_tree = _solve_tree(
       partitions_so_far, graph, tree, max_branching,
       get_possible_partitions,
       compute_cost);
@@ -580,4 +607,37 @@ vector<partition_t> autopartition_for_bytes(
   return _build_vector(graph, partitions_so_far);
 }
 
+uint64_t autopartition_for_bytes_cost(
+  graph_t const& graph,
+  vector<partition_t> const& partitions)
+{
+  compute_cost_t compute_cost {
+    .graph = graph,
+    .cache = {}
+  };
 
+  auto get_partition = [&](int gid) -> partition_t const& {
+    return partitions.at(gid);
+  };
+
+  uint64_t total = 0;
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    if(node.op.is_formation()) {
+      continue;
+    }
+
+    optional<partition_t> refi_partition = 
+      _get_refi_partition(graph, gid, get_partition);
+
+    //auto [compute_here, repart_here] = compute_cost.cost(
+    //  gid, get_partition(gid), refi_partition);
+    //total += (compute_here + repart_here);
+    //DOUT(gid << ": " << compute_here << ", " << repart_here);
+
+    total += compute_cost(gid, get_partition(gid), refi_partition);
+  }
+
+  return total;
+}
