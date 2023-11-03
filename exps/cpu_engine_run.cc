@@ -22,7 +22,9 @@ graph_t build_graph(args_t& args);
 vector<placement_t> autoplace(
   graph_t const& graph,
   int world_size,
-  int num_threads_per);
+  int num_threads_per,
+  parts_space_t space = parts_space_t::contraction,
+  bool double_workers = false);
 
 int main(int argc, char** argv) {
   if(argc < 4) {
@@ -46,6 +48,25 @@ int main(int argc, char** argv) {
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
+  args_t args(argc-4, argv+4);
+
+  exec_state_t::priority_t priority_type;
+  {
+    args.set_default("priority_type", "given");
+    string val = args.get<string>("priority_type");
+    if(val == "given") {
+      priority_type = exec_state_t::priority_t::given;
+    } else if(val == "bfs") {
+      priority_type = exec_state_t::priority_t::bfs;
+    } else if(val == "dfs") {
+      priority_type = exec_state_t::priority_t::dfs;
+    } else if(val == "random") {
+      priority_type = exec_state_t::priority_t::random;
+    } else {
+      throw std::runtime_error("invalid exec state value");
+    }
+  }
+
   if(is_rank_zero) {
     DOUT("world size:                      " << world_size);
     DOUT("memory allocated:                " << (mem_size/GB) << " GB");
@@ -55,23 +76,39 @@ int main(int argc, char** argv) {
     DOUT("dtype:                           " << default_dtype());
   }
 
-  cpu_mg_server_t server(communicator, mem_size, num_threads, num_channels_per_move);
+  cpu_mg_server_t server(
+    communicator, mem_size, num_threads, num_channels_per_move, priority_type);
 
   if(is_rank_zero) {
-    args_t args(argc-4, argv+4);
     args.set_default("pp", true);
     server.set_parallel_partialize(args.get<bool>("pp"));
 
     server.set_use_storage(false);
 
+    parts_space_t space;
+    {
+      args.set_default("space", "contraction");
+      string space_ = args.get<string>("space");
+      if(space_ == "contraction") {
+        space = parts_space_t::contraction;
+      } else if(space_ == "all") {
+        space = parts_space_t::all;
+      } else if(space_ == "all_range") {
+        space = parts_space_t::all_range;
+      }
+    }
+
+    args.set_default("double_workers", false);
+    bool double_workers = args.get<bool>("double_workers");
+
     // execute this
     graph_t graph = build_graph(args);
-    vector<placement_t> pls = autoplace(graph, world_size, num_threads);
+    vector<placement_t> pls = autoplace(
+      graph, world_size, num_threads, space, double_workers);
 
     args.set_default<int>("nrep", 1);
     int nrep = args.get<int>("nrep");
     for(int rep = 0; rep != nrep; ++rep) {
-
       // initialize input tensors and distribute across the cluster
       for(int gid = 0; gid != graph.nodes.size(); ++gid) {
         auto const& node = graph.nodes[gid];
@@ -94,14 +131,42 @@ int main(int argc, char** argv) {
   }
 }
 
+void main_(int argc, char** argv) {
+  args_t args(argc, argv);
+  int world_size = 1;
+  int num_threads = args.get<int>("num_threads");
+
+  args.set_default("space", "contraction");
+  string space_ = args.get<string>("space");
+
+  parts_space_t space;
+  if(space_ == "contraction") {
+    space = parts_space_t::contraction;
+  } else if(space_ == "all") {
+    space = parts_space_t::all;
+  } else if(space_ == "all_range") {
+    space = parts_space_t::all_range;
+  }
+
+  DLINEOUT("num threads : " << num_threads);
+  graph_t graph = build_graph(args);
+  vector<placement_t> pls = autoplace(graph, world_size, num_threads, space);
+}
+
 vector<placement_t> autoplace(
   graph_t const& graph,
   int world_size,
-  int num_threads_per)
+  int num_threads_per,
+  parts_space_t space,
+  bool double_workers)
 {
-  auto parts = autopartition_for_bytes(graph, world_size * num_threads_per);
+  int multiplier = double_workers ? 2 : 1 ;
+  auto parts = autopartition_for_bytes(
+    graph,
+    multiplier * world_size * num_threads_per,
+    space);
 
-  DOUT("partition cost " << autopartition_for_bytes_cost(graph, parts));
+  DOUT("partition cost " << double(autopartition_for_bytes_cost(graph, parts)) / 1e9);
 
   {
     std::ofstream f("g.gv");

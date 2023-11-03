@@ -38,7 +38,7 @@ void cpu_mg_server_t::execute_memgraph(
     }
   ));
 
-  exec_state_t state(graph, resource_manager);
+  exec_state_t state(graph, resource_manager, priority_type);
 
   if(for_remap) {
     state.event_loop();
