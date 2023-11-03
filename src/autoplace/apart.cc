@@ -129,6 +129,7 @@ vector<vector<int>> compute_equal_sums(int n, int d) {
 struct get_parts_t {
   graph_t const& graph;
   int log2_n;
+  parts_space_t search_space;
   optional<vector<partition_t>> set_parts;
 
   vector<partition_t> operator()(int gid) const {
@@ -138,15 +139,33 @@ struct get_parts_t {
 
     auto const& op = graph.nodes[gid].op;
 
-    if(op.is_einsummable() && op.get_einsummable().is_contraction())
-    {
+    if(search_space == parts_space_t::contraction) {
+      if(op.is_einsummable() && op.get_einsummable().is_contraction())
+      {
+        vector<uint64_t> shape = op.shape();
+        vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
+        return fix(shape, pps);
+      } else {
+        vector<uint64_t> shape = op.shape();
+        vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size() + 1);
+        return fix(shape, pps);
+      }
+    } else if(search_space == parts_space_t::all) {
       vector<uint64_t> shape = op.shape();
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       return fix(shape, pps);
-    } else {
+    } else if(search_space == parts_space_t::all_range) {
       vector<uint64_t> shape = op.shape();
-      vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size() + 1);
+      vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
+      vector_concatenate_into(
+        pps,
+        compute_equal_sums(log2_n + 1, shape.size()));
+      vector_concatenate_into(
+        pps,
+        compute_equal_sums(log2_n + 2, shape.size()));
       return fix(shape, pps);
+    } else {
+      throw std::runtime_error("get_parts_t: should not reach");
     }
   }
 
@@ -424,7 +443,7 @@ uint64_t _solve_tree(
           cost_from_children += solved.at(g)[w].cost;
         }
 
-        optional<partition_t> refi_partition = 
+        optional<partition_t> refi_partition =
           _get_refi_partition(graph, gid, get_partition);
 
         uint64_t cost_from_node = compute_cost(gid, part, refi_partition);
@@ -493,7 +512,8 @@ vector<partition_t> _build_vector(
 
 vector<partition_t> autopartition_for_bytes(
   graph_t const& graph,
-  int n_compute)
+  int n_compute,
+  parts_space_t search_space)
 {
   //{
   //  std::ofstream f("g.gv");
@@ -588,7 +608,8 @@ vector<partition_t> autopartition_for_bytes(
   // 3.
   get_parts_t get_possible_partitions {
     .graph = graph,
-    .log2_n = log2_n
+    .log2_n = log2_n,
+    .search_space = search_space
   };
   compute_cost_t compute_cost {
     .graph = graph,
@@ -628,7 +649,7 @@ uint64_t autopartition_for_bytes_cost(
       continue;
     }
 
-    optional<partition_t> refi_partition = 
+    optional<partition_t> refi_partition =
       _get_refi_partition(graph, gid, get_partition);
 
     //auto [compute_here, repart_here] = compute_cost.cost(
