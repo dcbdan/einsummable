@@ -1194,7 +1194,7 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
   vector<optional<  tuple< tuple<iter_t, iter_t, uint64_t>, uint64_t>  >> maybe_infos;
   vector<return_t> return_vec;
 
-  for (int size_without_rem: sizes) {
+  for (uint64_t size_without_rem: sizes) {
     if(strat == allocator_strat_t::lowest_dependency) {
       maybe_info = find_lowest_dependency_available(size_without_rem);
     } else if(strat == allocator_strat_t::first) {
@@ -1204,7 +1204,8 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
     }
 
     if(maybe_info) {
-      maybe_infos.push_back(std::make_tuple(maybe_info, size_without_rem));
+      std::tuple<std::tuple<iter_t, iter_t, uint64_t>, uint64_t> inner_tuple = std::make_tuple(*maybe_info, size_without_rem);
+      maybe_infos.push_back(std::make_optional(inner_tuple));
     } else {
       failed = true;
       break;
@@ -1259,8 +1260,9 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
         .dep = last_block_copy.dep
       });
     }
-    return_vec.emplace_back(optional<return_t>({aligned_offset, deps}));
+    return_vec.emplace_back(aligned_offset, deps);
   }
+  return return_vec;
 }
 
 tuple<uint64_t, vector<int>>
@@ -2270,6 +2272,7 @@ bool memgraph_make_state_t2::register_usage(int task_id)
 
     return true;
   }
+  return false;
 }
 
 void memgraph_make_state_t2::task_tensor_to_mem_node_insert_on_storage(
