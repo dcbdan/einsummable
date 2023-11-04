@@ -13,15 +13,24 @@
 struct cpu_mg_server_t : server_mg_base_t
 {
   cpu_mg_server_t(
-    communicator_t& c,
+    communicator_t& c_,
     uint64_t buffer_size,
-    int num_threads)
-    : server_mg_base_t(c), mem(make_buffer(buffer_size)), threadpool(num_threads)
+    int num_threads,
+    int num_channels_per_move = 1)
+    : server_mg_base_t(c_), mem(make_buffer(buffer_size)),
+      threadpool("tp" + write_with_ss(c_.get_this_rank()), num_threads),
+      num_channels_per_move(num_channels_per_move)
   {
     //if(mlock(mem->data, mem->size) != 0) {
     //  //DOUT(strerror(errno));
     //  throw std::runtime_error("could not lock memory");
     //}
+
+    if(num_channels_per_move > num_threads) {
+      throw std::runtime_error("invalid num channels per move");
+    }
+
+    // TODO: verify that num_channels_per_move is the same on all nodes
   }
 
   int get_num_threads() const {
@@ -62,5 +71,7 @@ private:
   cpu_kernel_executor_t kernel_executor;
 
   threadpool_t threadpool;
+
+  int num_channels_per_move;
 };
 

@@ -228,6 +228,35 @@ uint64_t cpu_kernel_executor_t::workspace_size(einsummable_t const& e) const
   }
 }
 
+string cpu_kernel_executor_t::as_str(einsummable_t const& e) const
+{
+  auto const& kernel = get_built_kernel_info(e);
+
+  using std::holds_alternative;
+  using std::get;
+  if(holds_alternative<batch_matmul_t>(kernel)) {
+    return "batch_matmul";
+  } else if(holds_alternative<contraction_t>(kernel)) {
+    return "contraction";
+  } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
+    return "straight_uew";
+  } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
+    return "straight_bew";
+  } else if(holds_alternative<binary_212_ew_t>(kernel)) {
+    return "b212";
+  } else if(holds_alternative<tensor_permute_t>(kernel)) {
+    return "permute";
+  } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
+    return "red_ab_a";
+  } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
+    return "bro_b_ab";
+  } else if(holds_alternative<kernel_t>(kernel)) {
+    return "misc_kernel";
+  } else {
+    throw std::runtime_error("workspace size: kernel unaccounted for");
+  }
+}
+
 vector<int> cpu_kernel_executor_t::donatables(einsummable_t const& e) const
 {
   auto const& kernel = get_built_kernel_info(e);

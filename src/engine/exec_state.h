@@ -20,8 +20,9 @@ struct exec_state_t {
 
   vector<int> ready_to_run;
 
-  // this isn't needed but is kept for debugging
-  set<int> is_running;
+  // for each node that is running, these are 
+  // the resources it is using
+  map<int, resource_ptr_t> is_running;
 
   // for every node in exec graph, the number of dependencies left
   vector<int> num_deps_remaining;

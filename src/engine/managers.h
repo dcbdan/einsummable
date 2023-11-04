@@ -49,7 +49,6 @@ private:
 
   void release_impl(tuple<int, bool> const& group_id_and_is_first);
 
-  std::mutex m;
   set<int> busy_groups;
   set<int> seen_groups;
 };
@@ -61,7 +60,8 @@ struct threadpool_resource_t {
     : id(i), self(s)
   {}
 
-  void launch(std::function<void()> f) const;
+  void launch(std::function<void()> f) const { launch("tp_resource_na", f); }
+  void launch(string label, std::function<void()> f) const;
 
 private:
   friend class threadpool_manager_t;
@@ -89,12 +89,10 @@ private:
   int num_avail;
   threadpool_t& threadpool;
 
-  std::mutex m;
-
   int id_;
   set<int> was_called;
 private:
   friend class threadpool_resource_t;
 
-  void launch(int which, std::function<void()> f);
+  void launch(int which, string label, std::function<void()> f);
 };

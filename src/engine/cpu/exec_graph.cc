@@ -11,8 +11,11 @@ exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
-  cpu_kernel_executor_t& cpu_executor)
+  cpu_kernel_executor_t& cpu_executor,
+  int num_channels_per_move)
 {
+  // Note: all nodes must have the same num_channels_per_move
+
   exec_graph_t graph;
 
   map<int, int> mid_to_eid;
@@ -33,6 +36,10 @@ exec_graph_t::make_cpu_exec_graph(
     int eid = graph.insert(op, inns);
 
     mid_to_eid.insert({mid, eid});
+  };
+
+  auto get_moveid = [&num_channels_per_move](int mid, int i) {
+    return mid * num_channels_per_move + i;
   };
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
@@ -57,19 +64,21 @@ exec_graph_t::make_cpu_exec_graph(
           throw std::runtime_error("only allowing touches to have a group");
         }
 
-        // build the op (except the workspace size)
-        cpu_einsummable_t* op = new cpu_einsummable_t(
-          cpu_executor,
-          apply.get_einsummable().merge_adjacent_dims(),
-          apply.mems
-        );
-
-        // compile the kernel (and update the workspace size)
-        auto maybe_registered = cpu_executor.build(op->einsummable);
-        if(!maybe_registered) {
+        // build the kernel
+        einsummable_t e = apply.get_einsummable().merge_adjacent_dims();
+        auto maybe_worksize = cpu_executor.build(e);
+        if(!maybe_worksize) {
           throw std::runtime_error("could not compile the kernel");
         }
-        op->workspace_size = maybe_registered.value();
+
+        // build the op
+        cpu_einsummable_t* op = new cpu_einsummable_t(
+          cpu_executor,
+          e,
+          apply.mems,
+          maybe_worksize.value(),
+          cpu_executor.as_str(e)
+        );
 
         // insert into the graph
         insert_from_mid(op_ptr_t(op), mid);
@@ -97,6 +106,10 @@ exec_graph_t::make_cpu_exec_graph(
       auto const& [src, src_offset] = move.src;
       auto const& [dst, dst_offset] = move.dst;
 
+      if(src == dst) {
+        throw std::runtime_error("not supporting moves within self");
+      }
+
       vector<int> local_deps;
       for(auto const& dep_mid: node.inns) {
         if(memgraph.nodes[dep_mid].op.is_local_to(this_rank)) {
@@ -104,43 +117,60 @@ exec_graph_t::make_cpu_exec_graph(
         }
       }
 
-      if(src == dst) {
-        throw std::runtime_error("not supporting moves within self");
+      partdim_t pd = partdim_t::split(move.size, num_channels_per_move);
+      int n_moves = pd.num_parts();
+
+      vector<int> partial_move_eids;
+      partial_move_eids.reserve(n_moves);
+      for(int i = 0; i != n_moves; ++i) {
+        int moveid = get_moveid(mid, i);
+
+        uint64_t partial_offset = pd.offset_at(i);
+        uint64_t partial_size   = pd.size_at(i);
+
+        if(src == this_rank) {
+          // On this machine, we are sending.
+          mem_t mem {
+            .offset = src_offset + partial_offset,
+            .size = partial_size
+          };
+
+          int recv_ready_eid = graph.insert(
+            op_ptr_t(new exec_graph_t::wait_recv_ready_t(moveid, dst)),
+            local_deps);
+
+          int send_eid = graph.insert(
+            op_ptr_t(new exec_graph_t::send_t(moveid, dst, mem)),
+            { recv_ready_eid });
+
+          partial_move_eids.push_back(send_eid);
+        } else if(dst == this_rank) {
+          // On this machine, we are recving.
+          mem_t mem {
+            .offset = dst_offset + partial_offset,
+            .size = partial_size
+          };
+
+          int recv_ready_eid = graph.insert(
+            op_ptr_t(new notify_recv_ready_t(moveid, src)),
+            local_deps);
+
+          int recv_eid = graph.insert(
+            op_ptr_t(new recv_t(moveid, src, mem)),
+            { recv_ready_eid });
+
+          partial_move_eids.push_back(recv_eid);
+        } else {
+          throw std::runtime_error("this move is not local!");
+        }
       }
-      if(src == this_rank) {
-        // On this machine, we are sending.
-        mem_t mem {
-          .offset = src_offset,
-          .size = move.size
-        };
 
-        int recv_ready_eid = graph.insert(
-          op_ptr_t(new exec_graph_t::wait_recv_ready_t(mid, dst)),
-          local_deps);
-
-        int send_eid = graph.insert(
-          op_ptr_t(new exec_graph_t::send_t(mid, dst, mem)),
-          { recv_ready_eid });
-
-        mid_to_eid.insert({mid, send_eid});
-      } else if(dst == this_rank) {
-        // On this machine, we are recving.
-        mem_t mem {
-          .offset = dst_offset,
-          .size = move.size
-        };
-
-        int recv_ready_eid = graph.insert(
-          op_ptr_t(new notify_recv_ready_t(mid, src)),
-          local_deps);
-
-        int recv_eid = graph.insert(
-          op_ptr_t(new recv_t(mid, src, mem)),
-          { recv_ready_eid });
-
-        mid_to_eid.insert({mid, recv_eid});
+      if(partial_move_eids.size() == 1) {
+        mid_to_eid.insert({mid, partial_move_eids[0]});
       } else {
-        throw std::runtime_error("this move is not local!");
+        op_ptr_t op = std::make_shared<dummy_t>();
+        int eid = graph.insert(op, partial_move_eids);
+        mid_to_eid.insert({mid, eid});
       }
     } else if(node.op.is_evict()) {
       auto const& evict = node.op.get_evict();
@@ -206,6 +236,7 @@ void cpu_einsummable_t::launch(
   }
 
   thread_resource.launch(
+    thread_msg_str,
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
@@ -261,10 +292,13 @@ void cpu_touch_t::launch(
     this_touch.castable = std::nullopt;
   }
 
-  thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
-    cpu_executor(this_touch, out_mem, inn_mem);
-    callback();
-  });
+  thread_resource.launch(
+    "touch",
+    [this, callback, this_touch, out_mem, inn_mem] {
+      cpu_executor(this_touch, out_mem, inn_mem);
+      callback();
+    }
+  );
 }
 
 desc_ptr_t

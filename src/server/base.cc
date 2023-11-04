@@ -26,6 +26,16 @@ void server_base_t::execute_graph(
     }
   }
 
+  int num_msgs = 0;
+  uint64_t num_bytes = 0;
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_move()) {
+      num_msgs++;
+      num_bytes += node.op.get_move().size;
+    }
+  }
+  DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
+
   //{
   //  std::ofstream f("tg.gv");
   //  taskgraph.print_graphviz(f);
@@ -172,6 +182,7 @@ int server_mg_base_t::get_max_tid() {
 void server_mg_base_t::execute(taskgraph_t const& taskgraph)
 {
   broadcast_cmd(cmd_t::execute_tg);
+
   execute_tg_server(taskgraph);
 }
 
@@ -388,6 +399,7 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
 
   comm.broadcast_string(memgraph.to_wire());
 
+  comm.barrier();
   execute_memgraph(memgraph, false);
 
   rewrite_data_locs_server(out_tg_to_loc);
@@ -400,6 +412,7 @@ void server_mg_base_t::execute_tg_client() {
 
   memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
 
+  comm.barrier();
   execute_memgraph(memgraph, false);
 
   rewrite_data_locs_client();

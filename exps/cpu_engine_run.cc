@@ -10,6 +10,8 @@
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/loadbalanceplace.h"
 
+#include <fstream>
+
 void usage() {
   std::cout << "Setup usage: addr_zero is_client world_size memsize(GB)\n";
   std::cout << "Plus args for graphs\n";
@@ -31,20 +33,29 @@ int main(int argc, char** argv) {
   string addr_zero = parse_with_ss<string>(argv[1]);
   bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
-  communicator_t communicator(addr_zero, is_rank_zero, world_size);
+
+  int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
+
+  // TODO: how to pick num_channels and num channels per move?
+  int num_channels = 8;
+  int num_channels_per_move = 2;
+
+  communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
+  if(is_rank_zero) {
+    DOUT("world size:                      " << world_size);
+    DOUT("memory allocated:                " << (mem_size/GB) << " GB");
+    DOUT("number of threads in threadpool: " << num_threads);
+    DOUT("number of channels per move:     " << num_channels_per_move);
+    DOUT("number of channels               " << num_channels);
+    DOUT("dtype:                           " << default_dtype());
+  }
 
-  DOUT("world size:                      " << world_size);
-  DOUT("memory allocated:                " << (mem_size/GB) << " GB");
-  DOUT("number of threads in threadpool: " << num_threads)
-  DOUT("dtype:                           " << default_dtype());
-
-  cpu_mg_server_t server(communicator, mem_size, num_threads);
+  cpu_mg_server_t server(communicator, mem_size, num_threads, num_channels_per_move);
 
   if(is_rank_zero) {
     args_t args(argc-4, argv+4);
@@ -75,7 +86,6 @@ int main(int argc, char** argv) {
 
       // execute
       server.execute_graph(graph, pls);
-
     }
 
     server.shutdown();
@@ -90,6 +100,15 @@ vector<placement_t> autoplace(
   int num_threads_per)
 {
   auto parts = autopartition_for_bytes(graph, world_size * num_threads_per);
+
+  DOUT("partition cost " << autopartition_for_bytes_cost(graph, parts));
+
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f, parts);
+    DOUT("printed g.gv");
+  }
+
   return load_balanced_placement(graph, parts, world_size, false);
 }
 

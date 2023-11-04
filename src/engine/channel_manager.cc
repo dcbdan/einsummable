@@ -40,8 +40,6 @@ send_channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
 optional<int>
 send_channel_manager_t::acquire_channel(int loc)
 {
-  std::unique_lock lk(m);
-
   auto& cs = avail_channels.at(loc);
 
   if(cs.size() == 0) {
@@ -55,8 +53,6 @@ send_channel_manager_t::acquire_channel(int loc)
 }
 
 void send_channel_manager_t::release_channel(int loc, int channel) {
-  std::unique_lock lk(m);
-
   avail_channels.at(loc).push_back(channel);
 }
 
@@ -104,6 +100,7 @@ recv_channel_manager_t::try_to_acquire_impl(tuple<int,int> const& desc)
   if(queue.front() == id) {
     return recv_channel_manager_resource_t {
       .self = this,
+      .id = id,
       .loc = src,
       .channel = channel
     };
@@ -136,6 +133,9 @@ void recv_channel_manager_t::recv(
   id_to_channel.erase(id);
 
   auto& queue = ready_recvs[loc][channel];
+  if(queue.front() != id) {
+    throw std::runtime_error("front of queue must be the id");
+  }
   queue.pop();
 }
 

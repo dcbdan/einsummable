@@ -124,7 +124,7 @@ exec_graph_t::send_t::launch(
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
-  thread_resource.launch([this, callback, notifier, wire, ptr] {
+  thread_resource.launch("send", [this, callback, notifier, wire, ptr] {
     notifier->notify_send_ready(this->dst, this->id, wire.channel);
 
     wire.send(ptr, this->mem.size);
@@ -149,7 +149,7 @@ exec_graph_t::recv_t::launch(
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
 
-  thread_resource.launch([this, callback, wire, ptr] {
+  thread_resource.launch("recv", [this, callback, wire, ptr] {
     wire.recv(ptr, this->mem.size);
 
     callback();

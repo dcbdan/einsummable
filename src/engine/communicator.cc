@@ -11,6 +11,7 @@
 // TODO: put this somewhere
 static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
+double _timeout = 10.0;
 
 // Server (rank == 0):
 //   for(int rank = 1; rank != world_size; ++rank) {
@@ -573,13 +574,26 @@ void communicator_t::_setup_context() {
   ucp_params_t ucp_params;
   memset(&ucp_params, 0, sizeof(ucp_params));
 
-  ucp_params.field_mask        = UCP_PARAM_FIELD_FEATURES | UCP_PARAM_FIELD_NAME;
+  ucp_params.field_mask        = UCP_PARAM_FIELD_FEATURES          |
+                                 UCP_PARAM_FIELD_NAME              |
+                                 UCP_PARAM_FIELD_MT_WORKERS_SHARED |
+                                 UCP_PARAM_FIELD_ESTIMATED_NUM_PPN ;
   ucp_params.name              = "c04";
   ucp_params.features          = UCP_FEATURE_STREAM | UCP_FEATURE_WAKEUP;
   ucp_params.mt_workers_shared = 1;
+  ucp_params.estimated_num_ppn = 1; // estimate processes per node to 1
 
   handle_ucs_error(
     ucp_init(&ucp_params, NULL, &ucp_context));
+
+  ucp_context_attr_t attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.field_mask = UCP_ATTR_FIELD_THREAD_MODE;
+  handle_ucs_error(
+    ucp_context_query(ucp_context, &attr));
+  if(attr.thread_mode == UCS_THREAD_MODE_SINGLE) {
+    throw std::runtime_error("ucp context does not have multi threaded enabled");
+  }
 }
 
 void communicator_t::_close_context() {
@@ -779,27 +793,34 @@ int communicator_t::_from_idx(int idx) const {
 communicator_t::wire_t::wire_t(communicator_t* self)
   : has_endpoint(false)
 {
+  auto thread_mode = UCS_THREAD_MODE_SERIALIZED;
+
   // create the worker
   {
     memset(&worker_params, 0, sizeof(worker_params));
 
     worker_params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
-    worker_params.thread_mode = UCS_THREAD_MODE_MULTI;
+    worker_params.thread_mode = thread_mode;
 
     handle_ucs_error(
       ucp_worker_create(self->ucp_context, &worker_params, &worker));
   }
 
-  // create the addr
+  // create the addr; check the
   {
     memset(&worker_attr, 0, sizeof(worker_attr));
 
-    worker_attr.field_mask = UCP_WORKER_ATTR_FIELD_ADDRESS;
+    worker_attr.field_mask =
+      UCP_WORKER_ATTR_FIELD_ADDRESS | UCP_WORKER_ATTR_FIELD_THREAD_MODE;
 
     handle_ucs_error(ucp_worker_query(worker, &worker_attr));
 
     ucp_addr_size = worker_attr.address_length;
     ucp_addr      = worker_attr.address;
+
+    if(worker_attr.thread_mode != thread_mode) {
+      throw std::runtime_error("could not set worker thread mode");
+    }
   }
 }
 
@@ -869,8 +890,22 @@ void communicator_t::wire_t::send(void const* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
+    auto start = clock_now();
     while(!is_done) {
-      ucp_worker_progress(worker);
+     for(int i = 0; i != 2000000 && !is_done; ++i) {
+        ucp_worker_progress(worker);
+      }
+      if(!is_done) {
+        auto val = ucp_request_check_status(status);
+        if(val != UCS_INPROGRESS) {
+          throw std::runtime_error("request is not in progress");
+        }
+        auto now = clock_now();
+        double seconds = std::chrono::duration<double>(now - start).count();
+        if(seconds > _timeout) {
+          throw std::runtime_error("this send has timed out");
+        }
+      }
     }
     //while(!is_done) {
     //  if(!ucp_worker_progress(worker)) {
@@ -908,19 +943,34 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
   if(status != NULL) {
     if (UCS_PTR_IS_ERR(status)) {
       throw std::runtime_error(
-        "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
+        "recv fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
     // Two ways to do the wait:
     //   constant polling vs ucp_worker_wait (requires the wakeup feature)
 
+    auto start = clock_now();
     while(!is_done) {
-      ucp_worker_progress(worker);
+      for(int i = 0; i != 2000000 && !is_done; ++i) {
+        ucp_worker_progress(worker);
+      }
+      if(!is_done) {
+        auto val = ucp_request_check_status(status);
+        if(val != UCS_INPROGRESS) {
+          throw std::runtime_error("request is not in progress");
+        }
+        auto now = clock_now();
+        double seconds = std::chrono::duration<double>(now - start).count();
+        if(seconds > _timeout) {
+          throw std::runtime_error("this recv has timed out");
+        }
+      }
     }
+    // If the recv loop hangs for more than 5 seconds, something is probably amiss.
 
     //while(!is_done) {
     //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
+    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
     //  }
     //}
 

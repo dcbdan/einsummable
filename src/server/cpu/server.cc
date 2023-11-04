@@ -14,11 +14,13 @@ void cpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
   bool for_remap)
 {
+  int this_rank = comm.get_this_rank();
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
       memgraph,
-      comm.get_this_rank(),
-      kernel_executor);
+      this_rank,
+      kernel_executor,
+      num_channels_per_move);
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
@@ -41,8 +43,12 @@ void cpu_mg_server_t::execute_memgraph(
   if(for_remap) {
     state.event_loop();
   } else {
-    gremlin_t gremlin("cpu_mg_server_t::execute_memgraph event loop time");
-    state.event_loop();
+    if(this_rank == 0) {
+      gremlin_t gremlin("execute_memgraph event loop time");
+      state.event_loop();
+    } else {
+      state.event_loop();
+    }
   }
 }
 
