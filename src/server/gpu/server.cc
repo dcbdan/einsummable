@@ -43,9 +43,6 @@ gpu_mg_server_t::gpu_mg_server_t(
   for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
-  // NOTE: delete when finished debugging
-  init_value((float*)mems[0], 12, 7);
-  printFloatGPU(mems[0], 12);
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -78,9 +75,6 @@ void gpu_mg_server_t::execute_memgraph(
   state.event_loop();  
 
   DOUT("executed.");
-
-  // checking the state buffer
-  printFloatGPU(mems[0], 12);
 }
 
 // memstoloc_t is not a contiguous data structure,
@@ -230,10 +224,11 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     // buffer at this location and return
     auto ret_buffer = make_buffer(size);
     cudaMemcpy(
-      increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->data,
+      increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->size,
       cudaMemcpyDeviceToHost);
+
     return ret_buffer;
   } else if(d.is_stoloc()) {
     auto const& [sto_loc, sto_id] = d.get_stoloc();

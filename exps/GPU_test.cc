@@ -155,40 +155,6 @@ void slow_mm(dtype_t const& dd,
   }
 }
 
-void mm_test2() {
-  dtype_t dtype = dtype_t::f32;
-
-  void* a;
-  void* b;
-  void* c;
-  void* w;
-
-  kernel_manager_t km;
-
-  uint64_t ni = 10000;
-
-  handle_cuda_error(cudaMalloc(&a, ni*ni*dtype_size(dtype)));
-  handle_cuda_error(cudaMalloc(&b, ni*ni*dtype_size(dtype)));
-  handle_cuda_error(cudaMalloc(&c, ni*ni*dtype_size(dtype)));
-
-  // A  B   C
-  //ij,jk->ik
-  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
-
-  uint64_t wsz = km.build(e).value().value();
-  handle_cuda_error(cudaMalloc(&w, wsz));
-
-  cudaStream_t stream;
-  handle_cuda_error(cudaStreamCreate(&stream));
-  DLINE;
-
-  for(int i = 0; i != 10; ++i) {
-    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
-  }
-
-  handle_cuda_error(cudaDeviceSynchronize());
-}
-
 void mm_test() {
   dtype_t dtype = dtype_t::f32;
 
@@ -418,6 +384,53 @@ void server_1 (int argc, char** argv){
 //   server_execute(memgraph, true, memgraph.mem_sizes());
 // }
 
+void mm_test2() {
+  dtype_t dtype = dtype_t::f32;
+
+  void* a;
+  void* b;
+  void* c;
+  void* w;
+
+  kernel_manager_t km;
+
+  uint64_t ni = 10;
+
+  handle_cuda_error(cudaMalloc(&a, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&b, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&c, ni*ni*dtype_size(dtype)));
+
+  dbuffer_t output = make_dbuffer(dtype_t::f32, ni*ni);
+  output.random("-1.0", "1.0");
+
+  if (cudaMemcpy(c, output.data->data, output.data->size,
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    throw std::runtime_error("cudaMemcpy output");
+  }
+
+  std::cout << "c before: " << std::endl;
+  printFloatGPU(c, ni*ni);
+
+  // A  B   C
+  //ij,jk->ik
+  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
+
+  uint64_t wsz = km.build(e).value().value();
+  handle_cuda_error(cudaMalloc(&w, wsz));
+
+  cudaStream_t stream;
+  handle_cuda_error(cudaStreamCreate(&stream));
+  DLINE;
+
+  for(int i = 0; i != 10; ++i) {
+    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
+  }
+
+  handle_cuda_error(cudaDeviceSynchronize());
+  std::cout << "c after: " << std::endl;
+  printFloatGPU(c, ni*ni);
+}
+
 int main(int argc, char **argv) {
 //  // main_ff();
 //  // main_matmul(argc, argv);
@@ -429,6 +442,7 @@ int main(int argc, char **argv) {
   //mm_test2();
   //mm_test();
   // dcb01();
-  // server_1(argc, argv);
-  contractionTest(2, 2, 2);
+  server_1(argc, argv);
+  // contractionTest(2, 2, 2);
+  // mm_test2();
 }

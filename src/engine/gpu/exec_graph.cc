@@ -1,6 +1,8 @@
 #include "exec_nodes.h"
 #include "../exec_graph.h"
 #include "workspace.h"
+#include "storage.h"
+#include "stream_pool.h"
 #include "utility.h"
 #include <iostream>
 #include <sys/types.h>
@@ -63,7 +65,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
-      std::cout << "Node id: " << mid << " is dummy" << std::endl;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -107,7 +108,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
-        std::cout << "Node id: " << mid << " is einsummable" << std::endl;
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
           gpu_km,
@@ -125,14 +125,12 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
 
         insert(op_ptr_t(op), mid);
-        std::cout << "Node id: " << mid << " is touch" << std::endl;
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
-      std::cout << "Node id: " << mid << " is copy" << std::endl;
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
     } else if(node.op.is_load()) {
@@ -141,7 +139,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       throw std::runtime_error("should not reach");
     }
   }
-  print_exec_graph(graph);
+  // Debug: print the exec_graph
+  // print_exec_graph(graph);
   return graph;
 }
 
@@ -157,6 +156,7 @@ gpu_einsummable_t::resource_description() const
     workspace_desc.size = workspace_size;
     ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
   }
+  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
 
   return resource_manager_t::make_desc(ret);
 }
@@ -181,12 +181,6 @@ void gpu_einsummable_t::launch(
       global_buffer,
       mems[i].offset));
   }
-  std::cout << "printing inputs and output for einsummable:" << std::endl;
-  printFloatGPU(inn_mems[0], 4);
-  printFloatGPU(inn_mems[1], 4);
-  printFloatGPU(out_mem, 4);
-  std::cout << "Device id: " << device << std::endl;
-  std::cout << "Workspace size: " << workspace_size << std::endl;
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
@@ -194,25 +188,14 @@ void gpu_einsummable_t::launch(
 
   // create stream and launch
   cudaSetDevice(device);
-  cudaStream_t stream = cuda_create_stream();
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_t::get_resource(resources[2]).stream.stream;
   gpu_km(
     einsummable,
     stream,
     out_mem,
     inn_mems,
     maybe_workspace);
-
-  cudaError_t error = cudaDeviceSynchronize();
-  if (error != cudaSuccess) {
-    // print the error code and error string
-    fprintf(stderr, "cudaDeviceSynchronize failed with error: %s\n", cudaGetErrorString(error));
-    throw std::runtime_error("cudaDeviceSynchronize failed");
-  }
-
-  std::cout << "printing inputs and output for einsummable after synchronize:" << std::endl;
-  printFloatGPU(inn_mems[0], 4);
-  printFloatGPU(inn_mems[1], 4);
-  printFloatGPU(out_mem, 4);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -238,6 +221,7 @@ gpu_touch_t::resource_description() const
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::make_desc(group_id));
   }
+  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
 
   return resource_manager_t::make_desc(ret);
 }
@@ -273,7 +257,8 @@ void gpu_touch_t::launch(
 
   // create stream and launch
   cudaSetDevice(device);
-  cudaStream_t stream = cuda_create_stream();
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_t::get_resource(resources[2]).stream.stream;
   gpu_km(
     this_touch,
     stream,
@@ -298,11 +283,14 @@ void gpu_touch_t::launch(
 desc_ptr_t
 gpu_copy_t::resource_description() const
 {
+  vector<desc_ptr_t> ret;
   auto my_move = move;
   auto [src_loc, src_offset] = my_move.src;
   auto [dst_loc, dst_offset] = my_move.dst;
+  ret.emplace_back(global_buffers_t::make_multi_desc({src_loc, dst_loc}));
+  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{dst_loc}));
 
-  return global_buffers_t::make_multi_desc({src_loc, dst_loc});
+  return resource_manager_t::make_desc(ret);
 }
 
 void gpu_copy_t::launch(
@@ -327,7 +315,7 @@ void gpu_copy_t::launch(
     dst_buffer,
     dst_offset);
 
-  cudaSetDevice(src_loc);
+  cudaSetDevice(dst_loc);
   cudaStream_t stream = cuda_create_stream();
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
   if (cudaError != cudaSuccess) {
