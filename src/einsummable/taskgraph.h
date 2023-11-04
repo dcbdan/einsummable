@@ -398,3 +398,46 @@ bool operator!=(
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
 
+/////////////////////////////////////
+
+struct multiple_placement_t {
+  static multiple_placement_t from_single_placement(placement_t const& p);
+
+  static multiple_placement_t make_refinement(vector<placement_t> const& ps);
+
+  static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
+
+  // deduce the required multiple placement of an einsummable's
+  // input at which_input given that the einsummable is placed with
+  // with join_placement
+  static multiple_placement_t make_einsummable_input(
+    placement_t const& join_placement,
+    einsummable_t const& einsummable,
+    int which_input);
+
+  // deduce the required multiple_placement of a concat's
+  // input at which_input given that the concat is placed with
+  // join_placement
+  static multiple_placement_t make_concat_input(
+    placement_t const& join_placement,
+    concat_t const& concat,
+    int which_input);
+  static placement_t make_concat_input_placement(
+    placement_t const& join_placement,
+    concat_t const& concat,
+    int which_input);
+  static multiple_placement_t make_subset_input(
+    placement_t const& out_placement,
+    subset_t const& subset);
+
+  partition_t partition;
+  vtensor_t<set<int>> const locations;
+  // Note: it is possible to have empty location sets
+  //       (from a subset operation, for example)
+};
+
+multiple_placement_t construct_refinement_placement(
+  graph_t const& graph,
+  int gid, 
+  std::function<placement_t const&(int)> get_placement);
+

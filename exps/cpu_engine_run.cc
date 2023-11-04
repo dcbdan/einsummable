@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
 
   // TODO: how to pick num_channels and num channels per move?
   int num_channels = 8;
-  int num_channels_per_move = 2;
+  int num_channels_per_move = 4;
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
@@ -133,8 +133,9 @@ int main(int argc, char** argv) {
 
 void main_(int argc, char** argv) {
   args_t args(argc, argv);
-  int world_size = 1;
-  int num_threads = args.get<int>("num_threads");
+  int world_size = args.get<int>("world_size");
+  int num_threads = args.get<int>("num_threads_per");
+
 
   args.set_default("space", "contraction");
   string space_ = args.get<string>("space");
@@ -148,7 +149,8 @@ void main_(int argc, char** argv) {
     space = parts_space_t::all_range;
   }
 
-  DLINEOUT("num threads : " << num_threads);
+  DLINEOUT("world size      : " << world_size);
+  DLINEOUT("num threads per : " << num_threads);
   graph_t graph = build_graph(args);
   vector<placement_t> pls = autoplace(graph, world_size, num_threads, space);
 }
@@ -174,7 +176,7 @@ vector<placement_t> autoplace(
     DOUT("printed g.gv");
   }
 
-  return load_balanced_placement(graph, parts, world_size, false);
+  return load_balanced_placement_from_outs(graph, parts, world_size, false);
 }
 
 using tensor_t     = graph_writer_t::tensor_t;

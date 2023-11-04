@@ -2,6 +2,9 @@
 #include "locsetter.h"
 #include "twolayer.h"
 
+#include "../einsummable/taskgraph.h"
+#include "../base/copyregion.h"
+
 struct _lbp_count_t {
   uint64_t size;
   int loc;
@@ -200,5 +203,185 @@ vector<placement_t> load_balanced_placement(
   }
 
   return pls;
+}
+
+vector<int> graph_reverse_order(graph_t const& graph) {
+  vector<int> ret;
+  // reserve to not invalidate iterators
+  ret.reserve(graph.nodes.size());
+
+  vector<int> deps;
+  deps.reserve(graph.nodes.size());
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    int ndep = node.outs.size();
+    if(ndep == 0) {
+      ret.push_back(gid);
+    }
+    deps[gid] = ndep;
+  }
+
+  for(auto iter = ret.begin(); iter != ret.end(); ++iter) {
+    int gid = *iter;
+    auto const& node = graph.nodes[gid];
+    for(auto const& out_gid: node.outs) {
+      int& cnt = deps[out_gid];
+      cnt--;
+      if(cnt == 0) {
+        ret.push_back(out_gid);
+      }
+    }
+  }
+
+  return ret;
+}
+
+vtensor_t<int> greedy_solve_placement(
+  partition_t const& part,
+  multiple_placement_t const& usage,
+  int nlocs)
+{
+  auto compute_cost = [](
+    int src,
+    set<int> srcs,
+    vector<uint64_t> const& dst_sizes)
+  {
+    srcs.insert(src);
+
+    uint64_t ret = 0;
+    for(int const& src: srcs) {
+      for(int dst = 0; dst != dst_sizes.size(); ++dst) {
+        if(src != dst) {
+          ret += dst_sizes[dst];
+        }
+      }
+    }
+    return ret;
+  };
+
+  auto pick_loc = [&compute_cost](
+    set<int> const& srcs,
+    vector<int> const& avail_locs,
+    vector<uint64_t> const& dst_sizes)
+  {
+    for(int const& loc: avail_locs) {
+      if(srcs.count(loc) > 0) {
+        return loc;
+      }
+    }
+    int ret = avail_locs[0];
+    uint64_t best_cost = compute_cost(avail_locs[0], srcs, dst_sizes);
+    for(int idx = 1; idx != avail_locs.size(); ++idx) {
+      uint64_t cost = compute_cost(avail_locs[idx], srcs, dst_sizes);
+      if(cost < best_cost) {
+        ret = avail_locs[idx];
+        best_cost = cost;
+      }
+    }
+    return ret;
+  };
+
+  ///////////////////
+ 
+  int out_rank = usage.partition.partdims.size();
+  partition_t out_part(vector<partdim_t>(
+    part.partdims.begin(),
+    part.partdims.begin() + out_rank));
+
+  int join_part_num_parts = part.num_parts();
+  int out_part_num_parts = out_part.num_parts();
+  int num_agg = join_part_num_parts / out_part_num_parts;
+
+  vector<vector<uint64_t>> dst_sizes(out_part_num_parts, vector<uint64_t>(nlocs));
+  {
+    copyregion_full_t copyregion(out_part, usage.partition);
+    do {
+      uint64_t block_size = product(copyregion.size);
+      set<int> const& dsts = usage.locations.get()[copyregion.idx_bb];
+      for(int const& dst: dsts) {
+        dst_sizes[copyregion.idx_aa][dst] += block_size;
+      }
+    } while(copyregion.increment());
+  }
+
+  vtensor_t<int> ret(part.block_shape());
+  vector<int>& ret_locs = ret.get();
+  loc_setter_t setter(join_part_num_parts, nlocs);
+  for(int out_bid = 0; out_bid != out_part_num_parts; ++out_bid) {
+    set<int> srcs;
+    int bid = out_bid * num_agg;
+    int stop_bid = bid + num_agg;
+    for(; bid != stop_bid; ++bid) {
+      int& loc = ret_locs[bid];
+      loc = pick_loc(srcs, setter.get_avail_locs(), dst_sizes[out_bid]);
+      srcs.insert(loc);
+      setter.decrement(loc);
+    }
+  }
+
+  return ret;
+}
+
+vector<placement_t> load_balanced_placement_from_outs(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  bool random_output)
+{
+  if(parts.size() != graph.nodes.size()) {
+    throw std::runtime_error("invalid lbp");
+  }
+  
+  vector<placement_t> ret;
+  ret.reserve(parts.size());
+  for(auto const& part: parts) {
+    ret.emplace_back(part);
+  }
+
+  auto get_placement = [&ret](int other_gid)
+    -> placement_t const&
+  {
+    return ret[other_gid];
+  };
+  auto get_part_wrt_real = [&](int gid) {
+    partition_t part = parts[gid];
+
+    auto const& node = graph.nodes[gid];
+    if(dtype_is_complex(node.op.out_dtype())) {
+      int out_rank = node.op.out_rank();
+      auto& pd = part.partdims[out_rank-1];
+      pd = partdim_t::from_sizes(vector_double(pd.sizes()));
+    }
+
+    return part;
+  };
+
+  for(int const& gid: graph_reverse_order(graph)) {
+    auto const& node = graph.nodes[gid];
+    if(node.outs.size() == 0) {
+      vector<int>& locs = ret[gid].locations.get();
+      if(random_output) {
+        loc_setter_t setter(locs.size(), nlocs);
+        for(int& loc: locs) {
+          loc = setter.runif();
+          setter.decrement(loc);
+        }
+      } else {
+        int l = 0;
+        for(int& loc: locs) {
+          loc = l;
+          l = (l + 1) % nlocs;
+        }
+      }
+    } else {
+      multiple_placement_t usage_pl = construct_refinement_placement(
+        graph, gid, get_placement);
+
+      ret[gid].locations = greedy_solve_placement(
+        get_part_wrt_real(gid), usage_pl, nlocs);
+    }
+  }
+
+  return ret;
 }
 

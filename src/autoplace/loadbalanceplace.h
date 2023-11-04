@@ -29,3 +29,10 @@ load_balanced_placement(
   int nlocs,
   bool random_input);
 
+vector<placement_t>
+load_balanced_placement_from_outs(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  bool random_output);
+
