@@ -40,3 +40,8 @@ vector<uint64_t> compute_tensor_move_costs(
   graph_t const& graph,
   vector<placement_t> const& placements);
 
+uint64_t compute_tensor_move_cost(
+  graph_t const& graph,
+  std::function<placement_t const&(int)> get_placement,
+  int gid);
+

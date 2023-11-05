@@ -164,6 +164,8 @@ struct graph_t {
 
   vector<int> get_order() const;
 
+  vector<int> get_reverse_order() const;
+
   void print() const;
 
   void print_graphviz(

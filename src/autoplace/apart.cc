@@ -436,7 +436,7 @@ uint64_t _solve_tree(
           return iter->second;
         };
 
-        uint64_t cost_from_children = 0.0;
+        uint64_t cost_from_children = 0;
         for(int i = 0; i != num_tree_inns; ++i) {
           int const& w = which[i];
           int const& g = tree_inns[i];
@@ -542,9 +542,7 @@ vector<partition_t> autopartition_for_bytes(
 
   // 1.
   ap_graph_t bgraph;
-  vector<int> graph_order = graph.get_order();
-  std::reverse(graph_order.begin(), graph_order.end());
-  for(int const& gid: graph_order) {
+  for(int const& gid: graph.get_reverse_order()) {
     auto const& node = graph.nodes[gid];
     if(node.op.is_formation()) {
       continue;

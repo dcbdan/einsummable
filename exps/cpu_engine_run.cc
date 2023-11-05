@@ -183,7 +183,9 @@ void _print_pl_info(
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& pl = placements[gid];
     uint64_t const& tensor_move_cost = tensor_move_costs[gid];
-    DOUT(gid << ": " << double(tensor_move_cost)/1e6); // << " " << pl.locations.get());
+    DOUT(gid << ": " << double(tensor_move_cost)/1e6
+      );
+    //  << " " << pl.locations.get());
   }
 }
 
@@ -206,6 +208,11 @@ vector<placement_t> autoplace(
     std::ofstream f("g.gv");
     graph.print_graphviz(f, parts);
     DOUT("printed g.gv");
+  }
+
+  {
+    auto ret = autolocate(graph, parts, world_size);
+    _print_pl_info("a-locate", graph, ret);
   }
 
   {

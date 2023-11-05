@@ -205,38 +205,6 @@ vector<placement_t> load_balanced_placement(
   return pls;
 }
 
-vector<int> graph_reverse_order(graph_t const& graph) {
-  vector<int> ret;
-  // reserve to not invalidate iterators
-  ret.reserve(graph.nodes.size());
-
-  vector<int> deps;
-  deps.reserve(graph.nodes.size());
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    int ndep = node.outs.size();
-    if(ndep == 0) {
-      ret.push_back(gid);
-    }
-    deps[gid] = ndep;
-  }
-
-  for(auto iter = ret.begin(); iter != ret.end(); ++iter) {
-    int gid = *iter;
-    auto const& node = graph.nodes[gid];
-    set<int> inns(node.inns.begin(), node.inns.end());
-    for(auto const& out_gid: inns) {
-      int& cnt = deps[out_gid];
-      cnt--;
-      if(cnt == 0) {
-        ret.push_back(out_gid);
-      }
-    }
-  }
-
-  return ret;
-}
-
 uint64_t _compute_move_cost_with_dst_sizes(
   set<int> const& srcs,
   vector<uint64_t> const& dst_sizes)
@@ -407,7 +375,7 @@ vector<placement_t> load_balanced_placement_from_outs(
     return _get_part_wrt_real(graph, part, gid);
   };
 
-  for(int const& gid: graph_reverse_order(graph)) {
+  for(int const& gid: graph.get_reverse_order()) {
     auto const& node = graph.nodes[gid];
     if(node.outs.size() == 0) {
       vector<int>& locs = ret[gid].locations.get();
@@ -448,41 +416,51 @@ vector<uint64_t> compute_tensor_move_costs(
 
   vector<uint64_t> ret(graph.nodes.size());
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    if(node.outs.size() == 0) {
-      continue;
-    }
-
-    multiple_placement_t usage = construct_refinement_placement(
-      graph, gid, get_placement);
-
-    auto const& join_placement = placements[gid];
-
-    vector<int> const& locs = join_placement.locations.get();
-
-    auto part = _get_part_wrt_real(graph, join_placement.partition, gid);
-
-    _count_block_parts_t c(part, usage);
-    vector<vector<uint64_t>> dst_sizes = _build_dst_sizes(part, usage, c);
-
-    uint64_t& total = ret[gid];
-    for(int out_bid = 0; out_bid != c.out_part_num_parts; ++out_bid) {
-      vector<uint64_t> const& dsizes = dst_sizes[out_bid];
-      set<int> srcs(
-        locs.begin()  + ( out_bid      * c.num_agg),
-        locs.begin()  + ((out_bid + 1) * c.num_agg));
-      total += _compute_move_cost_with_dst_sizes(srcs, dsizes);
-    }
-
-    // from units of (real) elems to bytes
-    auto dtype = node.op.out_dtype();
-    if(dtype_is_complex(dtype)) {
-      total *= (dtype_size(dtype) / 2);
-    } else {
-      total *= dtype_size(dtype);
-    }
+    ret[gid] = compute_tensor_move_cost(graph, get_placement, gid);
   }
 
   return ret;
+}
+
+uint64_t compute_tensor_move_cost(
+  graph_t const& graph,
+  std::function<placement_t const&(int)> get_placement,
+  int gid)
+{
+  auto const& node = graph.nodes[gid];
+  if(node.outs.size() == 0) {
+    return 0;
+  }
+
+  multiple_placement_t usage = construct_refinement_placement(
+    graph, gid, get_placement);
+
+  auto const& join_placement = get_placement(gid);
+
+  vector<int> const& locs = join_placement.locations.get();
+
+  auto part = _get_part_wrt_real(graph, join_placement.partition, gid);
+
+  _count_block_parts_t c(part, usage);
+  vector<vector<uint64_t>> dst_sizes = _build_dst_sizes(part, usage, c);
+
+  uint64_t total = 0;
+  for(int out_bid = 0; out_bid != c.out_part_num_parts; ++out_bid) {
+    vector<uint64_t> const& dsizes = dst_sizes[out_bid];
+    set<int> srcs(
+      locs.begin()  + ( out_bid      * c.num_agg),
+      locs.begin()  + ((out_bid + 1) * c.num_agg));
+    total += _compute_move_cost_with_dst_sizes(srcs, dsizes);
+  }
+
+  // from units of (real) elems to bytes
+  auto dtype = node.op.out_dtype();
+  if(dtype_is_complex(dtype)) {
+    total *= (dtype_size(dtype) / 2);
+  } else {
+    total *= dtype_size(dtype);
+  }
+
+  return total;
 }
 
