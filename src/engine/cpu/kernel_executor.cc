@@ -3,7 +3,7 @@
 #include <mkl_cblas.h>
 #include <mkl.h>
 
-#include "permute.h"
+#include "../../base/permute.h"
 
 cpu_kernel_executor_t::cpu_kernel_executor_t()
 {

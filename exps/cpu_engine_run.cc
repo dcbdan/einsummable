@@ -9,6 +9,7 @@
 
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/alocate.h"
 
 #include <fstream>
 
