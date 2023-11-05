@@ -36,3 +36,7 @@ load_balanced_placement_from_outs(
   int nlocs,
   bool random_output);
 
+vector<uint64_t> compute_tensor_move_costs(
+  graph_t const& graph,
+  vector<placement_t> const& placements);
+

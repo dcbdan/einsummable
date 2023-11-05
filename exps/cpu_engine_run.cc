@@ -26,7 +26,7 @@ vector<placement_t> autoplace(
   parts_space_t space = parts_space_t::contraction,
   bool double_workers = false);
 
-int main(int argc, char** argv) {
+void main_(int argc, char** argv) {
   if(argc < 4) {
     usage();
     throw std::runtime_error("provide addr_zero is_client world_size");
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
   }
 }
 
-void main_(int argc, char** argv) {
+int main(int argc, char** argv) {
   args_t args(argc, argv);
   int world_size = args.get<int>("world_size");
   int num_threads = args.get<int>("num_threads_per");
@@ -155,6 +155,37 @@ void main_(int argc, char** argv) {
   vector<placement_t> pls = autoplace(graph, world_size, num_threads, space);
 }
 
+void _print_pl_info(
+  string msg,
+  graph_t const& graph,
+  vector<placement_t> const& placements)
+{
+  auto [_0, _1, taskgraph] =
+    taskgraph_t::make(graph, placements);
+
+  int num_msgs = 0;
+  uint64_t num_bytes = 0;
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_move()) {
+      num_msgs++;
+      num_bytes += node.op.get_move().size;
+    }
+  }
+  vector<uint64_t> tensor_move_costs = compute_tensor_move_costs(graph, placements);
+  uint64_t tensor_move_bytes_total = std::accumulate(
+    tensor_move_costs.begin(),
+    tensor_move_costs.end(),
+    uint64_t(0));
+  DOUT("(" << msg << ") taskgraph with " << num_msgs << " moves, "
+    << double(num_bytes)/1e6 << " MB bytes moved | "
+    << double(tensor_move_bytes_total)/1e6 << " MB from tensor move");
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& pl = placements[gid];
+    uint64_t const& tensor_move_cost = tensor_move_costs[gid];
+    DOUT(gid << ": " << double(tensor_move_cost)/1e6); // << " " << pl.locations.get());
+  }
+}
+
 vector<placement_t> autoplace(
   graph_t const& graph,
   int world_size,
@@ -168,7 +199,7 @@ vector<placement_t> autoplace(
     multiplier * world_size * num_threads_per,
     space);
 
-  DOUT("partition cost " << double(autopartition_for_bytes_cost(graph, parts)) / 1e9);
+  DOUT(" partition cost " << double(autopartition_for_bytes_cost(graph, parts)) / 1e9);
 
   {
     std::ofstream f("g.gv");
@@ -176,7 +207,15 @@ vector<placement_t> autoplace(
     DOUT("printed g.gv");
   }
 
-  return load_balanced_placement_from_outs(graph, parts, world_size, false);
+  {
+    auto ret = load_balanced_placement(graph, parts, world_size, false);
+    _print_pl_info("from inputs", graph, ret);
+  }
+
+  auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
+  _print_pl_info("from outputs", graph, ret);
+
+  return ret;
 }
 
 using tensor_t     = graph_writer_t::tensor_t;
