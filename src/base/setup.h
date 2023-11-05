@@ -210,6 +210,15 @@ auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
   vector_max_transform(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f))
 
 template <typename T>
+T vector_sum(vector<T> const& xs) {
+  T ret = 0;
+  for(auto const& x: xs) {
+    ret += x;
+  }
+  return ret;
+}
+
+template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());

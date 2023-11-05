@@ -173,10 +173,7 @@ void _print_pl_info(
     }
   }
   vector<uint64_t> tensor_move_costs = compute_tensor_move_costs(graph, placements);
-  uint64_t tensor_move_bytes_total = std::accumulate(
-    tensor_move_costs.begin(),
-    tensor_move_costs.end(),
-    uint64_t(0));
+  uint64_t tensor_move_bytes_total = vector_sum(tensor_move_costs);
   DOUT("(" << msg << ") taskgraph with " << num_msgs << " moves, "
     << double(num_bytes)/1e6 << " MB bytes moved | "
     << double(tensor_move_bytes_total)/1e6 << " MB from tensor move");
@@ -222,8 +219,19 @@ vector<placement_t> autoplace(
 
   auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
   _print_pl_info("from outputs", graph, ret);
-
   return ret;
+
+  //auto ret1 = load_balanced_placement(graph, parts, world_size, false);
+  //auto cost1 = vector_sum(compute_tensor_move_costs(graph, placements));
+
+  //auto ret2 = load_balanced_placement_from_outs(graph, parts, world_size, false);
+  //auto cost2 = vector_sum(compute_tensor_move_costs(graph, placements));
+
+  //if(cost1 < cost2) {
+  //  return ret1;
+  //} else {
+  //  return ret2;
+  //}
 }
 
 using tensor_t     = graph_writer_t::tensor_t;
