@@ -4,6 +4,8 @@
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
 #include "../../engine/gpu/workspace.h"
+#include "../../engine/gpu/storage.h"
+#include "../../engine/gpu/stream_pool.h"
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -65,7 +67,9 @@ void gpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new gpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(mems)),
-      rm_ptr_t(new gpu_storage_manager_t(&storage))
+      rm_ptr_t(new gpu_storage_manager_t(&storage)),
+      rm_ptr_t(new streampool_t(num_streams_per_device, 
+        num_gpus_per_node[comm.get_this_rank()]))
     }
   ));
 

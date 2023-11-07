@@ -50,6 +50,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     mid_to_eid.insert({mid, eid});
   };
 
+  DOUT("Making exec graph...")
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     auto const& node = memgraph.nodes[mid];
     if(!node.op.is_local_to_gpu(this_rank, num_gpus_per_node)) {
@@ -65,6 +67,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
+      DOUT("Inserted dummy op for node " << mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -108,6 +111,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
+        DOUT("Inserted einsummable op for node " << mid);
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
           gpu_km,
@@ -125,12 +129,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
 
         insert(op_ptr_t(op), mid);
+        DOUT("Inserted touch op for node " << mid);
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
+      DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
     } else if(node.op.is_load()) {
@@ -140,7 +146,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     }
   }
   // Debug: print the exec_graph
-  // print_exec_graph(graph);
+  print_exec_graph(graph);
   return graph;
 }
 
@@ -150,14 +156,14 @@ gpu_einsummable_t::resource_description() const
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc(device));
 
+  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
+
   if (workspace_size > 0) {
     gpu_workspace_desc_t workspace_desc;
     workspace_desc.device = device;
     workspace_desc.size = workspace_size;
     ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
   }
-  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
-
   return resource_manager_t::make_desc(ret);
 }
 
@@ -165,8 +171,10 @@ void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  DOUT("gpu_einsummable_t::launch: getting resources")
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
+  DOUT("number of resources: " << resources.size());
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
@@ -183,13 +191,16 @@ void gpu_einsummable_t::launch(
   }
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
-    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[1]).as_tuple();
+    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
   }
 
+  DOUT("gpu_einsummable_t::launch: getting stream");
+  cudaStream_t stream = streampool_t::get_resource(resources[1]).stream;
   // create stream and launch
-  cudaSetDevice(device);
+  // cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
-  auto stream = streampool_t::get_resource(resources[2]).stream.stream;
+  DOUT("gpu_einsummable_t::launch: launching");
+  
   gpu_km(
     einsummable,
     stream,
@@ -258,7 +269,7 @@ void gpu_touch_t::launch(
   // create stream and launch
   cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
-  auto stream = streampool_t::get_resource(resources[2]).stream.stream;
+  auto stream = streampool_t::get_resource(resources[2]).stream;
   gpu_km(
     this_touch,
     stream,

@@ -28,9 +28,11 @@ void handle_cublas_error(cublasStatus_t error, string msg = "");
 
 struct cuda_stream_t {
   cuda_stream_t() {
+    DOUT("cuda_stream_t: constructor");
     handle_cuda_error(cudaStreamCreate(&stream), "cuda_stream_t: constructor");
   }
   ~cuda_stream_t() {
+    DOUT("cuda_stream_t: destructor");
     handle_cuda_error(cudaStreamDestroy(stream), "cuda_stream_t: destructor");
   }
 

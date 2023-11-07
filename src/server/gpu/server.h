@@ -62,5 +62,9 @@ private:
   kernel_manager_t kernel_manager;
 
   gpu_storage_t storage;
+
+  // NOTE: Change the streams per device as needed
+  // 5 is enough in initial experiments
+  int num_streams_per_device = 5;
 };
 
