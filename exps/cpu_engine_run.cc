@@ -217,6 +217,30 @@ vector<placement_t> autoplace(
     _print_pl_info("from inputs", graph, ret);
   }
 
+  {
+    uint64_t flops_per_byte_moved = 100;
+    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("agg-at-a-time 100", graph, ret);
+  }
+
+  {
+    uint64_t flops_per_byte_moved = 1000;
+    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("agg-at-a-time 1000", graph, ret);
+  }
+
+  {
+    uint64_t flops_per_byte_moved = 10000;
+    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("agg-at-a-time 10000", graph, ret);
+  }
+
+  {
+    uint64_t flops_per_byte_moved = 100000;
+    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("agg-at-a-time 100000", graph, ret);
+  }
+
   auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
   _print_pl_info("from outputs", graph, ret);
   return ret;

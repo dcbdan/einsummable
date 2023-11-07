@@ -45,3 +45,14 @@ uint64_t compute_tensor_move_cost(
   std::function<placement_t const&(int)> get_placement,
   int gid);
 
+vector<placement_t> autolocate_agg_at_a_time(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved);
+
+//vector<placement_t> autolocate_agg_at_a_time_from_inns(
+//  graph_t const& graph,
+//  vector<partition_t> const& parts,
+//  int nlocs,
+//  uint64_t flops_per_byte_moved);

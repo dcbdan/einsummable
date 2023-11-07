@@ -464,3 +464,233 @@ uint64_t compute_tensor_move_cost(
   return total;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+struct agg_plan_t {
+  agg_plan_t()
+    : agg_plan_t(0,1)
+  {}
+
+  agg_plan_t(int bloc, int eloc):
+    bloc(bloc), eloc(eloc)
+  {}
+
+  set<int> source_locs() const {
+    set<int> ret;
+    for(int l = bloc; l != eloc; ++l) {
+      ret.insert(l);
+    }
+    return ret;
+  }
+
+  int loc_at(int i) const {
+    i = i % (eloc - bloc);
+    return bloc + i;
+  }
+
+  vector<int> as_vector(int nagg) const {
+    vector<int> ret;
+    ret.reserve(nagg);
+    for(int i = 0; i != nagg; ++i) {
+      ret.push_back(loc_at(i));
+    }
+    return ret;
+  }
+
+private:
+  int bloc;
+  int eloc;
+};
+
+// I'm sure there is a faster way with bit manipulation,
+// but computers are fast, as it turns out
+bool _is_power_of_2(int x) {
+  if(x <= 0) {
+    return false;
+  }
+  while(x % 2 == 0) {
+    x /= 2;
+  }
+  return x == 1;
+}
+
+// Example:
+//   nloc = 4, nagg = 4
+//     [0,0,0,0]
+//     [1,1,1,1]
+//     [2,2,2,2]
+//     [3,3,3,3]
+//     [0,1,0,1]
+//     [2,3,2,3]
+//     [0,1,2,3]
+//   nloc = 2, nagg = 4
+//     [0,0,0,0]
+//     [1,1,1,1]
+//     [0,1,0,1]
+//   nloc = 4, nagg = 2
+//     [0,0]
+//     [1,1]
+//     [2,2]
+//     [3,3]
+//     [0,1]
+//     [2,3]
+vector<agg_plan_t> gen_agg_plans(int nloc, int nagg) {
+  if(!_is_power_of_2(nloc)) {
+    throw std::runtime_error("nloc must be a power of 2");
+  }
+  if(!_is_power_of_2(nagg)) {
+    throw std::runtime_error("nagg must be a power of 2");
+  }
+
+  vector<agg_plan_t> ret;
+  ret.reserve(nloc*2);
+  for(int sz = std::min(nloc, nagg); sz != 0; sz /= 2) {
+    for(int begl = 0; begl != nloc; begl += sz) {
+      ret.emplace_back(begl, begl+sz);
+    }
+  }
+
+  return ret;
+}
+
+vector<uint64_t> _cost_agg_plan(
+  uint64_t flops_per_byte_moved,
+  uint64_t flop_per_block,
+  int nagg,
+  agg_plan_t const& plan,
+  vector<uint64_t> const& dsizes)
+{
+  int nloc = dsizes.size();
+  vector<uint64_t> ret(nloc, 0);
+
+  // this is the compute cost at each location
+  for(int i = 0; i != nagg; ++i) {
+    int l = plan.loc_at(i);
+    ret[l] += flop_per_block;
+  }
+
+  // this is the send cost at each location
+  for(int const& src: plan.source_locs()) {
+    for(int dst = 0; dst != nloc; ++dst) {
+      if(dst != src) {
+        ret[src] += (dsizes[dst] * flops_per_byte_moved);
+      }
+    }
+  }
+
+  return ret;
+}
+
+vector<placement_t> autolocate_agg_at_a_time(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved)
+{
+  if(parts.size() != graph.nodes.size()) {
+    throw std::runtime_error("invalid lbp");
+  }
+
+  vector<placement_t> ret;
+  ret.reserve(parts.size());
+  for(auto const& part: parts) {
+    ret.emplace_back(part);
+  }
+
+  auto get_placement = [&ret](int other_gid)
+    -> placement_t const&
+  {
+    return ret[other_gid];
+  };
+
+  auto get_part_wrt_real = [&](int gid) {
+    partition_t const& part = parts[gid];
+    return _get_part_wrt_real(graph, part, gid);
+  };
+
+  for(int const& gid: graph.get_reverse_order()) {
+    auto const& node = graph.nodes[gid];
+
+    vector<int>& locs = ret[gid].locations.get();
+
+    if(node.outs.size() == 0) {
+      int l = 0;
+      for(int& loc: locs) {
+        loc = l;
+        l = (l + 1) % nlocs;
+      }
+
+      continue;
+    }
+
+    multiple_placement_t usage = construct_refinement_placement(
+      graph, gid, get_placement);
+
+    auto part = get_part_wrt_real(gid);
+    _count_block_parts_t c(part, usage);
+    vector<vector<uint64_t>> dst_sizes = _build_dst_sizes(part, usage, c);
+
+    vector<uint64_t> cost_per_sites(nlocs, 0);
+
+    vector<uint64_t> flops_each_block = part.all_block_sizes().get();
+
+    for(int out_bid = 0; out_bid != c.out_part_num_parts; ++out_bid) {
+      uint64_t flops_per_block = flops_each_block[out_bid * c.num_agg];
+      vector<uint64_t>& dsizes = dst_sizes[out_bid];
+      if(dsizes.size() < nlocs) {
+        // anything from [dizes.size, nlocs) should be filled with zeros
+        dsizes.resize(nlocs);
+      }
+
+      agg_plan_t best_plan;
+      vector<uint64_t> best_cost_per_sites;
+      optional<uint64_t> best_cost;
+
+      for(agg_plan_t const& plan: gen_agg_plans(nlocs, c.num_agg)) {
+        vector<uint64_t> just_agg_costs = _cost_agg_plan(
+          flops_per_byte_moved, flops_per_block, c.num_agg, plan, dsizes);
+        vector<uint64_t> new_cost_per_sites =
+          vector_add(just_agg_costs, cost_per_sites);
+        uint64_t cost = *std::max_element(
+          new_cost_per_sites.begin(),
+          new_cost_per_sites.end());
+        if(!bool(best_cost) || cost < best_cost.value()) {
+          best_cost = cost;
+          best_plan = plan;
+          best_cost_per_sites = new_cost_per_sites;
+        }
+      }
+
+      cost_per_sites = best_cost_per_sites;
+      for(int i = 0; i != c.num_agg; ++i) {
+        int bid = out_bid * c.num_agg + i;
+        locs[bid] = best_plan.loc_at(i);
+      }
+    }
+  }
+
+  return ret;
+}
+
+//////////////////////////////////////////////////////
+
+//struct autolocate_agg_at_a_time_from_inns_t {
+//  struct ginfo_t {
+//    partition_t partition;
+//    vector<join_t> joins;
+//    vector<int> locations;
+//
+//    optional<partition_t> refinement_partition;
+//    optional<vector<refinement_t>> refis;
+//  };
+//};
+//
+//vector<placement_t> autolocate_agg_at_a_time_from_inns(
+//  graph_t const& graph,
+//  vector<partition_t> const& parts,
+//  int nlocs,
+//  uint64_t flops_per_byte_moved)
+//{
+//
+//}
+
