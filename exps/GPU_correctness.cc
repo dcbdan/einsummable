@@ -146,6 +146,8 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
     print_memgraph(memgraph);
   }
 
+  DOUT("Translate and execute memgraph");
+
   auto num_gpu = memgraph.mem_sizes().size();
   // allocate ptrs for gpu
   std::vector<void*> gpu_ptrs;

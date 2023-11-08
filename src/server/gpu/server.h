@@ -5,6 +5,8 @@
 
 #include "../../engine/gpu/storage_manager.h"
 #include "../../engine/gpu/gpu_kernel_manager.h"
+#include "../../engine/gpu/workspace.h"
+#include "../../engine/gpu/stream_pool.h"
 
 struct gpu_mg_server_t : server_mg_base_t
 {
@@ -66,5 +68,7 @@ private:
   // NOTE: Change the streams per device as needed
   // 5 is enough in initial experiments
   int num_streams_per_device = 5;
+
+  streampool_t* stream_pool;
 };
 

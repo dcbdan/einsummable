@@ -164,6 +164,7 @@ gpu_einsummable_t::resource_description() const
     workspace_desc.size = workspace_size;
     ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
   }
+  DOUT("Einsummable resource description: " << ret.size() << " resources");
   return resource_manager_t::make_desc(ret);
 }
 

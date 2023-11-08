@@ -3,9 +3,7 @@
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
-#include "../../engine/gpu/workspace.h"
-#include "../../engine/gpu/storage.h"
-#include "../../engine/gpu/stream_pool.h"
+
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -45,6 +43,10 @@ gpu_mg_server_t::gpu_mg_server_t(
   for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
+
+  // initialize the stream pool
+  // stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
+  stream_pool = new streampool_t(num_streams_per_device, num_gpus_per_node[this_rank]);
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -62,20 +64,20 @@ void gpu_mg_server_t::execute_memgraph(
       memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems[0]);
   DOUT("Finished making exec graph...");
 
+  std::cout << "EXECUTE MEMGRAPH: CREATING A RESOURCE MANAGER" << std::endl;
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new gpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(mems)),
       rm_ptr_t(new gpu_storage_manager_t(&storage)),
-      rm_ptr_t(new streampool_t(num_streams_per_device, 
-        num_gpus_per_node[comm.get_this_rank()]))
+      rm_ptr_t(stream_pool)
     }
   ));
 
   exec_state_t state(graph, resource_manager);
 
-  DOUT("executing...");
+  DOUT("Executing...");
   state.event_loop();  
 
   DOUT("executed.");

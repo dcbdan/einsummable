@@ -26,9 +26,13 @@ struct streampool_t : rm_template_t<
       streampool_desc_t,
       streampool_resource_t>
 {
+  streampool_t();
+
   streampool_t(int num_streams_per_gpu, int num_gpus);
 
-  // ~streampool_t();
+  void initialize(int num_streams_per_gpu, int num_gpus);
+
+  ~streampool_t();
 
 private:
   std::mutex m;
