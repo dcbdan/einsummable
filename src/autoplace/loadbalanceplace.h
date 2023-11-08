@@ -51,8 +51,25 @@ vector<placement_t> autolocate_agg_at_a_time(
   int nlocs,
   uint64_t flops_per_byte_moved);
 
-//vector<placement_t> autolocate_agg_at_a_time_from_inns(
-//  graph_t const& graph,
-//  vector<partition_t> const& parts,
-//  int nlocs,
-//  uint64_t flops_per_byte_moved);
+struct agg_plan_t {
+  agg_plan_t()
+    : agg_plan_t(0,1)
+  {}
+
+  agg_plan_t(int bloc, int eloc)
+    : bloc(bloc), eloc(eloc)
+  {}
+
+  set<int> source_locs() const;
+
+  int loc_at(int i) const;
+
+  vector<int> as_vector(int nagg) const;
+
+  int bloc;
+  int eloc;
+};
+
+
+vector<agg_plan_t> gen_agg_plans(int nloc, int nagg);
+

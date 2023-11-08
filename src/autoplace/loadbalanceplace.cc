@@ -466,41 +466,27 @@ uint64_t compute_tensor_move_cost(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-struct agg_plan_t {
-  agg_plan_t()
-    : agg_plan_t(0,1)
-  {}
-
-  agg_plan_t(int bloc, int eloc):
-    bloc(bloc), eloc(eloc)
-  {}
-
-  set<int> source_locs() const {
-    set<int> ret;
-    for(int l = bloc; l != eloc; ++l) {
-      ret.insert(l);
-    }
-    return ret;
+set<int> agg_plan_t::source_locs() const {
+  set<int> ret;
+  for(int l = bloc; l != eloc; ++l) {
+    ret.insert(l);
   }
+  return ret;
+}
 
-  int loc_at(int i) const {
-    i = i % (eloc - bloc);
-    return bloc + i;
+int agg_plan_t::loc_at(int i) const {
+  i = i % (eloc - bloc);
+  return bloc + i;
+}
+
+vector<int> agg_plan_t::as_vector(int nagg) const {
+  vector<int> ret;
+  ret.reserve(nagg);
+  for(int i = 0; i != nagg; ++i) {
+    ret.push_back(loc_at(i));
   }
-
-  vector<int> as_vector(int nagg) const {
-    vector<int> ret;
-    ret.reserve(nagg);
-    for(int i = 0; i != nagg; ++i) {
-      ret.push_back(loc_at(i));
-    }
-    return ret;
-  }
-
-private:
-  int bloc;
-  int eloc;
-};
+  return ret;
+}
 
 // I'm sure there is a faster way with bit manipulation,
 // but computers are fast, as it turns out
@@ -671,26 +657,3 @@ vector<placement_t> autolocate_agg_at_a_time(
 
   return ret;
 }
-
-//////////////////////////////////////////////////////
-
-//struct autolocate_agg_at_a_time_from_inns_t {
-//  struct ginfo_t {
-//    partition_t partition;
-//    vector<join_t> joins;
-//    vector<int> locations;
-//
-//    optional<partition_t> refinement_partition;
-//    optional<vector<refinement_t>> refis;
-//  };
-//};
-//
-//vector<placement_t> autolocate_agg_at_a_time_from_inns(
-//  graph_t const& graph,
-//  vector<partition_t> const& parts,
-//  int nlocs,
-//  uint64_t flops_per_byte_moved)
-//{
-//
-//}
-

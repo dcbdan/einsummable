@@ -20,11 +20,15 @@ struct partition_t {
 
   vector<int> block_shape() const;
 
+  vector<int> from_bid(int const& bid) const;
+
   bool refines(partition_t const& other) const;
 
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const;
 
   vtensor_t<uint64_t> all_block_sizes() const;
+
+  uint64_t block_size_at_bid(int bid) const;
 
   partition_t subset(vector<tuple<int, int>> const& region) const;
 

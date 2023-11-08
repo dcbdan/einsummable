@@ -10,6 +10,7 @@
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/alocate.h"
+#include "../src/autoplace/autolinns.h"
 
 #include <fstream>
 
@@ -164,6 +165,10 @@ void _print_pl_info(
   auto [_0, _1, taskgraph] =
     taskgraph_t::make(graph, placements);
 
+  if(msg.size() < 45) {
+    msg.resize(45, ' ');
+  }
+
   int num_msgs = 0;
   uint64_t num_bytes = 0;
   for(auto const& node: taskgraph.nodes) {
@@ -175,13 +180,13 @@ void _print_pl_info(
   vector<uint64_t> tensor_move_costs = compute_tensor_move_costs(graph, placements);
   uint64_t tensor_move_bytes_total = vector_sum(tensor_move_costs);
   DOUT("(" << msg << ") taskgraph with " << num_msgs << " moves, "
-    << double(num_bytes)/1e6 << " MB bytes moved | "
-    << double(tensor_move_bytes_total)/1e6 << " MB from tensor move");
+    << double(num_bytes)/1e6 << " MB bytes moved");
+    //<< double(tensor_move_bytes_total)/1e6 << " MB from tensor move");
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& pl = placements[gid];
     uint64_t const& tensor_move_cost = tensor_move_costs[gid];
-    DOUT(gid << ": " << double(tensor_move_cost)/1e6
-      );
+    //DOUT(gid << ": " << double(tensor_move_cost)/1e6
+    //  );
     //  << " " << pl.locations.get());
   }
 }
@@ -208,41 +213,77 @@ vector<placement_t> autoplace(
   }
 
   {
-    auto ret = autolocate(graph, parts, world_size);
-    _print_pl_info("a-locate", graph, ret);
-  }
-
-  {
     auto ret = load_balanced_placement(graph, parts, world_size, false);
     _print_pl_info("from inputs", graph, ret);
   }
 
   {
+    auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
+    _print_pl_info("from outputs", graph, ret);
+  }
+
+  {
+    auto ret = autolocate(graph, parts, world_size);
+    _print_pl_info("a-locate", graph, ret);
+  }
+
+  DOUT("");
+
+  {
     uint64_t flops_per_byte_moved = 100;
-    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time 100", graph, ret);
+    auto ret = autolocate_agg_at_a_time_from_inns(
+      graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
   }
 
-  {
-    uint64_t flops_per_byte_moved = 1000;
-    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time 1000", graph, ret);
-  }
+  //{
+  //  uint64_t flops_per_byte_moved = 1000;
+  //  auto ret = autolocate_agg_at_a_time_from_inns(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time-from-inns 1000", graph, ret);
+  //}
 
-  {
-    uint64_t flops_per_byte_moved = 10000;
-    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time 10000", graph, ret);
-  }
+  //{
+  //  uint64_t flops_per_byte_moved = 10000;
+  //  auto ret = autolocate_agg_at_a_time_from_inns(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time-from-inns 10000", graph, ret);
+  //}
 
-  {
-    uint64_t flops_per_byte_moved = 100000;
-    auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time 100000", graph, ret);
-  }
+  //{
+  //  uint64_t flops_per_byte_moved = 100000;
+  //  auto ret = autolocate_agg_at_a_time_from_inns(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time-from-inns 100000", graph, ret);
+  //}
+
+  //DOUT("");
+
+  //{
+  //  uint64_t flops_per_byte_moved = 100;
+  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time 100", graph, ret);
+  //}
+
+  //{
+  //  uint64_t flops_per_byte_moved = 1000;
+  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time 1000", graph, ret);
+  //}
+
+  //{
+  //  uint64_t flops_per_byte_moved = 10000;
+  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time 10000", graph, ret);
+  //}
+
+  //{
+  //  uint64_t flops_per_byte_moved = 100000;
+  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("agg-at-a-time 100000", graph, ret);
+  //}
 
   auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
-  _print_pl_info("from outputs", graph, ret);
   return ret;
 
   //auto ret1 = load_balanced_placement(graph, parts, world_size, false);
