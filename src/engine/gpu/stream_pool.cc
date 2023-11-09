@@ -6,21 +6,14 @@
 // ------------------------ stream pool ------------------------
 
 streampool_t::streampool_t(int num_streams_per_gpu, int num_gpus){
-  DOUT("Creating stream pool...");
-  for(int i = 0; i < num_gpus; i++){
-    vector<cudaStream_t> streams_per_gpu;
-    cudaSetDevice(i);
-    for(int j = 0; j < num_streams_per_gpu; j++){
-      cudaStream_t stream = cuda_create_stream();
-      streams_per_gpu.push_back(stream);
-    }
-    stream_pools.push_back(streams_per_gpu);
-  }
-  // DOUT("Number of pools: " << stream_pools.size());
-  // DOUT("Number of streams in pool " << 0 << ": " << stream_pools[0].size());
+  initialize(num_streams_per_gpu, num_gpus);
 }
 
 void streampool_t::initialize(int num_streams_per_gpu, int num_gpus){
+  if(stream_pools.size() > 0) {
+    throw std::runtime_error("the stream pool must have already been initialized");
+  }
+
   DOUT("Creating stream pool...");
   for(int i = 0; i < num_gpus; i++){
     vector<cudaStream_t> streams_per_gpu;

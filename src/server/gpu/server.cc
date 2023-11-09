@@ -44,9 +44,8 @@ gpu_mg_server_t::gpu_mg_server_t(
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
 
-  // initialize the stream pool
-  // stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
-  stream_pool = streampool_t(num_streams_per_device, num_gpus_per_node[this_rank]);
+  // initialize the stream pool now that we have num_gpus_per_node
+  stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 }
 
 void gpu_mg_server_t::execute_memgraph(

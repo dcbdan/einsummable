@@ -22,9 +22,16 @@ struct streampool_resource_t {
   cudaStream_t stream;
 };
 
-struct streampool_t{
+struct streampool_manager_t;
+
+struct streampool_t {
 
   streampool_t(){};
+
+  // don't allow this to be copied otherwise
+  // the streampools will get deleted twice
+  streampool_t(streampool_t const& other) = delete;
+  streampool_t& operator=(streampool_t const& other) = delete;
 
   streampool_t(int num_streams_per_gpu, int num_gpus);
 
@@ -32,6 +39,8 @@ struct streampool_t{
 
   void initialize(int num_streams_per_gpu, int num_gpus);
 
+private:
+  friend class streampool_manager_t;
   vector<vector<cudaStream_t>> stream_pools;
 };
 
