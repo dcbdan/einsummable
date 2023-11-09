@@ -22,25 +22,33 @@ struct streampool_resource_t {
   cudaStream_t stream;
 };
 
-struct streampool_t : rm_template_t<
-      streampool_desc_t,
-      streampool_resource_t>
-{
-  streampool_t();
+struct streampool_t{
+
+  streampool_t(){};
 
   streampool_t(int num_streams_per_gpu, int num_gpus);
 
+  ~streampool_t();
+
   void initialize(int num_streams_per_gpu, int num_gpus);
 
-  ~streampool_t();
+  vector<vector<cudaStream_t>> stream_pools;
+};
+
+struct streampool_manager_t : rm_template_t<
+      streampool_desc_t,
+      streampool_resource_t>
+{
+  streampool_manager_t(streampool_t& streampool);
 
 private:
   std::mutex m;
 
-  vector<std::queue<cudaStream_t>> stream_pools;
+  streampool_t& stream_pools;
 
   optional<streampool_resource_t> try_to_acquire_impl(streampool_desc_t const& desc);
 
   void release_impl(streampool_resource_t const& resource);
 };
+
 

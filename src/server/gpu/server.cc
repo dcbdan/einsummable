@@ -46,7 +46,7 @@ gpu_mg_server_t::gpu_mg_server_t(
 
   // initialize the stream pool
   // stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
-  stream_pool = new streampool_t(num_streams_per_device, num_gpus_per_node[this_rank]);
+  stream_pool = streampool_t(num_streams_per_device, num_gpus_per_node[this_rank]);
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -61,7 +61,7 @@ void gpu_mg_server_t::execute_memgraph(
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
-      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems[0]);
+      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems);
   DOUT("Finished making exec graph...");
 
   std::cout << "EXECUTE MEMGRAPH: CREATING A RESOURCE MANAGER" << std::endl;
@@ -71,7 +71,7 @@ void gpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(mems)),
       rm_ptr_t(new gpu_storage_manager_t(&storage)),
-      rm_ptr_t(stream_pool)
+      rm_ptr_t(new streampool_manager_t(stream_pool))
     }
   ));
 

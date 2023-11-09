@@ -159,7 +159,7 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
   kernel_manager_t km;
 
   exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node, gpu_ptrs[0]);
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node, gpu_ptrs);
 
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {

@@ -69,6 +69,6 @@ private:
   // 5 is enough in initial experiments
   int num_streams_per_device = 5;
 
-  streampool_t* stream_pool;
+  streampool_t stream_pool;
 };
 

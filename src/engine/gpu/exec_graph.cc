@@ -28,7 +28,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   int this_rank,
   kernel_manager_t& gpu_km,
   int num_gpus_per_node,
-  void* this_buffer)
+  vector<void*> gpu_mems)
 {
   exec_graph_t graph;
 
@@ -95,15 +95,16 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           op->workspace_size = workspace_info.value();
         }
         else{
+          int loc = node.op.get_apply_loc();
           // get the input and output memory ptrs
           void* out_mem = increment_void_ptr(
-            this_buffer,
+            gpu_mems[loc],
             apply.mems[0].offset);
           vector<void const*> inn_mems;
           inn_mems.reserve(apply.mems.size() - 1);
           for(int i = 1; i != apply.mems.size(); ++i) {
             inn_mems.push_back(increment_void_ptr(
-              this_buffer,
+              gpu_mems[loc],
               apply.mems[i].offset));
           }
           // get the workspace size
@@ -156,7 +157,7 @@ gpu_einsummable_t::resource_description() const
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc(device));
 
-  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
   if (workspace_size > 0) {
     gpu_workspace_desc_t workspace_desc;
@@ -195,12 +196,10 @@ void gpu_einsummable_t::launch(
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
   }
 
-  DOUT("gpu_einsummable_t::launch: getting stream");
-  cudaStream_t stream = streampool_t::get_resource(resources[1]).stream;
+  cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
   // create stream and launch
   // cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
-  DOUT("gpu_einsummable_t::launch: launching");
   
   gpu_km(
     einsummable,
@@ -210,6 +209,8 @@ void gpu_einsummable_t::launch(
     maybe_workspace);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  DOUT("gpu_einsummable_t::launch: adding callback");
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
@@ -233,7 +234,7 @@ gpu_touch_t::resource_description() const
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::make_desc(group_id));
   }
-  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{device}));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
   return resource_manager_t::make_desc(ret);
 }
@@ -270,7 +271,7 @@ void gpu_touch_t::launch(
   // create stream and launch
   cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
-  auto stream = streampool_t::get_resource(resources[2]).stream;
+  auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   gpu_km(
     this_touch,
     stream,
@@ -300,7 +301,7 @@ gpu_copy_t::resource_description() const
   auto [src_loc, src_offset] = my_move.src;
   auto [dst_loc, dst_offset] = my_move.dst;
   ret.emplace_back(global_buffers_t::make_multi_desc({src_loc, dst_loc}));
-  ret.emplace_back(streampool_t::make_desc(streampool_desc_t{dst_loc}));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{dst_loc}));
 
   return resource_manager_t::make_desc(ret);
 }
