@@ -1563,6 +1563,44 @@ bool memgraph_make_state_t2::input_has_been_initialized(int inn){
   return input_tid_to_data.find(inn) != input_tid_to_data.end();
 }
 
+
+vector<std::variant<_which_node_t, _which_touch_t>>
+order_taskgraph(taskgraph_t const& taskgraph)
+{
+  vector<std::variant<_which_node_t, _which_touch_t>> ret;
+  ret.reserve(2*taskgraph.nodes.size());
+
+  for(auto const& id: taskgraph.get_order()) {
+    auto const& node = taskgraph.nodes[id];
+    if(node.op.is_input()) {
+      // Input nodes have already been provided
+    } else if(node.op.is_partialize()) {
+      // Every partialize touch should be accounted for
+      // from the corresponding input. The idea is
+      // if input A becomes ready, immediately
+      // increment do touch op B += A.
+    } else {
+      // this is an apply or move node, but the
+      // distinction doesn't matter here
+      ret.emplace_back(_which_node_t { .task_id = id });
+    }
+
+    // Now that this id is now available, add touches from
+    // this id to a partialize out
+    for(auto const& out: node.outs) {
+      auto const& out_node = taskgraph.nodes[out];
+      if(out_node.op.is_partialize()) {
+        auto which_touches = get_which_touches_from_to(taskgraph, out, id);
+        for(auto const& w: which_touches) {
+          ret.emplace_back(w);
+        }
+      }
+    }
+  }
+
+  return ret;
+}
+
 // void memgraph_make_state_t2::add_to_memgraph(
 //   std::variant<_which_node_t, _which_touch_t> const& which_op)
 // {
