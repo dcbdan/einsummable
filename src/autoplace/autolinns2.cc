@@ -4,13 +4,29 @@ bool site_costs_lt(
   vector<uint64_t> const& lhs,
   vector<uint64_t> const& rhs)
 {
-  uint64_t const& mxl = *std::max_element(lhs.begin(), lhs.end());
-  uint64_t const& mxr = *std::max_element(rhs.begin(), rhs.end());
-  if(mxl == mxr) {
-    return vector_sum(lhs) < vector_sum(rhs);
-  } else {
-    return mxl < mxr;
-  }
+  //uint64_t const& mxl = *std::max_element(lhs.begin(), lhs.end());
+  //uint64_t const& mxr = *std::max_element(rhs.begin(), rhs.end());
+  //if(mxl == mxr) {
+  //  return vector_sum(lhs) < vector_sum(rhs);
+  //} else {
+  //  return mxl < mxr;
+  //}
+
+  int nlocs = lhs.size();
+
+  uint64_t mxl = nlocs * (*std::max_element(lhs.begin(), lhs.end()));
+  uint64_t mxr = nlocs * (*std::max_element(rhs.begin(), rhs.end()));
+
+  uint64_t ssl = vector_sum(lhs);
+  uint64_t ssr = vector_sum(rhs);
+
+  uint64_t alpha = 1;
+  uint64_t beta  = 1;
+
+  uint64_t score_l = alpha * mxl + beta * ssl;
+  uint64_t score_r = alpha * mxr + beta * ssr;
+
+  return score_l < score_r;
 };
 
 relationwise3_t::relationwise3_t(
@@ -132,7 +148,7 @@ void relationwise3_t::update_cost(
   uint64_t move_cost = bytes * flops_per_byte_moved;
 
   // Here, the send is incurring cost
-  cost[src] += move_cost;
+  //cost[src] += move_cost;
   // Here, the recv is incurring cost
   cost[dst] += move_cost;
 }
@@ -346,26 +362,9 @@ solve_refi(
   optional<builder_t> ret;
   for(int loc = 0; loc != rw.nlocs; ++loc) {
     builder_t b = solve_refi_at(rw, init_cost, rid, loc);
-    if(rid.gid == 4) {
-      DLINEOUT("with loc " << loc << ": " << b.site_costs);
-    }
     if(!bool(ret) || site_costs_lt(b.site_costs, ret.value().site_costs)) {
       which_loc = loc;
       ret = b;
-    }
-  }
-
-  if(rid.gid == 4) {
-    DOUT("solve refi " << rid << " best loc of " << which_loc);
-    {
-      DOUT("  " << ret.value().site_costs);
-      auto const& refi = rw.get_refi(rid);
-      for(auto const& unit: refi.units) {
-        for(auto const& bid: unit.deps) {
-          jid_t jid { rid.gid, bid };
-          DOUT("  " << jid << " at " << ret.value().get_join_loc(jid).value())
-        }
-      }
     }
   }
 
@@ -403,7 +402,6 @@ vector<placement_t> autolocate_bipartite(
   relationwise3_t rw(nlocs, flops_per_byte_moved, graph, parts);
 
   vector<uint64_t> costs(rw.nlocs, 0);
-
   for(int const& gid: graph.get_order()) {
     auto const& node = graph.nodes[gid];
     if(node.op.is_input()) {
@@ -456,7 +454,11 @@ vector<placement_t> autolocate_bipartite(
   // TODO: remove this print
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& pl = ret[gid];
-    DOUT(gid << ": " << pl.locations.get());
+    vector<int> cnts(nlocs, 0);
+    for(int const& loc: pl.locations.get()) {
+      cnts[loc]++;
+    }
+    DOUT(gid << ": " << cnts); // pl.locations.get());
   }
 
   return ret;
