@@ -1080,13 +1080,14 @@ allocator_t::find_first_available(uint64_t size) {
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
 allocator_t::find_lowest_dependency_available(uint64_t size) {
+  DOUT("Inside find_lowest_dep");
   using return_t = tuple<iter_t, iter_t, uint64_t>;
   optional<return_t> return_block;
   int min_dep = std::numeric_limits<int>::max();
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
     if(iter->available()) {
       iter_t ret = iter;
-      uint64_t sz = 0;
+      uint64_t sz = 0; 
       uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       int inner_max_dep = -1;
       for(iter_t inner_iter = iter;
@@ -1094,7 +1095,8 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
           ++inner_iter) {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
         sz += inner_iter->size();
-        if(rem != 0 && sz > rem) {
+        //first check if we have any alignment descrepancy in the iter->beg
+        if(rem != 0 && sz > rem) { //if there are any remaining for alignment, and current size of all bock > aligned size
           rem = 0;
           sz -= rem;
         }
@@ -1108,6 +1110,26 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
   }
   //set the parameter available to false 
   if (return_block){
+    // We need to split the last block here, so that we won't set the entire free block to vacant=false. We only want to set the portion actually being used (for the last block)
+    // After this, we still want to keep all the blocks as free. (i.e., no deps) but we want to separate them
+    auto const& [beg,end,sz] = return_block.value();
+    block_t last_block_copy = *(end-1);
+    uint64_t offset = beg->beg;
+    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
+    uint64_t size = size + (aligned_offset - offset);
+    auto iter = blocks.erase(end-1, end); //delete the last one
+    auto occupied_iter = blocks.insert(iter, block_t {
+      .beg = last_block_copy.beg,
+      .end = offset + size,
+      .dep = last_block_copy.dep
+    });
+    if(size != sz) {
+      blocks.insert(occupied_iter+1, block_t {
+        .beg = offset + size,
+        .end = last_block_copy.end,
+        .dep = last_block_copy.dep
+      });
+    }
     for (auto iter = std::get<0>(return_block.value()); iter != std::get<1>(return_block.value()); ++iter) {
       iter->vacant = false;
     }
@@ -1207,6 +1229,7 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
       std::tuple<std::tuple<iter_t, iter_t, uint64_t>, uint64_t> inner_tuple = std::make_tuple(*maybe_info, size_without_rem);
       maybe_infos.push_back(std::make_optional(inner_tuple));
     } else {
+      DOUT("Failed to allocate.");
       failed = true;
       break;
     }
@@ -1244,22 +1267,22 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
       }
     }
 
-    // fix blocks
-    block_t last_block_copy = *(end-1);
+    // // fix blocks
+    // block_t last_block_copy = *(end-1);
 
-    auto iter = blocks.erase(beg, end);
-    auto occupied_iter = blocks.insert(iter, block_t {
-      .beg = offset,
-      .end = offset+size,
-      .dep = optional<int>()
-    });
-    if(size != sz) {
-      blocks.insert(occupied_iter+1, block_t {
-        .beg = offset + size,
-        .end = last_block_copy.end,
-        .dep = last_block_copy.dep
-      });
-    }
+    // auto iter = blocks.erase(beg, end);
+    // auto occupied_iter = blocks.insert(iter, block_t {
+    //   .beg = offset,
+    //   .end = offset+size,
+    //   .dep = optional<int>()
+    // });
+    // if(size != sz) {
+    //   blocks.insert(occupied_iter+1, block_t {
+    //     .beg = offset + size,
+    //     .end = last_block_copy.end,
+    //     .dep = last_block_copy.dep
+    //   });
+    // }
     return_vec.emplace_back(aligned_offset, deps);
   }
   return return_vec;
