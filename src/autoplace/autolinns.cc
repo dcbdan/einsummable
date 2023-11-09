@@ -195,11 +195,22 @@ vector<uint64_t> relationwise2_t::cost_agg_plan(
 
       for(auto const& rid: rids) {
         set<int> refi_usage_locs = get_refi_usage_locs(rid);
-        if(refi_usage_locs.count(l) == 0) {
-          uint64_t bytes = get_refi_bytes(rid);
-          ret[l] += flops_per_byte_moved * bytes;
-          // Note: the convention is that the recving side
-          //       incurs the cost
+        if(refi_usage_locs.count(l) != 0) {
+          // this input was already at the site from a previous
+          // set location
+          continue;
+        }
+        vector<int> const& join_locs = ginfos[rid.gid].locations;
+        auto const& refi = get_refi(rid);
+        for(auto const& unit: refi.units) {
+          if(unit.deps.size() > 1) {
+            throw std::runtime_error("aggs should have been taken care of");
+          }
+          int const& join_bid = unit.deps[0];
+          int const& join_loc = join_locs[join_bid];
+          if(join_loc != l) {
+            ret[l] += unit.size;
+          }
         }
       }
     }
@@ -228,6 +239,29 @@ vector<uint64_t> relationwise2_t::cost_agg_plan(
   }
 
   return ret;
+}
+
+void relationwise2_t::print_info() const
+{
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    std::cout << "gid: " << gid << std::endl;
+    auto const& ginfo = ginfos[gid];
+    int nbid = ginfo.locations.size();
+    for(int bid = 0; bid != nbid; ++bid) {
+      auto const& join = ginfo.joins[bid];
+      vector<rid_t> rids(join.deps.begin(), join.deps.end());
+      std::cout << "   J " << bid << ": " << rids << std::endl;
+    }
+    if(ginfo.refis) {
+      auto const& refis = ginfo.refis.value();
+      for(int bid = 0; bid != refis.size(); ++bid) {
+        auto const& refi = refis[bid];
+        for(auto const& unit: refi.units) {
+          std::cout << "  R " << bid << ": " << unit.deps << std::endl;
+        }
+      }
+    }
+  }
 }
 
 vector<placement_t> autolocate_agg_at_a_time_from_inns(

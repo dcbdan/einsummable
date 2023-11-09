@@ -39,9 +39,24 @@ struct relationwise2_t {
 
   int num_agg_blocks_at(int gid) const;
 
+  void print_info() const;
+
   set<int> get_refi_usage_locs(rid_t const& rid) const;
   uint64_t get_refi_bytes(rid_t const& rid) const;
   uint64_t get_join_out_bytes(jid_t const& jid) const;
+
+  refinement_t const& get_refi(rid_t const& rid) const {
+    return ginfos[rid.gid].refis.value()[rid.bid];
+  }
+  join_t const& get_join(jid_t const& jid) const {
+    return ginfos[jid.gid].joins[jid.bid];
+  }
+
+  void solve_cost_form(
+    vector<uint64_t>& cost_per_site,
+    set<jid_t>& jids,
+    rid_t const& rid,
+    int loc);
 
   int const nlocs;
   uint64_t const flops_per_byte_moved;

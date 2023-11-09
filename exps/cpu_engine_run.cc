@@ -11,6 +11,7 @@
 #include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/alocate.h"
 #include "../src/autoplace/autolinns.h"
+#include "../src/autoplace/autolinns2.h"
 
 #include <fstream>
 
@@ -138,7 +139,6 @@ int main(int argc, char** argv) {
   int world_size = args.get<int>("world_size");
   int num_threads = args.get<int>("num_threads_per");
 
-
   args.set_default("space", "contraction");
   string space_ = args.get<string>("space");
 
@@ -213,6 +213,12 @@ vector<placement_t> autoplace(
   }
 
   {
+    uint64_t flops_per_byte_moved = 100;
+    auto ret = autolocate_bipartite(
+      graph, parts, world_size, flops_per_byte_moved);
+    _print_pl_info("bipartite 100", graph, ret);
+  }
+  {
     auto ret = load_balanced_placement(graph, parts, world_size, false);
     _print_pl_info("from inputs", graph, ret);
   }
@@ -227,7 +233,7 @@ vector<placement_t> autoplace(
     _print_pl_info("a-locate", graph, ret);
   }
 
-  DOUT("");
+  //DOUT("");
 
   {
     uint64_t flops_per_byte_moved = 100;
