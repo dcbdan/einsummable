@@ -1080,7 +1080,6 @@ allocator_t::find_first_available(uint64_t size) {
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
 allocator_t::find_lowest_dependency_available(uint64_t size) {
-  DOUT("Inside find_lowest_dep");
   using return_t = tuple<iter_t, iter_t, uint64_t>;
   optional<return_t> return_block;
   int min_dep = std::numeric_limits<int>::max();
@@ -1114,23 +1113,33 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
     // After this, we still want to keep all the blocks as free. (i.e., no deps) but we want to separate them
     auto const& [beg,end,sz] = return_block.value();
     block_t last_block_copy = *(end-1);
+    std::cout << "last_block_copy.beg: " << last_block_copy.beg << "; last_block_copy.end: " << last_block_copy.end << std::endl;
     uint64_t offset = beg->beg;
     uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
-    uint64_t size = size + (aligned_offset - offset);
+    uint64_t new_size = size + (aligned_offset - offset);
+    std::cout << "offset: " << offset << "; aligned_offset: " << aligned_offset << "; new_size: " << new_size << std::endl;
     auto iter = blocks.erase(end-1, end); //delete the last one
     auto occupied_iter = blocks.insert(iter, block_t {
       .beg = last_block_copy.beg,
-      .end = offset + size,
+      .end = offset + new_size,
       .dep = last_block_copy.dep
     });
-    if(size != sz) {
+    // std::cout << "newsize: " << new_size << "; sz: " << sz << std::endl;
+    if(new_size != sz) {
+      std::cout << "offset + new_size: " << offset + new_size << "; last_block_copy.end: " << last_block_copy.end << std::endl;
       blocks.insert(occupied_iter+1, block_t {
-        .beg = offset + size,
+        .beg = offset + new_size,
         .end = last_block_copy.end,
         .dep = last_block_copy.dep
       });
     }
+    occupited_iter_next = occupied_iter + 1;
+    block_t occupited_iter_next = *(occupied_iter + 1);
+    std::cout << "occupited_iter->beg: " << occupied_iter->beg << "; occupited_iter->end: " << occupied_iter->end << std::endl;
+    std::cout << "occupited_iter_next->beg: " << (occupied_iter+1)->beg << "; occupited_iter_next->end: " << (occupied_iter+1)->end << std::endl;
+    return_block = {beg, occupied_iter+1, new_size};
     for (auto iter = std::get<0>(return_block.value()); iter != std::get<1>(return_block.value()); ++iter) {
+      std::cout << "iter->beg: " << iter->beg << "; iter->end: " << iter->end << std::endl;
       iter->vacant = false;
     }
   }
@@ -1217,6 +1226,7 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
   vector<return_t> return_vec;
 
   for (uint64_t size_without_rem: sizes) {
+    std::cout << "Allocating for size = " << size_without_rem << std::endl;
     if(strat == allocator_strat_t::lowest_dependency) {
       maybe_info = find_lowest_dependency_available(size_without_rem);
     } else if(strat == allocator_strat_t::first) {
@@ -1233,6 +1243,7 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
       failed = true;
       break;
     }
+    print();
   }
 
   if (failed == true) {
@@ -1266,24 +1277,19 @@ optional<vector<tuple<uint64_t, vector<int>>>> allocator_t::try_to_allocate_mult
         deps.push_back(d);
       }
     }
+    DOUT("before fixing blocks");
 
-    // // fix blocks
-    // block_t last_block_copy = *(end-1);
+    // fix blocks
+    auto iter = blocks.erase(beg, end);
+    auto occupied_iter = blocks.insert(iter, block_t {
+      .beg = offset,
+      .end = offset+size,
+      .dep = optional<int>()
+    });
 
-    // auto iter = blocks.erase(beg, end);
-    // auto occupied_iter = blocks.insert(iter, block_t {
-    //   .beg = offset,
-    //   .end = offset+size,
-    //   .dep = optional<int>()
-    // });
-    // if(size != sz) {
-    //   blocks.insert(occupied_iter+1, block_t {
-    //     .beg = offset + size,
-    //     .end = last_block_copy.end,
-    //     .dep = last_block_copy.dep
-    //   });
-    // }
     return_vec.emplace_back(aligned_offset, deps);
+
+    // print();
   }
   return return_vec;
 }
