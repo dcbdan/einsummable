@@ -126,6 +126,21 @@ struct memgraph_t {
   tuple<
     map<int, memstoloc_t>,
     map<int, memstoloc_t>,
+    optional<memgraph_t>,
+    memgraph_t>
+  make_(
+    taskgraph_t const& graph,
+    vector<int> which_storage = {},
+    vector<uint64_t> mem_sizes = {},
+    map<int, memstoloc_t> init_input_tid_to_data = {},
+    allocator_settings_t settings = allocator_settings_t::default_settings(),
+    bool use_storage = true,
+    bool split_off_inputs = false);
+
+  static
+  tuple<
+    map<int, memstoloc_t>,
+    map<int, memstoloc_t>,
     memgraph_t>
   make(
     taskgraph_t const& graph,
@@ -602,6 +617,11 @@ struct memgraph_make_state_t {
 
   // this tensor was used, see if you can free the memory
   void register_usage(int task_id);
+
+  // Remove the memgraph we've computed thus far. This should only
+  // really be used with splitting off the input data. Interactions
+  // with task_node_to_mem_node and task_touch_to_mem_node are unclear
+  memgraph_t pop_memgraph();
 
   // A bunch of helper methods to modify
   //   task_tensor_to_mem_node,

@@ -795,7 +795,7 @@ bool memgraph_t::op_t::is_local_to_gpu(int loc, int num_gpu_per_node) const {
     return loc == get_apply().loc % num_gpu_per_node;
   } else if(is_move()) {
     auto const& move = get_move();
-    return loc == move.get_src_loc() % num_gpu_per_node 
+    return loc == move.get_src_loc() % num_gpu_per_node
       || loc == move.get_dst_loc() % num_gpu_per_node;
   } else if(is_evict()) {
     return loc == get_evict().src.loc % num_gpu_per_node;
@@ -859,6 +859,11 @@ order_taskgraph(taskgraph_t const& taskgraph);
 //         taskgraph.get_order()
 
 tuple<
+  vector<std::variant<_which_node_t, _which_touch_t>> ,
+  vector<std::variant<_which_node_t, _which_touch_t>> >
+order_split_taskgraph(taskgraph_t const& taskgraph);
+
+tuple<
   map<int, mem_t>, // input -> mem
   map<int, mem_t>, // save -> mem
   memgraph_t>
@@ -891,14 +896,16 @@ memgraph_t::make_without_evict(
 tuple<
   map<int, memstoloc_t>, // input -> data
   map<int, memstoloc_t>, // save  -> data
+  optional<memgraph_t>,
   memgraph_t>
-memgraph_t::make(
+memgraph_t::make_(
   taskgraph_t const& taskgraph,
   vector<int> which_storage,
   vector<uint64_t> mem_sizes,
   map<int, memstoloc_t> input_tid_to_data,
   allocator_settings_t settings,
-  bool use_storage)
+  bool use_storage,
+  bool split_off_inputs)
 {
   int n_compute_locs = taskgraph.num_locs();
   if(mem_sizes.size() > n_compute_locs) {
@@ -976,7 +983,15 @@ memgraph_t::make(
     }
   }
 
-  state.process(order_taskgraph(taskgraph));
+  optional<memgraph_t> input_memgraph;
+  if(split_off_inputs) {
+    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    state.process(input_tg_ops);
+    input_memgraph = state.pop_memgraph();
+    state.process(core_tg_ops);
+  } else {
+    state.process(order_taskgraph(taskgraph));
+  }
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
@@ -991,8 +1006,87 @@ memgraph_t::make(
   return {
     input_tid_to_data,
     save_to_data,
+    input_memgraph,
     state.memgraph
   };
+}
+
+tuple<
+  map<int, memstoloc_t>,
+  map<int, memstoloc_t>,
+  memgraph_t>
+memgraph_t::make(
+  taskgraph_t const& graph,
+  vector<int> which_storage,
+  vector<uint64_t> mem_sizes,
+  map<int, memstoloc_t> init_input_tid_to_data,
+  allocator_settings_t settings,
+  bool use_storage)
+{
+  auto && [i,o,a_nullopt,m] = make_(
+    graph, which_storage, mem_sizes,
+    init_input_tid_to_data, settings, use_storage, false);
+  return {std::move(i), std::move(o), std::move(m)};
+}
+
+memgraph_t
+memgraph_make_state_t::pop_memgraph()
+{
+  if(partializes_in_progress.size() > 0) {
+    throw std::runtime_error("partialize in progress; cannot pop memgraph");
+  }
+
+  memgraph_t ret = memgraph;
+  memgraph = memgraph_t();
+
+  // update the trio
+  //   task_tensor_to_mem_node
+  //   tensors_on_storage;
+  //   tensors_on_memory;
+
+  for(auto iter  = task_tensor_to_mem_node.begin() ;
+           iter != task_tensor_to_mem_node.end()   ;
+      ++iter)
+  {
+    int const& tid = iter->first;
+
+    int ret_mid = iter->second;
+    auto const& ret_op = ret.nodes[ret_mid].op;
+
+    int& new_mid = iter->second;
+    if(tensors_on_storage.count(tid) > 0) {
+      // insert on storage
+      // ret op must either be a inputsto itself or a
+      // an evict node
+      inputsto_t sto;
+      if(ret_op.is_inputsto()) {
+        sto = ret_op.get_inputsto();
+      } else if(ret_op.is_evict()) {
+        auto const& evict = ret_op.get_evict();
+        sto.loc         = evict.src.loc,
+        sto.storage_loc = evict.dst.loc;
+        sto.storage_id  = evict.dst.id;
+        sto.size        = evict.src.size;
+      }
+
+      new_mid = memgraph.insert(op_t(sto), set<int>{});
+
+      // tensors_on_storage does not change
+    } else {
+      // insert on memory
+      inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
+      new_mid = memgraph.insert(op_t(mem), set<int>{});
+
+      // this tid has not been used by any mids now
+      tensors_on_memory.at(tid) = set<int>{};
+    }
+  }
+
+  // These should not be accessed again for what it contained
+  task_node_to_mem_node = {};
+  task_touch_to_mem_node = {};
+
+  return ret;
 }
 
 memgraph_make_state_t::memgraph_make_state_t(
@@ -1451,14 +1545,24 @@ void memgraph_make_state_t::register_usage(int task_id)
       auto const& out_node = taskgraph.nodes[task_out];
       if(out_node.op.is_apply() || out_node.op.is_move()) {
         _which_node_t _task_out { task_out };
-        del_deps.insert(task_node_to_mem_node.at(_task_out));
+        auto iter = task_node_to_mem_node.find(_task_out);
+        if(iter == task_node_to_mem_node.end()) {
+          // Assumption: this _task_out lived on the other side of a pop_memgraph
+        } else {
+          del_deps.insert(iter->second);
+        }
       } else if(out_node.op.is_partialize()) {
         auto const whiches = get_which_touches_from_to(
           taskgraph,
           task_out,
           task_id);
         for(auto const& which: whiches) {
-          del_deps.insert(task_touch_to_mem_node.at(which));
+          auto iter = task_touch_to_mem_node.find(which);
+          if(iter == task_touch_to_mem_node.end()) {
+            // Assumption: this which lived on the other side of a pop_memgraph
+          } else {
+            del_deps.insert(iter->second);
+          }
         }
       }
     }
@@ -1846,12 +1950,14 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
 }
 
 vector<std::variant<_which_node_t, _which_touch_t>>
-order_taskgraph(taskgraph_t const& taskgraph)
+build_tg_ops(
+  taskgraph_t const& taskgraph,
+  vector<int> const& tids_in_order)
 {
   vector<std::variant<_which_node_t, _which_touch_t>> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
-  for(auto const& id: taskgraph.get_order()) {
+  for(auto const& id: tids_in_order) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
       // Input nodes have already been provided
@@ -1880,6 +1986,24 @@ order_taskgraph(taskgraph_t const& taskgraph)
   }
 
   return ret;
+}
+
+vector<std::variant<_which_node_t, _which_touch_t>>
+order_taskgraph(taskgraph_t const& taskgraph)
+{
+  return build_tg_ops(taskgraph, taskgraph.get_order());
+}
+
+tuple<
+  vector<std::variant<_which_node_t, _which_touch_t>> ,
+  vector<std::variant<_which_node_t, _which_touch_t>> >
+order_split_taskgraph(taskgraph_t const& taskgraph)
+{
+  auto [inn_order, core_order] = taskgraph.get_input_core_order();
+  return {
+    build_tg_ops(taskgraph, inn_order),
+    build_tg_ops(taskgraph, core_order)
+  };
 }
 
 vector<tuple<int, _which_touch_t>> get_which_touches_from(

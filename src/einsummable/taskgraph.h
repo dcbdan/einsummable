@@ -109,6 +109,8 @@ struct taskgraph_t {
   //  because things can get added to partialize ops)
   vector<int> get_order() const;
 
+  tuple<vector<int>, vector<int>> get_input_core_order() const;
+
   // If a taskgraph node has zero outputs, it better be a save.
   // Return whether or not this holds for all nodes
   bool all_zero_outs_is_save() const;
@@ -438,6 +440,6 @@ struct multiple_placement_t {
 
 multiple_placement_t construct_refinement_placement(
   graph_t const& graph,
-  int gid, 
+  int gid,
   std::function<placement_t const&(int)> get_placement);
 

@@ -2357,6 +2357,50 @@ vector<int> taskgraph_t::get_order() const {
   return ret;
 }
 
+tuple<vector<int>, vector<int>>
+taskgraph_t::get_input_core_order() const
+{
+  auto is_inputable = [](op_t const& op) {
+    if(op.is_input()) {
+      return true;
+    } else if(op.is_partialize()) {
+      auto const& p = op.get_partialize();
+      return !p.does_agg();
+    } else if(op.is_move()) {
+      return true;
+    } else if(op.is_apply()) {
+      return false;
+    } else {
+      throw std::runtime_error("should not reach: is_inputable");
+    }
+  };
+
+  vector<int> inn_order;
+  vector<int> core_order;
+  set<int> inside_inn_order;
+  for(int const& id: get_order()) {
+    auto const& node = nodes[id];
+    if(is_inputable(node.op)) {
+      bool success = true;
+      for(int const& inn: node.op.inputs()) {
+        if(inside_inn_order.count(inn) == 0) {
+          success = false;
+          break;
+        }
+      }
+      if(success) {
+        inn_order.push_back(id);
+        inside_inn_order.insert(id);
+      } else {
+        core_order.push_back(id);
+      }
+    } else {
+      core_order.push_back(id);
+    }
+  }
+  return {inn_order, core_order};
+}
+
 bool taskgraph_t::all_zero_outs_is_save() const {
   for(auto const& node: nodes) {
     if(node.outs.size() == 0) {
