@@ -33,7 +33,8 @@ relationwise3_t::relationwise3_t(
   int nls,
   uint64_t fpbm,
   graph_t const& g,
-  vector<partition_t> const& parts)
+  vector<partition_t> const& parts,
+  bool set_inputs_everywhere)
   : nlocs(nls), flops_per_byte_moved(fpbm), graph(g)
 {
   std::function<partition_t const&(int)> get_partition =
@@ -84,6 +85,31 @@ relationwise3_t::relationwise3_t(
 
     twolayer_insert_refi_outs_from_join_deps(
       graph, gid, ginfo.joins, get_refis);
+  }
+
+  if(set_inputs_everywhere) {
+    for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+      auto const& node = graph.nodes[gid];
+      if(node.op.is_input()) {
+        auto& ginfo = ginfos[gid];
+        int l = 0;
+        for(int& loc: ginfo.locations) {
+          loc = l;
+          l = (l + 1) % nlocs;
+        }
+
+        if(ginfo.has_refinement()) {
+          set<int> all_locs;
+          for(int l = 0; l != nlocs; ++l) {
+            all_locs.insert(l);
+          }
+
+          vector<set<int>>& refi_locs = ginfo.rinfo.value().locations;
+          int nbid = refi_locs.size();
+          refi_locs = vector<set<int>>(nbid, all_locs);
+        }
+      }
+    }
   }
 }
 
@@ -370,19 +396,6 @@ solve_refi(
     }
   }
 
-  DOUT("solving refi " << rid);
-  for(int i = 0; i != 4; ++i) {
-    rid_t rid0{0,i};
-    set<int> locs_ = ret.value().get_refi_locs(rid0);
-    vector<int> locs(locs_.begin(), locs_.end());
-    DOUT("  " << rid0 << ": " << locs);
-  }
-  //for(auto const& [rid, loc]: ret.value().refi_locs) {
-  //  if(rid.gid == 0) {
-  //    DOUT("  " << rid << ": " << vector<int>(loc.begin(), loc.end()));
-  //  }
-  //}
-
   return ret.value();
 }
 
@@ -456,28 +469,7 @@ vector<placement_t> autolocate_bipartite(
     }
   }
 
-  // TODO: remove this check
-  auto ret = rw.get_placements();
-  for(auto const& pl: ret) {
-    for(auto const& loc: pl.locations.get()) {
-      if(loc < 0) {
-        throw std::runtime_error("not all locations have been set");
-      }
-    }
-  }
-
-  // TODO: remove this print
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& pl = ret[gid];
-    vector<int> cnts(nlocs, 0);
-    for(int const& loc: pl.locations.get()) {
-      cnts[loc]++;
-    }
-    DOUT(gid << ": locs = " << pl.locations.get());
-    //DOUT(gid << ": " << cnts); // pl.locations.get());
-  }
-
-  return ret;
+  return rw.get_placements();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -669,26 +661,6 @@ vector<placement_t> autolocate_agg_at_a_time_from_inns_v2(
     }
   }
 
-  // TODO: remove this check
-  auto ret = rw.get_placements();
-  for(auto const& pl: ret) {
-    for(auto const& loc: pl.locations.get()) {
-      if(loc < 0) {
-        throw std::runtime_error("not all locations have been set");
-      }
-    }
-  }
-
-  // TODO: remove this print
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& pl = ret[gid];
-    vector<int> cnts(nlocs, 0);
-    for(int const& loc: pl.locations.get()) {
-      cnts[loc]++;
-    }
-    DOUT(gid << ": " << cnts); // pl.locations.get());
-  }
-
-  return ret;
+  return rw.get_placements();
 }
 

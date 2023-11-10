@@ -4,8 +4,10 @@ relationwise2_t::relationwise2_t(
   int nls,
   uint64_t fpbm,
   graph_t const& g,
-  vector<partition_t> const& parts)
-  : nlocs(nls), flops_per_byte_moved(fpbm), graph(g)
+  vector<partition_t> const& parts,
+  bool everywhere)
+  : nlocs(nls), flops_per_byte_moved(fpbm), graph(g),
+    set_inputs_everywhere(everywhere)
 {
   std::function<partition_t const&(int)> get_partition =
     [&parts](int gid) -> partition_t const&
@@ -194,6 +196,12 @@ vector<uint64_t> relationwise2_t::cost_agg_plan(
       set<rid_t> const& rids = inns_per_loc[l];
 
       for(auto const& rid: rids) {
+        auto const& inn_node = graph.nodes[rid.gid];
+        if(inn_node.op.is_input() && set_inputs_everywhere) {
+          // we assume it is free for all inputs to be everywhere
+          continue;
+        }
+
         set<int> refi_usage_locs = get_refi_usage_locs(rid);
         if(refi_usage_locs.count(l) != 0) {
           // this input was already at the site from a previous
@@ -375,15 +383,5 @@ vector<placement_t> autolocate_agg_at_a_time_from_inns(
     }
   }
 
-  auto ret = rw.get_placements();
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& pl = ret[gid];
-    vector<int> cnts(nlocs, 0);
-    for(int const& loc: pl.locations.get()) {
-      cnts[loc]++;
-    }
-    DOUT(gid << ": " << cnts); // pl.locations.get());
-  }
-
-  return ret;
+  return rw.get_placements();
 }

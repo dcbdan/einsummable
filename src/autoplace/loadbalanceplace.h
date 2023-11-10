@@ -70,6 +70,5 @@ struct agg_plan_t {
   int eloc;
 };
 
-
 vector<agg_plan_t> gen_agg_plans(int nloc, int nagg);
 

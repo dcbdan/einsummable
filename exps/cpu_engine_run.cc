@@ -172,6 +172,13 @@ void _print_pl_info(
   auto [_0, _1, taskgraph] =
     taskgraph_t::make(graph, placements);
 
+  int nlocs = 1;
+  for(auto const &pl: placements) {
+    for(auto const& l: pl.locations.get()) {
+      nlocs = std::max(nlocs, l+1);
+    }
+  }
+
   if(msg.size() < 45) {
     msg.resize(45, ' ');
   }
@@ -213,13 +220,19 @@ void _print_pl_info(
       << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB, "
       << to_mb(core_total) << "MB");
 
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& pl = placements[gid];
-    uint64_t const& tensor_move_cost = tensor_move_costs[gid];
-    //DOUT(gid << ": " << double(tensor_move_cost)/1e6
-    //  );
-    //  << " " << pl.locations.get());
-  }
+  ///////
+  //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //  auto const& pl = placements[gid];
+
+  //  vector<int> cnts(nlocs, 0);
+  //  for(int const& loc: pl.locations.get()) {
+  //    cnts[loc]++;
+  //  }
+
+  //  DOUT(gid << ": " << cnts << "  " << pl.locations.get());
+  //}
+  //DOUT("");
+  //DOUT("");
 }
 
 vector<placement_t> autoplace(
@@ -246,130 +259,26 @@ vector<placement_t> autoplace(
   }
 
   //{
-  //  uint64_t flops_per_byte_moved = 1;
-  //  auto ret = autolocate_bipartite(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("bipartite 1", graph, ret);
-  //}
-  //{
-  //  uint64_t flops_per_byte_moved = 10;
-  //  auto ret = autolocate_bipartite(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("bipartite 10", graph, ret);
-  //}
-  //{
   //  uint64_t flops_per_byte_moved = 100;
   //  auto ret = autolocate_bipartite(
   //    graph, parts, world_size, flops_per_byte_moved);
   //  _print_pl_info("bipartite 100", graph, ret);
   //}
-  //{
-  //  uint64_t flops_per_byte_moved = 1000;
-  //  auto ret = autolocate_bipartite(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("bipartite 1000", graph, ret);
-  //}
-  //{
-  //  uint64_t flops_per_byte_moved = 10000;
-  //  auto ret = autolocate_bipartite(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("bipartite 10000", graph, ret);
-  //}
 
   //{
-  //  gremlin_t gremlin("v2");
   //  uint64_t flops_per_byte_moved = 100;
   //  auto ret = autolocate_agg_at_a_time_from_inns_v2(
   //    graph, parts, world_size, flops_per_byte_moved);
   //  _print_pl_info("v2 100", graph, ret);
   //}
 
-  //{
-  //  auto ret = load_balanced_placement(graph, parts, world_size, false);
-  //  _print_pl_info("from inputs", graph, ret);
-  //}
-
-  //{
-  //  auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
-  //  _print_pl_info("from outputs", graph, ret);
-  //}
-
-  //{
-  //  auto ret = autolocate(graph, parts, world_size);
-  //  _print_pl_info("a-locate", graph, ret);
-  //}
-
-  //DOUT("");
-
   {
-    gremlin_t gremlin("agg-at-a-time");
     uint64_t flops_per_byte_moved = 100;
     auto ret = autolocate_agg_at_a_time_from_inns(
       graph, parts, world_size, flops_per_byte_moved);
     _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
+    return ret;
   }
-
-  //{
-  //  uint64_t flops_per_byte_moved = 1000;
-  //  auto ret = autolocate_agg_at_a_time_from_inns(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time-from-inns 1000", graph, ret);
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 10000;
-  //  auto ret = autolocate_agg_at_a_time_from_inns(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time-from-inns 10000", graph, ret);
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 100000;
-  //  auto ret = autolocate_agg_at_a_time_from_inns(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time-from-inns 100000", graph, ret);
-  //}
-
-  //DOUT("");
-
-  //{
-  //  uint64_t flops_per_byte_moved = 100;
-  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time 100", graph, ret);
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 1000;
-  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time 1000", graph, ret);
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 10000;
-  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time 10000", graph, ret);
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 100000;
-  //  auto ret = autolocate_agg_at_a_time(graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("agg-at-a-time 100000", graph, ret);
-  //}
-
-  auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
-  return ret;
-
-  //auto ret1 = load_balanced_placement(graph, parts, world_size, false);
-  //auto cost1 = vector_sum(compute_tensor_move_costs(graph, placements));
-
-  //auto ret2 = load_balanced_placement_from_outs(graph, parts, world_size, false);
-  //auto cost2 = vector_sum(compute_tensor_move_costs(graph, placements));
-
-  //if(cost1 < cost2) {
-  //  return ret1;
-  //} else {
-  //  return ret2;
-  //}
 }
 
 using tensor_t     = graph_writer_t::tensor_t;

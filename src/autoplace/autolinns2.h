@@ -27,7 +27,8 @@ struct relationwise3_t {
     int nlocs,
     uint64_t flops_per_byte_moved,
     graph_t const& graph,
-    vector<partition_t> const& parts);
+    vector<partition_t> const& parts,
+    bool set_inputs_everywhere = true);
 
   vector<placement_t> get_placements() const;
   placement_t get_placement_at(int gid) const;
