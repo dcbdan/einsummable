@@ -110,6 +110,7 @@ struct taskgraph_t {
   vector<int> get_order() const;
 
   tuple<vector<int>, vector<int>> get_input_core_order() const;
+  set<int> get_input_everywhere_ids() const;
 
   // If a taskgraph node has zero outputs, it better be a save.
   // Return whether or not this holds for all nodes

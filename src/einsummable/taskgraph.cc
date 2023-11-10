@@ -2401,6 +2401,12 @@ taskgraph_t::get_input_core_order() const
   return {inn_order, core_order};
 }
 
+set<int> taskgraph_t::get_input_everywhere_ids() const
+{
+  auto [ids, _] = get_input_core_order();
+  return set<int>(ids.begin(), ids.end());
+}
+
 bool taskgraph_t::all_zero_outs_is_save() const {
   for(auto const& node: nodes) {
     if(node.outs.size() == 0) {

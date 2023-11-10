@@ -376,10 +376,11 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
   auto [mem_sizes, full_data_locs, which_storage] =
     recv_make_mg_info();
 
-  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
-    memgraph_t::make(
+  auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
+    memgraph_t::make_(
       taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, true);
+      full_data_locs, alloc_settings, true, true);
+  memgraph_t const& inputs_everywhere_mg = inputs_everywhere_mg_.value();
 
   //{
   //  std::ofstream f("mg.gv");
@@ -397,10 +398,21 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
 
   storage_remap_server(storage_remaps);
 
-  comm.broadcast_string(memgraph.to_wire());
+  int n_mg = bool(inputs_everywhere_mg_) ? 2 : 1;
+  comm.broadcast_contig_obj(n_mg);
 
-  comm.barrier();
-  execute_memgraph(memgraph, false);
+  if(inputs_everywhere_mg_) {
+    auto const& mg = inputs_everywhere_mg_.value();
+    comm.broadcast_string(mg.to_wire());
+    comm.barrier();
+    execute_memgraph(mg, true);
+  }
+
+  {
+    comm.broadcast_string(core_mg.to_wire());
+    comm.barrier();
+    execute_memgraph(core_mg, false);
+  }
 
   rewrite_data_locs_server(out_tg_to_loc);
 }
@@ -410,10 +422,12 @@ void server_mg_base_t::execute_tg_client() {
 
   storage_remap_client();
 
-  memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
-
-  comm.barrier();
-  execute_memgraph(memgraph, false);
+  int n_mg = comm.recv_int(0);
+  for(int i = 0; i != n_mg; ++i) {
+    memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
+    comm.barrier();
+    execute_memgraph(memgraph, false);
+  }
 
   rewrite_data_locs_client();
 }

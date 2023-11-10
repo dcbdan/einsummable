@@ -29,7 +29,7 @@ vector<placement_t> autoplace(
   parts_space_t space = parts_space_t::contraction,
   bool double_workers = false);
 
-void main_(int argc, char** argv) {
+void main0(int argc, char** argv) {
   if(argc < 4) {
     usage();
     throw std::runtime_error("provide addr_zero is_client world_size");
@@ -43,7 +43,7 @@ void main_(int argc, char** argv) {
 
   // TODO: how to pick num_channels and num channels per move?
   int num_channels = 8;
-  int num_channels_per_move = 4;
+  int num_channels_per_move = 2;
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
@@ -118,7 +118,7 @@ void main_(int argc, char** argv) {
         if(node.op.is_input()) {
           auto const& input = node.op.get_input();
           dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-          tensor.random("-0.01", "0.01");
+          tensor.random("-0.001", "0.001");
           //tensor.ones();
           server.insert_tensor(gid, pls[gid], tensor);
         }
@@ -126,6 +126,13 @@ void main_(int argc, char** argv) {
 
       // execute
       server.execute_graph(graph, pls);
+
+      //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+      //  auto const& node = graph.nodes[gid];
+      //  if(node.op.is_save()) {
+      //    DOUT(server.get_tensor_from_gid(gid).sum_to_f64());
+      //  }
+      //}
     }
 
     server.shutdown();
@@ -134,7 +141,7 @@ void main_(int argc, char** argv) {
   }
 }
 
-int main(int argc, char** argv) {
+void main1(int argc, char** argv) {
   args_t args(argc, argv);
   int world_size = args.get<int>("world_size");
   int num_threads = args.get<int>("num_threads_per");
@@ -169,19 +176,43 @@ void _print_pl_info(
     msg.resize(45, ' ');
   }
 
-  int num_msgs = 0;
-  uint64_t num_bytes = 0;
-  for(auto const& node: taskgraph.nodes) {
+  int num_input_msgs = 0;
+  uint64_t num_input_bytes = 0;
+  int num_core_msgs = 0;
+  uint64_t num_core_bytes = 0;
+  set<int> inputs_everywhere = taskgraph.get_input_everywhere_ids();
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
     if(node.op.is_move()) {
-      num_msgs++;
-      num_bytes += node.op.get_move().size;
+      uint64_t sz = node.op.get_move().size;
+      if(inputs_everywhere.count(tid) > 0) {
+        num_input_msgs++;
+        num_input_bytes += sz;
+      } else {
+        num_core_msgs++;
+        num_core_bytes += sz;
+      }
     }
   }
+
   vector<uint64_t> tensor_move_costs = compute_tensor_move_costs(graph, placements);
-  uint64_t tensor_move_bytes_total = vector_sum(tensor_move_costs);
-  DOUT("(" << msg << ") taskgraph with " << num_msgs << " moves, "
-    << double(num_bytes)/1e6 << " MB bytes moved");
-    //<< double(tensor_move_bytes_total)/1e6 << " MB from tensor move");
+  uint64_t input_total = 0;
+  uint64_t core_total = 0;
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      input_total += tensor_move_costs[gid];
+    } else {
+      core_total += tensor_move_costs[gid];
+    }
+  }
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("(" << msg << ") input "
+      << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
+      << to_mb(input_total) << "MB | core "
+      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB, "
+      << to_mb(core_total) << "MB");
+
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& pl = placements[gid];
     uint64_t const& tensor_move_cost = tensor_move_costs[gid];
@@ -199,10 +230,12 @@ vector<placement_t> autoplace(
   bool double_workers)
 {
   int multiplier = double_workers ? 2 : 1 ;
+  gremlin_t* gremlin_parts = new gremlin_t("parts");
   auto parts = autopartition_for_bytes(
     graph,
     multiplier * world_size * num_threads_per,
     space);
+  delete gremlin_parts;
 
   DOUT(" partition cost " << double(autopartition_for_bytes_cost(graph, parts)) / 1e9);
 
@@ -212,30 +245,64 @@ vector<placement_t> autoplace(
     DOUT("printed g.gv");
   }
 
-  {
-    uint64_t flops_per_byte_moved = 100;
-    auto ret = autolocate_bipartite(
-      graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("bipartite 100", graph, ret);
-  }
-  {
-    auto ret = load_balanced_placement(graph, parts, world_size, false);
-    _print_pl_info("from inputs", graph, ret);
-  }
+  //{
+  //  uint64_t flops_per_byte_moved = 1;
+  //  auto ret = autolocate_bipartite(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("bipartite 1", graph, ret);
+  //}
+  //{
+  //  uint64_t flops_per_byte_moved = 10;
+  //  auto ret = autolocate_bipartite(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("bipartite 10", graph, ret);
+  //}
+  //{
+  //  uint64_t flops_per_byte_moved = 100;
+  //  auto ret = autolocate_bipartite(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("bipartite 100", graph, ret);
+  //}
+  //{
+  //  uint64_t flops_per_byte_moved = 1000;
+  //  auto ret = autolocate_bipartite(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("bipartite 1000", graph, ret);
+  //}
+  //{
+  //  uint64_t flops_per_byte_moved = 10000;
+  //  auto ret = autolocate_bipartite(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("bipartite 10000", graph, ret);
+  //}
 
-  {
-    auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
-    _print_pl_info("from outputs", graph, ret);
-  }
+  //{
+  //  gremlin_t gremlin("v2");
+  //  uint64_t flops_per_byte_moved = 100;
+  //  auto ret = autolocate_agg_at_a_time_from_inns_v2(
+  //    graph, parts, world_size, flops_per_byte_moved);
+  //  _print_pl_info("v2 100", graph, ret);
+  //}
 
-  {
-    auto ret = autolocate(graph, parts, world_size);
-    _print_pl_info("a-locate", graph, ret);
-  }
+  //{
+  //  auto ret = load_balanced_placement(graph, parts, world_size, false);
+  //  _print_pl_info("from inputs", graph, ret);
+  //}
+
+  //{
+  //  auto ret = load_balanced_placement_from_outs(graph, parts, world_size, false);
+  //  _print_pl_info("from outputs", graph, ret);
+  //}
+
+  //{
+  //  auto ret = autolocate(graph, parts, world_size);
+  //  _print_pl_info("a-locate", graph, ret);
+  //}
 
   //DOUT("");
 
   {
+    gremlin_t gremlin("agg-at-a-time");
     uint64_t flops_per_byte_moved = 100;
     auto ret = autolocate_agg_at_a_time_from_inns(
       graph, parts, world_size, flops_per_byte_moved);
@@ -387,4 +454,8 @@ graph_t build_graph(args_t& args)
   } else {
     throw std::runtime_error("invalid graph");
   }
+}
+
+int main(int argc, char** argv) {
+  main0(argc, argv);
 }
