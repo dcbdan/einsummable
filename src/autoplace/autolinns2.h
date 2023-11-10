@@ -111,7 +111,7 @@ struct builder_t {
 
   // Recursively get this join at this location. If this join was already set,
   // return the previous location
-  int jid_at(jid_t const& jid, int loc);
+  int jid_at(jid_t const& jid, int loc, bool assert_ = false);
 
   // recursively make updates so that this rid has this loc
   void rid_at(rid_t const& rid, int loc);
@@ -126,6 +126,12 @@ struct builder_t {
 };
 
 vector<placement_t> autolocate_bipartite(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved);
+
+vector<placement_t> autolocate_agg_at_a_time_from_inns_v2(
   graph_t const& graph,
   vector<partition_t> const& parts,
   int nlocs,

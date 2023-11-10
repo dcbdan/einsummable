@@ -375,5 +375,15 @@ vector<placement_t> autolocate_agg_at_a_time_from_inns(
     }
   }
 
-  return rw.get_placements();
+  auto ret = rw.get_placements();
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& pl = ret[gid];
+    vector<int> cnts(nlocs, 0);
+    for(int const& loc: pl.locations.get()) {
+      cnts[loc]++;
+    }
+    DOUT(gid << ": " << cnts); // pl.locations.get());
+  }
+
+  return ret;
 }

@@ -52,12 +52,6 @@ struct relationwise2_t {
     return ginfos[jid.gid].joins[jid.bid];
   }
 
-  void solve_cost_form(
-    vector<uint64_t>& cost_per_site,
-    set<jid_t>& jids,
-    rid_t const& rid,
-    int loc);
-
   int const nlocs;
   uint64_t const flops_per_byte_moved;
   graph_t const& graph;
