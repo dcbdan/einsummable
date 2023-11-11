@@ -456,5 +456,5 @@ graph_t build_graph(args_t& args)
 }
 
 int main(int argc, char** argv) {
-  main1(argc, argv);
+  main0(argc, argv);
 }
