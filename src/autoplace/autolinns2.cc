@@ -617,6 +617,7 @@ vector<placement_t> autolocate_agg_at_a_time_from_inns_v2(
       }
     }
 
+    // TODO: if inputs everywhere, this don't matter
     if(new_inn_gids.size() > 0) {
       optional<builder_t> best_builder;
       auto inn_plans = gen_inn_plans(rw, new_inn_gids);

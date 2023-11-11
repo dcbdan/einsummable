@@ -28,6 +28,8 @@ struct partition_t {
 
   vtensor_t<uint64_t> all_block_sizes() const;
 
+  uint64_t max_block_size() const;
+
   uint64_t block_size_at_bid(int bid) const;
 
   partition_t subset(vector<tuple<int, int>> const& region) const;

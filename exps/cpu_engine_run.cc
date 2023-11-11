@@ -13,6 +13,8 @@
 #include "../src/autoplace/autolinns.h"
 #include "../src/autoplace/autolinns2.h"
 
+#include "../llama/modules.h"
+
 #include <fstream>
 
 void usage() {
@@ -26,6 +28,7 @@ vector<placement_t> autoplace(
   graph_t const& graph,
   int world_size,
   int num_threads_per,
+  int max_branching = 1,
   parts_space_t space = parts_space_t::contraction,
   bool double_workers = false);
 
@@ -104,10 +107,13 @@ void main0(int argc, char** argv) {
     args.set_default("double_workers", false);
     bool double_workers = args.get<bool>("double_workers");
 
+    args.set_default("max_branching", int(1));
+    int max_branching = args.get<int>("max_branching");
+
     // execute this
     graph_t graph = build_graph(args);
     vector<placement_t> pls = autoplace(
-      graph, world_size, num_threads, space, double_workers);
+      graph, world_size, num_threads, max_branching, space, double_workers);
 
     args.set_default<int>("nrep", 1);
     int nrep = args.get<int>("nrep");
@@ -158,10 +164,15 @@ void main1(int argc, char** argv) {
     space = parts_space_t::all_range;
   }
 
+  args.set_default("max_branching", int(1));
+  int max_branching = args.get<int>("max_branching");
+
   DLINEOUT("world size      : " << world_size);
   DLINEOUT("num threads per : " << num_threads);
+  DLINEOUT("max branching   : " << max_branching);
+
   graph_t graph = build_graph(args);
-  vector<placement_t> pls = autoplace(graph, world_size, num_threads, space);
+  vector<placement_t> pls = autoplace(graph, world_size, num_threads, max_branching, space);
 }
 
 void _print_pl_info(
@@ -239,6 +250,7 @@ vector<placement_t> autoplace(
   graph_t const& graph,
   int world_size,
   int num_threads_per,
+  int max_branching,
   parts_space_t space,
   bool double_workers)
 {
@@ -247,6 +259,7 @@ vector<placement_t> autoplace(
   auto parts = autopartition_for_bytes(
     graph,
     multiplier * world_size * num_threads_per,
+    max_branching,
     space);
   delete gremlin_parts;
 
@@ -280,10 +293,6 @@ vector<placement_t> autoplace(
     return ret;
   }
 }
-
-using tensor_t     = graph_writer_t::tensor_t;
-using full_dim_t   = graph_writer_t::full_dim_t;
-using full_shape_t = graph_writer_t::full_shape_t;
 
 graph_t build_matmul(uint64_t ni, uint64_t nj, uint64_t nk) {
   graph_writer_t writer;
@@ -325,6 +334,69 @@ graph_t make_graph_ff(
   return writer.get_graph();
 }
 
+graph_t make_graph_attention(model_args_t const& args)
+{
+  graph_writer_t writer;
+
+  set_default_dtype(dtype_t::f32);
+
+  full_shape_t embedding_shape({
+    full_dim_t::singleton(args.batch_size),
+    full_dim_t::singleton(args.max_seq_len),
+    args.full_dim()
+  });
+
+  full_shape_t kqv_shape({ args.full_dim(), args.full_dim() });
+
+  tensor_t x = writer.input(embedding_shape);
+
+  tensor_t wq = writer.input(kqv_shape);
+  tensor_t wk = writer.input(kqv_shape);
+  tensor_t wv = writer.input(kqv_shape);
+  tensor_t wo = writer.input(kqv_shape);
+
+  tensor_t xq = writer.matmul(x, wq.transpose(0,1));
+  tensor_t xk = writer.matmul(x, wk.transpose(0,1));
+  tensor_t xv = writer.matmul(x, wv.transpose(0,1));
+
+  vector<uint64_t> full_xshape = {
+    args.batch_size, args.max_seq_len, args.n_heads, args.head_dim()
+  };
+
+  xq = xq.view_full(full_xshape);
+  xk = xk.view_full(full_xshape);
+  xv = xv.view_full(full_xshape);
+
+  tensor_t keys = xk;
+  tensor_t values = xv;
+
+  xq = xq.transpose(1, 2);
+  keys = keys.transpose(1, 2);
+  values = values.transpose(1, 2);
+
+  scalarop_t scale = scalarop_t::make_scale(
+    scalar_t(default_dtype(), write_with_ss(
+      1.0 / (std::sqrt(double(1.0) * args.head_dim()))
+    ))
+  );
+
+  tensor_t scores;
+  scores = writer.matmul(xq, keys.transpose(2, 3));
+  scores = writer.ew(scale, scores);
+
+  scores = writer.softmax(scores);
+
+  tensor_t output;
+  output = writer.matmul(scores, values);
+  output = output.transpose(1, 2);
+
+  output = output.view(embedding_shape);
+
+  output = writer.matmul(output, wo.transpose(0,1)).save();
+
+  return writer.get_graph();
+}
+
 uint64_t compute_hidden(
   uint64_t dim,
   uint64_t multiple_of)
@@ -360,11 +432,29 @@ graph_t build_graph(args_t& args)
 
     uint64_t hidden = compute_hidden(dim, multiple_of);
     return make_graph_ff(batch * seqlen, hidden, dim) ;
+  } else if(args.get<string>("graph") == "attention") {
+    args.set_default("batch", uint64_t(1));
+    args.set_default("model", "7B");
+    string model = args.get<string>("model");
+    uint64_t batch = args.get<uint64_t>("batch");
+    model_args_t margs;
+    if(model == "7B") {
+      margs = model_args_t::llama_7B(batch);
+    } else if(model == "13B") {
+      margs = model_args_t::llama_13B(batch);
+    } else if(model == "30B") {
+      margs = model_args_t::llama_30B(batch);
+    } else if(model == "65B") {
+      margs = model_args_t::llama_65B(batch);
+    } else {
+      throw std::runtime_error("arg: model incorrect");
+    }
+    return make_graph_attention(margs);
   } else {
     throw std::runtime_error("invalid graph");
   }
 }
 
 int main(int argc, char** argv) {
-  main0(argc, argv);
+  main1(argc, argv);
 }

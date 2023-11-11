@@ -64,6 +64,15 @@ vtensor_t<uint64_t> partition_t::all_block_sizes() const {
 }
 
 inline
+uint64_t partition_t::max_block_size() const {
+  uint64_t ret = 1;
+  for(auto const& pd: partdims) {
+    ret *= pd.max_size();
+  }
+  return ret;
+}
+
+inline
 uint64_t partition_t::block_size_at_bid(int bid) const {
   return product(tensor_shape_at(from_bid(bid)));
 }
