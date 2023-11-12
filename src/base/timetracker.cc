@@ -119,7 +119,7 @@ void timetracker_t::print_intervals(std::ostream& out)
 
 void timetracker_t::print_totals(std::ostream& out)
 {
-  int max_msg_size = _get_max_msg_size(intervals);
+  int max_msg_size = _get_max_msg_size(totals);
   for(auto const& [key_, duration]: totals) {
     string key = _fix_msg(key_, max_msg_size);
     std::cout << key << " " << duration.count() << std::endl;

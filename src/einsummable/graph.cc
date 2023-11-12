@@ -887,8 +887,10 @@ void graph_t::print_graphviz(
     }
     out << "]" << endl;
 
+    int _i = 0;
     for(auto const& inn: node.get_inns_set()) {
-      out << tab << "n" << inn << " -> " << "n" << id << endl;
+      out << tab << "n" << inn << " -> " << "n" << id <<
+        "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
     }
   }
   out << "}" << endl;

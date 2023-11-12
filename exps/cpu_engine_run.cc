@@ -118,6 +118,10 @@ void main0(int argc, char** argv) {
     args.set_default<int>("nrep", 1);
     int nrep = args.get<int>("nrep");
     for(int rep = 0; rep != nrep; ++rep) {
+      if(rep == nrep-1) {
+        get_cpu_kernel_timetracker().clear();
+      }
+
       // initialize input tensors and distribute across the cluster
       for(int gid = 0; gid != graph.nodes.size(); ++gid) {
         auto const& node = graph.nodes[gid];
@@ -142,6 +146,8 @@ void main0(int argc, char** argv) {
     }
 
     server.shutdown();
+
+    get_cpu_kernel_timetracker().print_totals(std::cout);
   } else {
     server.listen();
   }
