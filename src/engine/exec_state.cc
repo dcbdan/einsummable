@@ -45,7 +45,9 @@ void exec_state_t::event_loop() {
       auto iter = ready_to_run.begin();
       while(iter != ready_to_run.end()) {
         int const& id = *iter;
+        DOUT("try to launch " << id);
         if(try_to_launch(id)) {
+          // DOUT("launched " << id);
           ready_to_run.erase(iter);
         } else {
           iter++;

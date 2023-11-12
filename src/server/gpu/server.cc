@@ -63,7 +63,6 @@ void gpu_mg_server_t::execute_memgraph(
       memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems);
   DOUT("Finished making exec graph...");
 
-  std::cout << "EXECUTE MEMGRAPH: CREATING A RESOURCE MANAGER" << std::endl;
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
       rm_ptr_t(new gpu_workspace_manager_t()),

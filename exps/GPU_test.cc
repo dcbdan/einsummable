@@ -94,7 +94,7 @@ memgraph_t taskgraph_to_memgraph(taskgraph_t const& taskgraph) {
       }
 
       // print the memgraph sizes on all gpus
-      std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
+      // std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
 
       check_bounds(memgraph, memgraph.mem_sizes()[i]);
     }
@@ -299,8 +299,8 @@ void mm_test3() {
 }
 
 void engine_1(int argc, char** argv){
-  if (argc != 8) {
-    usage();
+  if (argc != 6) {
+    DOUT("pi pj pk matrix_dimension np");
     return;
   }
 
@@ -312,9 +312,9 @@ void engine_1(int argc, char** argv){
     pj = parse_with_ss<int>(argv[2]);
     pk = parse_with_ss<int>(argv[3]);
     di = parse_with_ss<uint64_t>(argv[4]);
-    dj = parse_with_ss<uint64_t>(argv[5]);
-    dk = parse_with_ss<uint64_t>(argv[6]);
-    np = parse_with_ss<int>(argv[7]);
+    dj = parse_with_ss<uint64_t>(argv[4]);
+    dk = parse_with_ss<uint64_t>(argv[4]);
+    np = parse_with_ss<int>(argv[5]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -349,7 +349,80 @@ void server_1 (int argc, char** argv){
     return;
   }
 
-  server_execute(world_size, matrix_dim, partition);
+  server_execute_mm(world_size, matrix_dim, partition);
+}
+
+// do 3d matmul on the server
+void server_2 (int argc, char** argv){
+  if (argc != 6) {
+    DOUT("pi pj pk matrix_dimension np");
+    return;
+  }
+
+  int pi, pj, pk;
+  uint64_t di, dj, dk;
+  int np;
+  try {
+    pi = parse_with_ss<int>(argv[1]);
+    pj = parse_with_ss<int>(argv[2]);
+    pk = parse_with_ss<int>(argv[3]);
+    di = parse_with_ss<uint64_t>(argv[4]);
+    dj = parse_with_ss<uint64_t>(argv[4]);
+    dk = parse_with_ss<uint64_t>(argv[4]);
+    np = parse_with_ss<int>(argv[5]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    usage();
+    return;
+  }
+
+  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+  auto graph = g.graph;
+  auto pls = g.get_placements();
+  int world_size = 1;
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < world_size; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      // tensor.random("-0.01", "0.01");
+      tensor.ones();
+      DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+  // DOUT("Printing graphviz...")
+  // std::ofstream f("g_multiply.gv");
+  // graph.print_graphviz(f);
+
+  server.execute_graph(graph, pls);
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  server.shutdown();
+
 }
 
 // void server_2(int argc, char** argv){
@@ -432,17 +505,7 @@ void mm_test2() {
 }
 
 int main(int argc, char **argv) {
-//  // main_ff();
-//  // main_matmul(argc, argv);
-//  main_matmul_multi_gpu(argc, argv);
-//  // contractionTest2();
-//  return 0;
-
-  //mm_test3();
-  //mm_test2();
-  //mm_test();
-  // dcb01();
-  server_1(argc, argv);
-  // contractionTest(2, 2, 2);
-  // mm_test2();
+  // server_1(argc, argv);
+  // server_2(argc, argv);
+  engine_1(argc, argv);
 }

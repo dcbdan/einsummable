@@ -1,5 +1,6 @@
 #include "exec_nodes.h"
 #include "../exec_graph.h"
+#include "managers.h"
 #include "workspace.h"
 #include "storage.h"
 #include "stream_pool.h"
@@ -50,13 +51,13 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     mid_to_eid.insert({mid, eid});
   };
 
-  DOUT("Making exec graph...")
-
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     auto const& node = memgraph.nodes[mid];
     if(!node.op.is_local_to_gpu(this_rank, num_gpus_per_node)) {
+      DOUT("Skipping node " << mid << " because it is not local to this gpu")
       continue;
     }
+    // DOUT("Making exec graph for node " << mid);
 
     if(
       node.op.is_inputmem()   ||
@@ -67,7 +68,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
-      DOUT("Inserted dummy op for node " << mid);
+      // DOUT("Inserted dummy op for node " << mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -112,7 +113,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
-        DOUT("Inserted einsummable op for node " << mid);
+        // DOUT("Inserted einsummable op for node " << mid);
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
           gpu_km,
@@ -130,14 +131,21 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
 
         insert(op_ptr_t(op), mid);
-        DOUT("Inserted touch op for node " << mid);
+        // DOUT("Inserted touch op for node " << mid);
       } else {
         throw std::runtime_error("should not reach");
       }
     } else if(node.op.is_move()) {
+      // check if the move is local to this gpu
+      auto const& move = node.op.get_move();
+      auto const& src = move.get_src_loc();
+      auto const& dst = move.get_dst_loc();
+      if (std::floor(src/num_gpus_per_node) != std::floor(dst/num_gpus_per_node)) {
+        throw std::runtime_error("node to node communication not supported yet");
+      }
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
-      DOUT("Inserted copy op for node " << mid);
+      // DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
       throw std::runtime_error("GPU evict not implemented");
     } else if(node.op.is_load()) {
@@ -147,13 +155,16 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     }
   }
   // Debug: print the exec_graph
-  print_exec_graph(graph);
+  // print_exec_graph(graph);
   return graph;
 }
 
 desc_ptr_t
 gpu_einsummable_t::resource_description() const
 {
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  // 3rd: a workspace (if workspace_size > 0)
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc(device));
 
@@ -165,7 +176,6 @@ gpu_einsummable_t::resource_description() const
     workspace_desc.size = workspace_size;
     ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
   }
-  DOUT("Einsummable resource description: " << ret.size() << " resources");
   return resource_manager_t::make_desc(ret);
 }
 
@@ -228,13 +238,17 @@ void gpu_einsummable_t::launch(
 desc_ptr_t
 gpu_touch_t::resource_description() const
 {
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  // 3rd: a group id (if group_id >= 0)
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc());
+
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
   if(group_id >= 0) {
     ret.emplace_back(group_manager_t::make_desc(group_id));
   }
-  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
   return resource_manager_t::make_desc(ret);
 }
@@ -258,7 +272,7 @@ void gpu_touch_t::launch(
 
   bool is_first = false;
   if(group_id >= 0) {
-    tuple<int, bool> const& info = group_manager_t::get_resource(resources[1]);
+    tuple<int, bool> const& info = group_manager_t::get_resource(resources[2]);
     is_first = std::get<1>(info);
   }
 
@@ -271,7 +285,7 @@ void gpu_touch_t::launch(
   // create stream and launch
   cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
-  auto stream = streampool_manager_t::get_resource(resources[2]).stream;
+  auto stream = streampool_manager_t::get_resource(resources[1]).stream;
   gpu_km(
     this_touch,
     stream,
@@ -296,11 +310,14 @@ void gpu_touch_t::launch(
 desc_ptr_t
 gpu_copy_t::resource_description() const
 {
+  // 1st: gpu memory ptrs (this could be one resource or two depending on the design)
+  // 2nd: a stream
   vector<desc_ptr_t> ret;
   auto my_move = move;
   auto [src_loc, src_offset] = my_move.src;
   auto [dst_loc, dst_offset] = my_move.dst;
-  ret.emplace_back(global_buffers_t::make_multi_desc({src_loc, dst_loc}));
+  ret.emplace_back(global_buffers_t::make_desc(src_loc));
+  ret.emplace_back(global_buffers_t::make_desc(dst_loc));
   ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{dst_loc}));
 
   return resource_manager_t::make_desc(ret);
@@ -313,9 +330,8 @@ void gpu_copy_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  auto all_buffers_rsrc = resource_manager_t::get_resource(resources[0]);
-  auto src_buffer = global_buffers_t::get_resource(all_buffers_rsrc[0]);
-  auto dst_buffer = global_buffers_t::get_resource(all_buffers_rsrc[1]);
+  auto src_buffer = global_buffers_t::get_resource(resources[0]);
+  auto dst_buffer = global_buffers_t::get_resource(resources[1]);
 
   auto [src_loc, src_offset] = move.src;
   auto [dst_loc, dst_offset] = move.dst;
@@ -328,14 +344,25 @@ void gpu_copy_t::launch(
     dst_buffer,
     dst_offset);
 
-  cudaSetDevice(dst_loc);
+  cudaSetDevice(src_loc);
+  // auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaStream_t stream = cuda_create_stream();
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
   if (cudaError != cudaSuccess) {
-    // print cpy size
-    fprintf(stderr, "cpy size: %zu\n", move.size);
     // print the error code and error string
     fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
+    // print src and dst loc
+    fprintf(stdout, "src_loc: %d\n", src_loc);
+    fprintf(stdout, "dst_loc: %d\n", dst_loc);
+    // print src and dst buffer
+    fprintf(stdout, "src_buffer: %p\n", src_buffer);
+    fprintf(stdout, "dst_buffer: %p\n", dst_buffer);
+    // print src and dst mem
+    fprintf(stdout, "src_mem: %p\n", src_mem);
+    fprintf(stdout, "dst_mem: %p\n", dst_mem);
+    // print cpy size
+    fprintf(stderr, "cpy size: %zu\n", move.size);
+
     throw std::runtime_error("cudaMemcpy failed");
   }
 }

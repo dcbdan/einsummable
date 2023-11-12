@@ -46,8 +46,6 @@ streampool_manager_t::streampool_manager_t(streampool_t& streampool): stream_poo
 
 optional<streampool_resource_t> streampool_manager_t::
   try_to_acquire_impl(streampool_desc_t const& desc){
-
-  DOUT("STREAM POOL: Trying to get stream on device " << desc.device << " from pool...");
   
   std::unique_lock lk(m);
   int dev = desc.device;
@@ -57,7 +55,6 @@ optional<streampool_resource_t> streampool_manager_t::
   cudaStream_t stream = stream_pools.stream_pools[dev].back();
   stream_pools.stream_pools[dev].pop_back();
 
-  DOUT("STREAM POOL: Got stream on device " << dev << " from pool.");
   return streampool_resource_t(stream, dev);
 }
 

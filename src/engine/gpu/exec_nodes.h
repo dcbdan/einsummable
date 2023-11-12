@@ -17,6 +17,7 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
   uint64_t workspace_size;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 or 3 resources are always needed for an einsummable
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_einsummable"; }
 };
@@ -38,6 +39,7 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
   int device;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 or 3 resources are always needed for a touch
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_touch"; }
 };
@@ -50,6 +52,7 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
   memgraph_t::move_t move;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 resources are always needed for a copy
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_copy"; }
 };
