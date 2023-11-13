@@ -246,7 +246,7 @@ struct compute_cost_t {
             op_block_shape.begin(),
             op_block_shape.begin() + e.out_rank);
           int out_n_blocks = product(out_block_shape);
-          compute_cost += product(e.out_shape()) * (op_n_blocks - out_n_blocks);
+          compute_cost += product(e.out_shape()) / out_n_blocks * (op_n_blocks - out_n_blocks);
         }
 
         // Way 1:
