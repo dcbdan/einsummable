@@ -365,4 +365,18 @@ void gpu_copy_t::launch(
 
     throw std::runtime_error("cudaMemcpy failed");
   }
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_einsummable_t: callback");
 }

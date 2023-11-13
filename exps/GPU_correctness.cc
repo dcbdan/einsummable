@@ -170,8 +170,8 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
 
     cudaSetDevice(0);
     // auto stream = streampool_manager_t::get_resource(resources[2]).stream;
-    cudaStream_t stream = cuda_create_stream();
-    cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, 128, cudaMemcpyDeviceToDevice, stream);
+    // cudaStream_t stream = cuda_create_stream();
+    cudaError_t cudaError = cudaMemcpy(dst_mem, src_mem, 128, cudaMemcpyDeviceToDevice);
     if (cudaError != cudaSuccess) {
       // print cpy size
       fprintf(stderr, "cpy size: %zu\n", 128);
