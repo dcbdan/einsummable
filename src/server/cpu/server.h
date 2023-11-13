@@ -4,6 +4,7 @@
 #include "../base.h"
 
 #include "../../engine/threadpool.h"
+#include "../../engine/exec_state.h"
 
 #include "../../engine/cpu/kernel_executor.h"
 #include "../../engine/cpu/storage.h"
@@ -16,10 +17,12 @@ struct cpu_mg_server_t : server_mg_base_t
     communicator_t& c_,
     uint64_t buffer_size,
     int num_threads,
-    int num_channels_per_move = 1)
+    int num_channels_per_move = 1,
+    exec_state_t::priority_t priority_type = exec_state_t::priority_t::given)
     : server_mg_base_t(c_), mem(make_buffer(buffer_size)),
       threadpool("tp" + write_with_ss(c_.get_this_rank()), num_threads),
-      num_channels_per_move(num_channels_per_move)
+      num_channels_per_move(num_channels_per_move),
+      priority_type(priority_type)
   {
     //if(mlock(mem->data, mem->size) != 0) {
     //  //DOUT(strerror(errno));
@@ -73,5 +76,7 @@ private:
   threadpool_t threadpool;
 
   int num_channels_per_move;
+
+  exec_state_t::priority_t priority_type;
 };
 

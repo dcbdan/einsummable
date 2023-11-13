@@ -16,7 +16,8 @@ int exec_graph_t::insert(
   nodes.push_back(node_t {
     .op = op,
     .inns = inns,
-    .outs = vector<int>{}
+    .outs = vector<int>{},
+    .priority = op->get_priority()
   });
 
   for(auto const& inn: inns) {

@@ -20,6 +20,8 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_einsummable"; }
+
+  int get_priority() const { return 200; }
 };
 
 struct cpu_touch_t : exec_graph_t::op_base_t {

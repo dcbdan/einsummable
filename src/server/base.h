@@ -114,7 +114,7 @@ struct server_mg_base_t : server_base_t {
     communicator_t& c,
     allocator_settings_t s = allocator_settings_t::default_settings())
     : comm(c), alloc_settings(s),
-      make_parallel_partialize_groups_(true),
+      make_parallel_partialize_groups_(false),
       use_storage_(true)
   {}
 

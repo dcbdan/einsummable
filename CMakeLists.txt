@@ -114,7 +114,7 @@ if(${CPU_EXECUTION_ENGINE})
   )
 
   function(add_cpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
+  add_executable(${exec} ${dir}/${filename}.cc llama/modules.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
     proto
@@ -139,6 +139,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpu_engine_server"     "exps" "cpu_engine_server")
   add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
   add_cpu_application("cpu_comm"              "exps" "cpu_comm")
+  add_cpu_application("eventloop"             "exps" "eventloop")
   add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
 
   function(add_cpu_llama_application exec filename)
@@ -148,7 +149,8 @@ if(${CPU_EXECUTION_ENGINE})
       cpu_execution_engine
       proto
       ${Protobuf_LIBRARIES}
-      MKL::MKL)
+      MKL::MKL
+      ucx::ucp ucx::ucs)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu")

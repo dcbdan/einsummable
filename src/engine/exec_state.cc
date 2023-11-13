@@ -1,12 +1,18 @@
 #include "exec_state.h"
 
-exec_state_t::exec_state_t(exec_graph_t const& g, rm_ptr_t r)
-  : exec_graph(g), resource_manager(r)
+exec_state_t::exec_state_t(
+  exec_graph_t const& g,
+  rm_ptr_t r,
+  exec_state_t::priority_t p)
+  : exec_graph(g),
+    resource_manager(r),
+    ready_to_run(this)
 {
   int num_nodes = exec_graph.nodes.size();
 
   num_remaining = num_nodes;
 
+  vector<int> ready_to_run_;
   num_deps_remaining.reserve(num_nodes);
   for(int id = 0; id != num_nodes; ++id) {
     int num_deps = g.nodes[id].inns.size();
@@ -14,17 +20,79 @@ exec_state_t::exec_state_t(exec_graph_t const& g, rm_ptr_t r)
     num_deps_remaining.push_back(num_deps);
 
     if(num_deps == 0) {
-      ready_to_run.push_back(id);
+      ready_to_run_.push_back(id);
     }
+  }
+
+  priorities.reserve(num_nodes);
+  if(p == priority_t::given) {
+    for(auto const& node: exec_graph.nodes) {
+      priorities.push_back(node.priority);
+    }
+  } else if(p == priority_t::bfs) {
+    vector<int> deps = num_deps_remaining;
+    vector<int> order = ready_to_run_;
+    order.reserve(num_nodes); // this prevents iterators from being invalidated
+    for(auto iter = order.begin(); iter != order.end(); ++iter) {
+      int id = *iter;
+      auto const& node = exec_graph.nodes[id];
+      for(auto const& out_id: node.outs) {
+        int& d = deps[out_id];
+        d--;
+        if(d == 0) {
+          order.push_back(out_id);
+        }
+      }
+    }
+    if(order.size() != num_nodes) {
+      throw std::runtime_error("should not happen: bfs");
+    }
+    priorities.resize(num_nodes);
+    for(int idx = 0; idx != num_nodes; ++idx) {
+      int const& id = order[idx];
+      priorities[id] = idx;
+    }
+  } else if(p == priority_t::dfs) {
+    int cnt = 0;
+    priorities.resize(num_nodes);
+    vector<int> deps = num_deps_remaining;
+    vector<int> processing = ready_to_run_;
+    while(processing.size() > 0) {
+      int id = processing.back();
+      processing.pop_back();
+
+      priorities[id] = cnt++;
+
+      auto const& node = exec_graph.nodes[id];
+      for(auto const& out_id: node.outs) {
+        int& d = deps[out_id];
+        d--;
+        if(d == 0) {
+          processing.push_back(out_id);
+        }
+      }
+    }
+  } else if(p == priority_t::random) {
+    for(int id = 0; id != num_nodes; ++id) {
+      priorities.push_back(runif(1000));
+    }
+  } else {
+    throw std::runtime_error("this priority type is not implemented");
+  }
+
+  // only now that the priorites is set can we safely use
+  // ready_to_run as a queue proper
+  for(auto const& id: ready_to_run_) {
+    ready_to_run.push(id);
   }
 }
 
 void exec_state_t::event_loop() {
-  std::queue<int> processing;
+  vector<int> processing;
   while(true) {
     while(processing.size() > 0) {
-      int id = processing.front();
-      processing.pop();
+      int id = processing.back();
+      processing.pop_back();
 
       auto iter = is_running.find(id);
 
@@ -42,17 +110,17 @@ void exec_state_t::event_loop() {
     }
 
     {
-      auto iter = ready_to_run.begin();
-      while(iter != ready_to_run.end()) {
-        int const& id = *iter;
-        DOUT("try to launch " << id);
+      queue_t failed(this);
+      while(ready_to_run.size() > 0) {
+        int id = ready_to_run.top();
+        ready_to_run.pop();
         if(try_to_launch(id)) {
-          // DOUT("launched " << id);
-          ready_to_run.erase(iter);
+          // started id
         } else {
-          iter++;
+          failed.push(id);
         }
       }
+      ready_to_run = failed;
     }
 
     // for each thing in ready to run:
@@ -64,7 +132,7 @@ void exec_state_t::event_loop() {
     cv_notify.wait(lk, [&, this] {
       if(just_completed.size() > 0) {
         processing = just_completed;
-        just_completed = std::queue<int>();
+        just_completed.resize(0);
         return true;
       } else {
         return false;
@@ -79,7 +147,7 @@ void exec_state_t::decrement_outs(int id) {
     int& cnt = num_deps_remaining[out_id];
     cnt--;
     if(cnt == 0) {
-      ready_to_run.push_back(out_id);
+      ready_to_run.push(out_id);
     }
   }
 }
@@ -93,7 +161,7 @@ bool exec_state_t::try_to_launch(int id) {
     auto callback = [this, id] {
       {
         std::unique_lock lk(m_notify);
-        this->just_completed.push(id);
+        this->just_completed.push_back(id);
       }
 
       cv_notify.notify_one();

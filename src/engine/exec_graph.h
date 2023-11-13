@@ -40,6 +40,8 @@ struct exec_graph_t {
     virtual void launch(resource_ptr_t resource, std::function<void()> callback) const = 0;
     virtual desc_ptr_t resource_description() const = 0;
     virtual void print(std::ostream& out) const = 0;
+
+    virtual int get_priority() const { return 100; }
   };
 
   using op_ptr_t = std::shared_ptr<op_base_t>;
@@ -51,6 +53,8 @@ struct exec_graph_t {
 
     vector<int> inns;
     vector<int> outs;
+
+    int priority;
 
     inline desc_ptr_t resource_description() const { return op->resource_description(); }
 
@@ -71,6 +75,8 @@ struct exec_graph_t {
       return resource_manager_t::make_desc(vector<desc_ptr_t>());
     }
     void print(std::ostream& out) const { out << "dummy"; }
+
+    int get_priority() const { return 0; }
   };
 
   // The communicator object, resource manager and knowing when communication can
@@ -123,6 +129,7 @@ struct exec_graph_t {
     void print(std::ostream& out) const {
       out << "notify_recv_ready {id = " << id << "}";
     }
+    int get_priority() const { return 10; }
   };
 
   struct wait_recv_ready_t : op_base_t {
@@ -144,6 +151,8 @@ struct exec_graph_t {
     void print(std::ostream& out) const {
       out << "wait_recv_ready {id = " << id << "}";
     }
+
+    int get_priority() const { return 10; }
   };
 
   // TODO: send and recv need to specify which buffer in global
@@ -178,6 +187,8 @@ struct exec_graph_t {
     void print(std::ostream& out) const {
       out << "send {id = " << id << "}";
     }
+
+    int get_priority() const { return 10; }
   };
 
   struct recv_t : op_base_t {
@@ -205,6 +216,8 @@ struct exec_graph_t {
     void print(std::ostream& out) const {
       out << "recv {id = " << id  << "}";
     }
+
+    int get_priority() const { return 10; }
   };
 };
 

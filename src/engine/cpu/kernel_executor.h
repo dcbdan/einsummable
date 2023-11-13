@@ -3,6 +3,7 @@
 
 #include "../../einsummable/scalarop.h"
 #include "../../einsummable/einsummable.h"
+#include "../../base/timetracker.h"
 
 #include "../touch.h"
 
@@ -231,3 +232,5 @@ void broadcast_b_ab_kernel(
   uint64_t sz_b,
   void* out,
   void const* inn);
+
+timetracker_t& get_cpu_kernel_timetracker();
