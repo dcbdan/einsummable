@@ -22,7 +22,10 @@ void usage() {
   std::cout << "Plus args for graphs\n";
 }
 
-graph_t build_graph(args_t& args);
+tuple<
+  graph_t, 
+  optional<vector<placement_t>>>
+build_graph(args_t& args);
 
 vector<placement_t> autoplace(
   graph_t const& graph,
@@ -45,8 +48,8 @@ void main0(int argc, char** argv) {
   int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
 
   // TODO: how to pick num_channels and num channels per move?
-  int num_channels = 8;
-  int num_channels_per_move = 2;
+  int num_channels = 32;
+  int num_channels_per_move = 1;
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
@@ -111,15 +114,21 @@ void main0(int argc, char** argv) {
     int max_branching = args.get<int>("max_branching");
 
     // execute this
-    graph_t graph = build_graph(args);
-    vector<placement_t> pls = autoplace(
-      graph, world_size, num_threads, max_branching, space, double_workers);
+    auto [graph, maybe_placements] = build_graph(args);
+    vector<placement_t> pls;
+    if(!maybe_placements) {
+      pls = autoplace(
+        graph, world_size, num_threads, max_branching, space, double_workers);
+    } else {
+      pls = maybe_placements.value();
+    }
 
     args.set_default<int>("nrep", 1);
     int nrep = args.get<int>("nrep");
     for(int rep = 0; rep != nrep; ++rep) {
       if(rep == nrep-1) {
         get_cpu_kernel_timetracker().clear();
+        get_timetracker().clear();
       }
 
       // initialize input tensors and distribute across the cluster
@@ -148,6 +157,7 @@ void main0(int argc, char** argv) {
     server.shutdown();
 
     get_cpu_kernel_timetracker().print_totals(std::cout);
+    get_timetracker().print_totals(std::cout);
   } else {
     server.listen();
   }
@@ -177,8 +187,14 @@ void main1(int argc, char** argv) {
   DLINEOUT("num threads per : " << num_threads);
   DLINEOUT("max branching   : " << max_branching);
 
-  graph_t graph = build_graph(args);
-  vector<placement_t> pls = autoplace(graph, world_size, num_threads, max_branching, space);
+  auto [graph, maybe_placements] = build_graph(args);
+  vector<placement_t> pls;
+  if(!maybe_placements) {
+    pls = autoplace(
+      graph, world_size, num_threads, max_branching, space, false);
+  } else {
+    pls = maybe_placements.value();
+  }
 }
 
 void _print_pl_info(
@@ -282,6 +298,7 @@ vector<placement_t> autoplace(
   //  auto ret = autolocate_bipartite(
   //    graph, parts, world_size, flops_per_byte_moved);
   //  _print_pl_info("bipartite 100", graph, ret);
+  //  return ret;
   //}
 
   //{
@@ -413,7 +430,55 @@ uint64_t compute_hidden(
   return ret;
 }
 
-graph_t build_graph(args_t& args)
+partition_t make_split_partition(
+  vector<uint64_t> const& shape,
+  vector<int> const& splits)
+{
+  if(shape.size() != splits.size()) {
+    throw std::runtime_error("invalid inputs: make split");
+  }
+
+  vector<partdim_t> pds;
+  for(int i = 0; i != shape.size(); ++i) {
+    pds.push_back(partdim_t::split(shape[i], splits[i]));
+  }
+  return partition_t(pds);
+}
+
+tuple<graph_t, vector<placement_t>>
+make_einsummable_graph(
+  string str,
+  vector<int> const& splits,
+  vector<uint64_t> const& dims)
+{
+  auto [inns, out_rank] = einsummable_t::parse_str(str);
+  einsummable_t e(dims, inns, out_rank, scalarop_t::make_mul(), castable_t::add);
+  graph_constructor_t g;
+  vector<int> inn_gids;
+  for(int i = 0; i != inns.size(); ++i) {
+    vector<uint64_t> d = e.get_input_from_join(dims,   i);
+    DLINEOUT(d);
+    vector<int>      s = e.get_input_from_join(splits, i);
+    partition_t p = make_split_partition(d, s);
+    inn_gids.push_back(g.insert_input(p));
+  }
+
+  int join = g.insert_einsummable(
+    make_split_partition(dims, splits),
+    e,
+    inn_gids);
+
+  partition_t out_part = make_split_partition(
+    vector<uint64_t>(dims.begin(), dims.begin() + out_rank),
+    vector<int>(splits.begin(), splits.begin() + out_rank));
+
+  int out = g.insert_formation(out_part, join);
+
+  return {g.graph, g.get_placements()};
+}
+
+tuple<graph_t, optional<vector<placement_t>>> 
+build_graph(args_t& args)
 {
   args.set_default("graph", "matmul");
 
@@ -421,10 +486,13 @@ graph_t build_graph(args_t& args)
     args.set_default("ni", uint64_t(10000));
     args.set_default("nj", uint64_t(10000));
     args.set_default("nk", uint64_t(10000));
-    return build_matmul(
-      args.get<uint64_t>("ni"),
-      args.get<uint64_t>("nj"),
-      args.get<uint64_t>("nk"));
+    return {
+      build_matmul(
+        args.get<uint64_t>("ni"),
+        args.get<uint64_t>("nj"),
+        args.get<uint64_t>("nk")),
+      std::nullopt
+    };
   } else if(args.get<string>("graph") == "ff") {
     args.set_default<uint64_t>("batch",       1   );
     args.set_default<uint64_t>("seqlen",      2048);
@@ -437,7 +505,7 @@ graph_t build_graph(args_t& args)
     uint64_t multiple_of = args.get<uint64_t>("multiple_of");
 
     uint64_t hidden = compute_hidden(dim, multiple_of);
-    return make_graph_ff(batch * seqlen, hidden, dim) ;
+    return {make_graph_ff(batch * seqlen, hidden, dim), std::nullopt};
   } else if(args.get<string>("graph") == "attention") {
     args.set_default("batch", uint64_t(1));
     args.set_default("model", "7B");
@@ -455,9 +523,33 @@ graph_t build_graph(args_t& args)
     } else {
       throw std::runtime_error("arg: model incorrect");
     }
-    return make_graph_attention(margs);
+    return {make_graph_attention(margs), std::nullopt};
+  } else if(args.get<string>("graph") == "bmm1") {
+    auto [graph, ps] = make_einsummable_graph(
+      "aebf,cdef->abcd",
+      vector<int>{1,1,8,1,4,1},
+      vector<uint64_t>{1,512,64,128,64,128});
+    return {graph, optional<vector<placement_t>>{ps}};
+  } else if(args.get<string>("graph") == "contraction1") {
+    auto [graph, ps] = make_einsummable_graph(
+      "abef,cdef->abcd",
+      vector<int>{1,1,8,1,1,4},
+      vector<uint64_t>{1,512,64,128,64,128});
+    return {graph, optional<vector<placement_t>>{ps}};
+  } else if(args.get<string>("graph") == "bmm2") {
+    auto [graph, ps] = make_einsummable_graph(
+      "aebf,cdef->abcd",
+      vector<int>{1,1,8,1,1,4},
+      vector<uint64_t>{1,512,32,128,32,128});
+    return {graph, optional<vector<placement_t>>{ps}};
+  } else if(args.get<string>("graph") == "contraction2") {
+    auto [graph, ps] = make_einsummable_graph(
+      "abef,cdef->abcd",
+      vector<int>{1,1,8,1,4,1},
+      vector<uint64_t>{1,512,32,128,32,128});
+    return {graph, optional<vector<placement_t>>{ps}};
   } else {
-    throw std::runtime_error("invalid graph");
+    throw std::runtime_error("invalid graph: " + args.get<string>("graph"));
   }
 }
 

@@ -238,10 +238,12 @@ vector<uint64_t> relationwise2_t::cost_agg_plan(
     for(auto const& src: srcs) {
       if(src != agg_loc) {
         // way 1: the recving side incurs the cost
-        //ret[agg_loc] += flops_per_byte_moved*bytes;
+        ret[agg_loc] += flops_per_byte_moved*bytes;
 
         // way 2: the sending side incurs the cost
         ret[src] += flops_per_byte_moved*bytes;
+
+        // way 3: both..
       }
     }
   }
