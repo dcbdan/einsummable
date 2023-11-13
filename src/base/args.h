@@ -18,6 +18,10 @@ struct args_t {
     : argstrs(make_argstrs(argc-1, argv+1))
   {}
 
+  void insert_arg(string key, string value) {
+    argstrs.insert_or_assign(key, value);
+  }
+
   template <typename T>
   T get(string key) const {
     auto iter_argstrs = argstrs.find(key);

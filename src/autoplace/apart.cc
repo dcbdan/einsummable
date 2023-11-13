@@ -231,12 +231,18 @@ struct compute_cost_t {
         // across the remaining portion of the grid
         {
           for(int i = 0; i != e.inns.size(); ++i) {
+            int const& inn_gid = node.inns[i];
+            uint64_t input_node_correction = 1;
+            if(graph.nodes[inn_gid].op.is_input()) {
+              input_node_correction = 10000;
+            }
+
             vector<int> inn_block_shape = e.get_input_from_join(op_block_shape, i);
             int inn_n_blocks = product(inn_block_shape);
             int multiplier = op_n_blocks / inn_n_blocks;
 
             vector<uint64_t> inn_shape = e.get_input_from_join(e.join_shape, i);
-            compute_cost += product(inn_shape) * multiplier;
+            compute_cost += (product(inn_shape) * multiplier) / input_node_correction;
           }
         }
 
@@ -299,7 +305,13 @@ struct compute_cost_t {
     optional<partition_t> const& maybe_usage_part)
   {
     auto [compute_cost, repart_cost] = cost(gid, join_part, maybe_usage_part);
-    return compute_cost + repart_cost;
+
+    uint64_t input_node_correction = 1;
+    if(graph.nodes[gid].op.is_input()) {
+      input_node_correction = 10000;
+    }
+
+    return compute_cost + repart_cost / input_node_correction;
   }
 
   uint64_t compute_repart_cost(

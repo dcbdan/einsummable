@@ -113,51 +113,61 @@ void main0(int argc, char** argv) {
     args.set_default("max_branching", int(1));
     int max_branching = args.get<int>("max_branching");
 
-    // execute this
-    auto [graph, maybe_placements] = build_graph(args);
-    vector<placement_t> pls;
-    if(!maybe_placements) {
-      pls = autoplace(
-        graph, world_size, num_threads, max_branching, space, double_workers);
-    } else {
-      pls = maybe_placements.value();
-    }
-
     args.set_default<int>("nrep", 1);
     int nrep = args.get<int>("nrep");
-    for(int rep = 0; rep != nrep; ++rep) {
-      if(rep == nrep-1) {
-        get_cpu_kernel_timetracker().clear();
-        get_timetracker().clear();
-      }
 
-      // initialize input tensors and distribute across the cluster
-      for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-        auto const& node = graph.nodes[gid];
-        if(node.op.is_input()) {
-          auto const& input = node.op.get_input();
-          dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-          tensor.random("-0.001", "0.001");
-          //tensor.ones();
-          server.insert_tensor(gid, pls[gid], tensor);
+    vector<tuple<string, string>> run_these {
+      {"attention", "7B"},
+      {"attention", "13B"},
+      {"attention", "65B"},
+      {"attention", "30B"},
+      {"attention", "65B"},
+      {"aff",       "7B"},
+      {"aff",       "13B"},
+      {"aff",       "30B"},
+      {"aff",       "65B"}
+    };
+    for(auto const& [graph_, model_]: run_these) {
+      DLINEOUT(graph_ << " " << model_);
+      args.insert_arg("graph", graph_);
+      args.insert_arg("model", model_);
+
+      // execute this
+      auto [graph, maybe_placements] = build_graph(args);
+      vector<placement_t> pls;
+      if(!maybe_placements) {
+        pls = autoplace(
+          graph, world_size, num_threads, max_branching, space, double_workers);
+      } else {
+        pls = maybe_placements.value();
+      }
+  
+      for(int rep = 0; rep != nrep; ++rep) {
+        // initialize input tensors and distribute across the cluster
+       for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+          auto const& node = graph.nodes[gid];
+          if(node.op.is_input()) {
+            auto const& input = node.op.get_input();
+            dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+            tensor.random("-0.0001", "0.0001");
+            //tensor.ones();
+            server.insert_tensor(gid, pls[gid], tensor);
+          }
         }
+  
+        // execute
+        server.execute_graph(graph, pls);
+  
+        //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+        //  auto const& node = graph.nodes[gid];
+        //  if(node.op.is_save()) {
+        //    DOUT(server.get_tensor_from_gid(gid).sum_to_f64());
+        //  }
+        //}
       }
-
-      // execute
-      server.execute_graph(graph, pls);
-
-      //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-      //  auto const& node = graph.nodes[gid];
-      //  if(node.op.is_save()) {
-      //    DOUT(server.get_tensor_from_gid(gid).sum_to_f64());
-      //  }
-      //}
     }
 
     server.shutdown();
-
-    get_cpu_kernel_timetracker().print_totals(std::cout);
-    get_timetracker().print_totals(std::cout);
   } else {
     server.listen();
   }
@@ -420,6 +430,112 @@ graph_t make_graph_attention(model_args_t const& args)
   return writer.get_graph();
 }
 
+graph_t make_graph_attention_feedforward(model_args_t const& args)
+{
+  graph_writer_t writer;
+
+  set_default_dtype(dtype_t::f32);
+
+  full_shape_t embedding_shape({
+    full_dim_t::singleton(args.batch_size),
+    full_dim_t::singleton(args.max_seq_len),
+    args.full_dim()
+  });
+
+  full_shape_t kqv_shape({ args.full_dim(), args.full_dim() });
+
+  uint64_t hidden_dim = 4 * args.dim;
+  hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
+  hidden_dim =
+    args.multiple_of * ( (hidden_dim + args.multiple_of - 1) / args.multiple_of );
+
+  full_shape_t to_hidden(
+    { full_dim_t::singleton(hidden_dim), args.full_dim() }
+  );
+  full_shape_t to_dim(
+    { args.full_dim(), full_dim_t::singleton(hidden_dim) }
+  );
+
+  tensor_t x = writer.input(embedding_shape);
+  {
+    tensor_t h = x;
+
+    tensor_t wq = writer.input(kqv_shape);
+    tensor_t wk = writer.input(kqv_shape);
+    tensor_t wv = writer.input(kqv_shape);
+    tensor_t wo = writer.input(kqv_shape);
+
+    tensor_t xq = writer.matmul(x, wq.transpose(0,1));
+    tensor_t xk = writer.matmul(x, wk.transpose(0,1));
+    tensor_t xv = writer.matmul(x, wv.transpose(0,1));
+
+    vector<uint64_t> full_xshape = {
+      args.batch_size, args.max_seq_len, args.n_heads, args.head_dim()
+    };
+
+    xq = xq.view_full(full_xshape);
+    xk = xk.view_full(full_xshape);
+    xv = xv.view_full(full_xshape);
+
+    tensor_t keys = xk;
+    tensor_t values = xv;
+
+    xq = xq.transpose(1, 2);
+    keys = keys.transpose(1, 2);
+    values = values.transpose(1, 2);
+
+    scalarop_t scale = scalarop_t::make_scale(
+      scalar_t(default_dtype(), write_with_ss(
+        1.0 / (std::sqrt(double(1.0) * args.head_dim()))
+      ))
+    );
+
+    tensor_t scores;
+    scores = writer.matmul(xq, keys.transpose(2, 3));
+    scores = writer.ew(scale, scores);
+
+    scores = writer.softmax(scores);
+
+    tensor_t output;
+    output = writer.matmul(scores, values);
+    output = output.transpose(1, 2);
+
+    output = output.view(embedding_shape);
+
+    output = writer.matmul(output, wo.transpose(0,1)).save();
+
+    x = writer.add(output,h);
+  }
+
+  {
+    tensor_t h = x;
+
+    tensor_t w1 = writer.input(to_hidden);
+    tensor_t w2 = writer.input(to_dim);
+    tensor_t w3 = writer.input(to_hidden);
+
+    tensor_t w1t = w1.transpose(0,1);
+    tensor_t w2t = w2.transpose(0,1);
+    tensor_t w3t = w3.transpose(0,1);
+  
+    scalarop_t silu = scalarop_t::make_silu(x.get_dtype());
+
+    tensor_t a = writer.ew(silu, writer.matmul(x, w1t));
+
+    tensor_t b = writer.matmul(x, w3t) ;
+
+    tensor_t c = writer.mul(a, b);
+
+    tensor_t output = writer.matmul(c, w2t);
+
+    x = writer.add(output,h);
+  }
+
+  x = x.save();
+
+  return writer.get_graph();
+}
+
 uint64_t compute_hidden(
   uint64_t dim,
   uint64_t multiple_of)
@@ -457,7 +573,6 @@ make_einsummable_graph(
   vector<int> inn_gids;
   for(int i = 0; i != inns.size(); ++i) {
     vector<uint64_t> d = e.get_input_from_join(dims,   i);
-    DLINEOUT(d);
     vector<int>      s = e.get_input_from_join(splits, i);
     partition_t p = make_split_partition(d, s);
     inn_gids.push_back(g.insert_input(p));
@@ -477,11 +592,33 @@ make_einsummable_graph(
   return {g.graph, g.get_placements()};
 }
 
+model_args_t make_model_args(args_t& args) {
+  args.set_default("batch", uint64_t(1));
+  args.set_default("model", "7B");
+  string model = args.get<string>("model");
+  DLINEOUT("model: " << model);
+  uint64_t batch = args.get<uint64_t>("batch");
+  model_args_t margs;
+  if(model == "7B") {
+    margs = model_args_t::llama_7B(batch);
+  } else if(model == "13B") {
+    margs = model_args_t::llama_13B(batch);
+  } else if(model == "30B") {
+    margs = model_args_t::llama_30B(batch);
+  } else if(model == "65B") {
+    margs = model_args_t::llama_65B(batch);
+  } else {
+    throw std::runtime_error("arg: model incorrect");
+  }
+  return margs;
+}
+
 tuple<graph_t, optional<vector<placement_t>>> 
 build_graph(args_t& args)
 {
   args.set_default("graph", "matmul");
 
+  DLINEOUT("graph: " << args.get<string>("graph"));
   if(args.get<string>("graph") == "matmul") {
     args.set_default("ni", uint64_t(10000));
     args.set_default("nj", uint64_t(10000));
@@ -507,23 +644,11 @@ build_graph(args_t& args)
     uint64_t hidden = compute_hidden(dim, multiple_of);
     return {make_graph_ff(batch * seqlen, hidden, dim), std::nullopt};
   } else if(args.get<string>("graph") == "attention") {
-    args.set_default("batch", uint64_t(1));
-    args.set_default("model", "7B");
-    string model = args.get<string>("model");
-    uint64_t batch = args.get<uint64_t>("batch");
-    model_args_t margs;
-    if(model == "7B") {
-      margs = model_args_t::llama_7B(batch);
-    } else if(model == "13B") {
-      margs = model_args_t::llama_13B(batch);
-    } else if(model == "30B") {
-      margs = model_args_t::llama_30B(batch);
-    } else if(model == "65B") {
-      margs = model_args_t::llama_65B(batch);
-    } else {
-      throw std::runtime_error("arg: model incorrect");
-    }
+    model_args_t margs = make_model_args(args);
     return {make_graph_attention(margs), std::nullopt};
+  } else if(args.get<string>("graph") == "aff") {
+    model_args_t margs = make_model_args(args);
+    return {make_graph_attention_feedforward(margs), std::nullopt};
   } else if(args.get<string>("graph") == "bmm1") {
     auto [graph, ps] = make_einsummable_graph(
       "aebf,cdef->abcd",
