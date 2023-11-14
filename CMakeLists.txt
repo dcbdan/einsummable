@@ -140,6 +140,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
   add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
+  add_cpu_application("cpu_ge"                "exps" "cpu_ge")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
