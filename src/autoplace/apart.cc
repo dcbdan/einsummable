@@ -212,6 +212,7 @@ struct compute_cost_t {
   graph_t const& graph;
   std::unordered_map<string, uint64_t> cache;
   bool exact;
+  uint64_t discount_input_factor;
 
   tuple<uint64_t, uint64_t> cost(
     int gid,
@@ -232,17 +233,17 @@ struct compute_cost_t {
         {
           for(int i = 0; i != e.inns.size(); ++i) {
             int const& inn_gid = node.inns[i];
-            uint64_t input_node_correction = 1;
+            uint64_t factor = 1;
             if(graph.nodes[inn_gid].op.is_input()) {
-              input_node_correction = 10000;
+              factor = discount_input_factor;
             }
 
             vector<int> inn_block_shape = e.get_input_from_join(op_block_shape, i);
             int inn_n_blocks = product(inn_block_shape);
-            int multiplier = op_n_blocks / inn_n_blocks;
+            uint64_t multiplier = uint64_t(op_n_blocks / inn_n_blocks);
 
             vector<uint64_t> inn_shape = e.get_input_from_join(e.join_shape, i);
-            compute_cost += (product(inn_shape) * multiplier) / input_node_correction;
+            compute_cost += (product(inn_shape) * multiplier) / factor;
           }
         }
 
@@ -295,6 +296,9 @@ struct compute_cost_t {
 
       repart_cost = compute_repart_cost(out_part, usage_part);
     }
+    if(node.op.is_input()) {
+      repart_cost = repart_cost / discount_input_factor;
+    }
 
     return {compute_cost, repart_cost};
   }
@@ -305,13 +309,7 @@ struct compute_cost_t {
     optional<partition_t> const& maybe_usage_part)
   {
     auto [compute_cost, repart_cost] = cost(gid, join_part, maybe_usage_part);
-
-    uint64_t input_node_correction = 1;
-    if(graph.nodes[gid].op.is_input()) {
-      input_node_correction = 10000;
-    }
-
-    return compute_cost + repart_cost / input_node_correction;
+    return compute_cost + repart_cost;
   }
 
   uint64_t compute_repart_cost(
@@ -653,7 +651,8 @@ vector<partition_t> autopartition_for_bytes(
   compute_cost_t compute_cost {
     .graph = graph,
     .cache = {},
-    .exact = false
+    .exact = false,
+    .discount_input_factor = 100 // TODO: this should be a parameter
   };
   map<int, partition_t> partitions_so_far;
   for(int const& root_id: btrees.dag_order_inns_to_outs()) {
@@ -674,7 +673,9 @@ uint64_t autopartition_for_bytes_cost(
 {
   compute_cost_t compute_cost {
     .graph = graph,
-    .cache = {}
+    .cache = {},
+    .exact = true,
+    .discount_input_factor = 1
   };
 
   auto get_partition = [&](int gid) -> partition_t const& {
