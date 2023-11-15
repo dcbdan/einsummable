@@ -54,9 +54,7 @@ void usage() { DOUT("pi pj pk di dj dk np"); }
 
 
 memgraph_t taskgraph_to_memgraph(taskgraph_t const& taskgraph) {
-  // it could be the case that not all locs are actually used,
-  // for example 1 1 2 100 100 100 88
-  // Here only 2 locs will really be used, not all 88...
+
   int np = taskgraph.num_locs();
 
   // have everyone share the same cache
@@ -387,7 +385,7 @@ void server_2 (int argc, char** argv){
   map<int, tuple<int, buffer_t>> data;
   uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
-  for (int i = 0; i < world_size; ++i){
+  for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
@@ -399,9 +397,9 @@ void server_2 (int argc, char** argv){
     if(node.op.is_input()) {
       auto const& input = node.op.get_input();
       dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-      // tensor.random("-0.01", "0.01");
-      tensor.ones();
-      DOUT(tensor);
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT(tensor);
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
@@ -416,7 +414,7 @@ void server_2 (int argc, char** argv){
     auto const& node = graph.nodes[gid];
     if(node.op.is_save()) {
       dbuffer_t tensor = server.get_tensor_from_gid(gid);
-      DOUT(tensor);
+      // DOUT(tensor);
       //DOUT("gid sum is: " << tensor.sum());
     }
   }
@@ -506,6 +504,6 @@ void mm_test2() {
 
 int main(int argc, char **argv) {
   // server_1(argc, argv);
-  // server_2(argc, argv);
-  engine_1(argc, argv);
+  server_2(argc, argv);
+  // engine_1(argc, argv);
 }

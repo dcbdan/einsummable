@@ -5,6 +5,7 @@
 #include "storage.h"
 #include "stream_pool.h"
 #include "utility.h"
+#include <cuda_runtime_api.h>
 #include <iostream>
 #include <sys/types.h>
 
@@ -183,10 +184,10 @@ void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  DOUT("gpu_einsummable_t::launch: getting resources")
+  // DOUT("gpu_einsummable_t::launch: getting resources")
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
-  DOUT("number of resources: " << resources.size());
+  // DOUT("number of resources: " << resources.size());
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
@@ -207,9 +208,6 @@ void gpu_einsummable_t::launch(
   }
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
-  // create stream and launch
-  // cudaSetDevice(device);
-  // cudaStream_t stream = cuda_create_stream();
   
   gpu_km(
     einsummable,
@@ -219,8 +217,6 @@ void gpu_einsummable_t::launch(
     maybe_workspace);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
-
-  DOUT("gpu_einsummable_t::launch: adding callback");
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
@@ -242,7 +238,7 @@ gpu_touch_t::resource_description() const
   // 2nd: a stream
   // 3rd: a group id (if group_id >= 0)
   vector<desc_ptr_t> ret;
-  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(global_buffers_t::make_desc(device));
 
   ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
@@ -292,6 +288,9 @@ void gpu_touch_t::launch(
     out_mem,
     inn_mem);
 
+  // cudaDeviceSynchronize();
+  // callback();
+
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
   handle_cuda_error(cudaStreamAddCallback(
@@ -305,6 +304,7 @@ void gpu_touch_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_touch_t: callback");
+
 }
 
 desc_ptr_t
@@ -345,8 +345,7 @@ void gpu_copy_t::launch(
     dst_offset);
 
   cudaSetDevice(src_loc);
-  // auto stream = streampool_manager_t::get_resource(resources[2]).stream;
-  cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
   if (cudaError != cudaSuccess) {
     // print the error code and error string
@@ -363,7 +362,7 @@ void gpu_copy_t::launch(
     // print cpy size
     fprintf(stderr, "cpy size: %zu\n", move.size);
 
-    throw std::runtime_error("cudaMemcpy failed");
+    throw std::runtime_error("CudaMemcpy failed");
   }
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
