@@ -28,7 +28,20 @@ vector<string> local_tensor_reader_t::all_names() {
   return ret;
 }
 
-buffer_t local_tensor_reader_t::operator()(string const& tensor_name) {
+buffer_t local_tensor_reader_t::operator()(
+  string const& tensor_name,
+  dtype_t expected_dtype)
+{
+  buffer_t ret = read(tensor_name);
+  if(expected_dtype != dtype_t::f16) {
+    DLINE;
+    return dbuffer_t(dtype_t::f16, ret).copy(expected_dtype).data;
+  } else {
+    return ret;
+  }
+}
+
+buffer_t local_tensor_reader_t::read(string const& tensor_name) {
   while(true) {
     auto maybe_info = read_next_weight_info();
     if(!maybe_info) {
@@ -90,9 +103,13 @@ local_tensor_reader_t::read_next_weight_info() {
 }
 
 tensor_reader_t::tensor_reader_t(
+  communicator_t& comm,
+  std::function<void(map<int, buffer_t> const&)> process,
   int this_rank, int world_size,
-  string const& base_filename, int n)
-  : world_size(world_size), n_total_files(n)
+  string const& base_filename, int n,
+  dtype_t d)
+  : comm(comm), process_data(process), world_size(world_size), n_total_files(n),
+    dtype(d)
 {
   for(int i = this_rank; i < n; i += world_size) {
     string si = write_with_ss(i);
@@ -108,12 +125,12 @@ tensor_reader_t::tensor_reader_t(
 }
 
 relation_t tensor_reader_t::operator()(
-  string register_cmd, mpi_t* mpi, map<int, buffer_t>& data,
+  string register_cmd,
   string const& name,
   vector<uint64_t> const& shape,
   int starting_tid)
 {
-  if(mpi && mpi->this_rank != 0) {
+  if(comm.get_this_rank() != 0) {
     throw std::runtime_error("only rank 0 should be getting the relation");
   }
 
@@ -123,13 +140,13 @@ relation_t tensor_reader_t::operator()(
 
     placement_t pl(partition_t::singleton(shape));
 
-    data.insert({starting_tid, reader(name)});
+    process_data(map<int, buffer_t>{ {starting_tid, reader(name, dtype) } });
 
     vector<int> block_shape(shape.size(), 1);
     vtensor_t<int> tids(block_shape, {starting_tid});
 
     return relation_t {
-      .dtype     = dtype_t::f16,
+      .dtype     = dtype,
       .placement = pl,
       .tids      = tids
     };
@@ -147,47 +164,42 @@ relation_t tensor_reader_t::operator()(
 
   // send the tensor name & tids
   for(int dst = 1; dst != world_size; ++dst) {
-    mpi->send_str(register_cmd, dst);
-    mpi->send_str(read_cmd(), dst);
-    mpi->send_str(name, dst);
-    mpi->send_vector(v_tids, dst);
+    comm.send_string(dst, register_cmd);
+    comm.send_string(dst, read_cmd());
+    comm.send_string(dst, name);
+    comm.send_vector(dst, v_tids);
   }
 
-  _read(name, v_tids, data);
+  process_data(_read(name, v_tids));
 
   return relation_t {
-    .dtype     = dtype_t::f16,
+    .dtype     = dtype,
     .placement = placement,
     .tids      = tids
   };
 }
 
-void tensor_reader_t::shutdown(string reg_cmd, mpi_t* mpi) {
-  if(!mpi) { return; }
-
-  if(mpi->this_rank != 0) {
+void tensor_reader_t::shutdown(string reg_cmd) {
+  if(comm.get_this_rank() != 0) {
     throw std::runtime_error("only rank 0 should do broadcasting");
   }
 
-  for(int i = 1; i != mpi->world_size; ++i) {
-    mpi->send_str(reg_cmd, i);
-    mpi->send_str(shutdown_cmd(), i);
+  for(int dst = 1; dst != world_size; ++dst) {
+    comm.send_string(dst, reg_cmd);
+    comm.send_string(dst, shutdown_cmd());
   }
 
   _shutdown();
 }
 
-void tensor_reader_t::listen_read(mpi_t* mpi, map<int, buffer_t>& data) {
-  if(!mpi) {
-    throw std::runtime_error("should not call listen if mpi is not setup");
-  }
-  if(mpi->this_rank == 0) {
+void tensor_reader_t::listen_read() {
+  if(comm.get_this_rank() == 0) {
     throw std::runtime_error("rank zero should not call listen method");
   }
 
-  string tensor_name = mpi->recv_str(0);
-  vector<int> file_to_tid = mpi->recv_vector<int>(0);
-  _read(tensor_name, file_to_tid, data);
+  string tensor_name = comm.recv_string(0);
+  vector<int> file_to_tid = comm.recv_vector<int>(0);
+  process_data(_read(tensor_name, file_to_tid));
 }
 
 void tensor_reader_t::listen_shutdown() {
@@ -198,13 +210,16 @@ void tensor_reader_t::_shutdown() {
   readers.clear();
 }
 
-void tensor_reader_t::_read(
-  string const& tensor_name, vector<int> const& whiches,
-  map<int, buffer_t>& data)
+map<int, buffer_t> tensor_reader_t::_read(
+  string const& tensor_name,
+  vector<int> const& whiches)
 {
+  DLINEOUT(tensor_name);
+  map<int, buffer_t> data;
   for(auto& [i, reader]: readers) {
-    data.insert_or_assign(whiches[i], reader(tensor_name));
+    data.insert_or_assign(whiches[i], reader(tensor_name, dtype));
   }
+  return data;
 }
 
 placement_t tensor_reader_t::get_placement(

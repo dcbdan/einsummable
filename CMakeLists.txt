@@ -153,7 +153,7 @@ if(${CPU_EXECUTION_ENGINE})
       ucx::ucp ucx::ucs)
   endfunction()
 
-  #add_cpu_llama_application("llama_cpu" "cpu")
+  add_cpu_llama_application("llama_cpu" "cpu2")
 
 endif()
 

@@ -1962,26 +1962,20 @@ build_tg_ops(
     if(node.op.is_input()) {
       // Input nodes have already been provided
     } else if(node.op.is_partialize()) {
-      // Every partialize touch should be accounted for
-      // from the corresponding input. The idea is
-      // if input A becomes ready, immediately
-      // increment do touch op B += A.
-    } else {
-      // this is an apply or move node, but the
-      // distinction doesn't matter here
-      ret.emplace_back(_which_node_t { .task_id = id });
-    }
-
-    // Now that this id is now available, add touches from
-    // this id to a partialize out
-    for(auto const& out: node.outs) {
-      auto const& out_node = taskgraph.nodes[out];
-      if(out_node.op.is_partialize()) {
-        auto which_touches = get_which_touches_from_to(taskgraph, out, id);
-        for(auto const& w: which_touches) {
-          ret.emplace_back(w);
+      auto const& p = node.op.get_partialize();
+      for(int which_unit = 0; which_unit != p.units.size(); ++which_unit) {
+        auto const& unit = p.units[which_unit];
+        for(int which_inn = 0; which_inn != unit.inputs.size(); ++which_inn) {
+          ret.emplace_back(_which_touch_t {
+            .task_id = id,
+            .unit_id = which_unit,
+            .touch_id = which_inn
+          });
         }
       }
+    } else {
+      // apply or move
+      ret.emplace_back(_which_node_t { .task_id = id });
     }
   }
 

@@ -2,6 +2,15 @@
 
 #include "../engine/repartition.h"
 
+void server_base_t::insert_gid_without_data(int gid, relation_t const& relation)
+{
+  auto iter = gid_map.find(gid);
+  if(iter != gid_map.end()) {
+    throw std::runtime_error("this gid is already in the server");
+  }
+  gid_map.insert({gid, relation});
+}
+
 void server_base_t::execute_graph(
   graph_t const& graph,
   vector<placement_t> const& placements)
@@ -148,7 +157,7 @@ void server_mg_base_t::listen() {
       comm.send_int(0, max_tid_here);
     } else if(cmd == cmd_t::registered_cmd) {
       string key = comm.recv_string(0);
-      listeners.at(key)(this);
+      listeners.at(key)();
     } else if(cmd == cmd_t::shutdown) {
       break;
     }
@@ -156,7 +165,7 @@ void server_mg_base_t::listen() {
 }
 
 void server_mg_base_t::register_listen(
-  string key, std::function<void(server_base_t*)> f)
+  string key, std::function<void()> f)
 {
   if(comm.get_this_rank() == 0) {
     throw std::runtime_error("rank zero should not call register_listen method");

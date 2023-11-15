@@ -13,6 +13,16 @@ map<string, string> make_argstrs(int argc, char** argv) {
   return ret;
 }
 
+template <typename V>
+optional<V> _get_value_or_none(map<string, V> const& d, string const& key)
+{
+  auto iter = d.find(key);
+  if(iter == d.end()) {
+    return std::nullopt;
+  }
+  return iter->second;
+}
+
 struct args_t {
   args_t(int argc, char** argv)
     : argstrs(make_argstrs(argc-1, argv+1))
@@ -26,7 +36,13 @@ struct args_t {
   T get(string key) const {
     auto iter_argstrs = argstrs.find(key);
     if(iter_argstrs == argstrs.end()) {
-      return get_default<T>(key);
+      auto maybe = get_default<T>(key);
+      if(maybe) {
+        return maybe.value();
+      } else {
+        throw std::runtime_error(
+          "\"" + key + "\" has no value and a default was not set");
+      }
     } else {
       string const& val = iter_argstrs->second;
       if constexpr(std::is_same<T, bool>::value) {
@@ -48,22 +64,22 @@ struct args_t {
   }
 
   template <typename T>
-  T get_default(string key) const
+  optional<T> get_default(string key) const
   {
     if constexpr (std::is_same<T, int>::value) {
-      return d_int.at(key);
+      return _get_value_or_none(d_int, key);
     } else if constexpr (std::is_same<T, int64_t>::value) {
-      return d_int64_t.at(key);
+      return _get_value_or_none(d_int64_t, key);
     } else if constexpr (std::is_same<T, uint64_t>::value) {
-      return d_uint64_t.at(key);
+      return _get_value_or_none(d_uint64_t, key);
     } else if constexpr (std::is_same<T, float>::value) {
-      return d_float.at(key);
+      return _get_value_or_none(d_float, key);
     } else if constexpr (std::is_same<T, double>::value) {
-      return d_double.at(key);
+      return _get_value_or_none(d_double, key);
     } else if constexpr (std::is_same<T, string>::value) {
-      return d_string.at(key);
+      return _get_value_or_none(d_string, key);
     } else if constexpr (std::is_same<T, bool>::value) {
-      return d_bool.at(key);
+      return _get_value_or_none(d_bool, key);
     } else {
       throw std::runtime_error("get_default: unsupported default type");
     }
