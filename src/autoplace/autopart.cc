@@ -306,3 +306,56 @@ vector<partition_t> autopartition(
   return ret;
 }
 
+optional<vector<partition_t>>
+autopart_from_inputs(
+  graph_t const& graph,
+  map<int, partition_t> const& input_to_part)
+{
+  // ugh: partition has no default constructor, so passing in an empty
+  //      partdims vector, which is an invalid partition, so the constructor
+  //      could feasibly throw an error.
+  vector<partition_t> ret(graph.nodes.size(), partition_t({}));
+
+  auto get_partdim = [&](int gid, int dim) {
+    return ret[gid].partdims[dim];
+  };
+
+  for(int const& gid: graph.get_order()) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      ret[gid] = input_to_part.at(gid);
+    } else if(node.op.is_formation()) {
+      int out_rank = node.op.out_rank();
+      auto const& inn_gid = node.inns[0];
+      auto const& inn_pds = ret[inn_gid].partdims;
+      ret[gid] = partition_t(vector<partdim_t>(
+        inn_pds.begin(), inn_pds.begin() + out_rank));
+    } else if(node.op.is_einsummable()) {
+      auto const& einsummable = node.op.get_einsummable();
+
+      vector<vector<partdim_t>> inn_pds;
+      inn_pds.reserve(node.inns.size());
+      for(int const& inn_gid: node.inns) {
+        inn_pds.push_back(ret[inn_gid].partdims);
+      }
+
+      auto maybe_join_shape = einsummable_t::construct_join_shape_(
+        einsummable.inns,
+        inn_pds,
+        partdim_t(),
+        [](partdim_t const& lhs, partdim_t const& rhs) { return lhs == rhs; });
+
+      if(maybe_join_shape) {
+        ret[gid] = partition_t(maybe_join_shape.value());
+      } else {
+        // most likely the input shapes did not correctly match
+        return std::nullopt;
+      }
+    } else {
+      // not implemented!
+      return std::nullopt;
+    }
+  }
+
+  return ret;
+}

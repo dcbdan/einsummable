@@ -1,7 +1,9 @@
 #pragma once
 #include "../base/setup.h"
 
+#include "einsummable.h"
 #include "taskgraph.h"
+#include <variant>
 
 struct memloc_t;
 
@@ -80,9 +82,17 @@ struct allocator_settings_t {
   uint8_t alignment_power; // 2^alignment_power
 
   static allocator_settings_t default_settings();
+
+  static allocator_settings_t gpu_alignment_settings();
 };
 
+// TODO: refactor memgraph so that a every compute loc has one storage loc
+//       and every storage loc has one compute loc. maybe?
 struct memgraph_t {
+  memgraph_t():
+    memgraph_t(1, 1, vector<int>(1, 0))
+  {}
+
   memgraph_t(
     int num_compute_locs,
     int num_storage_locs,
@@ -142,12 +152,12 @@ struct memgraph_t {
   string to_wire() const;
   static memgraph_t from_wire(string const& str);
 
-  int const num_compute_locs;
-  int const num_storage_locs;
+  int num_compute_locs;
+  int num_storage_locs;
 
   // Example: Four gpu node, with ram as the storage, then
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
-  vector<int> const storage_locs;
+  vector<int> storage_locs;
 
   // TODO TODO TODO
   // This method is very dirty. A single sto_loc may map into
@@ -172,6 +182,7 @@ public:
     int loc;
     int storage_loc;
     int storage_id;
+    uint64_t size;
     stoloc_t as_stoloc() const { return stoloc_t { storage_loc, storage_id }; }
   };
 
@@ -318,8 +329,53 @@ public:
     alloc_t      const& get_alloc()      const { return std::get<alloc_t>(op);      }
     del_t        const& get_del()        const { return std::get<del_t>(op);        }
 
-    // get all the memlocs touched by
-    // this operation
+    // check and get einsummable
+    bool is_einsummable() const { return is_apply() && std::holds_alternative<einsummable_t>(get_apply().op); }
+    bool is_touch()       const { return is_apply() && std::holds_alternative<touch_t>(get_apply().op); }
+    einsummable_t get_einsummable() const {
+      if (!is_einsummable()) throw std::runtime_error("trying to get einsummable for an non-einsummable op");
+      return std::get<einsummable_t>(get_apply().op);
+    }
+    touch_t get_touch() const {
+      if (!is_touch()) throw std::runtime_error("trying to get touch for an non-touch op");
+      return std::get<touch_t>(get_apply().op);
+    }
+    bool is_contraction() const { return is_einsummable() && get_einsummable().is_contraction(); }
+
+    void print_type() {
+      if (is_inputmem() || is_inputsto())      std::cout << "input";
+      if (is_move())       std::cout << "move";
+      if (is_evict())      std::cout << "evict";
+      if (is_load())       std::cout << "load";
+      if (is_partialize()) std::cout << "partialize";
+      if (is_del())        std::cout << "del";
+      if (is_alloc())      std::cout << "alloc";
+
+      if (is_einsummable()) {
+        if (is_contraction()) std::cout << "contraction";
+        else                  std::cout << "other einsum";
+      }
+      if (is_touch())       std::cout << "touch";
+    }
+
+    int get_loc() const{
+      if (is_inputmem())   return get_inputmem().loc;
+      if (is_inputsto())   return get_inputsto().loc;
+      if (is_apply())      return get_apply_loc();
+      if (is_move())       return get_move().get_dst_loc();
+      if (is_evict())      return get_evict().src.loc;
+      if (is_load())       return get_load().dst.loc;
+      if (is_partialize()) return get_partialize().loc;
+      if (is_alloc())      return get_alloc().loc;
+      if (is_del())        return get_del().loc;
+      throw std::runtime_error("trying to get loc for an unknown op");
+    }
+
+    int get_apply_loc() const {
+      if (!is_apply()) throw std::runtime_error("trying to get apply loc for a non-apply op");
+      return get_apply().loc; }
+
+    // get all the memlocs touched by this operation
     vector<memloc_t> get_memlocs() const;
 
     memstoloc_t get_output_memstoloc() const;
@@ -332,6 +388,8 @@ public:
     bool is_local_to(int loc) const;
     string get_name() const;
 
+    // return if the node is to be executed on the gpu of this node
+    bool is_local_to_gpu(int node, int num_gpu_per_node) const;
   private:
     _op_t op;
 
@@ -362,7 +420,7 @@ public:
 private:
   friend class memgraph_make_state_t;
 
-  
+
 
   // Get whether or not there is a directed path from
   // bot to top

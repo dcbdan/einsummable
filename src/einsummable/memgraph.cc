@@ -37,6 +37,14 @@ allocator_settings_t allocator_settings_t::default_settings()
   };
 }
 
+allocator_settings_t allocator_settings_t::gpu_alignment_settings()
+{
+  return allocator_settings_t {
+    .strat = allocator_strat_t::lowest_dependency,
+    .alignment_power = 4
+  };
+}
+
 memgraph_t::memgraph_t(
   int nl, int nc, vector<int> const& cs)
   : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs)
@@ -97,7 +105,8 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       string aopstr;
       if(std::holds_alternative<einsummable_t>(aop)) {
         header = "apply";
-        aopstr = write_with_ss(std::get<einsummable_t>(aop));
+        auto const& e = std::get<einsummable_t>(aop);
+        aopstr = write_with_ss(e) + ","+write_with_ss(e.out_dtype());
       } else if(std::holds_alternative<touch_t>(aop)) {
         header = "touch";
         aopstr = write_with_ss(std::get<touch_t>(aop).castable) +
@@ -130,7 +139,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       auto const& [memloc, stoloc] = node.op.get_evict();
       label = "evict@" +
         write_with_ss(memloc) +
-        "->storage_id" +
+        "->sto_id" +
         write_with_ss(stoloc.id);
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];
@@ -139,7 +148,7 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_load()) {
       auto const& [stoloc, memloc] = node.op.get_load();
       label = string("load@") +
-        "storage_id" + write_with_ss(stoloc.id) + "->" +
+        "sto_id" + write_with_ss(stoloc.id) + "->" +
         write_with_ss(memloc);
       if(memloc.loc < colors.size()) {
         color = "pink"; // colors[memloc.loc];
@@ -174,6 +183,12 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("memgraph print should not happen");
     }
     label = write_with_ss(id) + " " + label;
+
+    //for(int const& _id: {0,1,2,3,4,5,6,7,8,9,10,11,12,13}) {
+    //  if(id == _id) {
+    //    color = "pink";
+    //  }
+    //}
 
     //auto memlocs = op.get_memlocs();
     //for(auto const& memloc: memlocs) {
@@ -253,6 +268,7 @@ string memgraph_t::to_wire() const {
       i->set_loc(input.loc);
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
+      i->set_size(input.size);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -364,7 +380,8 @@ memgraph_t memgraph_t::from_wire(string const& str) {
       op = op_t(inputsto_t {
         .loc = i.loc(),
         .storage_loc = i.storage_loc(),
-        .storage_id = i.storage_id()
+        .storage_id = i.storage_id(),
+        .size = i.size()
       });
     } else if(n.has_apply()) {
       auto const& a = n.apply();
@@ -799,6 +816,32 @@ bool memgraph_t::op_t::is_local_to(int loc) const {
   }
 }
 
+bool memgraph_t::op_t::is_local_to_gpu(int node, int num_gpu_per_node) const {
+  if(is_inputmem()) {
+    return node == std::floor(get_inputmem().loc / num_gpu_per_node);
+  } else if(is_inputsto()) {
+    return node == std::floor(get_inputsto().loc / num_gpu_per_node);
+  } else if(is_apply()) {
+    return node == std::floor(get_apply().loc / num_gpu_per_node);
+  } else if(is_move()) {
+    auto const& move = get_move();
+    return node == std::floor(move.get_src_loc() / num_gpu_per_node) 
+      || std::floor(node == move.get_dst_loc() / num_gpu_per_node);
+  } else if(is_evict()) {
+    return std::floor(node == get_evict().src.loc / num_gpu_per_node);
+  } else if(is_load()) {
+    return std::floor(node == get_load().dst.loc / num_gpu_per_node);
+  } else if(is_partialize()) {
+    return std::floor(node == get_partialize().loc / num_gpu_per_node);
+  } else if(is_alloc()) {
+    return std::floor(node == get_alloc().loc / num_gpu_per_node);
+  } else if(is_del()) {
+    return std::floor(node == get_del().loc / num_gpu_per_node);
+  } else {
+    throw std::runtime_error("is_local_to should not reach");
+  }
+}
+
 bool memgraph_t::apply_t::is_einsummable() const {
   return std::holds_alternative<einsummable_t>(op);
 }
@@ -887,7 +930,10 @@ memgraph_t::make(
   allocator_settings_t settings,
   bool use_storage)
 {
-  int const n_compute_locs = taskgraph.num_locs();
+  int n_compute_locs = taskgraph.num_locs();
+  if(mem_sizes.size() > n_compute_locs) {
+    n_compute_locs = mem_sizes.size();
+  }
 
   if(which_storage.size() == 0) {
     which_storage = vector<int>(n_compute_locs);
@@ -1027,7 +1073,8 @@ memgraph_make_state_t::memgraph_make_state_t(
       inputsto_t input {
         .loc = memgraph.get_loc_from_storage_loc(storage_loc),
         .storage_loc = storage_loc,
-        .storage_id = storage_id
+        .storage_id = storage_id,
+        .size = tg.out_size(tid)
       };
 
       int mid = memgraph.insert(op_t(input), {});
@@ -1093,7 +1140,8 @@ void memgraph_make_state_t::initialize_input(int inn){
     inputsto_t input_sto = {
       .loc = loc,
       .storage_loc = memgraph.storage_locs[loc],
-      .storage_id = _sto_id++
+      .storage_id = _sto_id++,
+      .size = size
     };
     input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
 
@@ -2208,7 +2256,7 @@ allocator_t::get_allocated_region(uint64_t offset) const
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
-  out << "[" << mem.offset << "," << mem.offset+mem.size << ")";
+  out << "[" << mem.offset << "," << (mem.offset+mem.size) << ")";
   return out;
 }
 std::ostream& operator<<(std::ostream& out, memloc_t const& memloc) {

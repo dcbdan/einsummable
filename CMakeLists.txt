@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")# -DMKL_DIRECT_CALL_SEQ_JIT")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -57,8 +57,10 @@ endfunction()
 #add_base_application("einsummable_test" "exps" "einsummable_test")
 # add_base_application("memgraph_test"    "exps" "memgraph_test")
 #add_base_application("gwise"            "exps" "gwise")
-add_base_application("mm"               "exps" "mm")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
+add_base_application("mm"               "exps" "mm")
+add_base_application("engine"           "exps" "engine")
+add_base_application("apart"            "exps" "apart")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -69,65 +71,90 @@ endfunction()
 add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
-# if(${CPU_EXECUTION_ENGINE})
-#   if(NOT MKL_THREADING)
-#     set(MKL_THREADING sequential)
-#   endif()
+if(${CPU_EXECUTION_ENGINE})
+  if(NOT MKL_THREADING)
+    set(MKL_THREADING sequential)
+  endif()
 
-#   find_package(MPI REQUIRED)
+  add_compile_definitions(CPU_EXEC)
 
-#   find_package(MKL REQUIRED)
+  # Tell MKL to use the best instructions; if
+  # this instruction set it goes to the next best
+  # and so on...
+  # (MKL is bad at finding the right instruction set and
+  #  this helps empirically)
+  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-#   include_directories(${MKL_INCLUDE})
+  find_package(MKL REQUIRED)
 
-#   include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+  if(NOT DEFINED UCX_PATH)
+    message( SEND_ERROR "Pleased define UCX_PATH")
+  endif()
+  set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
+  include_directories(${UCX_PATH}/include)
+  find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
-#   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/cpu/*.cc)
+  include_directories(${MKL_INCLUDE})
 
-#   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
-#   #       have to be rebuilt?
-#   add_library(cpu_execution_engine
-#     STATIC
-#     ${BA_FILES}
-#     ${ES_FILES}
-#     ${MG_FILES}
-#     ${AP_FILES}
-#     ${CP_FILES}
-#   )
+  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
+  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
+  file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
 
-#   function(add_cpu_application exec dir filename)
-#   add_executable(${exec} ${dir}/${filename}.cc)
-#   target_link_libraries(${exec}
-#     cpu_execution_engine
-#     proto
-#     ${Protobuf_LIBRARIES}
-#     ${MPI_CXX_LIBRARIES}
-#     MKL::MKL)
-#   endfunction()
+  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
+  #       have to be rebuilt?
+  add_library(cpu_execution_engine
+    STATIC
+    ${BA_FILES}
+    ${ES_FILES}
+    ${MG_FILES}
+    ${AP_FILES}
+    ${EG_FILES}
+    ${SE_FILES}
+    ${CP_FILES}
+    ${CS_FILES}
+  )
 
-#   add_cpu_application("cpuexec"         "exps" "cpuexec")
-#   add_cpu_application("cpuexec_3d"      "exps" "cpuexec_3d")
-#   add_cpu_application("cpuexec_ff"      "exps" "cpuexec_ff")
-#   add_cpu_application("cpuexec_mm"      "exps" "cpuexec_mm")
-#   add_cpu_application("cpuexec_permute" "exps" "cpuexec_permute")
-#   add_cpu_application("cpuexec_kernels" "exps" "cpuexec_kernels")
-#   add_cpu_application("cpuexec_gen"     "exps" "cpuexec_gen")
-#   add_cpu_application("dummy_evict_mg"  "exps" "dummy_evict_mg")
+  function(add_cpu_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    MKL::MKL
+    ucx::ucp ucx::ucs)
+  endfunction()
 
-#   function(add_cpu_llama_application exec filename)
-#     add_executable(${exec} llama/${filename}.cc
-#       llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
-#     target_link_libraries(${exec}
-#       cpu_execution_engine
-#       proto
-#       ${Protobuf_LIBRARIES}
-#       ${MPI_CXX_LIBRARIES}
-#       MKL::MKL)
-#   endfunction()
+  #add_cpu_application("cpuexec"               "exps" "cpuexec")
+  #add_cpu_application("cpuexec_3d"            "exps" "cpuexec_3d")
+  #add_cpu_application("cpuexec_ff"            "exps" "cpuexec_ff")
+  #add_cpu_application("cpuexec_mm"            "exps" "cpuexec_mm")
+  #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
+  #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
+  #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
+  #add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
+  #add_cpu_application("cpumanager"            "exps" "cpumanager")
+  #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
+  #add_cpu_application("cpumms"                "exps" "cpumms")
+  add_cpu_application("cpu_engine"            "exps" "cpu_engine")
+  add_cpu_application("cpu_engine_ml"         "exps" "cpu_engine_ml")
+  add_cpu_application("cpu_engine_server"     "exps" "cpu_engine_server")
+  add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
+  add_cpu_application("cpu_comm"              "exps" "cpu_comm")
+  add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
 
-#   add_cpu_llama_application("llama_cpu" "cpu")
+  function(add_cpu_llama_application exec filename)
+    add_executable(${exec} llama/${filename}.cc
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+    target_link_libraries(${exec}
+      cpu_execution_engine
+      proto
+      ${Protobuf_LIBRARIES}
+      MKL::MKL)
+  endfunction()
 
-# endif()
+  #add_cpu_llama_application("llama_cpu" "cpu")
+ endif()
 
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)
@@ -135,6 +162,22 @@ if(${GPU_EXECUTION_ENGINE})
   find_package(CUDA 11.0 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
+  include_directories(${PROJECT_SOURCE_DIR}/src/engine)
+  include_directories(${PROJECT_SOURCE_DIR}/src/engine/gpu)
+  include_directories(${PROJECT_SOURCE_DIR}/src/server)
+  include_directories(${PROJECT_SOURCE_DIR}/src/server/gpu)
+
+  add_compile_definitions(GPU_EXEC)
+
+  # add ucx dependency
+  # define UCX_PATH below
+  SET(UCX_PATH "/opt/ucx")
+  if(NOT DEFINED UCX_PATH)
+    message( SEND_ERROR "Pleased define UCX_PATH")
+  endif()
+  set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
+  include_directories(${UCX_PATH}/include)
+  find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
   # set the right architecture
   include(FindCUDA/select_compute_arch)
@@ -143,10 +186,15 @@ if(${GPU_EXECUTION_ENGINE})
   string(REPLACE " " ";" INSTALLED_GPU_CCS_3 "${INSTALLED_GPU_CCS_2}")
   string(REPLACE "." "" CUDA_ARCH_LIST "${INSTALLED_GPU_CCS_3}")
   SET(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCH_LIST})
+  SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_60")
   set_property(GLOBAL PROPERTY CUDA_ARCHITECTURES "${CUDA_ARCH_LIST}")
 
-  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
-  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cu)
+  # file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/execution/gpu/*.cc)
+  file(GLOB CU_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cu)
+  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
+  file(GLOB GP_FILES ${PROJECT_SOURCE_DIR}/src/engine/gpu/*.cc)
+  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
+  file(GLOB SS_FILES ${PROJECT_SOURCE_DIR}/src/server/gpu/*.cc)
 
   add_library(cutensor SHARED IMPORTED)
   set_target_properties(cutensor PROPERTIES
@@ -159,25 +207,43 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
-    ${CP_FILES}
     ${CU_FILES}
+    ${EG_FILES}
+    ${GP_FILES}
+    ${SE_FILES}
+    ${SS_FILES}
   )
 
   function(add_gpu_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)
 
+  # target_link_libraries(${exec}
+  #   gpu_execution_engine
+  #   proto
+  #   ${Protobuf_LIBRARIES}
+  #   ${CUDA_LIBRARIES}
+  #   cutensor
+  #   cudart
+  #   cublasLt
+  #   cublas
+  #   ucx::ucp ucx::ucs)
   target_link_libraries(${exec}
     gpu_execution_engine
     proto
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    cudart
-    cublasLt)
+    /usr/local/cuda-11.0/lib64/libcudart.so
+    /usr/local/cuda-11.0/lib64/libcublasLt.so
+    /usr/local/cuda-11.0/lib64/libcublas.so
+    ucx::ucp ucx::ucs)
 
   endfunction()
 
   # call add_gpu_application here
-  add_gpu_application("test_alignment"  "exps" "test_alignment")
-  add_gpu_application("gpuexec_contraction"  "exps" "gpuexec_contraction" )
+  ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
+  # add_gpu_application("test_alignment"  "exps" "test_alignment")
+
+  add_gpu_application("basicTest" "exps" "GPU_test")
+  # add_gpu_application("ffTest" "exps" "GPU_ff_test")
 endif()

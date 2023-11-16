@@ -122,6 +122,7 @@ message MGInputSto {
   required int32 loc = 1;
   required int32 storage_loc = 2;
   required int32 storage_id = 3;
+  required uint64 size = 4;
 }
 
 message MGApply {

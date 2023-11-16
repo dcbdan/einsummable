@@ -168,7 +168,13 @@ struct graph_t {
 
   void print() const;
 
-  void print_graphviz(std::ostream& out) const;
+  void print_graphviz(
+    std::ostream& out,
+    map<int, string> get_color = map<int, string>{}) const;
+  void print_graphviz(
+    std::ostream& out,
+    vector<partition_t> const& p,
+    map<int, string> get_color = map<int,string>{}) const;
 
   vector<int> get_inputs() const;
 
@@ -242,6 +248,9 @@ public:
 
     bool has_aggregation() const {
       return is_einsummable() && get_einsummable().has_aggregation();
+    }
+    bool is_contraction() const {
+      return is_einsummable() && get_einsummable().is_contraction();
     }
 
     input_t       const& get_input()     const { return std::get<input_t>(op);     }

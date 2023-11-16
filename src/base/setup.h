@@ -17,6 +17,8 @@
 #include <random>
 #include <queue>
 #include <chrono>
+#include <mutex>
+#include <condition_variable>
 
 #include "half.hpp"
 
@@ -460,6 +462,24 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
     }
   }
   return ret;
+}
+
+template <typename T>
+bool set_has_empty_intersection(set<T> const& lhs, set<T> const& rhs)
+{
+  for(auto const& v: lhs) {
+    if(rhs.count(v) > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T>
+void set_union_inplace(set<T>& ret, set<T> const& these) {
+  for(auto const& x: these) {
+    ret.insert(x);
+  }
 }
 
 template <typename Iter, typename F>
@@ -1002,4 +1022,7 @@ void istream_expect(std::istream& inn, string const& xs);
 // find the longest parse of the options; throw an error if no parse
 int istream_expect_or(std::istream& inn, vector<string> const& options);
 
+struct unit_t {};
 
+void* increment_void_ptr(void* ptr, uint64_t size);
+void const* increment_void_ptr(void const* ptr, uint64_t size);

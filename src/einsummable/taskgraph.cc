@@ -2736,6 +2736,22 @@ int taskgraph_t::op_t::out_loc() const {
   throw std::runtime_error("should not reach: out_loc");
 }
 
+bool taskgraph_t::op_t::is_local_to(int loc) const {
+  if(is_input()) {
+    return get_input().loc == loc;
+  }
+  if(is_apply()) {
+    return get_apply().loc == loc;
+  }
+  if(is_move()) {
+    return get_move().src == loc || get_move().dst == loc;
+  }
+  if(is_partialize()) {
+    return get_partialize().loc == loc;
+  }
+  throw std::runtime_error("should not reach: is_local_to");
+}
+
 vector<vector<tuple<int, touch_t>>>
 taskgraph_t::partialize_t::as_touches_from() const {
   vector<vector<tuple<int, touch_t>>> rets;
@@ -2889,6 +2905,51 @@ taskgraph_t::partialize_t::make_from_touches(
   }
 
   return ret;
+}
+
+void taskgraph_t::partialize_t::make_parallel()
+{
+  vector<partial_unit_t> ret;
+  ret.reserve(units.size());
+  for(auto& unit: units) {
+    int n = unit.inputs.size();
+    if(n == 1) {
+      ret.push_back(unit);
+      continue;
+    }
+    uint64_t d0 = unit.out_region[0].size;
+    if(d0 <= n) {
+      ret.push_back(unit);
+      continue;
+    }
+    partdim_t pd = partdim_t::split(d0, n);
+    auto sub_sizes = pd.sizes();
+
+    uint64_t offset = 0;
+    for(int i = 0; i != n; ++i) {
+      auto const& sub_size = sub_sizes[i];
+
+      vector<out_regiondim_t> sub_out_region = unit.out_region;
+      sub_out_region[0] = out_regiondim_t {
+        .offset = unit.out_region[0].offset + offset,
+        .size = sub_size
+      };
+
+      vector<input_op_t> sub_inputs = unit.inputs;
+      for(input_op_t& sub_input: sub_inputs) {
+        vector<inn_regiondim_t>& sub_inn_region = sub_input.region;
+        sub_inn_region[0].offset += offset;
+      }
+
+      ret.push_back(partial_unit_t {
+        .castable = unit.castable,
+        .out_region = sub_out_region,
+        .inputs = sub_inputs
+      });
+    }
+  }
+
+  units = ret;
 }
 
 tuple<int, touch_t>

@@ -813,7 +813,18 @@ void graph_t::print() const {
   }
 }
 
-void graph_t::print_graphviz(std::ostream& out) const {
+void graph_t::print_graphviz(
+  std::ostream& out,
+  map<int, string> get_color) const
+{
+  print_graphviz(out, make_singleton_partition(), get_color);
+}
+
+void graph_t::print_graphviz(
+  std::ostream& out,
+  vector<partition_t> const& parts,
+  map<int, string> get_color) const
+{
   using std::endl;
   string tab = "  ";
   out << "digraph {" << endl;
@@ -833,9 +844,11 @@ void graph_t::print_graphviz(std::ostream& out) const {
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
     } else if(op.is_einsummable()) {
-      label = "einsummable" + write_with_ss(id);
-      label += "\n" + write_with_ss(op.get_einsummable());
-      //label += "\ninput_ids" + write_with_ss(node.inns);
+      label = "einsummable" + write_with_ss(id) +
+        ":" + op.get_einsummable().str();
+      if(op.get_einsummable().is_contraction()) {
+        color = "pink";
+      }
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -844,9 +857,20 @@ void graph_t::print_graphviz(std::ostream& out) const {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
     label += ":" + write_with_ss(out_dtype(id));
+    label += "\n" + write_with_ss(parts[id].block_shape());
+    label += "\n" + write_with_ss(parts[id].total_shape());
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";
+
+    // set the color with get_color as precedent
+    {
+      auto iter = get_color.find(id);
+      if(iter != get_color.end()) {
+        color = iter->second;
+      }
+    }
+
     if(color != "") {
       out << ",color=\"" << color << "\"";
     }
@@ -871,10 +895,10 @@ vector<int> graph_t::get_inputs() const {
 }
 
 set<int> graph_t::compute_nodeset(
-  vector<int> const& upps, 
+  vector<int> const& upps,
   vector<int> const& dwns,
   bool include_upps_dwns
-) const 
+) const
 {
   set<int> upp_dwn;
   for(auto const& upp: upps) {
@@ -995,7 +1019,7 @@ graph_t::backprop_state_t::get_out_edges(int id) const
   return ret;
 }
 
-int graph_t::backprop_state_t::operator[](int id) 
+int graph_t::backprop_state_t::operator[](int id)
 {
   std::cout << "Calculating gradient for node: " << id << std::endl;
 
@@ -1016,7 +1040,7 @@ int graph_t::backprop_state_t::operator[](int id)
   for (auto const& [out, which_inn] : out_edges) {
     std::cout << "Building grad term: " << out << std::endl;
     auto const& out_grad = (*this)[out]; // building grad term for out with respect to this_id
-    std::cout << "WRT: " << id << " Building grad term that has (out_node, which_inn, gradient_of_out_node) = (" << out << ", " << which_inn << ", " << out_grad << ")" << std::endl; 
+    std::cout << "WRT: " << id << " Building grad term that has (out_node, which_inn, gradient_of_out_node) = (" << out << ", " << which_inn << ", " << out_grad << ")" << std::endl;
     terms.push_back(
       self.build_grad_term(id, out, which_inn, out_grad) // TO DO: implement build grad term
     );
@@ -1028,7 +1052,7 @@ int graph_t::backprop_state_t::operator[](int id)
     throw std::runtime_error("No terms, no compute path");
   }
 
-  int ret; 
+  int ret;
   if (terms.size() == 1) {
     ret = terms[0];
   } else {
@@ -1046,19 +1070,19 @@ int graph_t::backprop_state_t::operator[](int id)
 
 /*
   So I pass node_id which represents id out node of current node I am calculating VJP for
-  I pass which_inn to determine whether current node is at lhs or rhs of opeartions (if it's binary), if it is unary it doesn't matter 
+  I pass which_inn to determine whether current node is at lhs or rhs of opeartions (if it's binary), if it is unary it doesn't matter
   Because I am calculating VJP which is equal to v.T * J, v would represent calculated gradient for out node of the current node
   In (almost) every situation I am going to need id of the current node (In order to create VJP einsummable)
-  If operation was binary add, then out_grad would just be propagated backward and we would get (node, grad) = (id, node_grad) 
+  If operation was binary add, then out_grad would just be propagated backward and we would get (node, grad) = (id, node_grad)
 */
 int graph_t::build_grad_term(
-  int id, 
+  int id,
   int out_node_id,
   int which_inn,
   int node_grad
 )
 {
-  auto const& out_node = nodes[out_node_id];  
+  auto const& out_node = nodes[out_node_id];
   auto const& op = out_node.op;
   auto inns = out_node.inns;
 
@@ -1085,7 +1109,7 @@ int graph_t::build_grad_term(
     } else if (einsummable.join.is_binary()) {
       int other = out_node.get_other_input(id);
       return build_grad_term_ewb_arg(einsummable, node_grad, id, other, which_inn);
-    } 
+    }
   }
 }
 
@@ -1155,7 +1179,7 @@ int graph_t::build_grad_term_ewu(einsummable_t einsummable, int inn, int node_gr
 int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {
 
   auto const& grad_opt = einsummable.derivative(which_inn);
-  
+
   if (!grad_opt.has_value()) {
     return node_grad;
   }
@@ -1169,7 +1193,7 @@ int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, i
     }
 
     int inn = einsummable.deri_depends_on(which_inn) ? arg : other;
-    
+
     return insert_einsummable(grad, {node_grad, inn});
   }
 
@@ -1191,7 +1215,7 @@ int graph_t::build_grad_term_reduction(einsummable_t einsummable, int node_grad,
   }
 
   if (einsummable.castable == castable_t::add) {
-    
+
     einsummable_t broadcast(
       vjp_shape.value(),
       inns,
@@ -1200,14 +1224,14 @@ int graph_t::build_grad_term_reduction(einsummable_t einsummable, int node_grad,
     );
 
     return insert_einsummable(broadcast, {node_grad});
-  } 
+  }
 
-  scalarop_t jacobi_op = (einsummable.castable == castable_t::mul) 
-    ? scalarop_t::make_div() 
+  scalarop_t jacobi_op = (einsummable.castable == castable_t::mul)
+    ? scalarop_t::make_div()
     : scalarop_t::make_mask(compare_t::eq);
 
     einsummable_t jacobian(
-      vjp_shape.value(), 
+      vjp_shape.value(),
       inns,
       out_rank,
       jacobi_op
@@ -1222,7 +1246,7 @@ int graph_t::build_grad_term_reduction(einsummable_t einsummable, int node_grad,
       scalarop_t::make_mul()
     );
 
-    return insert_einsummable(vjp, {node_grad, jacobian_id});  
+    return insert_einsummable(vjp, {node_grad, jacobian_id});
 }
 
 // Construct a 3D matmul graph, (ij,jk->ik)
@@ -1783,7 +1807,7 @@ graph_writer_t::tensor_t::physically_permute() const {
 vector<graph_writer_t::tensor_t>
 graph_writer_t::backprop(tensor_t out, vector<tensor_t> params)
 {
-  vector<int> ws; 
+  vector<int> ws;
   for (auto const& param : params) {
     ws.push_back(param.get_id());
   }

@@ -1,9 +1,10 @@
+#include "../src/base/setup.h"
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/einsummable.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/memgraph.h"
+
 #include <fstream>
-#include "../src/base/setup.h"
 
 void scale_derivative() {
 
@@ -27,8 +28,8 @@ void scale_derivative() {
 }
 
 void mul_derivative() {
-  
-  graph_t graph; 
+
+  graph_t graph;
 
   vector<uint64_t> input_shape1 = {4, 5, 2, 3};
   vector<uint64_t> input_shape2 = {4, 5, 3, 5};
@@ -72,10 +73,10 @@ void mul_derivative() {
     out_rank,
     scalarop_t::make_mul(),
     castable_t::add
-  ); 
+  );
 
   int m1 = graph.insert_einsummable(
-    matmul1, 
+    matmul1,
     {i1, i2}
   );
 
@@ -95,7 +96,7 @@ void mul_derivative() {
     out_rank,
     scalarop_t::make_mul(),
     castable_t::add
-  ); 
+  );
 
   int m3 = graph.insert_einsummable(
     matmul3,
@@ -139,7 +140,7 @@ void mul_derivative() {
 
   einsummable_t ewb(
     join_shape5.value(),
-    inns2, 
+    inns2,
     out_rank2,
     scalarop_t::from_string(
       "power{2}[+[*[hole|"+ds+"@0,constant{"+ds+"|5}],*[hole|"+ds+"@1,constant{"+ds+"|-5}]]]")
@@ -163,7 +164,7 @@ void mul_derivative() {
   graph.backprop({r1}, {i1, i3});
 
   graph.print();
-  
+
   {
     std::ofstream f("g.gv");
     graph.print_graphviz(f);
@@ -183,13 +184,13 @@ void permute_test() {
   vector<vector<uint64_t>> inn_shapes = {input1, input2};
   auto const& [inns, out_rank] = einsummable_t::parse_str(e_str1);
   std::cout << inns << " " << out_rank << std::endl;
-  auto join_shape = einsummable_t::construct_join_shape(inns, {input1, input2}).value(); 
+  auto join_shape = einsummable_t::construct_join_shape(inns, {input1, input2}).value();
 
   std::cout << "Join shape: " << join_shape << std::endl;
 
   einsummable_t einsum(
-    join_shape, 
-    inns, 
+    join_shape,
+    inns,
     out_rank,
     scalarop_t::make_add()
   );
@@ -210,7 +211,7 @@ vector<int> find_path(vector<uint64_t> input, vector<uint64_t> output) {
     std::runtime_error("Input and output sets are not equal");
   }
 
-  map<int, int> output_map; 
+  map<int, int> output_map;
   vector<int> ret;
 
   for (int i = 0; i < output.size(); i++) {
@@ -227,20 +228,20 @@ vector<int> find_path(vector<uint64_t> input, vector<uint64_t> output) {
 void test_VJP() {
 
   vector<uint64_t> o1 = {2, 3, 5}; // 235, 325 -> 253  --------- acb, bac
-  vector<uint64_t> o2 = {3, 2, 5}; 
+  vector<uint64_t> o2 = {3, 2, 5};
   auto [inns, out_rank] = einsummable_t::parse_str("acb,cab->abc");
   auto join_rank = einsummable_t::construct_join_shape(inns, {o1, o2}).value();
 
   einsummable_t einsum(
     join_rank,
-    inns, 
+    inns,
     out_rank,
     scalarop_t::make_add()
   );
 
   std::cout << join_rank << std::endl;
 
-  // Suppose that VJP of this einsummable node wrt to o2 is dependent only on o1 (Assume that is ew mul) 
+  // Suppose that VJP of this einsummable node wrt to o2 is dependent only on o1 (Assume that is ew mul)
   auto join_rank_grad = einsummable_t::construct_join_shape({{find_permutation(einsum.inns[0], einsum.inns[1])}, find_permutation({0,1,2}, einsum.inns[1])}, {o1, einsum.out_shape()}).value();
 
 
@@ -264,7 +265,7 @@ void test_mm() {
   vector<uint64_t> input_shape1 = {4, 5, 2, 3};
   vector<uint64_t> input_shape2 = {4, 5, 3, 5};
 
-  graph_t graph; 
+  graph_t graph;
 
   graph.insert_input(
     input_shape1
@@ -341,7 +342,7 @@ void contraction_test() {
   vector<uint64_t> input_shape2 = {4, 5, 3, 5};
   vector<uint64_t> input_shape3 = {6, 7};
 
-  graph_t graph; 
+  graph_t graph;
 
   graph.insert_input(
     input_shape1
@@ -357,7 +358,7 @@ void contraction_test() {
 
   einsummable_t cc(
     join_shape.value(),
-    inns, 
+    inns,
     out_rank,
     scalarop_t::make_mul(),
     castable_t::add
@@ -395,10 +396,10 @@ void contraction_test() {
   auto const& terms = einsummable_t::make_str_terms(mm.inns, mm.out_rank);
   auto const& stringovic = std::get<1>(terms)[0] + "," + std::get<0>(terms) + "->" + std::get<1>(terms)[1];
   //auto const& stringovic = get_deri_einsum(mm, 0);
- 
-  std::cout << einsummable_t::normalize_str(stringovic) << std::endl; 
 
-  auto const& [dinns, dor] = einsummable_t::parse_str(stringovic); 
+  std::cout << einsummable_t::normalize_str(stringovic) << std::endl;
+
+  auto const& [dinns, dor] = einsummable_t::parse_str(stringovic);
   //auto const& djs = einsummable_t::construct_join_shape(dinns, {mm.out_shape(), mm.inn_shapes()[1]});
   std::cout << mm.out_shape() << "," << mm.inn_shapes()[0] << "->" << mm.inn_shapes()[1] << std::endl;
   //std::cout << djs.value() << std::endl;
@@ -472,7 +473,7 @@ void reduction_test() {
 
   std::cout << broadcast_mm << std::endl;
 
-  // Max min reduction 
+  // Max min reduction
 
   auto const jacobian_terms = einsummable_t::make_str_terms(bc_inns, bc_out_rank);
   string jacobian_part  = std::get<1>(terms)[0];
@@ -495,7 +496,7 @@ void reduction_test() {
 
   std::cout << jacobian_mm << std::endl;
 
-  // Mul reduction 
+  // Mul reduction
 
   einsummable_t reduction_mul(
     join_shape.value(),
@@ -579,7 +580,7 @@ void print_graph() {
      {i3});
 
   auto const& a = graph.graph.backprop(i5, {i1});
-  
+
   taskgraph_t taskgraph;
 
   auto pls = graph.get_placements();
@@ -691,7 +692,7 @@ void bbbbb() {
 
   int const& g = grads[0];
   auto const& node = graph.nodes[g];
-  graph.insert_einsummable(grad_update, {i1, g});  
+  graph.insert_einsummable(grad_update, {i1, g});
 
   {
     std::ofstream f("gprint.gv");
@@ -758,16 +759,16 @@ void example_memgraph() {
   {
     std::ofstream f("mghand.gv");
     memgraph.print_graphviz(f);
-    DOUT("printed mg.gv");
+    DOUT("printed mghand.gv");
   }
 }
 
 
 int main() {
-  //mul_derivative();
+  mul_derivative();
   //print_graph();
   // bbbbb();
-  example_memgraph();
+  //example_memgraph();
   // contraction_test();
   //eduction_test();
   //test_mm();
