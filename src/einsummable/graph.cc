@@ -1118,8 +1118,7 @@ int graph_t::build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int o
 
   auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
 
-  auto join_shape = contraction_remap(einsum.inn_shapes()[0], einsum.join_shape);
-  //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]});
+  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]}).value();
 
   einsummable_t vjp(
     join_shape,
@@ -1138,8 +1137,7 @@ int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_
 
   auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
 
-  auto join_shape = contraction_remap(einsum.inn_shapes()[1], einsum.join_shape);
-  //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
+  auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
 
   einsummable_t vjp(
     join_shape,
