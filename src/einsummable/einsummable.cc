@@ -478,93 +478,32 @@ string einsummable_t::make_str(
   return ss.str();
 }
 
-string
-einsummable_t::create_contraction_vjp_string(int which_inn)
-{
-  int other = which_inn == 0 ? 1 : 0;
-  auto const& terms = einsummable_t::make_str_terms(inns, out_rank);
-  string result = "->" + std::get<1>(terms)[which_inn];
-  string VJP_string;
-
-  if (which_inn == 0) {
-    VJP_string = std::get<0>(terms) + "," + std::get<1>(terms)[other] + result;
-  } else {
-    VJP_string = std::get<1>(terms)[other] + "," + std::get<0>(terms) + result;
-  }
-
-  return VJP_string;
-}
-
-string
-einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape)
-{
-  auto identity = identity_permutation(argument_shape.size());
-  auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};
-  return make_str(permuted_inns, argument_shape.size());
-}
-
-string einsummable_t::create_reduction_vjp_string()
-{
-  auto const terms = einsummable_t::make_str_terms(inns, out_rank);
-
-  if (castable == castable_t::add) {
-    return std::get<0>(terms) + "->" + std::get<1>(terms)[0];
-  }
-
-  return std::get<0>(terms) + "," + std::get<1>(terms)[0] + "->" + std::get<1>(terms)[0];
-}
-
-string
-einsummable_t::create_unary_vjp_string(vector<int> inn, int rank)
-{
-  auto identity = identity_permutation(rank);
-  auto inverse = find_permutation(identity, inn);
-  return make_str({inverse, identity}, rank);
-}
-
-string
-einsummable_t::create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs)
-{
-  int nl = lhs_rank;
-  int nr = rhs_rank;
-  if(nl < 2 || nr < 2) {
-    throw std::runtime_error("graph writer matmul: must have atleast rank 2");
-  }
-
-  auto make_header = [](int n) {
-    string ret(n, ' ');
-    std::iota(ret.begin(), ret.end(), 'd');
-    return ret;
-  };
-
-  string sl = t_lhs ? "ba" : "ab";
-  string sr = t_rhs ? "cb" : "bc";
-  string so;
-
-  if(nl == 2 && nr == 2) {
-    so = "ac";
-  } else if(nl == 2)  {
-    int n = nr-2;
-    string header = make_header(n);
-    sr = header + sr;
-    so = header + "ac";
-  } else if(nr == 2)  {
-    int n = nl-2;
-    string header = make_header(n);
-    sl = header + sl;
-    so = header + "ac";
-  } else if(nl == nr) {
-    int n = nl-2;
-    string header = make_header(n);
-    sl = header + sl;
-    sr = header + sr;
-    so = header + "ac";
-  } else {
-    throw std::runtime_error("graph writer matmul: invalid inputs");
-  }
-
-  return sl + "," + sr + "->" + so;
-}
+//string
+//einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape)
+//{
+//  auto identity = identity_permutation(argument_shape.size());
+//  auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};
+//  return make_str(permuted_inns, argument_shape.size());
+//}
+//
+//string einsummable_t::create_reduction_vjp_string()
+//{
+//  auto const terms = einsummable_t::make_str_terms(inns, out_rank);
+//
+//  if (castable == castable_t::add) {
+//    return std::get<0>(terms) + "->" + std::get<1>(terms)[0];
+//  }
+//
+//  return std::get<0>(terms) + "," + std::get<1>(terms)[0] + "->" + std::get<1>(terms)[0];
+//}
+//
+//string
+//einsummable_t::create_unary_vjp_string(vector<int> inn, int rank)
+//{
+//  auto identity = identity_permutation(rank);
+//  auto inverse = find_permutation(identity, inn);
+//  return make_str({inverse, identity}, rank);
+//}
 
 string
 einsummable_t::normalize_str(string const& str)
@@ -643,6 +582,22 @@ einsummable_t::construct_join_shape(
   return std::nullopt;
 }
 
+vector<uint64_t>
+einsummable_t::construct_join_shape(
+  vector<uint64_t> const& out,
+  vector<vector<int>> const& inns,
+  vector<vector<uint64_t>> const& inn_shapes)
+{
+  uint64_t d = 0;
+  optional<vector<uint64_t>> maybe_out(out);
+  auto ret = construct_join_shape_(maybe_out, inns, inn_shapes, d, std::equal_to<>());
+  if(ret) {
+    return ret.value();
+  } else {
+    throw std::runtime_error("could not correctly construct join shape");
+  }
+}
+
 vector<uint64_t> einsummable_t::out_shape() const {
   return vector<uint64_t>(
     join_shape.begin(),
@@ -690,6 +645,16 @@ vector<vector<uint64_t>> einsummable_t::inn_shapes() const {
   return ret;
 }
 
+vector<uint64_t> einsummable_t::inn_shape(int which_inn) const {
+  auto const& inn = inns[which_inn];
+  vector<uint64_t> ret;
+  ret.reserve(inn.size());
+  for(int const& j: inn) {
+    ret.push_back(join_shape[j]);
+  }
+  return ret;
+}
+
 vector<vector<int>>
 einsummable_t::input_idxs(vector<int> const& join_idx) const
 {
@@ -720,185 +685,184 @@ std::size_t einsummable_t::hash() const {
   return ret;
 }
 
-optional<vector<einsummable_t>> einsummable_t::derivative(int which_inn)
-{
-  if (is_contraction()) {
-    return std::nullopt;
-  }
-  else if (join.is_unary()) {
-    return ewu_derivative(which_inn);
-  } else if (join.is_binary()) {
-    return ewb_derivative(which_inn);
-  }
-}
+//optional<vector<einsummable_t>> einsummable_t::derivative(int which_inn)
+//{
+//  if (is_contraction()) {
+//    return std::nullopt;
+//  }
+//  else if (join.is_unary()) {
+//    return ewu_derivative(which_inn);
+//  } else if (join.is_binary()) {
+//    return ewb_derivative(which_inn);
+//  }
+//}
+//
+//bool einsummable_t::deri_depends_on(int which_inn)
+//{
+//  auto const& deri_op = join.derivative(which_inn);
+//  set<int> which_inputs = deri_op.which_inputs();
+//
+//  if (which_inputs.size() == 1) {
+//    return which_inn == *(which_inputs.begin());
+//  }
+//}
+//
+//optional<vector<einsummable_t>> einsummable_t::ewu_derivative(int which_inn)
+//{
+//  auto deri_op = join.derivative(which_inn);
+//  vector<einsummable_t> ret;
+//
+//  if (deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
+//    return std::nullopt;
+//  }
+//
+//  if (deri_op.is_constant()) {
+//    scalar_t val = deri_op.eval({});
+//    einsummable_t grad(
+//      join_shape,
+//      {inverse_permute(inns[0])},
+//      out_rank,
+//      scalarop_t::make_scale(val)
+//    );
+//    ret.push_back(grad);
+//    return ret;
+//  }
+//
+//  // (yhat - y)**2 => 2(yhat - y) * node_grad
+//
+//  scalarop_t vjp = scalarop_t::make_vjp(deri_op);
+//
+//  auto const& vjp_string = create_unary_vjp_string(inns[0], out_rank);
+//
+//  auto const& [inns, out_rank] = parse_str(vjp_string);
+//
+//  auto const& input_shape = backward_permute(inns[0], join_shape);
+//
+//  auto const& grad_join_shape = construct_join_shape(inns, {join_shape, inn_shapes()[0]});
+//
+//  if (!grad_join_shape.has_value()) {
+//    throw std::runtime_error("Invalid join shape.");
+//  }
+//
+//  einsummable_t grad(
+//    grad_join_shape.value(),
+//    inns,
+//    out_rank,
+//    vjp
+//  );
+//  ret.push_back(grad);
+//
+//  return ret;
+//}
 
-bool einsummable_t::deri_depends_on(int which_inn)
-{
-  auto const& deri_op = join.derivative(which_inn);
-  set<int> which_inputs = deri_op.which_inputs();
-
-  if (which_inputs.size() == 1) {
-    return which_inn == *(which_inputs.begin());
-  }
-}
-
-optional<vector<einsummable_t>> einsummable_t::ewu_derivative(int which_inn)
-{
-  auto deri_op = join.derivative(which_inn);
-  vector<einsummable_t> ret;
-
-  if (deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
-    return std::nullopt;
-  }
-
-  if (deri_op.is_constant()) {
-    scalar_t val = deri_op.eval({});
-    einsummable_t grad(
-      join_shape,
-      {inverse_permute(inns[0])},
-      out_rank,
-      scalarop_t::make_scale(val)
-    );
-    ret.push_back(grad);
-    return ret;
-  }
-
-  // (yhat - y)**2 => 2(yhat - y) * node_grad
-
-  scalarop_t vjp = scalarop_t::make_vjp(deri_op);
-
-  auto const& vjp_string = create_unary_vjp_string(inns[0], out_rank);
-
-  auto const& [inns, out_rank] = parse_str(vjp_string);
-
-  auto const& input_shape = backward_permute(inns[0], join_shape);
-
-  auto const& grad_join_shape = construct_join_shape(inns, {join_shape, inn_shapes()[0]});
-
-  if (!grad_join_shape.has_value()) {
-    throw std::runtime_error("Invalid join shape.");
-  }
-
-  einsummable_t grad(
-    grad_join_shape.value(),
-    inns,
-    out_rank,
-    vjp
-  );
-  ret.push_back(grad);
-
-  return ret;
-}
-
-optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
-{
-
-  scalarop_t deri_op = join.derivative(which_inn);
-  auto arg_inn = inns[which_inn];
-  vector<int> jacobian_inn;
-  vector<einsummable_t> ret;
-
-  if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
-    return optional<vector<einsummable_t>>();
-  }
-
-  if(deri_op.is_constant()) {
-    scalar_t val = deri_op.eval({});
-    einsummable_t grad(
-      join_shape,
-      {inverse_permute(inns[which_inn])},
-      out_rank,
-      scalarop_t::make_scale(val)
-    );
-
-    ret.push_back(grad);
-    return ret;
-  }
-
-  set<int> which_inputs = deri_op.which_inputs();
-
-  if (which_inputs.size() > 2) {
-    std::runtime_error("Invalid input size");
-  }
-
-  if (which_inputs.size() == 1) {
-
-    int const& which_input = *(which_inputs.begin());
-    int inn;
-    scalarop_t deri_fixed = deri_op;
-
-    if (which_input == which_inn) {
-      inn = which_inn;
-      jacobian_inn = arg_inn;
-    } else {
-      inn = which_inn == 0 ? 1 : 0;
-      jacobian_inn = inns[inn];
-      deri_fixed.remap_inputs({ { 1, 0 } });
-    }
-
-    scalarop_t vjp = scalarop_t::make_vjp(deri_fixed);
-
-    auto const& vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, jacobian_inn);
-    auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
-    auto const& input_shape = forward_permute(inns[inn], out_shape());
-    auto const& join_shape = einsummable_t::construct_join_shape(inns, {input_shape, out_shape()});
-
-    if (!join_shape.has_value()) {
-      std::runtime_error("Invalid join shape.");
-    }
-
-    einsummable_t grad (
-      join_shape.value(),
-      inns,
-      out_rank,
-      vjp
-    );
-
-    ret.push_back(grad);
-    return ret;
-  }
-
-  jacobian_inn = inns[which_inn == 0 ? 1 : 0];
-  auto identity = identity_permutation(jacobian_inn.size());
-  auto inverse = find_permutation(jacobian_inn, identity);
-  auto vjp_string = einsummable_t::make_str({inverse, identity}, jacobian_inn.size());
-  auto const& [inns1, out_rank1] = einsummable_t::parse_str(vjp_string);
-  auto const& arg_shape = forward_permute(arg_inn, out_shape());
-  auto const& oth_shape = forward_permute(jacobian_inn, out_shape());
-  auto const& join_shape1 = einsummable_t::construct_join_shape(inns1, {oth_shape, arg_shape});
-
-  if (!join_shape1.has_value()) {
-    std::runtime_error("Invalid join shape.");
-  }
-
-  einsummable_t tmp (
-    join_shape1.value(),
-    inns1,
-    out_rank1,
-    deri_op
-  );
-
-  ret.push_back(tmp);
-
-  vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, arg_inn);
-
-  auto const& [inns2, out_rank2] = einsummable_t::parse_str(vjp_string);
-  auto const& join_shape2 = einsummable_t::construct_join_shape(inns2, {join_shape1.value(), out_shape()});
-
-  einsummable_t grad (
-    join_shape2.value(),
-    inns2,
-    out_rank2,
-    scalarop_t::make_mul()
-  );
-
-  // 2*(yhat - y)*node_grad
-  // ijk, jk -> ijk
-  // ijk -> ijkl
-
-  ret.push_back(grad);
-  return ret;
-}
+//optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
+//{
+//  scalarop_t deri_op = join.derivative(which_inn);
+//  auto arg_inn = inns[which_inn];
+//  vector<int> jacobian_inn;
+//  vector<einsummable_t> ret;
+//
+//  if(deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
+//    return optional<vector<einsummable_t>>();
+//  }
+//
+//  if(deri_op.is_constant()) {
+//    scalar_t val = deri_op.eval({});
+//    einsummable_t grad(
+//      join_shape,
+//      {inverse_permute(inns[which_inn])},
+//      out_rank,
+//      scalarop_t::make_scale(val)
+//    );
+//
+//    ret.push_back(grad);
+//    return ret;
+//  }
+//
+//  set<int> which_inputs = deri_op.which_inputs();
+//
+//  if (which_inputs.size() > 2) {
+//    std::runtime_error("Invalid input size");
+//  }
+//
+//  if (which_inputs.size() == 1) {
+//
+//    int const& which_input = *(which_inputs.begin());
+//    int inn;
+//    scalarop_t deri_fixed = deri_op;
+//
+//    if (which_input == which_inn) {
+//      inn = which_inn;
+//      jacobian_inn = arg_inn;
+//    } else {
+//      inn = which_inn == 0 ? 1 : 0;
+//      jacobian_inn = inns[inn];
+//      deri_fixed.remap_inputs({ { 1, 0 } });
+//    }
+//
+//    scalarop_t vjp = scalarop_t::make_vjp(deri_fixed);
+//
+//    auto const& vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, jacobian_inn);
+//    auto const& [inns, out_rank] = einsummable_t::parse_str(vjp_string);
+//    auto const& input_shape = forward_permute(inns[inn], out_shape());
+//    auto const& join_shape = einsummable_t::construct_join_shape(inns, {input_shape, out_shape()});
+//
+//    if (!join_shape.has_value()) {
+//      std::runtime_error("Invalid join shape.");
+//    }
+//
+//    einsummable_t grad (
+//      join_shape.value(),
+//      inns,
+//      out_rank,
+//      vjp
+//    );
+//
+//    ret.push_back(grad);
+//    return ret;
+//  }
+//
+//  jacobian_inn = inns[which_inn == 0 ? 1 : 0];
+//  auto identity = identity_permutation(jacobian_inn.size());
+//  auto inverse = find_permutation(jacobian_inn, identity);
+//  auto vjp_string = einsummable_t::make_str({inverse, identity}, jacobian_inn.size());
+//  auto const& [inns1, out_rank1] = einsummable_t::parse_str(vjp_string);
+//  auto const& arg_shape = forward_permute(arg_inn, out_shape());
+//  auto const& oth_shape = forward_permute(jacobian_inn, out_shape());
+//  auto const& join_shape1 = einsummable_t::construct_join_shape(inns1, {oth_shape, arg_shape});
+//
+//  if (!join_shape1.has_value()) {
+//    std::runtime_error("Invalid join shape.");
+//  }
+//
+//  einsummable_t tmp (
+//    join_shape1.value(),
+//    inns1,
+//    out_rank1,
+//    deri_op
+//  );
+//
+//  ret.push_back(tmp);
+//
+//  vjp_string = einsummable_t::create_binary_vjp_string(arg_inn, arg_inn);
+//
+//  auto const& [inns2, out_rank2] = einsummable_t::parse_str(vjp_string);
+//  auto const& join_shape2 = einsummable_t::construct_join_shape(inns2, {join_shape1.value(), out_shape()});
+//
+//  einsummable_t grad (
+//    join_shape2.value(),
+//    inns2,
+//    out_rank2,
+//    scalarop_t::make_mul()
+//  );
+//
+//  // 2*(yhat - y)*node_grad
+//  // ijk, jk -> ijk
+//  // ijk -> ijkl
+//
+//  ret.push_back(grad);
+//  return ret;
+//}
 
 bool einsummable_t::is_straight_elementwise() const {
   if(has_aggregation()) {

@@ -68,16 +68,6 @@ struct einsummable_t {
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
-  string create_contraction_vjp_string(int which_inn);
-
-  static string create_unary_vjp_string(vector<int> inn, int rank);
-
-  static string create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs);
-
-  static string create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape);
-
-  string create_reduction_vjp_string();
-
   static tuple<string, vector<string>>
   make_str_terms(vector<vector<int>> const& inns, int out_rank);
 
@@ -94,6 +84,11 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
 
+  static vector<uint64_t> construct_join_shape(
+    vector<uint64_t> const& out_shape,
+    vector<vector<int>> const& inns,
+    vector<vector<uint64_t>> const& inn_shapes);
+
   dtype_t out_dtype() const;
 
   uint64_t out_size() const;
@@ -107,6 +102,8 @@ struct einsummable_t {
   dtype_t inn_dtype(int which_inn) const;
 
   vector<vector<uint64_t>> inn_shapes() const;
+
+  vector<uint64_t> inn_shape(int which_inn) const;
 
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
@@ -193,6 +190,7 @@ struct einsummable_t {
   template <typename T, typename F>
   static optional<vector<T>>
   construct_join_shape_(
+    optional<vector<T>> const& maybe_out,
     vector<vector<int>> const& inns,
     vector<vector<T>> const& inn_shapes,
     T const& unassigned,
@@ -203,6 +201,10 @@ struct einsummable_t {
     }
 
     vector<T> join_shape;
+    if(maybe_out) {
+      join_shape = maybe_out.value();
+    }
+
     for(int which_inn = 0; which_inn != inns.size(); ++which_inn) {
       auto const& shape = inn_shapes[which_inn];
       auto const& is = inns[which_inn];
@@ -236,12 +238,17 @@ struct einsummable_t {
     return join_shape;
   }
 
-  optional<vector<einsummable_t>> derivative(int which_inn);
-  bool deri_depends_on(int which_inn);
-
-private:
-  optional<vector<einsummable_t>> ewu_derivative(int which_inn);
-  optional<vector<einsummable_t>> ewb_derivative(int which_inn);
+  template <typename T, typename F>
+  static optional<vector<T>>
+  construct_join_shape_(
+    vector<vector<int>> const& inns,
+    vector<vector<T>> const& inn_shapes,
+    T const& unassigned,
+    F equals)
+  {
+    optional<vector<T>> none = std::nullopt;
+    return construct_join_shape_(none, inns, inn_shapes, unassigned, equals);
+  }
 };
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e);

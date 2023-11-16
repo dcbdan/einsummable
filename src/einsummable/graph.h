@@ -282,7 +282,6 @@ public:
     int num_distinct_inputs() const {
       return get_inns_set().size();
     }
-    int get_other_input(int id) const;
   };
 
   vector<node_t> nodes;
@@ -333,17 +332,27 @@ private:
     vector<out_edge_t> get_out_edges(int id) const;
   };
 
-  int build_grad_term(int id, int out_node_id, int which_inn, int node_grad);
-  int build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int other); // Y = A * B => dY/dA = grad * B.T
-  int build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_grad); // dY/dB = A.T * grad
+  // Note: grad_id has the same out shape as at id,
+  // and the return of this will have the same shape as the out
+  // shape of the input at which_inn on id
+  int build_grad_term(int id, int which_inn, int grad_id);
 
-  int build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad); // dY/dA = out_grad x deri_op(node), where x is hadammard product
+  int build_grad_term_einsummable(
+    einsummable_t const& e,
+    int which_inn, int grad_id,
+    vector<int> const& inn_ids);
 
-  int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
-  int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
-  int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
+  int build_grad_term_ewu(
+    scalarop_t const& op,
+    vector<int> const& inns,
+    int grad_id);
 
-  int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
+
+  //int build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad); // dY/dA = out_grad x deri_op(node), where x is hadammard product
+  //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
+  //int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
+  //int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
+  //int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
 
 };
 
