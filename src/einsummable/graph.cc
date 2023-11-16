@@ -262,9 +262,6 @@ int graph_constructor_t::insert_einsummable(
   einsummable_t e,
   vector<int> inns)
 {
-
-  std::cout << "This is total shape" << std::endl;
-
   if(placement.total_shape() != e.join_shape) {
     throw std::runtime_error("graph constructor: invalid insert_einsummable inputs");
   }
@@ -697,6 +694,8 @@ int graph_t::node_t::get_other_input(int id) const
       return inn;
     }
   }
+
+  throw std::runtime_error("could not get other input");
 }
 
 vector<placement_t> graph_constructor_t::get_placements() const {
@@ -897,8 +896,7 @@ vector<int> graph_t::get_inputs() const {
 set<int> graph_t::compute_nodeset(
   vector<int> const& upps,
   vector<int> const& dwns,
-  bool include_upps_dwns
-) const
+  bool include_upps_dwns) const
 {
   set<int> upp_dwn;
   for(auto const& upp: upps) {
@@ -964,8 +962,6 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
   // Get nodes which values affect output of the graph
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
-  std::cout << "Starting backpropagation algorithm..." << std::endl << std::endl;
-
   backprop_state_t state {
     .grads = {},
     .self = *this,
@@ -976,14 +972,10 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
 
   vector<int> ret;
   ret.reserve(weights.size());
-  std::cout << weights.size() << std::endl;
   for(auto const& weight : weights) {
     ret.push_back(state[weight]);
-    std::cout << "Added to ret..." << std::endl;
   }
 
-  std::cout << state.grads.at(weights[0]) << std::endl;
-  std::cout << "Leaving this..." << std::endl;
   return ret;
 }
 
@@ -1021,13 +1013,10 @@ graph_t::backprop_state_t::get_out_edges(int id) const
 
 int graph_t::backprop_state_t::operator[](int id)
 {
-  std::cout << "Calculating gradient for node: " << id << std::endl;
-
-  if (grads.count(id) > 0 ) {
-    std :: cout << "This is out node. Returning" << std::endl;
+  if(grads.count(id) > 0 ) {
     return grads.at(id);
   }
-  if (nodeset.count(id) == 0) {
+  if(nodeset.count(id) == 0) {
     throw std::runtime_error("This id is not in the nodeset");
   }
 
@@ -1036,81 +1025,89 @@ int graph_t::backprop_state_t::operator[](int id)
 
   vector<int> terms;
   terms.reserve(out_edges.size());
-
-  for (auto const& [out, which_inn] : out_edges) {
-    std::cout << "Building grad term: " << out << std::endl;
-    auto const& out_grad = (*this)[out]; // building grad term for out with respect to this_id
-    std::cout << "WRT: " << id << " Building grad term that has (out_node, which_inn, gradient_of_out_node) = (" << out << ", " << which_inn << ", " << out_grad << ")" << std::endl;
+  for(auto const& [out, which_inn] : out_edges) {
+    // building grad term for out with respect to this id
+    auto const& out_grad = (*this)[out];
     terms.push_back(
-      self.build_grad_term(id, out, which_inn, out_grad) // TO DO: implement build grad term
+      self.build_grad_term(id, out, which_inn, out_grad)
     );
   }
-
-  std::cout << "I finished backprop" << std::endl;
 
   if(terms.size() == 0) {
     throw std::runtime_error("No terms, no compute path");
   }
 
   int ret;
-  if (terms.size() == 1) {
+  if(terms.size() == 1) {
     ret = terms[0];
   } else {
     ret = self.insert_adds(terms);
   }
 
-  std::cout << "For id: " << id << " Ret is: " << ret << std::endl;
-
   grads.insert({id, ret});
-
-  std::cout << "Added to grads..." << std::endl;
 
   return ret;
 }
 
-/*
-  So I pass node_id which represents id out node of current node I am calculating VJP for
-  I pass which_inn to determine whether current node is at lhs or rhs of opeartions (if it's binary), if it is unary it doesn't matter
-  Because I am calculating VJP which is equal to v.T * J, v would represent calculated gradient for out node of the current node
-  In (almost) every situation I am going to need id of the current node (In order to create VJP einsummable)
-  If operation was binary add, then out_grad would just be propagated backward and we would get (node, grad) = (id, node_grad)
-*/
+//   So I pass node_id which represents id out node of current node I am
+//   calculating VJP for
+//
+//   I pass which_inn to determine whether current node is at lhs or rhs of
+//   opeartions (if it's binary), if it is unary it doesn't matter
+//
+//   Because I am calculating VJP which is equal to v.T * J, v would represent
+//   calculated gradient for out node of the current node
+//
+//   In (almost) every situation I am going to need id of the current node
+//   (In order to create VJP einsummable)
+//
+//   If operation was binary add, then out_grad would just be propagated backward and
+//   we would get (node, grad) = (id, node_grad)
 int graph_t::build_grad_term(
   int id,
   int out_node_id,
   int which_inn,
-  int node_grad
-)
+  int node_grad)
 {
+  // TODO: verify which_inn lines up
+
   auto const& out_node = nodes[out_node_id];
   auto const& op = out_node.op;
-  auto inns = out_node.inns;
+  auto const& inns = out_node.inns;
 
   if (which_inn >= inns.size()) {
     throw std::runtime_error("Invalid inn in build graph term");
   }
 
-  if (op.is_einsummable()) {
+  if(op.is_einsummable()) {
     auto einsummable = op.get_einsummable();
-    if (einsummable.is_contraction()) {
+    if(einsummable.is_contraction()) {
       int other = out_node.get_other_input(id);
-      std::cout << "Contractionnnnn" << std::endl;
-      if (which_inn == 0) {
-        std::cout << "LHS" << std::endl;
-        return build_grad_term_mul_lhs(einsummable, node_grad, other); // out_grad "*" OTHER.T
+      if(which_inn == 0) {
+        // out_grad "*" OTHER.T
+        return build_grad_term_mul_lhs(einsummable, node_grad, other);
+      } else if(which_inn == 1) {
+        // OTHER.T "*" out_grad
+        return build_grad_term_mul_rhs(einsummable, other, node_grad);
       } else {
-        std::cout << "RHS" << std::endl;
-        return build_grad_term_mul_rhs(einsummable, other, node_grad); // OTHER.T "*" out_grad
+        throw std::runtime_error("invalid which_inn for contraction: build grad term");
       }
-    } else if (einsummable.join.is_identity() && einsummable.castable.has_value()){
+    } else if(einsummable.join.is_identity() && einsummable.castable.has_value()){
+      // TODO: ^ not correct test for reduction
       return build_grad_term_reduction(einsummable, node_grad, out_node_id, id);
-    } else if (einsummable.join.is_unary()) {
+    } else if(einsummable.join.is_unary()) {
+      // TODO:
       return build_grad_term_ewu(einsummable, id, node_grad);
-    } else if (einsummable.join.is_binary()) {
+    } else if(einsummable.join.is_binary()) {
+      // TODO:
       int other = out_node.get_other_input(id);
       return build_grad_term_ewb_arg(einsummable, node_grad, id, other, which_inn);
     }
   }
+
+  // TODO: what if not einsummable
+
+  throw std::runtime_error("build grad term: died!");
 }
 
 // How to check if it's broadcast, join shape is different when it's broadcast
@@ -1123,10 +1120,6 @@ int graph_t::build_grad_term_mul_lhs(einsummable_t &einsum, int node_grad, int o
 
   auto join_shape = contraction_remap(einsum.inn_shapes()[0], einsum.join_shape);
   //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.out_shape(), einsum.inn_shapes()[1]});
-
-  std::cout << einsum.inn_shapes()[0] << std::endl;
-  std::cout << einsum.join_shape << std::endl;
-  std::cout << join_shape << std::endl;
 
   einsummable_t vjp(
     join_shape,
@@ -1147,7 +1140,6 @@ int graph_t::build_grad_term_mul_rhs(einsummable_t &einsum, int other, int node_
 
   auto join_shape = contraction_remap(einsum.inn_shapes()[1], einsum.join_shape);
   //auto join_shape = einsummable_t::construct_join_shape(inns, {einsum.inn_shapes()[0], einsum.out_shape()}).value();
-  std::cout << join_shape << std::endl;
 
   einsummable_t vjp(
     join_shape,
@@ -1609,11 +1601,16 @@ graph_writer_t::tensor_t::tensor_t(
   full_shape_t const& _shape,
   int _id,
   graph_writer_t* _self)
-    : shape(_shape), id(_id), self(_self)
-{
-  modes.resize(shape.full_rank());
-  std::iota(modes.begin(), modes.end(), 0);
-}
+    : tensor_t(_shape, vector_iota<int>(_shape.full_rank()), _id, _self)
+{}
+
+graph_writer_t::tensor_t::tensor_t(
+  full_shape_t const& _shape,
+  vector<int> const& _modes,
+  int _id,
+  graph_writer_t* _self)
+  : shape(_shape), modes(_modes), id(_id), self(_self)
+{}
 
 graph_writer_t::tensor_t
 graph_writer_t::tensor_t::transpose(int i, int j) const
@@ -1805,24 +1802,33 @@ graph_writer_t::tensor_t::physically_permute() const {
 }
 
 vector<graph_writer_t::tensor_t>
-graph_writer_t::backprop(tensor_t out, vector<tensor_t> params)
+graph_writer_t::backprop(
+  graph_writer_t::tensor_t out,
+  vector<graph_writer_t::tensor_t> inns)
 {
-  vector<int> ws;
-  for (auto const& param : params) {
-    ws.push_back(param.get_id());
+  // It could be the case that inns do not have a shape that is grouped
+  // or that they have a permutation.
+  //
+  // Here, take the gradient wrt wtvr get_id() gives, but then wrap the resulting
+  // gradient with the correct shape + permutation.
+  //
+  // The output tensor shape grouping or permutations doesn't matter because
+  // the gradient is wrt the sum of all the elements.
+
+  vector<int> inn_ids;
+  for (auto const& inn : inns) {
+    inn_ids.push_back(inn.get_id());
+  }
+  vector<int> grad_ids = graph.backprop(out.get_id(), inn_ids);
+
+  vector<tensor_t> grads;
+  for(int which = 0; which != inns.size(); ++which) {
+    auto const& inn = inns[which];
+    auto const& grad_id = grad_ids[which];
+    grads.push_back(tensor_t(inn.shape, inn.modes, grad_id, this));
   }
 
-  vector<int> ws_grads = graph.backprop(out.get_id(), ws);
-
-  vector<graph_writer_t::tensor_t> tensor_grads;
-
-  for (int grad : ws_grads) {
-    auto node_grad = graph.nodes[grad];
-    auto shape = full_shape_t::from_full(node_grad.op.out_shape());
-    tensor_grads.push_back(tensor_t(shape, grad, this));
-  }
-
-  return tensor_grads;
+  return grads;
 }
 
 graph_writer_t::tensor_t

@@ -442,10 +442,16 @@ void set_erase_if_inplace(
   }
 }
 
+template <typename T>
+vector<T> vector_iota(int n) {
+  vector<T> ret(n);
+  std::iota(ret.begin(), ret.end(), T(0));
+  return ret;
+}
+
 template <typename RandomIter>
 vector<std::size_t> argsort(RandomIter beg, RandomIter end) {
-  vector<std::size_t> ret(end-beg);
-  std::iota(ret.begin(), ret.end(), 0);
+  vector<std::size_t> ret = vector_iota<std::size_t>(end-beg);
   std::sort(ret.begin(), ret.end(), [&](int const& lhs, int const& rhs) {
     return *(beg + lhs) < *(beg + rhs);
   });
@@ -912,7 +918,7 @@ vector<int> find_permutation(
     std::runtime_error("Input and out sets are not equal");
   }
 
-  map<int, int> out_map; 
+  map<int, int> out_map;
   vector<int> ret;
 
   for (int i = 0; i < out.size(); i++) {
@@ -928,13 +934,13 @@ vector<int> find_permutation(
 
 template <typename T>
 vector<T> contraction_remap(
-  vector<T> out, 
+  vector<T> out,
   vector<T> join
 )
 {
   vector<uint64_t> new_join_shape(out);
   map<uint64_t, int> maps;
-  int ctr = 0; 
+  int ctr = 0;
 
   for (auto i : new_join_shape) {
     auto it = std::find(join.begin(), join.end(), i);
@@ -979,8 +985,7 @@ vector<T> backward_permute(
   vector<int> const& out_perm,
   vector<T> const& out_shape)
 {
-  vector<int> modes(out_perm.size());
-  std::iota(modes.begin(), modes.end(), 0);
+  vector<int> modes = vector_iota<int>(out_perm.size());
 
   return forward_permute(
     as_out_perm(out_perm, modes),

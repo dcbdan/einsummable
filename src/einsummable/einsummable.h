@@ -199,7 +199,6 @@ struct einsummable_t {
     F equals)
   {
     if(inns.size() != inn_shapes.size()) {
-      std::cout << "inns.size() != inn_shapes.size()" << std::endl;
       return std::nullopt;
     }
 
@@ -219,7 +218,6 @@ struct einsummable_t {
           out_sz = inn_sz;
         } else {
           if(!equals(out_sz, inn_sz)) {
-            std::cout << "Something in the for loop...." << std::endl;
             return std::nullopt;
           }
         }
@@ -227,13 +225,11 @@ struct einsummable_t {
     }
 
     if(join_shape.size() == 0) {
-      std::cout << "join_shape.size()...." << std::endl;
       return std::nullopt;
     }
 
     auto iter = std::find(join_shape.begin(), join_shape.end(), unassigned);
     if(iter != join_shape.end()) {
-      std::cout << "iter != join_shape.end()..." << std::endl;
       return std::nullopt;
     }
 

@@ -285,11 +285,19 @@ public:
     int get_other_input(int id) const;
   };
 
-  // In case that one node has multiple edges 
+  vector<node_t> nodes;
+
+private:
+  int insert(op_t const& op, vector<int> inns);
+
+private:
+  // autodiff stuff here
+
+  // In case that one node has multiple edges
   // We need to sum all of its contributions to output function
   // Let's say that we have f(u,v) where u = u(x,y)  and v = v(x,y)
-  // Then df/dx = (df/du)*(du/dx) + (df/dv)*(dv/dx) 
-  // And in the more complex case of f(u1, u2, ... , un) where 
+  // Then df/dx = (df/du)*(du/dx) + (df/dv)*(dv/dx)
+  // And in the more complex case of f(u1, u2, ... , un) where
   // u1 = u1(x1, x2, ... , xm) , ... , un = un(x1, x2, ... , xm)
   // df/dxi = sum(df/duj * duj/dxi) where j = 1..n and i= 1..m
   int insert_adds(vector<int> items) {
@@ -337,10 +345,6 @@ public:
 
   int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
 
-  vector<node_t> nodes;
-
-private:
-  int insert(op_t const& op, vector<int> inns);
 };
 
 // graph_constructor_t is for building a graph
@@ -592,6 +596,12 @@ struct graph_writer_t {
 
     tensor_t(
       full_shape_t const& shape,
+      int id,
+      graph_writer_t* self);
+
+    tensor_t(
+      full_shape_t const& shape,
+      vector<int> const& modes,
       int id,
       graph_writer_t* self);
 

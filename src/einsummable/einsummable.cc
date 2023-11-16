@@ -301,22 +301,10 @@ einsummable_t _einsummable_matmul_helper(
 {
   auto [inns,_] = einsummable_t::parse_str(str);
 
-  auto const& einsum = einsummable_t(
+  return einsummable_t(
     {di, dk, dj}, inns, 2,
     scalarop_t::make_mul(dtype),
     castable_t::add);
-
-  std::cout << "\t This is join_shape for the created einsumm " << std::endl << "\t\t";
-
-  for(auto i = einsum.join_shape.begin(); i != einsum.join_shape.end(); i++) {
-    std::cout << (*i) << " ";
-  } 
-
-  std::cout << std::endl;
-  if (einsum.join.is_mul()) std::cout << "IT'S A MULLLLLL" << std::endl;
-  std::cout << einsum.str() << std::endl;
-
-  return einsum;
 }
 
 einsummable_t einsummable_t::from_matmul(
@@ -456,7 +444,7 @@ einsummable_t::make_str_terms(
 {
   int join_rank = _compute_join_rank(inns, out_rank);
 
-  vector<char> letters(join_rank); // How many different letters are there 
+  vector<char> letters(join_rank); // How many different letters are there
   std::iota(letters.begin(), letters.end(), 'a');
 
   auto words = get_inputs_from_join_(inns, letters);
@@ -503,7 +491,7 @@ einsummable_t::create_contraction_vjp_string(int which_inn)
   } else {
     VJP_string = std::get<1>(terms)[other] + "," + std::get<0>(terms) + result;
   }
-  
+
   return VJP_string;
 }
 
@@ -511,7 +499,7 @@ string
 einsummable_t::create_binary_vjp_string(vector<int> argument_shape, vector<int> other_shape)
 {
   auto identity = identity_permutation(argument_shape.size());
-  auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};  
+  auto const& permuted_inns = {find_permutation(other_shape, argument_shape), find_permutation(identity, argument_shape)};
   return make_str(permuted_inns, argument_shape.size());
 }
 
@@ -526,16 +514,16 @@ string einsummable_t::create_reduction_vjp_string()
   return std::get<0>(terms) + "," + std::get<1>(terms)[0] + "->" + std::get<1>(terms)[0];
 }
 
-string 
+string
 einsummable_t::create_unary_vjp_string(vector<int> inn, int rank)
 {
   auto identity = identity_permutation(rank);
-  auto inverse = find_permutation(identity, inn); 
+  auto inverse = find_permutation(identity, inn);
   return make_str({inverse, identity}, rank);
 }
 
-string 
-einsummable_t::create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs) 
+string
+einsummable_t::create_batch_matmul_string(int lhs_rank, int rhs_rank, bool t_lhs, bool t_rhs)
 {
   int nl = lhs_rank;
   int nr = rhs_rank;
@@ -756,56 +744,55 @@ bool einsummable_t::deri_depends_on(int which_inn)
 
 optional<vector<einsummable_t>> einsummable_t::ewu_derivative(int which_inn)
 {
-
   auto deri_op = join.derivative(which_inn);
   vector<einsummable_t> ret;
 
   if (deri_op.is_constant_of(scalar_t::one(default_dtype()))) {
-      return std::nullopt;
-    }
+    return std::nullopt;
+  }
 
-    if (deri_op.is_constant()) {
-      scalar_t val = deri_op.eval({});
-      einsummable_t grad(
-        join_shape,
-        {inverse_permute(inns[0])},
-        out_rank,
-        scalarop_t::make_scale(val)
-      );
-      ret.push_back(grad);
-      return ret;
-    }
-
-    // (yhat - y)**2 => 2(yhat - y) * node_grad
-
-    scalarop_t vjp = scalarop_t::make_vjp(deri_op);
-
-    auto const& vjp_string = create_unary_vjp_string(inns[0], out_rank);
-
-    auto const& [inns, out_rank] = parse_str(vjp_string);
-
-    auto const& input_shape = backward_permute(inns[0], join_shape);
-
-    auto const& grad_join_shape = construct_join_shape(inns, {join_shape, inn_shapes()[0]});
-
-    if (!grad_join_shape.has_value()) {
-      std::runtime_error("Invalid join shape.");
-    }
-
+  if (deri_op.is_constant()) {
+    scalar_t val = deri_op.eval({});
     einsummable_t grad(
-      grad_join_shape.value(),
-      inns,
+      join_shape,
+      {inverse_permute(inns[0])},
       out_rank,
-      vjp
+      scalarop_t::make_scale(val)
     );
     ret.push_back(grad);
-
     return ret;
+  }
+
+  // (yhat - y)**2 => 2(yhat - y) * node_grad
+
+  scalarop_t vjp = scalarop_t::make_vjp(deri_op);
+
+  auto const& vjp_string = create_unary_vjp_string(inns[0], out_rank);
+
+  auto const& [inns, out_rank] = parse_str(vjp_string);
+
+  auto const& input_shape = backward_permute(inns[0], join_shape);
+
+  auto const& grad_join_shape = construct_join_shape(inns, {join_shape, inn_shapes()[0]});
+
+  if (!grad_join_shape.has_value()) {
+    throw std::runtime_error("Invalid join shape.");
+  }
+
+  einsummable_t grad(
+    grad_join_shape.value(),
+    inns,
+    out_rank,
+    vjp
+  );
+  ret.push_back(grad);
+
+  return ret;
 }
 
 optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
 {
-  
+
   scalarop_t deri_op = join.derivative(which_inn);
   auto arg_inn = inns[which_inn];
   vector<int> jacobian_inn;
@@ -823,7 +810,7 @@ optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
       out_rank,
       scalarop_t::make_scale(val)
     );
-    
+
     ret.push_back(grad);
     return ret;
   }
@@ -837,7 +824,7 @@ optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
   if (which_inputs.size() == 1) {
 
     int const& which_input = *(which_inputs.begin());
-    int inn; 
+    int inn;
     scalarop_t deri_fixed = deri_op;
 
     if (which_input == which_inn) {
@@ -877,16 +864,16 @@ optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
   auto vjp_string = einsummable_t::make_str({inverse, identity}, jacobian_inn.size());
   auto const& [inns1, out_rank1] = einsummable_t::parse_str(vjp_string);
   auto const& arg_shape = forward_permute(arg_inn, out_shape());
-  auto const& oth_shape = forward_permute(jacobian_inn, out_shape()); 
+  auto const& oth_shape = forward_permute(jacobian_inn, out_shape());
   auto const& join_shape1 = einsummable_t::construct_join_shape(inns1, {oth_shape, arg_shape});
-  
+
   if (!join_shape1.has_value()) {
     std::runtime_error("Invalid join shape.");
-  } 
+  }
 
   einsummable_t tmp (
     join_shape1.value(),
-    inns1, 
+    inns1,
     out_rank1,
     deri_op
   );
@@ -900,12 +887,12 @@ optional<vector<einsummable_t>> einsummable_t::ewb_derivative(int which_inn)
 
   einsummable_t grad (
     join_shape2.value(),
-    inns2, 
-    out_rank2, 
+    inns2,
+    out_rank2,
     scalarop_t::make_mul()
   );
 
-  // 2*(yhat - y)*node_grad 
+  // 2*(yhat - y)*node_grad
   // ijk, jk -> ijk
   // ijk -> ijkl
 
