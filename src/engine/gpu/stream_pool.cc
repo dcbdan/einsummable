@@ -14,7 +14,7 @@ void streampool_t::initialize(int num_streams_per_gpu, int num_gpus){
     throw std::runtime_error("the stream pool must have already been initialized");
   }
 
-  DOUT("Creating stream pool...");
+  // DOUT("Creating stream pool...");
   for(int i = 0; i < num_gpus; i++){
     vector<cudaStream_t> streams_per_gpu;
     cudaSetDevice(i);
@@ -41,7 +41,7 @@ streampool_t::~streampool_t(){
 // ------------------------ stream pool manager ------------------------
 
 streampool_manager_t::streampool_manager_t(streampool_t& streampool): stream_pools(streampool){
-  DOUT("Creating stream pool manager...");
+  // DOUT("Creating stream pool manager...");
 }
 
 optional<streampool_resource_t> streampool_manager_t::

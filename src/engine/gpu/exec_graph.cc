@@ -1,11 +1,13 @@
 #include "exec_nodes.h"
 #include "../exec_graph.h"
 #include "managers.h"
+#include "resource_manager.h"
 #include "workspace.h"
-#include "storage.h"
+#include "storage_manager.h"
 #include "stream_pool.h"
 #include "utility.h"
 #include <cuda_runtime_api.h>
+#include <driver_types.h>
 #include <iostream>
 #include <sys/types.h>
 
@@ -148,9 +150,13 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
-      throw std::runtime_error("GPU evict not implemented");
+      gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
+      insert(op_ptr_t(op), mid);
+      // DOUT("Inserted evict op for node " << mid);
     } else if(node.op.is_load()) {
-      throw std::runtime_error("GPU load not implemented");
+      gpu_load_t* op = new gpu_load_t(node.op.get_load());
+      insert(op_ptr_t(op), mid);
+      // DOUT("Inserted load op for node " << mid);
     } else {
       throw std::runtime_error("should not reach");
     }
@@ -378,4 +384,110 @@ void gpu_copy_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
+}
+
+desc_ptr_t
+gpu_evict_t::resource_description() const
+{
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  // 3rd: storage object
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc(device));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
+  ret.emplace_back(gpu_storage_manager_t::make_desc());
+
+  return resource_manager_t::make_desc(ret);
+}
+
+void gpu_evict_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* gpu_memory = increment_void_ptr(
+    global_buffer,
+    gpu_offset);
+
+  // create stream and launch
+  cudaSetDevice(device);
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+  buffer_t buffer = make_buffer(size);
+  cudaMemcpyAsync(buffer->data, gpu_memory, size, cudaMemcpyDeviceToHost, stream);
+
+  // tell storage that we already have the data inserted
+  auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
+  gpu_storage->insert(storage_id, buffer);
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_evict_t: callback");
+}
+
+desc_ptr_t
+gpu_load_t::resource_description() const
+{
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  // 3rd: storage object
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc(device));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
+  ret.emplace_back(gpu_storage_manager_t::make_desc());
+
+  return resource_manager_t::make_desc(ret);
+}
+
+void gpu_load_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* gpu_memory = increment_void_ptr(
+    global_buffer,
+    gpu_offset);
+
+  // create stream and launch
+  cudaSetDevice(device);
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+
+  auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
+  buffer_t buffer = gpu_storage->load(storage_id);
+  cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream);
+
+  gpu_storage->remove(storage_id);
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_load_t: callback");
 }

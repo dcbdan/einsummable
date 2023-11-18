@@ -374,6 +374,9 @@ void server_2 (int argc, char** argv){
     return;
   }
 
+  // time the execution
+  auto start = std::chrono::high_resolution_clock::now();
+
   auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
   auto graph = g.graph;
   auto pls = g.get_placements();
@@ -403,11 +406,19 @@ void server_2 (int argc, char** argv){
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
+  // Time the random initialization
+  auto data_init_time = std::chrono::high_resolution_clock::now();
+  auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
+  DOUT("Random initialization time: " << init_duration.count() / 1000000.0 << " seconds");
   // DOUT("Printing graphviz...")
   // std::ofstream f("g_multiply.gv");
   // graph.print_graphviz(f);
 
   server.execute_graph(graph, pls);
+
+  auto execution_time = std::chrono::high_resolution_clock::now();
+  auto execution_duration = std::chrono::duration_cast<std::chrono::microseconds>(execution_time-data_init_time);
+  DOUT("Server execution time: " << execution_duration.count() / 1000000.0 << " seconds");
 
   //// get the outputs to here
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -418,6 +429,11 @@ void server_2 (int argc, char** argv){
       //DOUT("gid sum is: " << tensor.sum());
     }
   }
+
+  // print the execution time in seconds
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
+  DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
 
   server.shutdown();
 

@@ -76,9 +76,12 @@ void gpu_mg_server_t::execute_memgraph(
   exec_state_t state(graph, resource_manager);
 
   DOUT("Executing...");
-  state.event_loop();  
-
-  DOUT("executed.");
+  // print the execution time of event_loop()
+  auto start = std::chrono::high_resolution_clock::now();
+  state.event_loop();
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
+  DOUT("Event Loop finished. Time: " << duration.count() << " ms");
 }
 
 // memstoloc_t is not a contiguous data structure,
