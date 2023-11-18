@@ -41,7 +41,12 @@ void cpu_mg_server_t::execute_memgraph(
   exec_state_t state(graph, resource_manager, priority_type);
 
   if(for_remap) {
-    state.event_loop();
+    if(this_rank == 0) {
+      gremlin_t gremlin("execute_memgraph remap or move inputs loop time");
+      state.event_loop();
+    } else {
+      state.event_loop();
+    }
   } else {
     if(this_rank == 0) {
       gremlin_t gremlin("execute_memgraph event loop time");

@@ -89,7 +89,7 @@ struct vtensor_t {
   // Example: Matrix with shape {10,20}
   //          index_subtensor(i) returns the 20 vector on row i
   vtensor_t<T> index_subtensor(int idx) const {
-    return index_subtensor({idx});
+    return index_subtensor(vector<int>{idx});
   }
   // Example: Tensor with sahpe {10,20,30,40}
   //          index_subtensor({i,j}) returns the {30,40} matrix

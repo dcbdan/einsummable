@@ -316,6 +316,7 @@ void main_rank_zero_experiments(
 
   uint64_t bsz    = args.get<uint64_t>("batch_size");
   uint64_t seqlen = args.get<uint64_t>("seq_len");
+  DLINEOUT("bsz " << bsz << "  | seqlen " << seqlen);
 
   token_maker_t token_maker = make_token_maker_with_shape(bsz, seqlen);
 
@@ -331,6 +332,9 @@ void main_rank_zero_experiments(
   string register_cmd = server.get_registered_cmd();
 
   model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
+
+  // TODO: this may be off by one but I don't think it matters  
+  margs.max_seq_len = seqlen + 2; 
 
   args.set_default<int>("max_n_layers", -1);
   {
@@ -483,6 +487,15 @@ void main_rank_zero(
   string register_cmd = server.get_registered_cmd();
 
   model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
+  // TODO: set the max seq len
+
+  args.set_default<int>("max_n_layers", -1);
+  {
+    int n_layers = args.get<int>("max_n_layers");
+    if(n_layers >= 0) {
+      margs.n_layers = std::min(margs.n_layers, n_layers);
+    }
+  }
 
   builder_t builder = builder_t::make_first_token(margs, seqlen);
 

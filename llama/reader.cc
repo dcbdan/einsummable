@@ -34,7 +34,6 @@ buffer_t local_tensor_reader_t::operator()(
 {
   buffer_t ret = read(tensor_name);
   if(expected_dtype != dtype_t::f16) {
-    DLINE;
     return dbuffer_t(dtype_t::f16, ret).copy(expected_dtype).data;
   } else {
     return ret;
@@ -214,7 +213,6 @@ map<int, buffer_t> tensor_reader_t::_read(
   string const& tensor_name,
   vector<int> const& whiches)
 {
-  DLINEOUT(tensor_name);
   map<int, buffer_t> data;
   for(auto& [i, reader]: readers) {
     data.insert_or_assign(whiches[i], reader(tensor_name, dtype));
