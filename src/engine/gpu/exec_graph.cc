@@ -423,6 +423,7 @@ void gpu_evict_t::launch(
   // tell storage that we already have the data inserted
   auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
   gpu_storage->insert(storage_id, buffer);
+  // DOUT("gpu_evict_t::launch: inserted buffer into storage, id = " << storage_id);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -472,10 +473,9 @@ void gpu_load_t::launch(
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
   auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
+  // DOUT("gpu_load_t::launch: loading buffer from storage, id = " << storage_id);
   buffer_t buffer = gpu_storage->load(storage_id);
   cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream);
-
-  gpu_storage->remove(storage_id);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 

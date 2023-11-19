@@ -1,4 +1,5 @@
 #include "GPU_correctness.cc"
+#include <cstdint>
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -387,6 +388,7 @@ void server_2 (int argc, char** argv){
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
   uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);

@@ -298,6 +298,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     } else {
       int id = 1 + storage.get_max_id();
 
+      DOUT("Inserting into storage... id: " << id << " size: " << tensor->size);
       storage.write(tensor, id);
 
       stoloc_t stoloc {
