@@ -213,6 +213,40 @@ double dbuffer_t::sum_to_f64() const {
   }
 }
 
+scalar_t dbuffer_t::min() const {
+  if(nelem() == 0) {
+    throw std::runtime_error("cannot min with empty");
+  }
+  if(dtype == dtype_t::f16) {
+    return scalar_t(*std::min_element(f16(), f16() + nelem()));
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(*std::min_element(f32(), f32() + nelem()));
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(*std::min_element(f64(), f64() + nelem()));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("min does not support complex");
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+scalar_t dbuffer_t::max() const {
+  if(nelem() == 0) {
+    throw std::runtime_error("cannot max with empty");
+  }
+  if(dtype == dtype_t::f16) {
+    return scalar_t(*std::max_element(f16(), f16() + nelem()));
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(*std::max_element(f32(), f32() + nelem()));
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(*std::max_element(f64(), f64() + nelem()));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("max does not support complex");
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
 uint64_t dbuffer_t::nelem() const {
   if(size() % dtype_size(dtype) != 0) {
     throw std::runtime_error("incorrect size for dtype");

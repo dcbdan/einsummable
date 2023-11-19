@@ -22,6 +22,8 @@ struct dbuffer_t {
 
   scalar_t sum() const;
   double sum_to_f64() const;
+  scalar_t min() const;
+  scalar_t max() const;
 
   uint64_t nelem() const;
   uint64_t const& size() const;

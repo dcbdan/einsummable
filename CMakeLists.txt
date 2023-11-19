@@ -12,7 +12,10 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
+#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-g -Wl,-Map=output.map")
+set(MKLROOT "/opt/intel/mkl/2023.2.0")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DMKL_ILP64 -m64 -I\"${MKLROOT}/include\"")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -70,9 +73,6 @@ add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
 
 if(${CPU_EXECUTION_ENGINE})
-  if(NOT MKL_THREADING)
-    set(MKL_THREADING sequential)
-  endif()
 
   add_compile_definitions(CPU_EXEC)
 
@@ -81,9 +81,7 @@ if(${CPU_EXECUTION_ENGINE})
   # and so on...
   # (MKL is bad at finding the right instruction set and
   #  this helps empirically)
-  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
-
-  find_package(MKL REQUIRED)
+  #set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
@@ -91,8 +89,6 @@ if(${CPU_EXECUTION_ENGINE})
   set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
   include_directories(${UCX_PATH}/include)
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
-
-  include_directories(${MKL_INCLUDE})
 
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
@@ -117,10 +113,11 @@ if(${CPU_EXECUTION_ENGINE})
   add_executable(${exec} ${dir}/${filename}.cc llama/modules.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
+    ucx::ucp ucx::ucs 
     proto
-    ${Protobuf_LIBRARIES}
-    MKL::MKL
-    ucx::ucp ucx::ucs)
+    ${Protobuf_LIBRARIES})
+  target_link_libraries(${exec}
+    "-Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -lpthread -lm -ldl")
   endfunction()
 
   #add_cpu_application("cpuexec"               "exps" "cpuexec")
@@ -141,6 +138,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   add_cpu_application("eventloop"             "exps" "eventloop")
   add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
+  add_cpu_application("dcb01"                 "exps" "dcb01")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
@@ -149,12 +147,13 @@ if(${CPU_EXECUTION_ENGINE})
       cpu_execution_engine
       proto
       ${Protobuf_LIBRARIES}
-      MKL::MKL
       ucx::ucp ucx::ucs)
+    target_link_libraries(${exec}
+      "-Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a ${MKLROOT}/lib/intel64/libmkl_sequential.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -lpthread -lm -ldl")
   endfunction()
 
   add_cpu_llama_application("llama_cpu" "cpu2")
-
+  
 endif()
 
 if(${GPU_EXECUTION_ENGINE})

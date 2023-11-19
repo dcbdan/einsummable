@@ -678,6 +678,196 @@ build_graph(args_t& args)
   }
 }
 
+///////////////////////////////////////////////////////
+
+#include <mkl_cblas.h>
+#include <mkl.h>
+
+#include "../src/engine/cpu/kernel_executor.h"
+
+template <typename T> 
+vector<T*> _fill_out_(
+  uint64_t const& nb,
+  bool const& batched,
+  T* ptr,
+  uint64_t sz)
+{
+  if(batched) {
+    vector<T*> ret;
+    ret.reserve(nb);
+    for(uint64_t i = 0; i != nb; ++i) {
+      ret.push_back(ptr + i*sz);
+    }
+    return ret;
+  } else {
+    return vector<T*>(nb, ptr);
+  }
+}
+
+void bmm(
+  uint64_t const& nb,
+  bool const& batched_out,
+  bool const& batched_lhs,
+  bool const& batched_rhs,
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  void* _out,
+  void const* _lhs,
+  void const* _rhs)
+{
+  if(nb == 1) {
+    throw std::runtime_error("bwoah");
+  }
+
+  DLINEOUT("nb" << nb << " bout_lhs_rhs" << batched_out << batched_lhs << batched_rhs << " ni,nj,nk|" << ni << "," << nj << "," << nk << " tl,tr" << trans_lhs << trans_rhs);
+
+  MKL_INT group_count;
+  vector<MKL_INT> group_sizes;
+  vector<float> beta_array;
+  if(batched_out) {
+    group_count = 1;
+    group_sizes.push_back(nb);
+    beta_array.push_back(0.0);
+  } else {
+    group_count = 2;
+    group_sizes.push_back(1);
+    group_sizes.push_back(nb-1);
+    beta_array.push_back(0.0);
+    beta_array.push_back(1.0);
+  }
+  DLINEOUT(group_count << " " << group_sizes << " | " << beta_array);
+
+  vector<CBLAS_TRANSPOSE> trans_lhs_(group_count, trans_lhs ? CblasTrans : CblasNoTrans);
+  vector<CBLAS_TRANSPOSE> trans_rhs_(group_count, trans_rhs ? CblasTrans : CblasNoTrans);
+  DLINEOUT(trans_lhs_.size() << " " << trans_rhs_.size());
+
+  vector<MKL_INT> nis(group_count, ni);
+  vector<MKL_INT> nks(group_count, nk);
+  vector<MKL_INT> njs(group_count, nj);
+
+  DLINEOUT(nis << " " << nks << " " << njs);
+
+  vector<float> alpha_array(group_count, 1.0);
+  DLINEOUT(alpha_array << " " << beta_array);
+
+  float const* lhs_ = reinterpret_cast<float const*>(_lhs);
+  float const* rhs_ = reinterpret_cast<float const*>(_rhs);
+  float      * out_ = reinterpret_cast<float      *>(_out);
+
+  vector<float const*> lhs = _fill_out_(nb, batched_lhs, lhs_, ni*nj);
+  vector<float const*> rhs = _fill_out_(nb, batched_rhs, rhs_, nj*nk);
+  vector<float      *> out = _fill_out_(nb, batched_out, out_, ni*nk);
+  DLINEOUT(lhs.size() << " " << rhs.size() << " " << out.size());
+
+  cblas_sgemm_batch(
+    CblasRowMajor,
+    trans_lhs_.data(), 
+    trans_rhs_.data(),
+    nis.data(), nks.data(), njs.data(),       // 4,5,6
+    alpha_array.data(),                       // 7
+    lhs.data(),              
+    trans_lhs ? nis.data() : njs.data(),      // 9
+    rhs.data(),
+    trans_rhs ? njs.data() : nks.data(),
+    beta_array.data(),
+    out.data(),
+    nks.data(),
+    group_count,
+    group_sizes.data());
+
+  //void cblas_sgemm_batch(
+  //  const CBLAS_LAYOUT Layout,            // 1
+  //  const CBLAS_TRANSPOSE* transa_array, 
+  //  const CBLAS_TRANSPOSE* transb_array, 
+  //  const MKL_INT* m_array,               // 4
+  //  const MKL_INT* n_array, 
+  //  const MKL_INT* k_array, 
+  //  const float* alpha_array,             // 7
+  //  const float **a_array, 
+  //  const MKL_INT* lda_array,             // 9
+  //  const float **b_array,                // 10
+  //  const MKL_INT* ldb_array, 
+  //  const float* beta_array, 
+  //  float **c_array, 
+  //  const MKL_INT* ldc_array,             // 14
+  //  const MKL_INT group_count, 
+  //  const MKL_INT* group_size);           // 16
+}  
+
+void main2(int argc, char** argv) {
+  args_t args(argc, argv);
+  args.set_default("nb", uint64_t(2));
+  args.set_default("ni", uint64_t(10));
+  args.set_default("nj", uint64_t(10));
+  args.set_default("nk", uint64_t(10));
+  args.set_default("bout", true);
+  args.set_default("blhs", true);
+  args.set_default("brhs", true);
+
+  uint64_t nb = args.get<uint64_t>("nb"); 
+  uint64_t ni = args.get<uint64_t>("ni"); 
+  uint64_t nj = args.get<uint64_t>("nj"); 
+  uint64_t nk = args.get<uint64_t>("nk"); 
+
+  bool bout = args.get<bool>("bout");
+  bool blhs = args.get<bool>("blhs");
+  bool brhs = args.get<bool>("brhs");
+
+  dbuffer_t L  = make_dbuffer(dtype_t::f32, (blhs ? nb : 1)*ni*nj);
+  dbuffer_t R  = make_dbuffer(dtype_t::f32, (brhs ? nb : 1)*nj*nk);
+  dbuffer_t O  = make_dbuffer(dtype_t::f32, (bout ? nb : 1)*ni*nk);
+  dbuffer_t O1 = make_dbuffer(dtype_t::f32, (bout ? nb : 1)*ni*nk);
+
+  L.ones();
+  R.ones();
+
+  for(int i = 0; i != 1; ++i) {
+    bmm(nb, bout,blhs,brhs, ni,nj,nk, false, false, O1.raw(), L.raw(), R.raw()); 
+    DLINEOUT("SUCCESS ON BMM");
+  }
+
+  batch_matrix_multiply(
+    dtype_t::f32, 
+    nb, bout,blhs,brhs, ni,nj,nk, false, false, O.raw(), L.raw(), R.raw()); 
+
+  DOUT(nb << " | " << ni << "," << nj << "," << nk);
+  DOUT(O.min() << "          " << O.max());
+}
+
+void main3() {
+  uint64_t nb = 16; 
+  uint64_t ni = 512; 
+  uint64_t nj = 128; 
+  uint64_t nk = 512; 
+  
+  cpu_kernel_executor_t executor;  
+  auto [inns, out_rank] = einsummable_t::parse_str("bij,bjk->bik");
+  vector<uint64_t> join_shape = einsummable_t::construct_join_shape(
+    inns,
+    { {nb,ni,nj}, {nb,nj,nk} }).value();
+  einsummable_t e(
+    join_shape, inns, out_rank, 
+    scalarop_t::make_mul(dtype_t::f32), castable_t::add);
+
+  uint64_t worksize = executor.build(e).value();
+  DLINEOUT("worksize is " << worksize);
+  vector<uint8_t> workspace(worksize);
+
+  dbuffer_t L = make_dbuffer(dtype_t::f32, nb*ni*nj);
+  dbuffer_t R = make_dbuffer(dtype_t::f32, nb*nj*nk);
+  dbuffer_t O = make_dbuffer(dtype_t::f32, nb*ni*nk);
+
+  L.ones();
+  R.ones();
+
+  executor(e, O.raw(), {L.raw(), R.raw()}, 
+    tuple<void*, uint64_t>{reinterpret_cast<void*>(workspace.data()), worksize});
+}
+
 int main(int argc, char** argv) {
-  main0(argc, argv);
+  main2(argc, argv);
+  main3();
 }

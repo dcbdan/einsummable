@@ -1026,6 +1026,25 @@ void matrix_multiply(
   matrix_multiply_update(dtype, ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, true);
 }
 
+template <typename T> 
+vector<T*> _fill_out(
+  uint64_t const& nb,
+  bool const& batched,
+  T* ptr,
+  uint64_t sz)
+{
+  if(batched) {
+    vector<T*> ret;
+    ret.reserve(nb);
+    for(uint64_t i = 0; i != nb; ++i) {
+      ret.push_back(ptr + i*sz);
+    }
+    return ret;
+  } else {
+    return vector<T*>(nb, ptr);
+  }
+}
+
 // b<ij> , b<jk> -> b<ik>
 //
 // This kernel includes things like
@@ -1053,6 +1072,83 @@ void batch_matrix_multiply(
     matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
     return;
   }
+
+  DLINEOUT(dtype << " nb" << nb << " bout_lhs_rhs" << batched_out << batched_lhs << batched_rhs << " ni,nj,nk|" << ni << "," << nj << "," << nk << " tl,tr" << trans_lhs << trans_rhs);
+
+  if(dtype == dtype_t::f32) {
+    // TODO: other dtypes?
+
+    // Option 1: Initialize the outputs to zero. Then have one group count.
+    // Option 2: Have one group to initialize with the first matmul and the 
+    //           second group to do the rest
+    MKL_INT group_count;
+    vector<MKL_INT> group_sizes;
+    vector<float> beta_array;
+    if(batched_out) {
+      group_count = 1;
+      group_sizes.push_back(nb);
+      beta_array.push_back(0.0);
+    } else {
+      group_count = 2;
+      group_sizes.push_back(1);
+      group_sizes.push_back(nb-1);
+      beta_array.push_back(0.0);
+      beta_array.push_back(1.0);
+    }
+  
+    vector<CBLAS_TRANSPOSE> trans_lhs_(group_count, trans_lhs ? CblasTrans : CblasNoTrans);
+    vector<CBLAS_TRANSPOSE> trans_rhs_(group_count, trans_rhs ? CblasTrans : CblasNoTrans);
+  
+    vector<MKL_INT> nis(group_count, ni);
+    vector<MKL_INT> nks(group_count, nk);
+    vector<MKL_INT> njs(group_count, nj);
+  
+    vector<float> alpha_array(group_count, 1.0);
+  
+    float const* lhs_ = reinterpret_cast<float const*>(_lhs);
+    float const* rhs_ = reinterpret_cast<float const*>(_rhs);
+    float      * out_ = reinterpret_cast<float      *>(_out);
+  
+    vector<float const*> lhs = _fill_out(nb, batched_lhs, lhs_, ni*nj);
+    vector<float const*> rhs = _fill_out(nb, batched_rhs, rhs_, nj*nk);
+    vector<float      *> out = _fill_out(nb, batched_out, out_, ni*nk);
+  
+    cblas_sgemm_batch(
+      CblasRowMajor,
+      trans_lhs_.data(), 
+      trans_rhs_.data(),
+      nis.data(), nks.data(), njs.data(),       // 4,5,6
+      alpha_array.data(),                       // 7
+      lhs.data(),              
+      trans_lhs ? nis.data() : njs.data(),      // 9
+      rhs.data(),
+      trans_rhs ? njs.data() : nks.data(),
+      beta_array.data(),
+      out.data(),
+      nks.data(),
+      group_count,
+      group_sizes.data());
+
+    return;
+    //void cblas_sgemm_batch(
+    //  const CBLAS_LAYOUT Layout,            // 1
+    //  const CBLAS_TRANSPOSE* transa_array, 
+    //  const CBLAS_TRANSPOSE* transb_array, 
+    //  const MKL_INT* m_array,               // 4
+    //  const MKL_INT* n_array, 
+    //  const MKL_INT* k_array, 
+    //  const float* alpha_array,             // 7
+    //  const float **a_array, 
+    //  const MKL_INT* lda_array,             // 9
+    //  const float **b_array,                // 10
+    //  const MKL_INT* ldb_array, 
+    //  const float* beta_array, 
+    //  float **c_array, 
+    //  const MKL_INT* ldc_array,             // 14
+    //  const MKL_INT group_count, 
+    //  const MKL_INT* group_size);           // 16
+  }
+
 
   uint8_t      * out = (uint8_t      *)_out;
   uint8_t const* lhs = (uint8_t const*)_lhs;

@@ -17,6 +17,8 @@ struct threadpool_t {
 
   int num_runners() const { return threads.size(); }
 
+  void new_file(string filename);
+
 private:
   std::mutex m;
   std::condition_variable cv;

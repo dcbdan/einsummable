@@ -94,6 +94,10 @@ void threadpool_t::insert(string label, std::function<void()> f) {
   cv.notify_one();
 }
 
+void threadpool_t::new_file(string filename) {
+  out = std::ofstream(filename);
+}
+
 void threadpool_t::print_time(
    int which, string label, 
    timestamp_t const& start, timestamp_t const& end) 

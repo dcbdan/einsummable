@@ -10,6 +10,8 @@
 #include "../../engine/cpu/storage_manager.h"
 #include "../../engine/cpu/workspace_manager.h"
 
+int zzz = 0;
+
 void cpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
   bool for_remap)
@@ -38,6 +40,8 @@ void cpu_mg_server_t::execute_memgraph(
     }
   ));
 
+  threadpool.new_file("tp_" + write_with_ss(++zzz));
+
   exec_state_t state(graph, resource_manager, priority_type);
 
   if(for_remap) {
@@ -48,6 +52,7 @@ void cpu_mg_server_t::execute_memgraph(
       state.event_loop();
     }
   } else {
+    DLINEOUT("zzzzzzz " << zzz);
     if(this_rank == 0) {
       gremlin_t gremlin("execute_memgraph event loop time");
       state.event_loop();
