@@ -132,4 +132,3 @@ std::ostream& operator<<(std::ostream&, refinement_t const&);
 // The refinement of Y[1,1] has four agg units. Each agg unit represents some i,j
 //   and that agg unit has blocks (ijk->ij, X[i,j,k]) for k=0,1,2.
 //   The size of each agg unit block is roughly 1/4 the size of the Y[1,1] block.
-

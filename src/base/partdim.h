@@ -39,6 +39,8 @@ struct partdim_t {
 
   partdim_t subset(uint64_t beg, uint64_t end) const;
 
+  uint64_t max_size() const;
+
   string to_wire() const;
   void to_proto(es_proto::Partdim& p) const;
 

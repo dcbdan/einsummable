@@ -2,8 +2,12 @@
 
 #include "einsummable.pb.h"
 
-relation_t relation_t::as_singleton(int id, int loc) const {
-  auto shape = placement.total_shape();
+relation_t relation_t::make_singleton(
+  dtype_t const& dtype,
+  vector<uint64_t> const& shape,
+  int id,
+  int loc)
+{
   vector<int> ones(shape.size(), 1);
   placement_t pl(partition_t::singleton(shape));
   pl.locations.get()[0] = loc;
@@ -12,6 +16,11 @@ relation_t relation_t::as_singleton(int id, int loc) const {
     .placement = pl,
     .tids = vtensor_t<int>(ones, {id})
   };
+}
+
+relation_t relation_t::as_singleton(int id, int loc) const {
+  auto shape = placement.total_shape();
+  return make_singleton(dtype, shape, id, loc);
 }
 
 string relation_t::to_wire() const {

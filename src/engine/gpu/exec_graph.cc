@@ -54,11 +54,21 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     mid_to_eid.insert({mid, eid});
   };
 
+  auto is_local_to_here = [&](memgraph_t::node_t const& node) {
+    for(int i = 0, i != num_gpus_per_node; ++i) {
+      int which_gpu = this_rank*num_gpus_per_node + i;
+      if(node.op.is_local_to(which_gpu)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     auto const& node = memgraph.nodes[mid];
-    if(!node.op.is_local_to_gpu(this_rank, num_gpus_per_node)) {
-      DOUT("Skipping node " << mid << " because it is not local to this gpu")
-      continue;
+    if(!is_local_to_here(node)) {
+     DOUT("Skipping node " << mid << " because it is not local to this gpu")
+     continue;
     }
     // DOUT("Making exec graph for node " << mid);
 
@@ -214,7 +224,7 @@ void gpu_einsummable_t::launch(
   }
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
-  
+
   gpu_km(
     einsummable,
     stream,

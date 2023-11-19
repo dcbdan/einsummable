@@ -35,10 +35,12 @@ struct server_base_t {
   virtual void listen() = 0;
 
   // Note: this should only be called on ranks not equal to zero.
-  virtual void register_listen(string key, std::function<void(server_base_t*)> f) = 0;
+  virtual void register_listen(string key, std::function<void()> f) = 0;
 
   // Should only be called by rank zero and when all other
   // ranks are listening {{{
+  void insert_gid_without_data(int gid, relation_t const& relation);
+
   virtual void execute(taskgraph_t const& taskgraph) = 0;
 
   // create a taskgraph and execute the graph.
@@ -92,7 +94,7 @@ struct server_base_t {
   // it is error if any of the tids in local_insert_tensors and local_erase_tensors
   // do not live on _this_ compute-node.
 
-  // data is a mapping from tid -> (buffer, location) pair
+  // data is a mapping from tid -> (location, buffer) pair
   // (since every compute-node may have multiple locations, we can't tell
   //  where to insert the tensors unless told)
   virtual void local_insert_tensors(
@@ -114,7 +116,7 @@ struct server_mg_base_t : server_base_t {
     communicator_t& c,
     allocator_settings_t s = allocator_settings_t::default_settings())
     : comm(c), alloc_settings(s),
-      make_parallel_partialize_groups_(true),
+      make_parallel_partialize_groups_(false),
       use_storage_(true)
   {}
 
@@ -128,7 +130,7 @@ struct server_mg_base_t : server_base_t {
 
   void listen();
 
-  void register_listen(string key, std::function<void(server_base_t*)> f);
+  void register_listen(string key, std::function<void()> f);
 
   string get_registered_cmd() const {
     return write_with_ss(cmd_t::registered_cmd);
@@ -218,7 +220,7 @@ public:
   bool use_storage_;
 
 private:
-  map<string, std::function<void(server_base_t*)>> listeners;
+  map<string, std::function<void()>> listeners;
 
   enum class cmd_t {
     execute_tg = 0,

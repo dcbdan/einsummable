@@ -85,10 +85,6 @@ exec_state_t::exec_state_t(
   for(auto const& id: ready_to_run_) {
     ready_to_run.push(id);
   }
-
-  for(int id = 0; id != num_nodes; ++id) {
-    DLINEOUT("id " << id << ": " << priorities[id]);
-  }
 }
 
 void exec_state_t::event_loop() {
@@ -163,7 +159,6 @@ bool exec_state_t::try_to_launch(int id) {
     resource_manager->try_to_acquire(resource_desc);
   if(resources) {
     auto callback = [this, id] {
-      DLINEOUT("completed " << id);
       {
         std::unique_lock lk(m_notify);
         this->just_completed.push_back(id);

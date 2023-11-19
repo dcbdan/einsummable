@@ -238,6 +238,13 @@ void twolayer_insert_refi_outs_from_join_deps(
   }
 }
 
+inline partdim_t _fast_unions(vector<vector<uint64_t>> const& _ps) {
+  vector<uint64_t> spans = vector_sorted_merges(_ps);
+  vector_remove_duplicates(spans);
+
+  return partdim_t { .spans = spans };
+}
+
 // Note: Almost a copy of union_partition_holders in src/taskgraph.cc
 partition_t union_partitions(vector<partition_t> const& ps)
 {
@@ -253,12 +260,12 @@ partition_t union_partitions(vector<partition_t> const& ps)
   int rank = ps[0].block_shape().size();
   partdims.reserve(rank);
   for(int i = 0; i != rank; ++i) {
-    vector<partdim_t> xs;
+    vector<vector<uint64_t>> xs;
     xs.reserve(ps.size());
     for(auto const& p: ps) {
-      xs.push_back(p.partdims[i]);
+      xs.push_back(p.partdims[i].spans);
     }
-    partdims.push_back(partdim_t::unions(xs));
+    partdims.push_back(_fast_unions(xs));
   }
   return partition_t(partdims);
 }

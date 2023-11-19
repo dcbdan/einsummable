@@ -29,3 +29,46 @@ load_balanced_placement(
   int nlocs,
   bool random_input);
 
+vector<placement_t>
+load_balanced_placement_from_outs(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  bool random_output);
+
+vector<uint64_t> compute_tensor_move_costs(
+  graph_t const& graph,
+  vector<placement_t> const& placements);
+
+uint64_t compute_tensor_move_cost(
+  graph_t const& graph,
+  std::function<placement_t const&(int)> get_placement,
+  int gid);
+
+vector<placement_t> autolocate_agg_at_a_time(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved);
+
+struct agg_plan_t {
+  agg_plan_t()
+    : agg_plan_t(0,1)
+  {}
+
+  agg_plan_t(int bloc, int eloc)
+    : bloc(bloc), eloc(eloc)
+  {}
+
+  set<int> source_locs() const;
+
+  int loc_at(int i) const;
+
+  vector<int> as_vector(int nagg) const;
+
+  int bloc;
+  int eloc;
+};
+
+vector<agg_plan_t> gen_agg_plans(int nloc, int nagg);
+

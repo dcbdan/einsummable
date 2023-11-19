@@ -135,9 +135,9 @@ communicator_t::communicator_t(
     }
   } else {
     int oob_sock = -1;
-    for(int i = 0; i != 10; ++i) {
+    for(int i = 0; i != 30; ++i) {
       using namespace std::chrono_literals;
-      std::this_thread::sleep_for(200ms);
+      std::this_thread::sleep_for(2000ms);
       oob_sock = connect_common(addr_zero.c_str(), server_port, ai_family);
       if(oob_sock != -1) {
         break;
