@@ -54,10 +54,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     mid_to_eid.insert({mid, eid});
   };
 
-  auto is_local_to_here = [&](memgraph_t::node_t const& node) {
+  auto is_local_to_here = [&](int mid) {
     for(int i = 0, i != num_gpus_per_node; ++i) {
       int which_gpu = this_rank*num_gpus_per_node + i;
-      if(node.op.is_local_to(which_gpu)) {
+      if(memgraph.is_local_to(mid, which_gpu)) {
         return true;
       }
     }
@@ -65,11 +65,12 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   };
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
-    auto const& node = memgraph.nodes[mid];
-    if(!is_local_to_here(node)) {
+    if(!is_local_to_here(mid)) {
      DOUT("Skipping node " << mid << " because it is not local to this gpu")
      continue;
     }
+
+    auto const& node = memgraph.nodes[mid];
     // DOUT("Making exec graph for node " << mid);
 
     if(

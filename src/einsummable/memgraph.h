@@ -44,8 +44,8 @@ struct memloc_t {
 };
 
 struct stoloc_t {
-  int loc; // this storage location
-  int id;  // with this id
+  int loc;    // this storage location
+  int id;     // with this id
 
   memsto_t as_memsto() const { return memsto_t(id); }
 };
@@ -173,13 +173,13 @@ struct memgraph_t {
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
   vector<int> storage_locs;
 
-  // TODO TODO TODO
-  // This method is very dirty. A single sto_loc may map into
-  // multiple locations, yet this function returns the first location!
-  // This is fine whenever there is a one-to-one mapping.
-  //
-  // As a larger design point, storage locs may need to be changed...
-  int get_loc_from_storage_loc(int sto_loc) const;
+  // A single sto_loc may map into multiple locations,
+  // so this function returns all of them.
+  vector<int> get_locs_from_storage_loc(int sto_loc) const;
+
+  // Given a node and a device, return whether or not
+  // that node "occurs" at that device.
+  bool is_local_to(int id, int loc) const;
 
 public:
   struct inputmem_t {
@@ -193,7 +193,6 @@ public:
   };
 
   struct inputsto_t {
-    int loc;
     int storage_loc;
     int storage_id;
     uint64_t size;
@@ -374,7 +373,6 @@ public:
 
     int get_loc() const{
       if (is_inputmem())   return get_inputmem().loc;
-      if (is_inputsto())   return get_inputsto().loc;
       if (is_apply())      return get_apply_loc();
       if (is_move())       return get_move().get_dst_loc();
       if (is_evict())      return get_evict().src.loc;
@@ -382,6 +380,11 @@ public:
       if (is_partialize()) return get_partialize().loc;
       if (is_alloc())      return get_alloc().loc;
       if (is_del())        return get_del().loc;
+
+      if (is_inputsto()) {
+        throw std::runtime_error("input sto can have multiple locs");
+      };
+
       throw std::runtime_error("trying to get loc for an unknown op");
     }
 

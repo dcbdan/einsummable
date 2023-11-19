@@ -91,10 +91,6 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       }
     } else if(op.is_inputsto()) {
       auto const& input = op.get_inputsto();
-      if(input.loc < colors.size()) {
-        color = "pink";
-        //color = colors[input.loc];
-      }
       label = "inputsto@sto_id=" + write_with_ss(input.storage_id);
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
@@ -261,7 +257,6 @@ string memgraph_t::to_wire() const {
     } else if(node.op.is_inputsto()) {
       auto const& input = node.op.get_inputsto();
       es_proto::MGInputSto* i = n->mutable_inputsto();
-      i->set_loc(input.loc);
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
       i->set_size(input.size);
@@ -374,7 +369,6 @@ memgraph_t memgraph_t::from_wire(string const& str) {
     } else if(n.has_inputsto()) {
       auto const& i = n.inputsto();
       op = op_t(inputsto_t {
-        .loc = i.loc(),
         .storage_loc = i.storage_loc(),
         .storage_id = i.storage_id(),
         .size = i.size()
@@ -481,13 +475,19 @@ memgraph_t memgraph_t::from_wire(string const& str) {
   return ret;
 }
 
-int memgraph_t::get_loc_from_storage_loc(int sto_loc) const {
+vector<int>
+memgraph_t::get_locs_from_storage_loc(int sto_loc) const
+{
+  vector<int> ret;
   for(int loc = 0; loc != storage_locs.size(); ++loc) {
     if(storage_locs[loc] == sto_loc) {
-      return loc;
+      ret.push_back(loc);
     }
   }
-  throw std::runtime_error("invalid sto_loc");
+  if(ret.size() == 0) {
+    throw std::runtime_error("invalid sto_loc");
+  }
+  return ret;
 }
 
 int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
@@ -761,11 +761,30 @@ stoloc_t memgraph_t::op_t::get_stoloc() const {
   }
 }
 
+bool memgraph_t::is_local_to(int id, int loc) const {
+  node_t const& node = nodes[id];
+  if(node.op.is_inputsto()) {
+    // Input storage nodes are special in that they don't map to
+    // a single location. We determine if this inputsto occurs here if
+    // any of its outgoing edges occur here.
+    for(int const& id: node.outs) {
+      if(is_local_to(id, loc)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    return node.op.is_local_to(loc);
+  }
+}
+
 bool memgraph_t::op_t::is_local_to(int loc) const {
   if(is_inputmem()) {
     return loc == get_inputmem().loc;
   } else if(is_inputsto()) {
-    return loc == get_inputsto().loc;
+    // If we have an input sto, we need to know which locs this storage loc
+    // maps to. But even then, is it local to all of those maps?
+    throw std::runtime_error("inputsto node: can't tell if local to loc");
   } else if(is_apply()) {
     return loc == get_apply().loc;
   } else if(is_move()) {
@@ -1037,7 +1056,6 @@ memgraph_make_state_t::pop_memgraph()
         sto = ret_op.get_inputsto();
       } else if(ret_op.is_evict()) {
         auto const& evict = ret_op.get_evict();
-        sto.loc         = evict.src.loc,
         sto.storage_loc = evict.dst.loc;
         sto.storage_id  = evict.dst.id;
         sto.size        = evict.src.size;
@@ -1105,11 +1123,13 @@ memgraph_make_state_t::memgraph_make_state_t(
       int mid = memgraph.insert(op_t(input), {});
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     } else if(memstoloc.is_stoloc()) {
+      // Note that even though storage ids are specific to storage locs,
+      // this code only cares about finding a unique storage id whenever
+      // one is needed.
       auto const& [storage_loc, storage_id] = memstoloc.get_stoloc();
       _sto_id = std::max(_sto_id, 1 + storage_id);
 
       inputsto_t input {
-        .loc = memgraph.get_loc_from_storage_loc(storage_loc),
         .storage_loc = storage_loc,
         .storage_id = storage_id,
         .size = tg.out_size(tid)
@@ -1176,7 +1196,6 @@ void memgraph_make_state_t::initialize_input(int inn){
     }
 
     inputsto_t input_sto = {
-      .loc = loc,
       .storage_loc = memgraph.storage_locs[loc],
       .storage_id = _sto_id++,
       .size = size
