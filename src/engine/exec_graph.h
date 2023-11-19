@@ -33,7 +33,7 @@ struct exec_graph_t {
     int this_rank,
     kernel_manager_t& gpu_km,
     int num_gpus_per_node,
-    void* this_buffer);
+    vector<void*> gpu_mems);
 #endif
 
   struct op_base_t {

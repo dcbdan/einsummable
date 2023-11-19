@@ -3,7 +3,7 @@
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
-#include "../../engine/gpu/workspace.h"
+
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -43,9 +43,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
   }
-  // NOTE: delete when finished debugging
-  init_value((float*)mems[0], 12, 7);
-  printFloatGPU(mems[0], 12);
+
+  // initialize the stream pool now that we have num_gpus_per_node
+  stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -60,7 +60,7 @@ void gpu_mg_server_t::execute_memgraph(
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
-      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems[0]);
+      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
@@ -68,19 +68,20 @@ void gpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new gpu_workspace_manager_t()),
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(mems)),
-      rm_ptr_t(new gpu_storage_manager_t(&storage))
+      rm_ptr_t(new gpu_storage_manager_t(&storage)),
+      rm_ptr_t(new streampool_manager_t(stream_pool))
     }
   ));
 
   exec_state_t state(graph, resource_manager);
 
-  DOUT("executing...");
-  state.event_loop();  
-
-  DOUT("executed.");
-
-  // checking the state buffer
-  printFloatGPU(mems[0], 12);
+  DOUT("Executing...");
+  // print the execution time of event_loop()
+  auto start = std::chrono::high_resolution_clock::now();
+  state.event_loop();
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
+  DOUT("Event Loop finished. Time: " << duration.count() << " ms");
 }
 
 // memstoloc_t is not a contiguous data structure,
@@ -230,10 +231,11 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     // buffer at this location and return
     auto ret_buffer = make_buffer(size);
     cudaMemcpy(
-      increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->data,
+      increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->size,
       cudaMemcpyDeviceToHost);
+
     return ret_buffer;
   } else if(d.is_stoloc()) {
     auto const& [sto_loc, sto_id] = d.get_stoloc();
@@ -296,6 +298,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     } else {
       int id = 1 + storage.get_max_id();
 
+      DOUT("Inserting into storage... id: " << id << " size: " << tensor->size);
       storage.write(tensor, id);
 
       stoloc_t stoloc {

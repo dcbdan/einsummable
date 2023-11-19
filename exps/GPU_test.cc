@@ -1,4 +1,5 @@
 #include "GPU_correctness.cc"
+#include <cstdint>
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -54,9 +55,7 @@ void usage() { DOUT("pi pj pk di dj dk np"); }
 
 
 memgraph_t taskgraph_to_memgraph(taskgraph_t const& taskgraph) {
-  // it could be the case that not all locs are actually used,
-  // for example 1 1 2 100 100 100 88
-  // Here only 2 locs will really be used, not all 88...
+
   int np = taskgraph.num_locs();
 
   // have everyone share the same cache
@@ -94,7 +93,7 @@ memgraph_t taskgraph_to_memgraph(taskgraph_t const& taskgraph) {
       }
 
       // print the memgraph sizes on all gpus
-      std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
+      // std::cout << "memgraph size on gpu " << i << ": " << memgraph.mem_sizes()[i] << std::endl;
 
       check_bounds(memgraph, memgraph.mem_sizes()[i]);
     }
@@ -153,40 +152,6 @@ void slow_mm(dtype_t const& dd,
   } else {
     throw std::runtime_error("not implemented");
   }
-}
-
-void mm_test2() {
-  dtype_t dtype = dtype_t::f32;
-
-  void* a;
-  void* b;
-  void* c;
-  void* w;
-
-  kernel_manager_t km;
-
-  uint64_t ni = 10000;
-
-  handle_cuda_error(cudaMalloc(&a, ni*ni*dtype_size(dtype)));
-  handle_cuda_error(cudaMalloc(&b, ni*ni*dtype_size(dtype)));
-  handle_cuda_error(cudaMalloc(&c, ni*ni*dtype_size(dtype)));
-
-  // A  B   C
-  //ij,jk->ik
-  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
-
-  uint64_t wsz = km.build(e).value().value();
-  handle_cuda_error(cudaMalloc(&w, wsz));
-
-  cudaStream_t stream;
-  handle_cuda_error(cudaStreamCreate(&stream));
-  DLINE;
-
-  for(int i = 0; i != 10; ++i) {
-    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
-  }
-
-  handle_cuda_error(cudaDeviceSynchronize());
 }
 
 void mm_test() {
@@ -333,8 +298,8 @@ void mm_test3() {
 }
 
 void engine_1(int argc, char** argv){
-  if (argc != 8) {
-    usage();
+  if (argc != 6) {
+    DOUT("pi pj pk matrix_dimension np");
     return;
   }
 
@@ -346,9 +311,9 @@ void engine_1(int argc, char** argv){
     pj = parse_with_ss<int>(argv[2]);
     pk = parse_with_ss<int>(argv[3]);
     di = parse_with_ss<uint64_t>(argv[4]);
-    dj = parse_with_ss<uint64_t>(argv[5]);
-    dk = parse_with_ss<uint64_t>(argv[6]);
-    np = parse_with_ss<int>(argv[7]);
+    dj = parse_with_ss<uint64_t>(argv[4]);
+    dk = parse_with_ss<uint64_t>(argv[4]);
+    np = parse_with_ss<int>(argv[5]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -383,7 +348,97 @@ void server_1 (int argc, char** argv){
     return;
   }
 
-  server_execute(world_size, matrix_dim, partition);
+  server_execute_mm(world_size, matrix_dim, partition);
+}
+
+// do 3d matmul on the server
+void server_2 (int argc, char** argv){
+  if (argc != 6) {
+    DOUT("pi pj pk matrix_dimension np");
+    return;
+  }
+
+  int pi, pj, pk;
+  uint64_t di, dj, dk;
+  int np;
+  try {
+    pi = parse_with_ss<int>(argv[1]);
+    pj = parse_with_ss<int>(argv[2]);
+    pk = parse_with_ss<int>(argv[3]);
+    di = parse_with_ss<uint64_t>(argv[4]);
+    dj = parse_with_ss<uint64_t>(argv[4]);
+    dk = parse_with_ss<uint64_t>(argv[4]);
+    np = parse_with_ss<int>(argv[5]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    usage();
+    return;
+  }
+
+  // time the execution
+  auto start = std::chrono::high_resolution_clock::now();
+
+  auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+  auto graph = g.graph;
+  auto pls = g.get_placements();
+  int world_size = 1;
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+  // Time the random initialization
+  auto data_init_time = std::chrono::high_resolution_clock::now();
+  auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
+  DOUT("Random initialization time: " << init_duration.count() / 1000000.0 << " seconds");
+  // DOUT("Printing graphviz...")
+  // std::ofstream f("g_multiply.gv");
+  // graph.print_graphviz(f);
+
+  server.execute_graph(graph, pls);
+
+  auto execution_time = std::chrono::high_resolution_clock::now();
+  auto execution_duration = std::chrono::duration_cast<std::chrono::microseconds>(execution_time-data_init_time);
+  DOUT("Server execution time: " << execution_duration.count() / 1000000.0 << " seconds");
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  // print the execution time in seconds
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
+  DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
+
+  server.shutdown();
+
 }
 
 // void server_2(int argc, char** argv){
@@ -418,17 +473,55 @@ void server_1 (int argc, char** argv){
 //   server_execute(memgraph, true, memgraph.mem_sizes());
 // }
 
-int main(int argc, char **argv) {
-//  // main_ff();
-//  // main_matmul(argc, argv);
-//  main_matmul_multi_gpu(argc, argv);
-//  // contractionTest2();
-//  return 0;
+void mm_test2() {
+  dtype_t dtype = dtype_t::f32;
 
-  //mm_test3();
-  //mm_test2();
-  //mm_test();
-  // dcb01();
+  void* a;
+  void* b;
+  void* c;
+  void* w;
+
+  kernel_manager_t km;
+
+  uint64_t ni = 10;
+
+  handle_cuda_error(cudaMalloc(&a, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&b, ni*ni*dtype_size(dtype)));
+  handle_cuda_error(cudaMalloc(&c, ni*ni*dtype_size(dtype)));
+
+  dbuffer_t output = make_dbuffer(dtype_t::f32, ni*ni);
+  output.random("-1.0", "1.0");
+
+  if (cudaMemcpy(c, output.data->data, output.data->size,
+                 cudaMemcpyHostToDevice) != cudaSuccess) {
+    throw std::runtime_error("cudaMemcpy output");
+  }
+
+  std::cout << "c before: " << std::endl;
+  printFloatGPU(c, ni*ni);
+
+  // A  B   C
+  //ij,jk->ik
+  einsummable_t e = einsummable_t::from_matmul(ni, ni, ni, dtype);
+
+  uint64_t wsz = km.build(e).value().value();
+  handle_cuda_error(cudaMalloc(&w, wsz));
+
+  cudaStream_t stream;
+  handle_cuda_error(cudaStreamCreate(&stream));
+  DLINE;
+
+  for(int i = 0; i != 10; ++i) {
+    km(e, stream, c, {a,b}, tuple<void*, uint64_t>{w, wsz});
+  }
+
+  handle_cuda_error(cudaDeviceSynchronize());
+  std::cout << "c after: " << std::endl;
+  printFloatGPU(c, ni*ni);
+}
+
+int main(int argc, char **argv) {
   // server_1(argc, argv);
-  contractionTest(2, 2, 2);
+  server_2(argc, argv);
+  // engine_1(argc, argv);
 }

@@ -1,5 +1,6 @@
 #include "../exec_graph.h"
 #include "../resource_manager.h"
+#include <cstdint>
 
 struct gpu_einsummable_t : exec_graph_t::op_base_t {
   gpu_einsummable_t(
@@ -17,6 +18,7 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
   uint64_t workspace_size;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 or 3 resources are always needed for an einsummable
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_einsummable"; }
 };
@@ -38,6 +40,7 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
   int device;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 or 3 resources are always needed for a touch
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_touch"; }
 };
@@ -50,6 +53,54 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
   memgraph_t::move_t move;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 2 resources are always needed for a copy
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_copy"; }
+};
+
+// NOTE: Evict and load only support GPU RAM to CPU RAM
+// TODO: if additional levels of storage is needed (such as disk)
+// then we will need to add new support for that here
+struct gpu_evict_t: exec_graph_t::op_base_t {
+  gpu_evict_t(memgraph_t::evict_t const& e)
+  {
+    auto gpu_src = e.src;
+    auto cpu_dst = e.dst;
+    gpu_offset = gpu_src.offset;
+    size = gpu_src.size;
+    device = gpu_src.loc;
+    storage_id = cpu_dst.as_memsto().get_sto();
+  }
+
+  uint64_t gpu_offset;
+  uint64_t size;
+  int device;
+  int storage_id;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 1 resource is always needed for an evict
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "gpu_evict"; }
+};
+
+struct gpu_load_t: exec_graph_t::op_base_t {
+  gpu_load_t(memgraph_t::load_t const& l)
+  {
+    auto cpu_src = l.src;
+    auto gpu_dst = l.dst;
+    gpu_offset = gpu_dst.offset;
+    size = gpu_dst.size;
+    device = gpu_dst.loc;
+    storage_id = cpu_src.as_memsto().get_sto();
+  }
+
+  uint64_t gpu_offset;
+  uint64_t size;
+  int device;
+  int storage_id;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 1 resource is always needed for a load
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "gpu_load"; }
 };

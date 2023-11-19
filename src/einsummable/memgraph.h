@@ -386,7 +386,8 @@ public:
 
     bool is_local_to(int loc) const;
 
-    bool is_local_to_gpu(int loc, int num_gpu_per_node) const;
+    // return if the node is to be executed on the gpu of this node
+    bool is_local_to_gpu(int node, int num_gpu_per_node) const;
   private:
     _op_t op;
 

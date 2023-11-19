@@ -4,7 +4,7 @@ cudaStream_t cuda_create_stream() {
   cudaStream_t ret;
   auto cudaError = cudaStreamCreate(&ret);
   if (cudaError != cudaSuccess) {
-    throw std::runtime_error("cuda_create_stream.. " + string(cudaGetErrorString(cudaError)));
+    throw std::runtime_error("cuda_create_stream... " + string(cudaGetErrorString(cudaError)));
   }
   return ret;
 }

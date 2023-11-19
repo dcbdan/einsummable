@@ -247,6 +247,8 @@ void kernel_manager_t::call(
   using std::holds_alternative;
   using std::get;
 
+  // std::cout << "Calling kernel" << std::endl;
+
   auto assert_num_inputs = [&inns](int n) {
     if(inns.size() != n) {
       throw std::runtime_error("kernel manager: incorrect number of input tensors");
@@ -254,6 +256,7 @@ void kernel_manager_t::call(
   };
 
   if(holds_alternative<matmul_t>(kernel)) {
+    // std::cout << "Calling matmul" << std::endl;
     auto const& m = get<matmul_t>(kernel);
     execute_matmul(
       m, stream,
@@ -273,7 +276,7 @@ void kernel_manager_t::call(
         throw std::runtime_error("workspace required; none given");
       }
     }
-
+    // std::cout << "Calling contraction" << std::endl;
     execute_contraction(
       c, stream,
       out, inns[0], inns[1],
@@ -548,21 +551,21 @@ void kernel_manager_t::execute_matmul(
   } 
 
   if(dtype == dtype_t::f32) {
-    //cublasSgemm(
-    //  cublas_handle, 
-    //  trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
-    //  trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
-    //  m, n, k, 
-    //  &one_float, 
-    //  static_cast<float const*>(lhs), ldl,
-    //  static_cast<float const*>(rhs), ldr,
-    //  &zero_float,
-    //  static_cast<float*>(out), ldo);
+    cublasSgemm(
+     cublas_handle, 
+     trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
+     trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
+     m, n, k, 
+     &one_float, 
+     static_cast<float const*>(lhs), ldl,
+     static_cast<float const*>(rhs), ldr,
+     &zero_float,
+     static_cast<float*>(out), ldo);
   } else {
     throw std::runtime_error("not implemented: the other cublas matmul dtypes");
   }
 
-  handle_cuda_error(cudaDeviceSynchronize());
+  // handle_cuda_error(cudaDeviceSynchronize());
 }
 
 void kernel_manager_t::execute_contraction(
@@ -590,6 +593,7 @@ void kernel_manager_t::execute_contraction(
   void const* zero_ptr = 
     c.dtype == dtype_t::f16 ? get_zero_ptr(dtype_t::f32) : get_zero_ptr(c.dtype);
 
+  // std::cout << "Calling cutensor contraction" << std::endl;
   handle_cutensor_error(
     cutensorContraction(
       cutensor_handle, 
