@@ -1,8 +1,19 @@
 #include "gpu_kernel_manager.h"
 
 #include "utility.h"
+#include <cuda_runtime_api.h>
+#include <stdexcept>
 
-kernel_manager_t::kernel_manager_t() {
+kernel_manager_t::kernel_manager_t() 
+  : kernel_manager_t(0)
+{
+  DOUT("!!! Note: Creating kernel manager without a device id !!!")
+  
+}
+
+kernel_manager_t::kernel_manager_t(int device): device(device) {
+  DOUT("Creating kernel manager on device " << device);
+  cudaSetDevice(device);
   handle_cutensor_error(
     cutensorCreate(&cutensor_handle),
     "cutensor create in kernel_manager constructor");
@@ -22,6 +33,7 @@ kernel_manager_t::kernel_manager_t() {
 }
 
 kernel_manager_t::~kernel_manager_t() {
+  cudaSetDevice(device);
   handle_cutensor_error(
     cutensorDestroy(cutensor_handle),
     "cutensor destroy in kernel_manager destructor");
@@ -33,6 +45,7 @@ kernel_manager_t::~kernel_manager_t() {
 optional<workspace_info_t> 
 kernel_manager_t::build(einsummable_t const& e_)
 {
+  cudaSetDevice(device);
   auto einsummable = e_.merge_adjacent_dims();
 
   auto iter = kernels.find(einsummable);
@@ -222,6 +235,7 @@ void kernel_manager_t::operator()(
   void* out,
   void const* inn) const
 {
+  cudaSetDevice(device);
   auto f = build_touch(touch);
   f(stream, out, inn);
 }
@@ -233,6 +247,7 @@ void kernel_manager_t::operator()(
   vector<void const*> inns,
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
+  cudaSetDevice(device);
   auto const& info = get_built_kernel_info(e);
   call(info, stream, out, inns, maybe_workspace);
 }
@@ -244,6 +259,7 @@ void kernel_manager_t::call(
   vector<void const*> inns,
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
+  cudaSetDevice(device);
   using std::holds_alternative;
   using std::get;
 
@@ -515,7 +531,19 @@ void kernel_manager_t::execute_matmul(
 
   // convert from row to column major
 
-  auto const& [dtype, ni, nj, nk, _0, _1, _2] = matmul;
+  DOUT("Calling cublas");
+
+  auto const& [dtype, ni, nj, 
+    nk, _0, _1, _2] = matmul;
+
+  // print all the parameters
+  // std::cout << "dtype: " << dtype << std::endl;
+  // std::cout << "ni: " << ni << std::endl;
+  // std::cout << "nj: " << nj << std::endl;
+  // std::cout << "nk: " << nk << std::endl;
+  // std::cout << "TL: " << _0 << std::endl;
+  // std::cout << "TR: " << _1 << std::endl;
+  // std::cout << "SW: " << _2 << std::endl;
 
   // row major      column major   
   // ij,jk->ik      ji,kj->ki
@@ -538,9 +566,9 @@ void kernel_manager_t::execute_matmul(
   int n = ni; // num cols of c
   int k = nj; // the other dimension
 
-  int ldl = trans_l ? nj : ni ;
-  int ldr = trans_r ? nk : nj ;
-  int ldo = nk;
+  int ldl = trans_l ? ni : nj ;
+  int ldr = trans_r ? nj : nk ;
+  int ldo = m;
   
   handle_cublas_error(cublasSetStream(cublas_handle, stream));
 
@@ -551,6 +579,7 @@ void kernel_manager_t::execute_matmul(
   } 
 
   if(dtype == dtype_t::f32) {
+    // DOUT("calling cublasSgemm");
     cublasSgemm(
      cublas_handle, 
      trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,

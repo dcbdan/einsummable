@@ -416,3 +416,43 @@ bool operator!=(dbuffer_t const& lhs, dbuffer_t const& rhs) {
   return !(lhs == rhs);
 }
 
+scalar_t dbuffer_t::min() const {
+  if(nelem() == 0) {
+    throw std::runtime_error("min/max does not support zero nelem");
+  }
+  if(dtype == dtype_t::f16) {
+    return scalar_t(
+      *std::min_element(f16(), f16() + nelem()));
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(
+      *std::min_element(f32(), f32() + nelem()));
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(
+      *std::min_element(f64(), f64() + nelem()));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no min/max for c64");
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+
+scalar_t dbuffer_t::max() const {
+  if(nelem() == 0) {
+    throw std::runtime_error("min/max does not support zero nelem");
+  }
+  if(dtype == dtype_t::f16) {
+    return scalar_t(
+      *std::max_element(f16(), f16() + nelem()));
+  } else if(dtype == dtype_t::f32) {
+    return scalar_t(
+      *std::max_element(f32(), f32() + nelem()));
+  } else if(dtype == dtype_t::f64) {
+    return scalar_t(
+      *std::max_element(f64(), f64() + nelem()));
+  } else if(dtype == dtype_t::c64) {
+    throw std::runtime_error("no min/max for c64");
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+}
+

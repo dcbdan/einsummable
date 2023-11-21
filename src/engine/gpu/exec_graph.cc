@@ -10,6 +10,7 @@
 #include <driver_types.h>
 #include <iostream>
 #include <sys/types.h>
+#include <thread>
 
 void print_exec_graph(exec_graph_t exec_graph){
   for (int i = 0; i < exec_graph.nodes.size(); ++i) {
@@ -30,7 +31,7 @@ void print_exec_graph(exec_graph_t exec_graph){
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
-  kernel_manager_t& gpu_km,
+  vector<kernel_manager_t>& gpu_kms,
   int num_gpus_per_node,
   vector<void*> gpu_mems)
 {
@@ -45,8 +46,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     auto const& mid_outs = node.outs;
 
     vector<int> inns;
-    for(auto const& mid: mid_inns) {
-      inns.push_back(mid_to_eid.at(mid));
+    for(auto const& mid_inn: mid_inns) {
+      inns.push_back(mid_to_eid.at(mid_inn));
     }
 
     int eid = graph.insert(op, inns);
@@ -55,8 +56,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   };
 
   auto is_local_to_here = [&](int mid) {
-    for(int i = 0, i != num_gpus_per_node; ++i) {
+    for(int i = 0; i != num_gpus_per_node; ++i) {
       int which_gpu = this_rank*num_gpus_per_node + i;
+      // DOUT("Checking if node " << mid << " is local to gpu " << which_gpu);
       if(memgraph.is_local_to(mid, which_gpu)) {
         return true;
       }
@@ -85,6 +87,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       // DOUT("Inserted dummy op for node " << mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
+      int loc = node.op.get_apply_loc();
       if(apply.is_einsummable()) {
         if(apply.group >= 0) {
           throw std::runtime_error("only allowing touches to have a group");
@@ -94,14 +97,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         auto einsum_merged = apply.get_einsummable().merge_adjacent_dims();
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(
-          gpu_km,
+          gpu_kms[loc],
           einsum,
           apply.mems,
           node.op.get_apply_loc()
         );
 
         // compile the kernel (and update the workspace size)
-        auto maybe_built = gpu_km.build(op->einsummable);
+        auto maybe_built = gpu_kms[loc].build(op->einsummable);
         if(!maybe_built) {
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
@@ -110,7 +113,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           op->workspace_size = workspace_info.value();
         }
         else{
-          int loc = node.op.get_apply_loc();
           // get the input and output memory ptrs
           void* out_mem = increment_void_ptr(
             gpu_mems[loc],
@@ -123,14 +125,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
               apply.mems[i].offset));
           }
           // get the workspace size
-          op->workspace_size = gpu_km.known_workspace_size(einsum_merged, out_mem, inn_mems);
+          op->workspace_size = gpu_kms[loc].known_workspace_size(einsum_merged, out_mem, inn_mems);
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
         // DOUT("Inserted einsummable op for node " << mid);
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
-          gpu_km,
+          gpu_kms[loc],
           apply.get_touch(),
           apply.group,
           apply.mems,
@@ -174,6 +176,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   }
   // Debug: print the exec_graph
   // print_exec_graph(graph);
+  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
   return graph;
 }
 
@@ -226,6 +229,7 @@ void gpu_einsummable_t::launch(
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
 
+  // cudaSetDevice(device);
   gpu_km(
     einsummable,
     stream,
@@ -246,6 +250,9 @@ void gpu_einsummable_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
+
+  // cudaDeviceSynchronize();
+
 }
 
 desc_ptr_t
@@ -296,7 +303,7 @@ void gpu_touch_t::launch(
   }
 
   // create stream and launch
-  cudaSetDevice(device);
+  // cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
   gpu_km(
@@ -353,6 +360,8 @@ void gpu_copy_t::launch(
   auto [src_loc, src_offset] = move.src;
   auto [dst_loc, dst_offset] = move.dst;
 
+  auto move_size = move.size;
+
   void* src_mem = increment_void_ptr(
     src_buffer,
     src_offset);
@@ -361,9 +370,9 @@ void gpu_copy_t::launch(
     dst_buffer,
     dst_offset);
 
-  cudaSetDevice(src_loc);
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
+  // cudaError_t cudaError = cudaMemcpy(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice);
   if (cudaError != cudaSuccess) {
     // print the error code and error string
     fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
