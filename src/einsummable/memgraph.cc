@@ -1036,6 +1036,8 @@ memgraph_make_state_t::pop_memgraph()
   //   task_tensor_to_mem_node
   //   tensors_on_storage;
   //   tensors_on_memory;
+  //
+  // also update the allocators to not depend on the ret mid's
 
   for(auto iter  = task_tensor_to_mem_node.begin() ;
            iter != task_tensor_to_mem_node.end()   ;
@@ -1072,6 +1074,10 @@ memgraph_make_state_t::pop_memgraph()
       // this tid has not been used by any mids now
       tensors_on_memory.at(tid) = set<int>{};
     }
+  }
+
+  for(allocator_t& allocator: allocators) {
+    allocator.clear_dependencies();
   }
 
   // These should not be accessed again for what it contained
@@ -1590,7 +1596,7 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
   if(task_tensor_to_mem_node.count(tid) > 0) {
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
-  task_tensor_to_mem_node.insert({tid, mid});
+  task_tensor_to_mem_node.insert_or_assign(tid, mid);
 }
 
 void memgraph_make_state_t::task_tensor_to_mem_node_update_on_storage(
@@ -2334,6 +2340,42 @@ allocator_t::get_allocated_region(uint64_t offset) const
   }
 
   return optional<tuple<uint64_t, uint64_t>>({block.beg, block.end});
+}
+
+void allocator_t::clear_dependencies() {
+  vector<block_t> new_blocks;
+  optional<tuple<uint64_t, uint64_t>> next_interval;
+  for(auto const& block: blocks) {
+    if(block.dep) {
+      if(next_interval) {
+        auto& [_, end] = next_interval.value();
+        end = block.end;
+      } else {
+        next_interval = tuple<uint64_t,uint64_t>{block.beg, block.end};
+      }
+    } else {
+      if(next_interval) {
+        auto const& [beg,end] = next_interval.value();
+        new_blocks.push_back(block_t {
+          .beg = beg,
+          .end = end,
+          .dep = -1
+        });
+        next_interval = std::nullopt;
+      }
+      new_blocks.push_back(block);
+    }
+  }
+  if(next_interval) {
+    auto const& [beg,end] = next_interval.value();
+    new_blocks.push_back(block_t {
+      .beg = beg,
+      .end = end,
+      .dep = -1
+    });
+  }
+
+  blocks = new_blocks;
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {

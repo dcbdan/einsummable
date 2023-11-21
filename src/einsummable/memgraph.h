@@ -485,6 +485,9 @@ struct allocator_t {
   optional<tuple<uint64_t, uint64_t>>
   get_allocated_region(uint64_t offset) const;
 
+  // Remove all dependencies from available memory
+  void clear_dependencies();
+
 private:
   struct block_t {
     uint64_t beg;
