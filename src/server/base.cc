@@ -388,8 +388,7 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
       taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, true, true);
-  memgraph_t const& inputs_everywhere_mg = inputs_everywhere_mg_.value();
+      full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
 
   //{
   // std::ofstream f("mg.gv");
