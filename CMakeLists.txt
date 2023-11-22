@@ -68,6 +68,7 @@ endfunction()
 
 add_llama_application("llama_main"  "main")
 add_llama_application("llama_exp01" "exp01")
+add_llama_application("llama_exp02" "exp02")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)

@@ -46,8 +46,8 @@ allocator_settings_t allocator_settings_t::gpu_alignment_settings()
 }
 
 memgraph_t::memgraph_t(
-  int nl, int nc, vector<int> const& cs)
-  : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs)
+  int nl, int nc, vector<int> const& cs, bool pe)
+  : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs), prune_edges(pe)
 {}
 
 memgraph_t::memgraph_t(
@@ -507,28 +507,32 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   set<int> inns;
 
-  vector<int> deps_vec(deps.begin(), deps.end());
-  if(deps_vec.size() == 0) {
-    //
-  } else if(deps_vec.size() == 1) {
-    inns.insert(deps_vec[0]);
-  } else {
-    std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
-    set<int> unnec;
-    for(int i = 0; i != deps_vec.size(); ++i) {
-      int const& id = deps_vec[i];
-      if(unnec.count(id) == 0) {
-        if(i != deps_vec.size() - 1) {
-          for(int j = i+1; j != deps_vec.size(); ++j) {
-            int const& jd = deps_vec[j];
-            if(depends_on(id, jd)) {
-              unnec.insert(jd);
+  if(prune_edges) {
+    vector<int> deps_vec(deps.begin(), deps.end());
+    if(deps_vec.size() == 0) {
+      //
+    } else if(deps_vec.size() == 1) {
+      inns.insert(deps_vec[0]);
+    } else {
+      std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
+      set<int> unnec;
+      for(int i = 0; i != deps_vec.size(); ++i) {
+        int const& id = deps_vec[i];
+        if(unnec.count(id) == 0) {
+          if(i != deps_vec.size() - 1) {
+            for(int j = i+1; j != deps_vec.size(); ++j) {
+              int const& jd = deps_vec[j];
+              if(depends_on(id, jd)) {
+                unnec.insert(jd);
+              }
             }
           }
+          inns.insert(id);
         }
-        inns.insert(id);
       }
     }
+  } else {
+    inns = deps;
   }
 
   nodes.push_back(node_t {
@@ -539,19 +543,21 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
-  for(auto const& inn: inns) {
-    nodes[inn].outs.insert(ret);
-  }
+  if(prune_edges) {
+    for(auto const& inn: inns) {
+      nodes[inn].outs.insert(ret);
+    }
 
-  all_deps.emplace_back(ret, 0);
+    all_deps.emplace_back(ret, 0);
 
-  vector<char>& ret_deps = all_deps.back();
-  for(int const& inn: inns) {
-    ret_deps[inn] = 1;
+    vector<char>& ret_deps = all_deps.back();
+    for(int const& inn: inns) {
+      ret_deps[inn] = 1;
 
-    vector<char>& inn_deps = all_deps[inn];
-    for(int i = 0; i != inn_deps.size(); ++i) {
-      ret_deps[i] = std::max(ret_deps[i], inn_deps[i]);
+      vector<char>& inn_deps = all_deps[inn];
+      for(int i = 0; i != inn_deps.size(); ++i) {
+        ret_deps[i] = std::max(ret_deps[i], inn_deps[i]);
+      }
     }
   }
 
@@ -2118,12 +2124,15 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
           ++inner_iter)
       {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
+        if(inner_max_dep >= min_dep) {
+          break;
+        }
         sz += inner_iter->size();
         if(rem != 0 && sz > rem) {
           rem = 0;
           sz -= rem;
         }
-        if(rem == 0 && sz >= size && inner_max_dep <= min_dep) {
+        if(rem == 0 && sz >= size) {
           min_dep = inner_max_dep;
           return_block = {ret, inner_iter + 1, sz};
           break;
