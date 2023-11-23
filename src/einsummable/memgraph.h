@@ -95,7 +95,8 @@ struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
     int num_storage_locs,
-    vector<int> const& storage_locs);
+    vector<int> const& storage_locs,
+    bool prune_edges = false);
 
   memgraph_t(
     memgraph_t const& other);
@@ -442,6 +443,7 @@ private:
   // Note also that all_deps[i] has length i--that is,
   // 0,1,2,3,4,.. is a valid order of the graph.
   vector<vector<char>> all_deps;
+  bool prune_edges;
 };
 
 // allocator_t contains a vector of blocks that either
