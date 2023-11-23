@@ -190,6 +190,7 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(0);
   }
 
+  DOUT("Warning: kernel manager could not find einsummable in build: " << einsummable.str());
   return std::nullopt;
 }
 

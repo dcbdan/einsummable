@@ -540,5 +540,12 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
   out.save_inplace();
 
   auto graph = writer.get_graph();
+
+  // print the graph
+  DOUT("Printing graphviz for ffnn...");
+  std::ofstream f("ffnn.gv");
+  graph.print_graphviz(f);
+
+  return graph;
 }
 

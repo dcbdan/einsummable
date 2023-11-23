@@ -413,8 +413,8 @@ void server_3d_mamtmul (int argc, char** argv){
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  // uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
-  uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);
@@ -466,6 +466,83 @@ void server_3d_mamtmul (int argc, char** argv){
 
   server.shutdown();
 
+}
+
+// running feed forward neural network on the server
+void server_ffnn(){
+
+  // time the execution
+  auto start = std::chrono::high_resolution_clock::now();
+
+  // DEFINE PARAMETERS HERE
+  // int batch_size = 100;
+  // int num_layers = 3;
+  // vector<uint64_t> dims = {784, 100, 10};
+  int np = 1;
+  int batch_size = 100;
+  int num_layers = 2;
+  vector<uint64_t> dims = {784, 10};
+
+  auto graph = generate_ffnn(batch_size, dims);
+  auto pls = autoplace(graph, np);
+  int world_size = 1;
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+  // Time the random initialization
+  auto data_init_time = std::chrono::high_resolution_clock::now();
+  auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
+  DOUT("Random initialization time: " << init_duration.count() / 1000000.0 << " seconds");
+  // DOUT("Printing graphviz...")
+  // std::ofstream f("g_multiply.gv");
+  // graph.print_graphviz(f);
+
+  server.execute_graph(graph, pls);
+
+  auto execution_time = std::chrono::high_resolution_clock::now();
+  auto execution_duration = std::chrono::duration_cast<std::chrono::microseconds>(execution_time-data_init_time);
+  DOUT("Server execution time: " << execution_duration.count() / 1000000.0 << " seconds");
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  // print the execution time in seconds
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
+  DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
+
+  server.shutdown();
 }
 
 void mm_test2() {
@@ -570,4 +647,5 @@ int main(int argc, char **argv) {
   // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
+  server_ffnn();
 }

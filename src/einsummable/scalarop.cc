@@ -1219,6 +1219,7 @@ bool scalarop_t::is_max() const {
 
 
 optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node){
+  // TODO: review this
   if(node.op.is_hole()){
     if(node.dtype==dtype_t::c64){
       cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),cutensor_scalarop_t::cop_t::identity};

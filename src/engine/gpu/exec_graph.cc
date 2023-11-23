@@ -104,6 +104,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         );
 
         // compile the kernel (and update the workspace size)
+        if (mid == 7){
+          DOUT("DEBUG FFNN: break here");
+        }
         auto maybe_built = gpu_kms[loc].build(op->einsummable);
         if(!maybe_built) {
           throw std::runtime_error("GPU KM could not compile the kernel");
