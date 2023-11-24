@@ -1187,39 +1187,38 @@ graph_t::build_grad_term_einsummable(
   int which_inn,
   backprop_tensor_t grad_id)
 {
-  throw std::runtime_error("not implemented");
-//  int num_inn = inn_ids.size();
-//  if(num_inn > 2 || num_inn == 0) {
-//    throw std::runtime_error("build grad term: only einsummable "
-//                             "with 1 or 2 inputs supported");
-//  }
-//  if(num_inn == 1) {
-//    if(which_inn != 0) {
-//      throw std::runtime_error("invalid which inn");
-//    }
-//    if(e.has_aggregation()) {
-//      // TODO
-//      // What if the join is not identity?
-//    } else {
-//      return build_grad_term_ewu(e, inn_ids[0], grad_id);
-//    }
-//  } else {
-//    if(e.has_aggregation()) {
-//      if(!(e.join.is_mul() && e.castable.value() == castable_t::add)) {
-//        throw std::runtime_error("with multiple inputs and an agg, must be contraction");
-//      }
-//
-//      // This is a contraction, so multiply the grad_id with either the
-//      // left or the right input
-//      return build_grad_term_contraction(e, inn_ids, which_inn, grad_id);
-//    } else {
-//      // This is a binary elementwise op
-//      // TODO
-//    }
-//  }
-//
-//  throw std::runtime_error(
-//    "should not reach; something probably not implemented");
+  int num_inn = inn_ids.size();
+  if(num_inn > 2 || num_inn == 0) {
+    throw std::runtime_error("build grad term: only einsummable "
+                             "with 1 or 2 inputs supported");
+  }
+  if(num_inn == 1) {
+    if(which_inn != 0) {
+      throw std::runtime_error("invalid which inn");
+    }
+    if(e.has_aggregation()) {
+      // TODO
+      // What if the join is not identity?
+    } else {
+      return build_grad_term_ewu(e, inn_ids[0], grad_id);
+    }
+  } else {
+    if(e.has_aggregation()) {
+      if(!(e.join.is_mul() && e.castable.value() == castable_t::add)) {
+        throw std::runtime_error("with multiple inputs and an agg, must be contraction");
+      }
+
+      // This is a contraction, so multiply the grad_id with either the
+      // left or the right input
+      return build_grad_term_contraction(e, inn_ids, which_inn, grad_id);
+    } else {
+      // This is a binary elementwise op
+      // TODO
+    }
+  }
+
+  throw std::runtime_error(
+    "should not reach; something probably not implemented");
 }
 
 graph_t::backprop_tensor_t
@@ -1227,39 +1226,92 @@ graph_t::build_grad_term_contraction(
   einsummable_t const& e,
   vector<int> const& inn_ids,
   int which_inn,
-  backprop_tensor_t grad_id)
+  backprop_tensor_t grad)
 {
-  throw std::runtime_error("not implemented");
-//  string new_str;
-//  int new_l_id, new_r_id;
-//  vector<uint64_t> new_l_shape, new_r_shape, new_o_shape;
-//  if(which_inn == 0) {
-//    new_l_id = grad_id;
-//    new_r_id = inn_ids[1];
-//    auto [out_str, inn_strs] = e.str_terms();
-//    new_str = out_str + "," + inn_strs[1] + "->" + inn_strs[0];
-//    new_l_shape = e.out_shape();
-//    new_r_shape = e.inn_shape(1);
-//    new_o_shape = e.inn_shape(0);
-//  } else if(which_inn == 1) {
-//    new_l_id = inn_ids[0];
-//    new_r_id = grad_id;
-//    auto [out_str, inn_strs] = e.str_terms();
-//    new_str = inn_strs[0] + "," + out_str + "->" + inn_strs[1];
-//    new_l_shape = e.inn_shape(0);
-//    new_r_shape = e.out_shape();
-//    new_o_shape = e.inn_shape(1);
-//  } else {
-//    throw std::runtime_error("invalid which_inn on contraction");
-//  }
-//
-//  auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
-//  vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
-//    new_o_shape, new_inns, { new_l_shape, new_r_shape });
-//  einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
-//
-//  int join_id = insert_einsummable(new_e, {new_l_id, new_r_id});
-//  return insert_formation(join_id);
+  if(which_inn != 0 && which_inn != 1) {
+    throw std::runtime_error("contraction has two inputs..");
+  }
+
+  if(grad.is_zeros()) {
+    dtype_t dtype = e.out_dtype();
+    vector<uint64_t> shape =
+      which_inn == 0 ?
+      e.inn_shape(0) :
+      e.inn_shape(1) ;
+    return backprop_tensor_t::zeros(dtype, shape);
+  }
+
+  if(grad.is_constant()) {
+    //  Suppose we have this contraction
+    //    ij,jk->ik
+    //  where the rhs is a constant of value v != 0.0
+    //
+    //  Out[i,k] = Sum_j Lhs[i,j] * Rhs[j,k]
+    //           = Sum_j v * Lhs[i,j]
+    //  This is einsummable
+    //    ij->ik
+    //  where join_op = lambda x0: v*x0
+
+    auto const& value = grad.get_fill().value;
+
+    string new_str;
+    vector<uint64_t> new_inn_shape, new_out_shape;
+    int new_inn_id;
+    auto [_, inn_strs] = e.str_terms();
+    if(which_inn == 0) {
+      new_inn_id = inn_ids[1];
+      new_out_shape = e.inn_shape(0);
+      new_str = inn_strs[1] + "->" + inn_strs[0];
+    } else {
+      new_inn_id = inn_ids[0];
+      new_out_shape = e.inn_shape(1);
+      new_str = inn_strs[0] + "->" + inn_strs[1];
+    }
+
+    auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+    vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+      new_out_shape, new_inns, { new_inn_shape });
+
+    // Note: if value == 1.0, this should get simplified to the identity function
+    scalarop_t join = scalarop_t::make_scale(value);
+    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, join, e.castable);
+
+    int ret_id = insert_einsummable(new_e, {new_inn_id});
+    if(new_e.has_aggregation()) {
+      ret_id = insert_formation(ret_id);
+    }
+    return backprop_tensor_t(ret_id);
+  }
+
+  int const& grad_id = grad.get_id();
+  string new_str;
+  int new_l_id, new_r_id;
+  vector<uint64_t> new_l_shape, new_r_shape, new_o_shape;
+  auto [out_str, inn_strs] = e.str_terms();
+  if(which_inn == 0) {
+    new_l_id = grad_id;
+    new_r_id = inn_ids[1];
+    new_str = out_str + "," + inn_strs[1] + "->" + inn_strs[0];
+    new_l_shape = e.out_shape();
+    new_r_shape = e.inn_shape(1);
+    new_o_shape = e.inn_shape(0);
+  } else { // which_inn == 1
+    new_l_id = inn_ids[0];
+    new_r_id = grad_id;
+    new_str = inn_strs[0] + "," + out_str + "->" + inn_strs[1];
+    new_l_shape = e.inn_shape(0);
+    new_r_shape = e.out_shape();
+    new_o_shape = e.inn_shape(1);
+  }
+
+  auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+  vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+    new_o_shape, new_inns, { new_l_shape, new_r_shape });
+  einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
+
+  int join_id = insert_einsummable(new_e, {new_l_id, new_r_id});
+  int term_id = insert_formation(join_id);
+  return backprop_tensor_t(term_id);
 }
 
 string _str_term(vector<int> const& is) {
