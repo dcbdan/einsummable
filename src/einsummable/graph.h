@@ -6,6 +6,13 @@
 #include "touch.h" // only for subset_t::as_touch
 #include "relation.h"
 
+// fill_t is used to describe constant valued tensors
+// (for now, only constant tensors are supported)
+struct fill_t {
+  scalar_t value;
+  vector<uint64_t> shape;
+};
+
 struct concat_t {
   concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
 
@@ -292,35 +299,47 @@ private:
 private:
   // autodiff stuff here
 
-  // In case that one node has multiple edges
-  // We need to sum all of its contributions to output function
-  // Let's say that we have f(u,v) where u = u(x,y)  and v = v(x,y)
-  // Then df/dx = (df/du)*(du/dx) + (df/dv)*(dv/dx)
-  // And in the more complex case of f(u1, u2, ... , un) where
-  // u1 = u1(x1, x2, ... , xm) , ... , un = un(x1, x2, ... , xm)
-  // df/dxi = sum(df/duj * duj/dxi) where j = 1..n and i= 1..m
-  int insert_adds(vector<int> items) {
-    if(items.size() < 2) {
-      throw std::runtime_error("Invalid insert_adds input");
-    }
-
-    // TO DO - Implement the addition algorithm
-    throw std::runtime_error("Inesrt adds - not implemented yet");
-  }
-
   set<int> compute_nodeset(
     vector<int> const& outs,
     vector<int> const& inns,
     bool include_inns_outs) const;
 
+  struct backprop_tensor_t {
+    backprop_tensor_t();
+    backprop_tensor_t(int id);
+    backprop_tensor_t(fill_t const& fill);
+
+    static backprop_tensor_t ones(
+      dtype_t const& dtype,
+      vector<uint64_t> const& shape);
+    static backprop_tensor_t zeros(
+      dtype_t const& dtype,
+      vector<uint64_t> const& shape);
+
+    using op_t = std::variant<int, fill_t>;
+    op_t op;
+
+    int const& get_id() const;
+    fill_t const& get_fill() const;
+
+    bool is_constant() const;
+
+    bool is_constant_of(scalar_t v) const;
+    bool is_zeros() const;
+    bool is_ones() const;
+
+    dtype_t dtype(graph_t& self) const;
+    vector<uint64_t> shape(graph_t& self) const;
+  };
+
   struct backprop_state_t {
     // get the gradient of this id
-    int operator[](int id);
+    backprop_tensor_t operator[](int id);
 
     // Add the initial ones at out_id
     void start(int out_id);
 
-    map<int, int> grads;
+    map<int, backprop_tensor_t> grads;
     graph_t& self;
     set<int> nodeset;
 
@@ -332,28 +351,45 @@ private:
     vector<out_edge_t> get_out_edges(int id) const;
   };
 
+  // Compute the VJP term for this edge.
+  //
   // Note: grad_id has the same out shape as at id,
   // and the return of this will have the same shape as the out
   // shape of the input at which_inn on id
-  int build_grad_term(int id, int which_inn, int grad_id);
+  backprop_tensor_t
+  build_grad_term(int id, int which_inn, backprop_tensor_t grad_id);
 
-  int build_grad_term_einsummable(
+  backprop_tensor_t
+  build_grad_term_einsummable(
     einsummable_t const& e,
-    int which_inn, int grad_id,
-    vector<int> const& inn_ids);
+    vector<int> const& inn_ids,
+    int which_inn,
+    backprop_tensor_t grad_id);
+  backprop_tensor_t
+  build_grad_term_contraction(
+    einsummable_t const& e,
+    vector<int> const& inn_ids,
+    int which_inn,
+    backprop_tensor_t grad_id);
+  backprop_tensor_t
+  build_grad_term_ewu(
+    einsummable_t const& e,
+    int inn,
+    backprop_tensor_t grad_id);
 
-  int build_grad_term_ewu(
-    scalarop_t const& op,
-    vector<int> const& inns,
-    int grad_id);
-
-
-  //int build_grad_term_ewu(einsummable_t einsummable, int inn, int node_grad); // dY/dA = out_grad x deri_op(node), where x is hadammard product
   //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
   //int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
   //int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
   //int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
 
+  // In case that one node has multiple edges
+  // We need to sum all of its contributions to output function
+  // Let's say that we have f(u,v) where u = u(x,y)  and v = v(x,y)
+  // Then df/dx = (df/du)*(du/dx) + (df/dv)*(dv/dx)
+  // And in the more complex case of f(u1, u2, ... , un) where
+  // u1 = u1(x1, x2, ... , xm) , ... , un = un(x1, x2, ... , xm)
+  // df/dxi = sum(df/duj * duj/dxi) where j = 1..n and i= 1..m
+  backprop_tensor_t insert_adds(vector<backprop_tensor_t> const& items);
 };
 
 // graph_constructor_t is for building a graph

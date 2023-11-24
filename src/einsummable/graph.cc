@@ -830,7 +830,7 @@ void graph_t::print_graphviz(
       if(e.is_contraction()) {
         color = "pink";
       }
-      label += "\n" + write_with_ss(e.join) + "  |  " + write_with_ss(e.castable);
+      label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -857,8 +857,10 @@ void graph_t::print_graphviz(
     }
     out << "]" << endl;
 
-    for(auto const& inn: node.get_inns_set()) {
-      out << tab << "n" << inn << " -> " << "n" << id << endl;
+    int _i = 0;
+    for(auto const& inn: node.inns) {
+      out << tab << "n" << inn << " -> " << "n" << id <<
+        "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
     }
   }
   out << "}" << endl;
@@ -940,7 +942,6 @@ set<int> graph_t::compute_nodeset(
 }
 
 vector<int> graph_t::backprop(int out, vector<int> weights) {
-
   // Get nodes which values affect output of the graph
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
@@ -952,18 +953,132 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
 
   state.start(out);
 
-  vector<int> ret;
-  ret.reserve(weights.size());
+  vector<int> grads;
+  grads.reserve(weights.size());
   for(auto const& weight : weights) {
-    ret.push_back(state[weight]);
+    backprop_tensor_t grad = state[weight];
+    if(grad.is_constant()) {
+      throw std::runtime_error("not implemented: constants"); // TODO
+    }
+    grads.push_back(grad.get_id());
   }
 
-  return ret;
+  return grads;
+}
+
+graph_t::backprop_tensor_t::backprop_tensor_t()
+  : op(-1)
+{}
+
+graph_t::backprop_tensor_t::backprop_tensor_t(int id)
+  : op(id)
+{}
+
+graph_t::backprop_tensor_t::backprop_tensor_t(fill_t const& fill)
+  : op(fill)
+{}
+
+graph_t::backprop_tensor_t
+graph_t::backprop_tensor_t::backprop_tensor_t::ones(
+  dtype_t const& dtype,
+  vector<uint64_t> const& shape)
+{
+  scalar_t value;
+  if(dtype_is_complex(dtype)) {
+    if(dtype != dtype_t::c64) {
+      throw std::runtime_error("not supported complex");
+    }
+    value = scalar_t(std::complex<float>(1.0, 0.0));
+  } else {
+    value = scalar_t(dtype, "1.0");
+  }
+
+  return backprop_tensor_t(fill_t {
+    .value = value,
+    .shape = shape
+  });
+}
+
+graph_t::backprop_tensor_t
+graph_t::backprop_tensor_t::backprop_tensor_t::zeros(
+  dtype_t const& dtype,
+  vector<uint64_t> const& shape)
+{
+  return backprop_tensor_t(fill_t {
+    .value = scalar_t::zero(dtype),
+    .shape = shape
+  });
+}
+
+int const& graph_t::backprop_tensor_t::get_id() const {
+  return std::get<int>(op);
+}
+
+fill_t const& graph_t::backprop_tensor_t::get_fill() const {
+  return std::get<fill_t>(op);
+}
+
+bool graph_t::backprop_tensor_t::is_constant() const {
+  return std::holds_alternative<fill_t>(op);
+}
+
+bool graph_t::backprop_tensor_t::is_constant_of(scalar_t v) const {
+  if(is_constant()) {
+    return get_fill().value == v;
+  }
+  return false;
+}
+
+bool graph_t::backprop_tensor_t::is_zeros() const {
+  if(is_constant()) {
+    scalar_t const& v = get_fill().value;
+    return scalar_t::zero(v.dtype) == v;
+  }
+  return false;
+}
+
+bool graph_t::backprop_tensor_t::is_ones() const {
+  if(is_constant()) {
+    auto const& [scalar, _] = get_fill();
+
+    // scalar_t::one is not valid for complex values, so use this
+    // 1.0 value in the context of backprop
+    if(dtype_is_complex(scalar.dtype)) {
+      if(scalar.dtype != dtype_t::c64) {
+        throw std::runtime_error("this complex dtype is not supported");
+      }
+      std::complex<float> v(1.0,0.0);
+      return scalar_t(v) == scalar;
+    }
+    return scalar_t::one(scalar.dtype) == scalar;
+  }
+  return false;
+}
+
+dtype_t graph_t::backprop_tensor_t::dtype(graph_t& self) const {
+  if(is_constant()) {
+    return get_fill().value.dtype;
+  } else {
+    int const& id = get_id();
+    return self.nodes[id].op.out_dtype();
+  }
+}
+
+vector<uint64_t> graph_t::backprop_tensor_t::shape(graph_t& self) const {
+  if(is_constant()) {
+    return get_fill().shape;
+  } else {
+    int const& id = get_id();
+    return self.nodes[id].op.out_shape();
+  }
 }
 
 void graph_t::backprop_state_t::start(int out_id)
 {
-  grads.insert({out_id, out_id});
+  auto const& op = self.nodes[out_id].op;
+  backprop_tensor_t tensor =
+    backprop_tensor_t::ones(op.out_dtype(), op.out_shape());
+  grads.insert({out_id, tensor});
 }
 
 vector<graph_t::backprop_state_t::out_edge_t>
@@ -993,7 +1108,8 @@ graph_t::backprop_state_t::get_out_edges(int id) const
   return ret;
 }
 
-int graph_t::backprop_state_t::operator[](int id)
+graph_t::backprop_tensor_t
+graph_t::backprop_state_t::operator[](int id)
 {
   if(grads.count(id) > 0 ) {
     return grads.at(id);
@@ -1005,11 +1121,11 @@ int graph_t::backprop_state_t::operator[](int id)
   auto const& node = self.nodes[id];
   vector<out_edge_t> out_edges = get_out_edges(id);
 
-  vector<int> terms;
+  vector<backprop_tensor_t> terms;
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn] : out_edges) {
     // building grad term for out with respect to this id
-    auto const& out_grad = (*this)[out];
+    backprop_tensor_t out_grad = (*this)[out];
     terms.push_back(
       self.build_grad_term(out, which_inn, out_grad)
     );
@@ -1019,7 +1135,7 @@ int graph_t::backprop_state_t::operator[](int id)
     throw std::runtime_error("No terms, no compute path");
   }
 
-  int ret;
+  backprop_tensor_t ret;
   if(terms.size() == 1) {
     ret = terms[0];
   } else {
@@ -1031,10 +1147,8 @@ int graph_t::backprop_state_t::operator[](int id)
   return ret;
 }
 
-int graph_t::build_grad_term(
-  int id,
-  int which_inn,
-  int grad_id)
+graph_t::backprop_tensor_t
+graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
 {
   auto const& node = nodes[id];
   auto const& op = node.op;
@@ -1060,100 +1174,168 @@ int graph_t::build_grad_term(
     throw std::runtime_error("not implemented build grad term: subset");
   } else if(op.is_einsummable()) {
     return build_grad_term_einsummable(
-      op.get_einsummable(), which_inn, grad_id, inns);
+      op.get_einsummable(), inns, which_inn, grad_id);
   } else {
     throw std::runtime_error("should not reach: missing graph type");
   }
 }
 
-int graph_t::build_grad_term_einsummable(
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_einsummable(
   einsummable_t const& e,
-  int which_inn, int grad_id,
-  vector<int> const& inn_ids)
+  vector<int> const& inn_ids,
+  int which_inn,
+  backprop_tensor_t grad_id)
 {
-  int num_inn = inn_ids.size();
-  if(num_inn > 2 || num_inn == 0) {
-    throw std::runtime_error("build grad term: only einsummable "
-                             "with 1 or 2 inputs supported");
-  }
-  if(num_inn == 1) {
-    if(which_inn != 0) {
-      throw std::runtime_error("invalid which inn");
-    }
-    if(e.has_aggregation()) {
-      // TODO
-      // What if the join is not identity?
-    } else {
-      // TODO
-    }
-  } else {
-    if(e.has_aggregation()) {
-      if(!(e.join.is_mul() && e.castable.value() == castable_t::add)) {
-        throw std::runtime_error("with multiple inputs and an agg, must be contraction");
-      }
-
-      // This is a contraction, so multiply the grad_id with either the
-      // left or the right input
-
-      string new_str;
-      int new_l_id, new_r_id;
-      vector<uint64_t> new_l_shape, new_r_shape, new_o_shape;
-      if(which_inn == 0) {
-        new_l_id = grad_id;
-        new_r_id = inn_ids[1];
-        auto [out_str, inn_strs] = e.str_terms();
-        new_str = out_str + "," + inn_strs[1] + "->" + inn_strs[0];
-        new_l_shape = e.out_shape();
-        new_r_shape = e.inn_shape(1);
-        new_o_shape = e.inn_shape(0);
-      } else if(which_inn == 1) {
-        new_l_id = inn_ids[0];
-        new_r_id = grad_id;
-        auto [out_str, inn_strs] = e.str_terms();
-        new_str = inn_strs[0] + "," + out_str + "->" + inn_strs[1];
-        new_l_shape = e.inn_shape(0);
-        new_r_shape = e.out_shape();
-        new_o_shape = e.inn_shape(1);
-      } else {
-        throw std::runtime_error("invalid which_inn on contraction");
-      }
-
-      auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
-      vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
-        new_o_shape, new_inns, { new_l_shape, new_r_shape });
-      einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
-
-      int join_id = insert_einsummable(new_e, {new_l_id, new_r_id});
-      return insert_formation(join_id);
-    } else {
-      // This is a binary elementwise op
-
-      // TODO
-    }
-  }
-
-  throw std::runtime_error(
-    "should not reach; something probably not implemented");
+  throw std::runtime_error("not implemented");
+//  int num_inn = inn_ids.size();
+//  if(num_inn > 2 || num_inn == 0) {
+//    throw std::runtime_error("build grad term: only einsummable "
+//                             "with 1 or 2 inputs supported");
+//  }
+//  if(num_inn == 1) {
+//    if(which_inn != 0) {
+//      throw std::runtime_error("invalid which inn");
+//    }
+//    if(e.has_aggregation()) {
+//      // TODO
+//      // What if the join is not identity?
+//    } else {
+//      return build_grad_term_ewu(e, inn_ids[0], grad_id);
+//    }
+//  } else {
+//    if(e.has_aggregation()) {
+//      if(!(e.join.is_mul() && e.castable.value() == castable_t::add)) {
+//        throw std::runtime_error("with multiple inputs and an agg, must be contraction");
+//      }
+//
+//      // This is a contraction, so multiply the grad_id with either the
+//      // left or the right input
+//      return build_grad_term_contraction(e, inn_ids, which_inn, grad_id);
+//    } else {
+//      // This is a binary elementwise op
+//      // TODO
+//    }
+//  }
+//
+//  throw std::runtime_error(
+//    "should not reach; something probably not implemented");
 }
 
-int graph_t::build_grad_term_ewu(
-  scalarop_t const& op,
-  vector<int> const& inns,
-  int grad_id)
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_contraction(
+  einsummable_t const& e,
+  vector<int> const& inn_ids,
+  int which_inn,
+  backprop_tensor_t grad_id)
 {
-  return -1; // TODO
-//  auto const& grad = einsummable.derivative(0);
-//  if (!grad.has_value()) {
-//    return node_grad;
+  throw std::runtime_error("not implemented");
+//  string new_str;
+//  int new_l_id, new_r_id;
+//  vector<uint64_t> new_l_shape, new_r_shape, new_o_shape;
+//  if(which_inn == 0) {
+//    new_l_id = grad_id;
+//    new_r_id = inn_ids[1];
+//    auto [out_str, inn_strs] = e.str_terms();
+//    new_str = out_str + "," + inn_strs[1] + "->" + inn_strs[0];
+//    new_l_shape = e.out_shape();
+//    new_r_shape = e.inn_shape(1);
+//    new_o_shape = e.inn_shape(0);
+//  } else if(which_inn == 1) {
+//    new_l_id = inn_ids[0];
+//    new_r_id = grad_id;
+//    auto [out_str, inn_strs] = e.str_terms();
+//    new_str = inn_strs[0] + "," + out_str + "->" + inn_strs[1];
+//    new_l_shape = e.inn_shape(0);
+//    new_r_shape = e.out_shape();
+//    new_o_shape = e.inn_shape(1);
+//  } else {
+//    throw std::runtime_error("invalid which_inn on contraction");
 //  }
 //
-//  auto const& grad_val = grad.value().front();
+//  auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+//  vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+//    new_o_shape, new_inns, { new_l_shape, new_r_shape });
+//  einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
 //
-//  if (grad_val.join.is_unary()) {
-//    return insert_einsummable(grad_val, {node_grad});
+//  int join_id = insert_einsummable(new_e, {new_l_id, new_r_id});
+//  return insert_formation(join_id);
+}
+
+string _str_term(vector<int> const& is) {
+  vector<char> ret;
+  ret.reserve(is.size());
+  for(auto const& i: is) {
+    ret.push_back('a' + i);
+  }
+  return string(ret.begin(), ret.end());
+}
+
+// example: (yhat - y)**2 => 2(yhat - y) * node_grad
+//          -------------    -----------
+//          ^ op             ^ deri_op
+//                           -----------------------
+//                           ^ join_op
+//          (here derivative wrt input yhat)
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_ewu(
+  einsummable_t const& e,
+  int inn,
+  backprop_tensor_t grad_id)
+{
+  throw std::runtime_error("not implemented");
+//  scalarop_t deri_op = e.join.derivative(0);
+//
+//  if(deri_op.is_constant_of(scalar_t::one(e.out_dtype()))) {
+//    return grad_id;
 //  }
 //
-//  return insert_einsummable(grad_val, {node_grad, inn});
+//  // TODO: and if deri_op.is_constant_of(scalar_t::zero(e.out_dtype())) ?
+//
+//  int out_rank = e.inns[0].size();
+//  string inn_term = _str_term(e.inns[0]);
+//  string out_term = _str_term(vector_iota<int>(out_rank));
+//  auto new_out_shape = e.inn_shape(0);
+//  auto const& new_join_shape = new_out_shape;
+//  if (deri_op.is_constant()) {
+//    scalar_t val = deri_op.eval({});
+//
+//    auto [new_inns,_] = einsummable_t::parse_str(out_term + "->" + inn_term);
+//
+//    einsummable_t new_e(
+//      new_join_shape,
+//      new_inns,
+//      out_rank,
+//      scalarop_t::make_scale(val));
+//    return insert_einsummable(new_e, {grad_id});
+//  } else {
+//    // We know that deri_op has one input of inn
+//    //
+//    //   x**2 => (2*x) * node_grad
+//    //           -----
+//    //           ^ deri_op
+//    //           -----------------
+//    //           ^ term_op
+//    //   ----
+//    //   ^ e.join
+//    //
+//    // The string must be S_Inn,S_Out->S_Inn
+//    scalarop_t term_op = scalarop_t::combine(
+//      scalarop_t::make_mul(),
+//      {deri_op, scalarop_t::make_identity(default_dtype())}
+//    );
+//
+//    auto [new_inns,_] = einsummable_t::parse_str(
+//      inn_term + "," + out_term + "->" + inn_term);
+//
+//    einsummable_t new_e(
+//      new_join_shape,
+//      new_inns,
+//      out_rank,
+//      term_op);
+//    return insert_einsummable(new_e, {inn, grad_id});
+//  }
 }
 
 //int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {
@@ -1817,6 +1999,64 @@ graph_writer_t::backprop(
   }
 
   return grads;
+}
+
+graph_t::backprop_tensor_t
+graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
+{
+  if(items_.size() == 0) {
+    throw std::runtime_error("should not be summing empty list of tensors");
+  }
+
+  vector<int> items;
+  items.reserve(items_.size());
+  for(auto const& tensor: items_) {
+    if(tensor.is_zeros()) {
+      // this item does not need to be included in the sum
+    } else if(tensor.is_constant()) {
+      throw std::runtime_error("not implemented: insert constant tensor into graph");
+      // insert this fill into the graph and use that id
+    } else {
+      items.push_back(tensor.get_id());
+    }
+  }
+
+  dtype_t dtype;
+  vector<uint64_t> shape;
+  {
+    auto const& tensor = items_[0];
+    dtype = tensor.dtype(*this);
+    shape = tensor.shape(*this);
+  }
+
+  if(items.size() == 0) {
+    // In this case, all the terms to add were constant zeros,
+    // so all those zeros are statically added up, producing
+    // more constant zeros
+    return backprop_tensor_t::zeros(dtype, shape);
+  }
+
+  int rank = shape.size();
+  vector<int> is = vector_iota<int>(rank);
+  vector<vector<int>> inns{ is, is };
+  einsummable_t e(shape, inns, rank, scalarop_t::make_add(dtype));
+
+  while(items.size() == 1) {
+    int n = items.size() / 2;
+    int r = items.size() % 2;
+    vector<int> next_up;
+    next_up.reserve(n + r);
+    if(r == 1) {
+      next_up.push_back(items.back());
+    }
+    for(int i = 0; i != n; ++i) {
+      std::cout << "\t Inserted ewb add node" << std::endl;
+      next_up.push_back(insert_einsummable(e, {items[2*i], items[2*i+1]}));
+    }
+    items = next_up;
+  }
+
+  return backprop_tensor_t(items[0]);
 }
 
 graph_writer_t::tensor_t
