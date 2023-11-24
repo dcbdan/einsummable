@@ -1018,6 +1018,10 @@ fill_t const& graph_t::backprop_tensor_t::get_fill() const {
   return std::get<fill_t>(op);
 }
 
+scalar_t graph_t::backprop_tensor_t::get_constant() const {
+  return get_fill().value;
+}
+
 bool graph_t::backprop_tensor_t::is_constant() const {
   return std::holds_alternative<fill_t>(op);
 }
@@ -1192,6 +1196,11 @@ graph_t::build_grad_term_einsummable(
     throw std::runtime_error("build grad term: only einsummable "
                              "with 1 or 2 inputs supported");
   }
+
+  if(e.has_broadcast()) {
+    throw std::runtime_error("build grad term: broadcast not supported");
+  }
+
   if(num_inn == 1) {
     if(which_inn != 0) {
       throw std::runtime_error("invalid which inn");
@@ -1314,15 +1323,6 @@ graph_t::build_grad_term_contraction(
   return backprop_tensor_t(term_id);
 }
 
-string _str_term(vector<int> const& is) {
-  vector<char> ret;
-  ret.reserve(is.size());
-  for(auto const& i: is) {
-    ret.push_back('a' + i);
-  }
-  return string(ret.begin(), ret.end());
-}
-
 // example: (yhat - y)**2 => 2(yhat - y) * node_grad
 //          -------------    -----------
 //          ^ op             ^ deri_op
@@ -1330,64 +1330,123 @@ string _str_term(vector<int> const& is) {
 //                           ^ join_op
 //          (here derivative wrt input yhat)
 
+
+// example: f(x) => f'(x) * node_grad
+//                  -----
+//                  ^ deri_op
+//                  -----------------
+//                  ^ join_op
+//
+// For op = inn -> out:
+//   If neither constant:
+//     f'(inn) * node_grad
+//     inn,out -> inn
+//   If just deri_op is a constant:
+//     deri_op_v * node_grad
+//     out -> inn
+//   If node_grad is a constant:
+//     f'(x) * grad_v
+//     inn -> inn
+//   If both are constants:
+//     v( = deri_op_v * grad_v)
+//     constant of shape inn
 graph_t::backprop_tensor_t
 graph_t::build_grad_term_ewu(
   einsummable_t const& e,
   int inn,
-  backprop_tensor_t grad_id)
+  backprop_tensor_t grad)
 {
-  throw std::runtime_error("not implemented");
-//  scalarop_t deri_op = e.join.derivative(0);
-//
-//  if(deri_op.is_constant_of(scalar_t::one(e.out_dtype()))) {
-//    return grad_id;
-//  }
-//
-//  // TODO: and if deri_op.is_constant_of(scalar_t::zero(e.out_dtype())) ?
-//
-//  int out_rank = e.inns[0].size();
-//  string inn_term = _str_term(e.inns[0]);
-//  string out_term = _str_term(vector_iota<int>(out_rank));
-//  auto new_out_shape = e.inn_shape(0);
-//  auto const& new_join_shape = new_out_shape;
-//  if (deri_op.is_constant()) {
-//    scalar_t val = deri_op.eval({});
-//
-//    auto [new_inns,_] = einsummable_t::parse_str(out_term + "->" + inn_term);
-//
-//    einsummable_t new_e(
-//      new_join_shape,
-//      new_inns,
-//      out_rank,
-//      scalarop_t::make_scale(val));
-//    return insert_einsummable(new_e, {grad_id});
-//  } else {
-//    // We know that deri_op has one input of inn
-//    //
-//    //   x**2 => (2*x) * node_grad
-//    //           -----
-//    //           ^ deri_op
-//    //           -----------------
-//    //           ^ term_op
-//    //   ----
-//    //   ^ e.join
-//    //
-//    // The string must be S_Inn,S_Out->S_Inn
-//    scalarop_t term_op = scalarop_t::combine(
-//      scalarop_t::make_mul(),
-//      {deri_op, scalarop_t::make_identity(default_dtype())}
-//    );
-//
-//    auto [new_inns,_] = einsummable_t::parse_str(
-//      inn_term + "," + out_term + "->" + inn_term);
-//
-//    einsummable_t new_e(
-//      new_join_shape,
-//      new_inns,
-//      out_rank,
-//      term_op);
-//    return insert_einsummable(new_e, {inn, grad_id});
-//  }
+  scalarop_t deri_op = e.join.derivative(0);
+
+  bool constant_deri_op = deri_op.is_constant();
+  bool constant_grad = grad.is_constant();
+
+  // Note: remember we need to return a tensor of inn_dtype
+
+  dtype_t out_dtype = e.out_dtype();
+  dtype_t inn_dtype = e.inn_dtype(0);
+
+  auto [out_str, inn_strs] = e.str_terms();
+  string const& inn_str = inn_strs[0];
+  vector<uint64_t> inn_shape = e.inn_shape(0);
+  vector<uint64_t> out_shape = e.out_shape();
+
+  if(constant_deri_op && constant_grad) {
+    scalar_t grad_constant = grad.get_constant();
+    scalar_t deri_constant = deri_op.eval({});
+
+    scalar_t v = scalarop_t::make_mul(out_dtype).eval({grad_constant, deri_constant});
+    v = v.convert(inn_dtype);
+
+    return backprop_tensor_t(fill_t {
+      .value = v,
+      .shape = e.inn_shape(0)
+    });
+  } else if(constant_deri_op) {
+    scalar_t value = deri_op.eval({}).convert(inn_dtype);
+
+    scalarop_t new_join = scalarop_t::combine(
+      scalarop_t::make_mul(out_dtype),
+      vector<scalarop_t> {
+        scalarop_t::make_constant(value),
+        scalarop_t::make_identity(out_dtype)
+      }
+    );
+
+    new_join = scalarop_t::combine(
+      scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
+      vector<scalarop_t>{ new_join });
+
+    string new_str = out_str + "->" + inn_str;
+    auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+    vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+      inn_shape, new_inns, { out_shape });
+    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    int term_id = insert_einsummable(new_e, { grad.get_id() });
+    return backprop_tensor_t(term_id);
+  } else if(constant_grad) {
+    scalar_t value = grad.get_constant();
+
+    scalarop_t new_join = scalarop_t::combine(
+      scalarop_t::make_mul(out_dtype),
+      vector<scalarop_t> {
+        deri_op,
+        scalarop_t::make_constant(value)
+      }
+    );
+
+    new_join = scalarop_t::combine(
+      scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
+      vector<scalarop_t>{ new_join });
+
+    string new_str = inn_str + "->" + inn_str;
+    auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+    vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+      inn_shape, new_inns, { inn_shape });
+    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    int term_id = insert_einsummable(new_e, { inn });
+    return backprop_tensor_t(term_id);
+  } else {
+    scalarop_t new_join = scalarop_t::combine(
+      scalarop_t::make_mul(out_dtype),
+      vector<scalarop_t> {
+        deri_op,
+        scalarop_t::make_identity(out_dtype)
+      }
+    );
+
+    new_join = scalarop_t::combine(
+      scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
+      vector<scalarop_t>{ new_join });
+
+    string new_str = inn_str + "," + out_str + "->" + inn_str;
+    auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+    vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
+      inn_shape, new_inns, { inn_shape, out_shape });
+    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    int term_id = insert_einsummable(new_e, { inn, grad.get_id() });
+    return backprop_tensor_t(term_id);
+  }
 }
 
 //int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {

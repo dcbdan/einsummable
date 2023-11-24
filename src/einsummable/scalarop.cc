@@ -723,6 +723,17 @@ node_t node_t::derivative(int arg) const {
     return parse_with_ss<node_t>(ret);
   }
 
+  if(op.is_convert()) {
+    // convert(f(x)) => convert(f'(x))
+    node_t const& inn = children[0];
+    node_t deri_inn = inn.derivative(arg);
+    return node_t {
+      .op = op,
+      .dtype = dtype,
+      .children = vector<node_t>{ deri_inn }
+    };
+  }
+
   throw std::runtime_error("should not reach");
 }
 

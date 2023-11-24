@@ -321,6 +321,7 @@ private:
 
     int const& get_id() const;
     fill_t const& get_fill() const;
+    scalar_t get_constant() const;
 
     bool is_constant() const;
 
