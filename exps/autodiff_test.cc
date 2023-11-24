@@ -87,6 +87,21 @@ void exp04() {
   DOUT("printed " << filename);
 }
 
+void exp05() {
+  graph_writer_t g;
+  auto x = g.input({10,20});
+  auto y = g.input({20,30});
+  auto z = g.matmul(x,y);
+  auto ws = g.backprop(z, {x,y});
+  ws[0].save_inplace();
+  ws[1].save_inplace();
+
+  string filename = "exp05.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
 void exp04_matrixgraph() {
   matrixgraph_t g;
   auto x = g.insert_input(10,20);
@@ -105,12 +120,13 @@ void exp04_matrixgraph() {
 // TODO: backprop_state_t::start needs to start off with a constant value..
 
 int main() {
-  exp01();
-  exp01_matrixgraph();
+  //exp01(); // TODO: fails: constants not implemented
 
-  //exp02();
-  //exp03();
+  exp02();
+
+  exp03();
 
   exp04();
-  exp04_matrixgraph();
+
+  exp05();
 }

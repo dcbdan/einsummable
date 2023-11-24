@@ -1482,9 +1482,6 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
 
   vector<node_t> inn_nodes = vector_from_each_member(inn_ops, node_t, node);
 
-  // TODO TODO give node_t a number of inputs and remove num_inputs code from
-  //           scalarop_t
-
   int n = inn_nodes.size();
   if(n > 1) {
     int offset = inn_nodes[0].num_inputs();
@@ -1497,7 +1494,7 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
   }
 
   combining_op.node.replace_at_holes(inn_nodes);
-  return combining_op;
+  return combining_op.simplify();
 }
 
 scalarop_t scalarop_t::from_string(string const& str) {

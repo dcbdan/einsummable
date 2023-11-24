@@ -52,6 +52,11 @@ einsummable_t::einsummable_t(
   if(join.num_inputs() != inns.size()) {
     throw std::runtime_error("einsummable inns size not same as scalarop join");
   }
+
+  if(join.which_inputs().size() != inns.size()) {
+    throw std::runtime_error("einsummable does not use all of its inputs!");
+  }
+
   // Consider batched matrix multiply into
   // the same output:
   //   bij,bjk->ik
@@ -768,11 +773,11 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   for(int i = 1; i < e.join_shape.size(); ++i) {
     out << "," << e.join_shape[i];
   }
-  out << "]\n";
+  out << "] ";
 
-  out << e.str() << "\n";
+  out << e.str() << " | ";
 
-  out << e.join.to_cppstr();
+  out << e.join;
 
   return out;
 }

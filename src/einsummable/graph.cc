@@ -1268,10 +1268,12 @@ graph_t::build_grad_term_contraction(
     int new_inn_id;
     auto [_, inn_strs] = e.str_terms();
     if(which_inn == 0) {
+      new_inn_shape = e.inn_shape(1);
       new_inn_id = inn_ids[1];
       new_out_shape = e.inn_shape(0);
       new_str = inn_strs[1] + "->" + inn_strs[0];
     } else {
+      new_inn_shape = e.inn_shape(0);
       new_inn_id = inn_ids[0];
       new_out_shape = e.inn_shape(1);
       new_str = inn_strs[0] + "->" + inn_strs[1];
@@ -1380,7 +1382,7 @@ graph_t::build_grad_term_ewu(
 
     return backprop_tensor_t(fill_t {
       .value = v,
-      .shape = e.inn_shape(0)
+      .shape = inn_shape
     });
   } else if(constant_deri_op) {
     scalar_t value = deri_op.eval({}).convert(inn_dtype);
@@ -1396,6 +1398,16 @@ graph_t::build_grad_term_ewu(
     new_join = scalarop_t::combine(
       scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
       vector<scalarop_t>{ new_join });
+
+    if(new_join.is_constant()) {
+      // It could be the case that the new_join is simplified to a constant
+      // function. (For example, value == 0.0)
+      scalar_t new_value = new_join.eval({});
+      return backprop_tensor_t(fill_t {
+        .value = new_value,
+        .shape = inn_shape
+      });
+    }
 
     string new_str = out_str + "->" + inn_str;
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
@@ -1419,6 +1431,16 @@ graph_t::build_grad_term_ewu(
       scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
       vector<scalarop_t>{ new_join });
 
+    if(new_join.is_constant()) {
+      // It could be the case that the new_join is simplified to a constant
+      // function. (For example, value == 0.0)
+      scalar_t new_value = new_join.eval({});
+      return backprop_tensor_t(fill_t {
+        .value = new_value,
+        .shape = inn_shape
+      });
+    }
+
     string new_str = inn_str + "->" + inn_str;
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
     vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
@@ -1438,6 +1460,11 @@ graph_t::build_grad_term_ewu(
     new_join = scalarop_t::combine(
       scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
       vector<scalarop_t>{ new_join });
+
+    // If this join does not use all of the inputs, then throw an error
+    if(new_join.which_inputs().size() != 2) {
+      throw std::runtime_error("this new_join was simplified!");
+    }
 
     string new_str = inn_str + "," + out_str + "->" + inn_str;
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
