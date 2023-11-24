@@ -338,8 +338,6 @@ struct scalarop_t {
 
   static scalarop_t make_convert_dtype(dtype_t src, dtype_t dst);
 
-  static scalarop_t make_vjp(scalarop_t deri_op, dtype_t d = default_dtype());
-
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
 private:

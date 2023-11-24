@@ -1311,8 +1311,8 @@ optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop(){
     node_t& h0 = node_children[0];
     node_t& h1 = node_children[1];
 
-    auto potential_a0 = set_up_arg(h0); 
-    auto potential_a1 = set_up_arg(h1); 
+    auto potential_a0 = set_up_arg(h0);
+    auto potential_a1 = set_up_arg(h1);
 
     if(!potential_a0||!potential_a1){
       return std::nullopt;
@@ -1378,8 +1378,8 @@ optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop(){
     node_t& h0 = lhs_children[0];
     node_t& h1 = lhs_children[1];
 
-    auto potential_a0 = set_up_arg(h0); 
-    auto potential_a1 = set_up_arg(h1); 
+    auto potential_a0 = set_up_arg(h0);
+    auto potential_a1 = set_up_arg(h1);
 
     if(!potential_a0||!potential_a1){
       return std::nullopt;
@@ -1656,14 +1656,6 @@ scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
   string h0 = op_t::h_str(0, src);
   string dst_s = write_with_ss(dst);
   return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
-}
-
-scalarop_t scalarop_t::make_vjp(scalarop_t deri_op, dtype_t d)
-{
-  return scalarop_t::combine(
-    scalarop_t::make_mul(),
-    {scalarop_t::make_identity(default_dtype()), deri_op}
-  );
 }
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {

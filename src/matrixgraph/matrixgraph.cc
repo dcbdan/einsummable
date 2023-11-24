@@ -266,7 +266,7 @@ vector<int> matrixgraph_t::backprop(int out, vector<int> weights)
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
   /*for (auto const& node : nodeset) {
-    std::cout << "\t\tNodeset element: " << node << std::endl; 
+    std::cout << "\t\tNodeset element: " << node << std::endl;
   }*/
 
   backprop_state_t state {
@@ -313,7 +313,7 @@ int matrixgraph_t::backprop_state_t::operator[](int id) {
   vector<int> terms;
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn]: out_edges) {
-    auto const& out_grad = (*this)[out]; // recurse
+    int out_grad = (*this)[out]; // recurse
     /*std::cout << "Finsihed. For node: " << id << std::endl;
     std::cout << "What the hell is out grad? " << out_grad << std::endl;*/
     terms.push_back(
@@ -565,7 +565,7 @@ int matrixgraph_t::build_grad_term_ewb_arg(
   }
 
   // TODO: can simplifications be made if constant of zero?
-  // This is presumably (2x)' = 2 so we have to make a scale node 
+  // This is presumably (2x)' = 2 so we have to make a scale node
   if(deri_op.is_constant()) {
     scalar_t val = deri_op.eval({});
     //std::cout << "Inserting scale derivative op " << std::endl;
@@ -606,7 +606,7 @@ int matrixgraph_t::build_grad_term_ewb_arg(
     // deri_op is binary
     //std::cout << "Inserting binary derivative op for out grad: " << node_grad << std::endl;
     int tmp = insert_ewb(deri_op, lhs, rhs); // 2 * (yhat - y)
-    
+
     return insert_ewb(scalarop_t::make_mul(), tmp, node_grad); // 2 * (yhat - y) * out_grad
   } else {
     throw std::runtime_error("should not happen");
@@ -904,7 +904,7 @@ matrixgraph_t::translate_node(node_t const& node) const
     auto const& [lhs_d0, lhs_d1] = nodes[id_lhs].out_shape;
     auto const& [rhs_d0, rhs_d1] = nodes[id_rhs].out_shape;
 
-    std::cout << "\t (" << lhs_d0 << ", " << lhs_d1 << ") x (" << rhs_d0 << ", " << rhs_d1 << ")" << std::endl; 
+    std::cout << "\t (" << lhs_d0 << ", " << lhs_d1 << ") x (" << rhs_d0 << ", " << rhs_d1 << ")" << std::endl;
 
     if(t_lhs) {
       std::cout << "\t Left matrix is transposed" << std::endl;
