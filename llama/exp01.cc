@@ -9,8 +9,6 @@
 #include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/autopart.h"
 
-#include <fstream>
-
 struct cluster_settings_t {
   int num_nodes;
   int num_threads_per_node;
@@ -126,55 +124,49 @@ void add_kernels(taskgraph_t const& tg, std::unordered_set<einsummable_t>& ops)
 }
 
 int main() {
-  set_default_dtype(dtype_t::f16);
+  // set_default_dtype(dtype_t::f16);
 
-  uint64_t bsz    = 1;
-  uint64_t seqlen = 1337;
+  // uint64_t bsz    = 4;
+  // uint64_t seqlen = 8;
 
-  auto args = model_args_t::llama_7B(bsz);
-  args.n_layers = 2;
+  // auto args = model_args_t::llama_13B(bsz);
 
-  //auto autoplace = [&](graph_t const& graph) {
-  //  return graph.make_singleton_placement();
-  //};
+  // //auto autoplace = [&](graph_t const& graph) {
+  // //  return graph.make_singleton_placement();
+  // //};
 
-  //std::unordered_set<einsummable_t> ops;
-  //builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
-  //add_kernels(builder.taskgraph, ops);
+  // //std::unordered_set<einsummable_t> ops;
+  // //builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  // //add_kernels(builder.taskgraph, ops);
 
-  //builder_t builder_ = builder_t::make_next_token(builder);
-  //add_kernels(builder_.taskgraph, ops);
+  // //builder_t builder_ = builder_t::make_next_token(builder);
+  // //add_kernels(builder_.taskgraph, ops);
 
-  //for(auto const& e: ops) {
-  //  DOUT(e << " join[" << e.join << "], castable[" << e.castable << "]");
-  //}
+  // //for(auto const& e: ops) {
+  // //  DOUT(e << " join[" << e.join << "], castable[" << e.castable << "]");
+  // //}
 
 
-  int num_nodes = 8;
-  int num_threads_per_node = 12;
-  int num_steps = 0; // 100000;
+  // int num_nodes = 8;
+  // int num_threads_per_node = 12;
+  // int num_steps = 100000;
 
-  double beta = 10000.0;
+  // double beta = 10000.0;
 
-  vector<relationwise_stat_t> stats;
-  auto autoplace = [&](graph_t const& graph) {
-    int max_blocks = 2 * num_nodes * num_threads_per_node;
-    auto [ret,stats_] = solve_relationwise(
-      graph, num_nodes, num_threads_per_node, max_blocks,
-      num_steps,
-      beta);
-    stats = std::move(stats_);
-    return ret;
-  };
+  // vector<relationwise_stat_t> stats;
+  // auto autoplace = [&](graph_t const& graph) {
+  //   int max_blocks = 2 * num_nodes * num_threads_per_node;
+  //   auto [ret,stats_] = solve_relationwise(
+  //     graph, num_nodes, num_threads_per_node, max_blocks,
+  //     num_steps,
+  //     beta);
+  //   stats = std::move(stats_);
+  //   return ret;
+  // };
 
-  builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
+  // builder_t builder = builder_t::make_first_token(args, seqlen, autoplace);
 
-  string fname = "llama_7B_2layer_seqlen1337.gv";
-  std::ofstream f(fname);
-  builder.graph.print_graphviz(f);
-  DOUT(fname);
-
-  for(auto const& stat: stats) {
-    stat.print_line(std::cout);
-  }
+  // for(auto const& stat: stats) {
+  //   stat.print_line(std::cout);
+  // }
 }

@@ -418,19 +418,23 @@ void main07(int argc, char** argv) {
     dst_relation.as_singleton(99),
     dst_relation);
 
-  if(this_rank == 0) {
-    dbuffer_t tensor = make_dbuffer(dtype_t::f32, nrow*ncol);
-    tensor.ones();
-    map<int, buffer_t> data;
-    data.insert({99, tensor.data});
+  for(int i = 0; i != 100; ++i) {
+    DOUT("starting " << (i+1) << " / 100");
+    if(this_rank == 0) {
+      dbuffer_t tensor = make_dbuffer(dtype_t::f32, nrow*ncol);
+      tensor.ones();
+      map<int, buffer_t> data;
+      data.insert({99, tensor.data});
 
-    repartition(comm, remap, data);
-  } else if(this_rank == 1) {
-    map<int, buffer_t> data;
-    repartition(comm, remap, data);
+      repartition(comm, remap, data);
+    } else if(this_rank == 1) {
+      map<int, buffer_t> data;
+      repartition(comm, remap, data);
+    }
+
+    comm.barrier();
   }
 
-  comm.barrier();
   DLINEOUT("done @ rank " << this_rank);
 }
 

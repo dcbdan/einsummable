@@ -104,6 +104,7 @@ private:
 
 public:
   kernel_manager_t();
+  kernel_manager_t(int device);
   ~kernel_manager_t();
 
   optional<workspace_info_t> build(einsummable_t const& e);
@@ -178,5 +179,7 @@ private:
 
   void const* get_one_ptr(dtype_t dtype) const;
   void const* get_zero_ptr(dtype_t dtype) const;
+
+  int device;
 };
 

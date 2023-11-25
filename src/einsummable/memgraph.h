@@ -44,8 +44,8 @@ struct memloc_t {
 };
 
 struct stoloc_t {
-  int loc; // this storage location
-  int id;  // with this id
+  int loc;    // this storage location
+  int id;     // with this id
 
   memsto_t as_memsto() const { return memsto_t(id); }
 };
@@ -96,7 +96,8 @@ struct memgraph_t {
   memgraph_t(
     int num_compute_locs,
     int num_storage_locs,
-    vector<int> const& storage_locs);
+    vector<int> const& storage_locs,
+    bool prune_edges = false);
 
   memgraph_t(
     memgraph_t const& other);
@@ -122,6 +123,21 @@ struct memgraph_t {
     taskgraph_t const& graph,
     vector<uint64_t> mem_sizes = {},
     allocator_settings_t settings = allocator_settings_t::default_settings());
+
+  static
+  tuple<
+    map<int, memstoloc_t>,
+    map<int, memstoloc_t>,
+    optional<memgraph_t>,
+    memgraph_t>
+  make_(
+    taskgraph_t const& graph,
+    vector<int> which_storage = {},
+    vector<uint64_t> mem_sizes = {},
+    map<int, memstoloc_t> init_input_tid_to_data = {},
+    allocator_settings_t settings = allocator_settings_t::default_settings(),
+    bool use_storage = true,
+    bool split_off_inputs = false);
 
   static
   tuple<
@@ -159,13 +175,13 @@ struct memgraph_t {
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
   vector<int> storage_locs;
 
-  // TODO TODO TODO
-  // This method is very dirty. A single sto_loc may map into
-  // multiple locations, yet this function returns the first location!
-  // This is fine whenever there is a one-to-one mapping.
-  //
-  // As a larger design point, storage locs may need to be changed...
-  int get_loc_from_storage_loc(int sto_loc) const;
+  // A single sto_loc may map into multiple locations,
+  // so this function returns all of them.
+  vector<int> get_locs_from_storage_loc(int sto_loc) const;
+
+  // Given a node and a device, return whether or not
+  // that node "occurs" at that device.
+  bool is_local_to(int id, int loc) const;
 
 public:
   struct inputmem_t {
@@ -179,7 +195,6 @@ public:
   };
 
   struct inputsto_t {
-    int loc;
     int storage_loc;
     int storage_id;
     uint64_t size;
@@ -374,7 +389,6 @@ public:
 
     int get_loc() const{
       if (is_inputmem())   return get_inputmem().loc;
-      if (is_inputsto())   return get_inputsto().loc;
       if (is_constant())   return get_constant().loc;
       if (is_apply())      return get_apply_loc();
       if (is_move())       return get_move().get_dst_loc();
@@ -383,6 +397,11 @@ public:
       if (is_partialize()) return get_partialize().loc;
       if (is_alloc())      return get_alloc().loc;
       if (is_del())        return get_del().loc;
+
+      if (is_inputsto()) {
+        throw std::runtime_error("input sto can have multiple locs");
+      };
+
       throw std::runtime_error("trying to get loc for an unknown op");
     }
 
@@ -403,8 +422,6 @@ public:
     bool is_local_to(int loc) const;
     string get_name() const;
 
-    // return if the node is to be executed on the gpu of this node
-    bool is_local_to_gpu(int node, int num_gpu_per_node) const;
   private:
     _op_t op;
 
@@ -446,6 +463,7 @@ private:
   // Note also that all_deps[i] has length i--that is,
   // 0,1,2,3,4,.. is a valid order of the graph.
   vector<vector<char>> all_deps;
+  bool prune_edges;
 };
 
 // allocator_t contains a vector of blocks that either
@@ -488,6 +506,9 @@ struct allocator_t {
   // occupied interval. Else return None.
   optional<tuple<uint64_t, uint64_t>>
   get_allocated_region(uint64_t offset) const;
+
+  // Remove all dependencies from available memory
+  void clear_dependencies();
 
 private:
   struct block_t {
@@ -624,6 +645,11 @@ struct memgraph_make_state_t {
 
   // this tensor was used, see if you can free the memory
   void register_usage(int task_id);
+
+  // Remove the memgraph we've computed thus far. This should only
+  // really be used with splitting off the input data. Interactions
+  // with task_node_to_mem_node and task_touch_to_mem_node are unclear
+  memgraph_t pop_memgraph();
 
   // A bunch of helper methods to modify
   //   task_tensor_to_mem_node,

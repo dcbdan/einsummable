@@ -246,6 +246,14 @@ partdim_t partdim_t::subset(uint64_t beg, uint64_t end) const {
   return partdim_t::from_sizes(szs);
 }
 
+uint64_t partdim_t::max_size() const {
+  uint64_t ret = spans[0];
+  for(int i = 1; i != spans.size(); ++i) {
+    ret = std::max(ret, spans[i] - spans[i-1]);
+  }
+  return ret;
+}
+
 string partdim_t::to_wire() const {
   es_proto::Partdim p;
   to_proto(p);

@@ -213,7 +213,7 @@ void reference_compute_memgraph(
       // nothing to do
     } else if(op.is_inputsto()) {
       // verify that the input is indeed on storage
-      auto const& [_0, which_storage, sto_id, _1] = op.get_inputsto();
+      auto const& [which_storage, sto_id, _1] = op.get_inputsto();
       auto const& storage = storages.at(which_storage);
       if(storage.find(sto_id) == storage.end()) {
         throw std::runtime_error(

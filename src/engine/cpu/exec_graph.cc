@@ -43,10 +43,11 @@ exec_graph_t::make_cpu_exec_graph(
   };
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
-    auto const& node = memgraph.nodes[mid];
-    if(!node.op.is_local_to(this_rank)) {
+    if(!memgraph.is_local_to(mid, this_rank)) {
       continue;
     }
+
+    auto const& node = memgraph.nodes[mid];
 
     if(
       node.op.is_inputmem()   ||

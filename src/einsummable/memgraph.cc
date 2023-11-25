@@ -46,8 +46,8 @@ allocator_settings_t allocator_settings_t::gpu_alignment_settings()
 }
 
 memgraph_t::memgraph_t(
-  int nl, int nc, vector<int> const& cs)
-  : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs)
+  int nl, int nc, vector<int> const& cs, bool pe)
+  : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs), prune_edges(pe)
 {}
 
 memgraph_t::memgraph_t(
@@ -91,10 +91,6 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       }
     } else if(op.is_inputsto()) {
       auto const& input = op.get_inputsto();
-      if(input.loc < colors.size()) {
-        color = "pink";
-        //color = colors[input.loc];
-      }
       std::cout<<"Label is: " + label<<std::endl;
       //label = "input " + write_with_ss(id);
       label = "inputsto@sto_id=" + write_with_ss(input.storage_id);
@@ -272,7 +268,6 @@ string memgraph_t::to_wire() const {
     } else if(node.op.is_inputsto()) {
       auto const& input = node.op.get_inputsto();
       es_proto::MGInputSto* i = n->mutable_inputsto();
-      i->set_loc(input.loc);
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
       i->set_size(input.size);
@@ -395,7 +390,6 @@ memgraph_t memgraph_t::from_wire(string const& str) {
     } else if(n.has_inputsto()) {
       auto const& i = n.inputsto();
       op = op_t(inputsto_t {
-        .loc = i.loc(),
         .storage_loc = i.storage_loc(),
         .storage_id = i.storage_id(),
         .size = i.size()
@@ -516,13 +510,19 @@ memgraph_t memgraph_t::from_wire(string const& str) {
   return ret;
 }
 
-int memgraph_t::get_loc_from_storage_loc(int sto_loc) const {
+vector<int>
+memgraph_t::get_locs_from_storage_loc(int sto_loc) const
+{
+  vector<int> ret;
   for(int loc = 0; loc != storage_locs.size(); ++loc) {
     if(storage_locs[loc] == sto_loc) {
-      return loc;
+      ret.push_back(loc);
     }
   }
-  throw std::runtime_error("invalid sto_loc");
+  if(ret.size() == 0) {
+    throw std::runtime_error("invalid sto_loc");
+  }
+  return ret;
 }
 
 int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
@@ -542,28 +542,32 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   set<int> inns;
 
-  vector<int> deps_vec(deps.begin(), deps.end());
-  if(deps_vec.size() == 0) {
-    //
-  } else if(deps_vec.size() == 1) {
-    inns.insert(deps_vec[0]);
-  } else {
-    std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
-    set<int> unnec;
-    for(int i = 0; i != deps_vec.size(); ++i) {
-      int const& id = deps_vec[i];
-      if(unnec.count(id) == 0) {
-        if(i != deps_vec.size() - 1) {
-          for(int j = i+1; j != deps_vec.size(); ++j) {
-            int const& jd = deps_vec[j];
-            if(depends_on(id, jd)) {
-              unnec.insert(jd);
+  if(prune_edges) {
+    vector<int> deps_vec(deps.begin(), deps.end());
+    if(deps_vec.size() == 0) {
+      //
+    } else if(deps_vec.size() == 1) {
+      inns.insert(deps_vec[0]);
+    } else {
+      std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
+      set<int> unnec;
+      for(int i = 0; i != deps_vec.size(); ++i) {
+        int const& id = deps_vec[i];
+        if(unnec.count(id) == 0) {
+          if(i != deps_vec.size() - 1) {
+            for(int j = i+1; j != deps_vec.size(); ++j) {
+              int const& jd = deps_vec[j];
+              if(depends_on(id, jd)) {
+                unnec.insert(jd);
+              }
             }
           }
+          inns.insert(id);
         }
-        inns.insert(id);
       }
     }
+  } else {
+    inns = deps;
   }
 
   //std::cout << "Inserting node in the memgraph: " << op.get_name() << std::endl;
@@ -576,19 +580,21 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
-  for(auto const& inn: inns) {
-    nodes[inn].outs.insert(ret);
-  }
+  if(prune_edges) {
+    for(auto const& inn: inns) {
+      nodes[inn].outs.insert(ret);
+    }
 
-  all_deps.emplace_back(ret, 0);
+    all_deps.emplace_back(ret, 0);
 
-  vector<char>& ret_deps = all_deps.back();
-  for(int const& inn: inns) {
-    ret_deps[inn] = 1;
+    vector<char>& ret_deps = all_deps.back();
+    for(int const& inn: inns) {
+      ret_deps[inn] = 1;
 
-    vector<char>& inn_deps = all_deps[inn];
-    for(int i = 0; i != inn_deps.size(); ++i) {
-      ret_deps[i] = std::max(ret_deps[i], inn_deps[i]);
+      vector<char>& inn_deps = all_deps[inn];
+      for(int i = 0; i != inn_deps.size(); ++i) {
+        ret_deps[i] = std::max(ret_deps[i], inn_deps[i]);
+      }
     }
   }
 
@@ -832,11 +838,30 @@ stoloc_t memgraph_t::op_t::get_stoloc() const {
   }
 }
 
+bool memgraph_t::is_local_to(int id, int loc) const {
+  node_t const& node = nodes[id];
+  if(node.op.is_inputsto()) {
+    // Input storage nodes are special in that they don't map to
+    // a single location. We determine if this inputsto occurs here if
+    // any of its outgoing edges occur here.
+    for(int const& id: node.outs) {
+      if(is_local_to(id, loc)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    return node.op.is_local_to(loc);
+  }
+}
+
 bool memgraph_t::op_t::is_local_to(int loc) const {
   if(is_inputmem()) {
     return loc == get_inputmem().loc;
   } else if(is_inputsto()) {
-    return loc == get_inputsto().loc;
+    // If we have an input sto, we need to know which locs this storage loc
+    // maps to. But even then, is it local to all of those maps?
+    throw std::runtime_error("inputsto node: can't tell if local to loc");
   } else if(is_constant()) {
     return loc == get_constant().loc;
   } else if(is_apply()) {
@@ -854,32 +879,6 @@ bool memgraph_t::op_t::is_local_to(int loc) const {
     return loc == get_alloc().loc;
   } else if(is_del()) {
     return loc == get_del().loc;
-  } else {
-    throw std::runtime_error("is_local_to should not reach");
-  }
-}
-
-bool memgraph_t::op_t::is_local_to_gpu(int node, int num_gpu_per_node) const {
-  if(is_inputmem()) {
-    return node == std::floor(get_inputmem().loc / num_gpu_per_node);
-  } else if(is_inputsto()) {
-    return node == std::floor(get_inputsto().loc / num_gpu_per_node);
-  } else if(is_apply()) {
-    return node == std::floor(get_apply().loc / num_gpu_per_node);
-  } else if(is_move()) {
-    auto const& move = get_move();
-    return node == std::floor(move.get_src_loc() / num_gpu_per_node)
-      || std::floor(node == move.get_dst_loc() / num_gpu_per_node);
-  } else if(is_evict()) {
-    return std::floor(node == get_evict().src.loc / num_gpu_per_node);
-  } else if(is_load()) {
-    return std::floor(node == get_load().dst.loc / num_gpu_per_node);
-  } else if(is_partialize()) {
-    return std::floor(node == get_partialize().loc / num_gpu_per_node);
-  } else if(is_alloc()) {
-    return std::floor(node == get_alloc().loc / num_gpu_per_node);
-  } else if(is_del()) {
-    return std::floor(node == get_del().loc / num_gpu_per_node);
   } else {
     throw std::runtime_error("is_local_to should not reach");
   }
@@ -932,6 +931,11 @@ order_taskgraph(taskgraph_t const& taskgraph);
 //         taskgraph.get_order()
 
 tuple<
+  vector<std::variant<_which_node_t, _which_touch_t>> ,
+  vector<std::variant<_which_node_t, _which_touch_t>> >
+order_split_taskgraph(taskgraph_t const& taskgraph);
+
+tuple<
   map<int, mem_t>, // input -> mem
   map<int, mem_t>, // save -> mem
   memgraph_t>
@@ -964,14 +968,16 @@ memgraph_t::make_without_evict(
 tuple<
   map<int, memstoloc_t>, // input -> data
   map<int, memstoloc_t>, // save  -> data
+  optional<memgraph_t>,
   memgraph_t>
-memgraph_t::make(
+memgraph_t::make_(
   taskgraph_t const& taskgraph,
   vector<int> which_storage,
   vector<uint64_t> mem_sizes,
   map<int, memstoloc_t> input_tid_to_data,
   allocator_settings_t settings,
-  bool use_storage)
+  bool use_storage,
+  bool split_off_inputs)
 {
   int n_compute_locs = taskgraph.num_locs();
   if(mem_sizes.size() > n_compute_locs) {
@@ -1049,7 +1055,15 @@ memgraph_t::make(
     }
   }
 
-  state.process(order_taskgraph(taskgraph));
+  optional<memgraph_t> input_memgraph;
+  if(split_off_inputs) {
+    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    state.process(input_tg_ops);
+    input_memgraph = state.pop_memgraph();
+    state.process(core_tg_ops);
+  } else {
+    state.process(order_taskgraph(taskgraph));
+  }
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id) {
@@ -1064,8 +1078,92 @@ memgraph_t::make(
   return {
     input_tid_to_data,
     save_to_data,
+    input_memgraph,
     state.memgraph
   };
+}
+
+tuple<
+  map<int, memstoloc_t>,
+  map<int, memstoloc_t>,
+  memgraph_t>
+memgraph_t::make(
+  taskgraph_t const& graph,
+  vector<int> which_storage,
+  vector<uint64_t> mem_sizes,
+  map<int, memstoloc_t> init_input_tid_to_data,
+  allocator_settings_t settings,
+  bool use_storage)
+{
+  auto && [i,o,a_nullopt,m] = make_(
+    graph, which_storage, mem_sizes,
+    init_input_tid_to_data, settings, use_storage, false);
+  return {std::move(i), std::move(o), std::move(m)};
+}
+
+memgraph_t
+memgraph_make_state_t::pop_memgraph()
+{
+  if(partializes_in_progress.size() > 0) {
+    throw std::runtime_error("partialize in progress; cannot pop memgraph");
+  }
+
+  memgraph_t ret = memgraph;
+  memgraph = memgraph_t();
+
+  // update the trio
+  //   task_tensor_to_mem_node
+  //   tensors_on_storage;
+  //   tensors_on_memory;
+  //
+  // also update the allocators to not depend on the ret mid's
+
+  for(auto iter  = task_tensor_to_mem_node.begin() ;
+           iter != task_tensor_to_mem_node.end()   ;
+      ++iter)
+  {
+    int const& tid = iter->first;
+
+    int ret_mid = iter->second;
+    auto const& ret_op = ret.nodes[ret_mid].op;
+
+    int& new_mid = iter->second;
+    if(tensors_on_storage.count(tid) > 0) {
+      // insert on storage
+      // ret op must either be a inputsto itself or a
+      // an evict node
+      inputsto_t sto;
+      if(ret_op.is_inputsto()) {
+        sto = ret_op.get_inputsto();
+      } else if(ret_op.is_evict()) {
+        auto const& evict = ret_op.get_evict();
+        sto.storage_loc = evict.dst.loc;
+        sto.storage_id  = evict.dst.id;
+        sto.size        = evict.src.size;
+      }
+
+      new_mid = memgraph.insert(op_t(sto), set<int>{});
+
+      // tensors_on_storage does not change
+    } else {
+      // insert on memory
+      inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
+      new_mid = memgraph.insert(op_t(mem), set<int>{});
+
+      // this tid has not been used by any mids now
+      tensors_on_memory.at(tid) = set<int>{};
+    }
+  }
+
+  for(allocator_t& allocator: allocators) {
+    allocator.clear_dependencies();
+  }
+
+  // These should not be accessed again for what it contained
+  task_node_to_mem_node = {};
+  task_touch_to_mem_node = {};
+
+  return ret;
 }
 
 memgraph_make_state_t::memgraph_make_state_t(
@@ -1110,11 +1208,13 @@ memgraph_make_state_t::memgraph_make_state_t(
       int mid = memgraph.insert(op_t(input), {});
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     } else if(memstoloc.is_stoloc()) {
+      // Note that even though storage ids are specific to storage locs,
+      // this code only cares about finding a unique storage id whenever
+      // one is needed.
       auto const& [storage_loc, storage_id] = memstoloc.get_stoloc();
       _sto_id = std::max(_sto_id, 1 + storage_id);
 
       inputsto_t input {
-        .loc = memgraph.get_loc_from_storage_loc(storage_loc),
         .storage_loc = storage_loc,
         .storage_id = storage_id,
         .size = tg.out_size(tid)
@@ -1181,7 +1281,6 @@ void memgraph_make_state_t::initialize_input(int inn) {
     }
 
     inputsto_t input_sto = {
-      .loc = loc,
       .storage_loc = memgraph.storage_locs[loc],
       .storage_id = _sto_id++,
       .size = size
@@ -1539,14 +1638,24 @@ void memgraph_make_state_t::register_usage(int task_id)
       auto const& out_node = taskgraph.nodes[task_out];
       if(out_node.op.is_apply() || out_node.op.is_move()) {
         _which_node_t _task_out { task_out };
-        del_deps.insert(task_node_to_mem_node.at(_task_out));
+        auto iter = task_node_to_mem_node.find(_task_out);
+        if(iter == task_node_to_mem_node.end()) {
+          // Assumption: this _task_out lived on the other side of a pop_memgraph
+        } else {
+          del_deps.insert(iter->second);
+        }
       } else if(out_node.op.is_partialize()) {
         auto const whiches = get_which_touches_from_to(
           taskgraph,
           task_out,
           task_id);
         for(auto const& which: whiches) {
-          del_deps.insert(task_touch_to_mem_node.at(which));
+          auto iter = task_touch_to_mem_node.find(which);
+          if(iter == task_touch_to_mem_node.end()) {
+            // Assumption: this which lived on the other side of a pop_memgraph
+          } else {
+            del_deps.insert(iter->second);
+          }
         }
       }
     }
@@ -1581,7 +1690,7 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
   if(task_tensor_to_mem_node.count(tid) > 0) {
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
-  task_tensor_to_mem_node.insert({tid, mid});
+  task_tensor_to_mem_node.insert_or_assign(tid, mid);
 }
 
 void memgraph_make_state_t::task_tensor_to_mem_node_update_on_storage(
@@ -1934,40 +2043,54 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
 }
 
 vector<std::variant<_which_node_t, _which_touch_t>>
-order_taskgraph(taskgraph_t const& taskgraph)
+build_tg_ops(
+  taskgraph_t const& taskgraph,
+  vector<int> const& tids_in_order)
 {
   vector<std::variant<_which_node_t, _which_touch_t>> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
-  for(auto const& id: taskgraph.get_order()) {
+  for(auto const& id: tids_in_order) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
       // Input nodes have already been provided
     } else if(node.op.is_partialize()) {
-      // Every partialize touch should be accounted for
-      // from the corresponding input. The idea is
-      // if input A becomes ready, immediately
-      // increment do touch op B += A.
-    } else {
-      // this is an apply or move node, but the
-      // distinction doesn't matter here
-      ret.emplace_back(_which_node_t { .task_id = id });
-    }
-
-    // Now that this id is now available, add touches from
-    // this id to a partialize out
-    for(auto const& out: node.outs) {
-      auto const& out_node = taskgraph.nodes[out];
-      if(out_node.op.is_partialize()) {
-        auto which_touches = get_which_touches_from_to(taskgraph, out, id);
-        for(auto const& w: which_touches) {
-          ret.emplace_back(w);
+      auto const& p = node.op.get_partialize();
+      for(int which_unit = 0; which_unit != p.units.size(); ++which_unit) {
+        auto const& unit = p.units[which_unit];
+        for(int which_inn = 0; which_inn != unit.inputs.size(); ++which_inn) {
+          ret.emplace_back(_which_touch_t {
+            .task_id = id,
+            .unit_id = which_unit,
+            .touch_id = which_inn
+          });
         }
       }
+    } else {
+      // apply or move
+      ret.emplace_back(_which_node_t { .task_id = id });
     }
   }
 
   return ret;
+}
+
+vector<std::variant<_which_node_t, _which_touch_t>>
+order_taskgraph(taskgraph_t const& taskgraph)
+{
+  return build_tg_ops(taskgraph, taskgraph.get_order());
+}
+
+tuple<
+  vector<std::variant<_which_node_t, _which_touch_t>> ,
+  vector<std::variant<_which_node_t, _which_touch_t>> >
+order_split_taskgraph(taskgraph_t const& taskgraph)
+{
+  auto [inn_order, core_order] = taskgraph.get_input_core_order();
+  return {
+    build_tg_ops(taskgraph, inn_order),
+    build_tg_ops(taskgraph, core_order)
+  };
 }
 
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
@@ -2089,12 +2212,15 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
           ++inner_iter)
       {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
+        if(inner_max_dep >= min_dep) {
+          break;
+        }
         sz += inner_iter->size();
         if(rem != 0 && sz > rem) {
           rem = 0;
           sz -= rem;
         }
-        if(rem == 0 && sz >= size && inner_max_dep <= min_dep) {
+        if(rem == 0 && sz >= size) {
           min_dep = inner_max_dep;
           return_block = {ret, inner_iter + 1, sz};
           break;
@@ -2311,6 +2437,42 @@ allocator_t::get_allocated_region(uint64_t offset) const
   }
 
   return optional<tuple<uint64_t, uint64_t>>({block.beg, block.end});
+}
+
+void allocator_t::clear_dependencies() {
+  vector<block_t> new_blocks;
+  optional<tuple<uint64_t, uint64_t>> next_interval;
+  for(auto const& block: blocks) {
+    if(block.dep) {
+      if(next_interval) {
+        auto& [_, end] = next_interval.value();
+        end = block.end;
+      } else {
+        next_interval = tuple<uint64_t,uint64_t>{block.beg, block.end};
+      }
+    } else {
+      if(next_interval) {
+        auto const& [beg,end] = next_interval.value();
+        new_blocks.push_back(block_t {
+          .beg = beg,
+          .end = end,
+          .dep = -1
+        });
+        next_interval = std::nullopt;
+      }
+      new_blocks.push_back(block);
+    }
+  }
+  if(next_interval) {
+    auto const& [beg,end] = next_interval.value();
+    new_blocks.push_back(block_t {
+      .beg = beg,
+      .end = end,
+      .dep = -1
+    });
+  }
+
+  blocks = new_blocks;
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {

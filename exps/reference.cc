@@ -1348,6 +1348,33 @@ void main_subset(int which) {
     { {x.get_id(), x_data} });
 }
 
+void mm_test() {
+  int np = 2;
+  auto g = three_dimensional_matrix_multiplication(2, 2, 2, 200, 200, 200, np);
+  auto graph = g.graph;
+  auto pls = g.get_placements();
+
+  auto [_2, _3, taskgraph] = taskgraph_t::make(graph, pls);
+
+  uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
+
+  bool split_off_inputs = true;
+  auto [_0, _1, maybe_mg, exec_mg] = memgraph_t::make_(
+    taskgraph, {}, vector<uint64_t>(np, mem_size), {},
+    allocator_settings_t::default_settings(),
+    true, split_off_inputs);
+
+  if(maybe_mg) {
+    std::ofstream f("i_mg.gv");
+    maybe_mg.value().print_graphviz(f);
+    DOUT("i_mg.gv");
+  }
+
+  std::ofstream f("e_mg.gv");
+  exec_mg.print_graphviz(f);
+  DOUT("e_mg.gv");
+}
+
 int main(int argc, char** argv) {
   //test_random_matmul();
 
@@ -1403,7 +1430,9 @@ int main(int argc, char** argv) {
   // main06(argc, argv);
   //main08(argc, argv);
 
-  test_obvious_matmul_with_evict(2, 2, 2, 40, 40, 40, 20*20*4*3 * 2);
+  //test_obvious_matmul_with_evict(2, 2, 2, 40, 40, 40, 20*20*4*3 * 2);
+
+  mm_test();
 }
 
 

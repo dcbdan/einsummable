@@ -210,6 +210,15 @@ auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
   vector_max_transform(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f))
 
 template <typename T>
+T vector_sum(vector<T> const& xs) {
+  T ret = 0;
+  for(auto const& x: xs) {
+    ret += x;
+  }
+  return ret;
+}
+
+template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());
@@ -343,9 +352,11 @@ template <typename T>
 }
 
 // Take a bunch of sorted lists and merge em into a single sorted list
+// This is nlogn, but for n < 100, it's pretty fast cuz std::sort is fast.
+// For lorge n, use a nlogk algorthm where k = xs.size(). An implementation
+// tested wasnt faster until n > 5000.
 template <typename T>
 vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {
-  // TODO: make this more efficient
   vector<T> ret;
   for(auto const& x: xs) {
     vector_concatenate_into(ret, x);
@@ -587,8 +598,10 @@ using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 bool in_range(int val, int beg, int end);
 
 #define clock_now std::chrono::high_resolution_clock::now
+#define steady_now std::chrono::steady_clock::now
 
 using timestamp_t = decltype(clock_now());
+using steady_timestamp_t = decltype(steady_now());
 
 struct raii_print_time_elapsed_t {
   raii_print_time_elapsed_t(string msg, bool hide=false):

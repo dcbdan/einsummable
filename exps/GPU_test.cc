@@ -1,4 +1,9 @@
 #include "GPU_correctness.cc"
+#include "gpu_kernel_manager.h"
+#include "utility.h"
+#include <cstdint>
+#include <cuda_runtime_api.h>
+#include <driver_types.h>
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -350,8 +355,30 @@ void server_1 (int argc, char** argv){
   server_execute_mm(world_size, matrix_dim, partition);
 }
 
+// do (A*B) * (C*D) * (E*F)... on the server
+void server_multiple_mm (int argc, char** argv){
+  if (argc != 3){
+    DOUT("Square matrix multiplication");
+    DOUT("1) world_size 2) matrix_dim");
+    return;
+  }
+  int world_size, partition;
+  uint64_t matrix_dim;
+  try {
+    world_size = parse_with_ss<int>(argv[1]);
+    matrix_dim = parse_with_ss<uint64_t>(argv[2]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("1) world_size 2) matrix_dim");
+    return;
+  }
+
+  server_execute_multiple_mm(world_size, matrix_dim, partition);
+}
+
+
 // do 3d matmul on the server
-void server_2 (int argc, char** argv){
+void server_3d_mamtmul (int argc, char** argv){
   if (argc != 6) {
     DOUT("pi pj pk matrix_dimension np");
     return;
@@ -374,6 +401,9 @@ void server_2 (int argc, char** argv){
     return;
   }
 
+  // time the execution
+  auto start = std::chrono::high_resolution_clock::now();
+
   auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
   auto graph = g.graph;
   auto pls = g.get_placements();
@@ -384,12 +414,14 @@ void server_2 (int argc, char** argv){
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
   uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -403,11 +435,19 @@ void server_2 (int argc, char** argv){
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
+  // Time the random initialization
+  auto data_init_time = std::chrono::high_resolution_clock::now();
+  auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
+  DOUT("Random initialization time: " << init_duration.count() / 1000000.0 << " seconds");
   // DOUT("Printing graphviz...")
   // std::ofstream f("g_multiply.gv");
   // graph.print_graphviz(f);
 
   server.execute_graph(graph, pls);
+
+  auto execution_time = std::chrono::high_resolution_clock::now();
+  auto execution_duration = std::chrono::duration_cast<std::chrono::microseconds>(execution_time-data_init_time);
+  DOUT("Server execution time: " << execution_duration.count() / 1000000.0 << " seconds");
 
   //// get the outputs to here
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -419,41 +459,91 @@ void server_2 (int argc, char** argv){
     }
   }
 
+  // print the execution time in seconds
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
+  DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
+
   server.shutdown();
 
 }
 
-// void server_2(int argc, char** argv){
-//   if (argc != 8) {
-//     usage();
-//     return;
-//   }
+// running feed forward neural network on the server
+void server_ffnn(){
 
-//   int pi, pj, pk;
-//   uint64_t di, dj, dk;
-//   int np;
-//   try {
-//     pi = parse_with_ss<int>(argv[1]);
-//     pj = parse_with_ss<int>(argv[2]);
-//     pk = parse_with_ss<int>(argv[3]);
-//     di = parse_with_ss<uint64_t>(argv[4]);
-//     dj = parse_with_ss<uint64_t>(argv[5]);
-//     dk = parse_with_ss<uint64_t>(argv[6]);
-//     np = parse_with_ss<int>(argv[7]);
-//   } catch (...) {
-//     std::cout << "Parse error." << std::endl << std::endl;
-//     usage();
-//     return;
-//   }
+  // time the execution
+  auto start = std::chrono::high_resolution_clock::now();
 
-//   auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+  // DEFINE PARAMETERS HERE
+  // int batch_size = 100;
+  // int num_layers = 3;
+  // vector<uint64_t> dims = {784, 100, 10};
+  int np = 1;
+  int batch_size = 100;
+  int num_layers = 2;
+  vector<uint64_t> dims = {784, 10};
 
-//   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+  auto graph = generate_ffnn(batch_size, dims);
+  auto pls = autoplace(graph, np);
+  int world_size = 1;
 
-//   memgraph_t memgraph = taskgraph_to_memgraph(taskgraph);
+  communicator_t c("0.0.0.0", true, world_size);
 
-//   server_execute(memgraph, true, memgraph.mem_sizes());
-// }
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+  // Time the random initialization
+  auto data_init_time = std::chrono::high_resolution_clock::now();
+  auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
+  DOUT("Random initialization time: " << init_duration.count() / 1000000.0 << " seconds");
+  // DOUT("Printing graphviz...")
+  // std::ofstream f("g_multiply.gv");
+  // graph.print_graphviz(f);
+
+  server.execute_graph(graph, pls);
+
+  auto execution_time = std::chrono::high_resolution_clock::now();
+  auto execution_duration = std::chrono::duration_cast<std::chrono::microseconds>(execution_time-data_init_time);
+  DOUT("Server execution time: " << execution_duration.count() / 1000000.0 << " seconds");
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  // print the execution time in seconds
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
+  DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
+
+  server.shutdown();
+}
 
 void mm_test2() {
   dtype_t dtype = dtype_t::f32;
@@ -502,8 +592,60 @@ void mm_test2() {
   printFloatGPU(c, ni*ni);
 }
 
+// void cublaMatmulCheck(){
+//   auto iter = 10000;
+//   for (int i = 0; i < iter; ++i){
+//     cudaSetDevice(0);
+//     // generate random ints of ni, nj, nk in range (1, 100)
+//     int ni = runif(1, 100);
+//     int nj = runif(1, 100);
+//     int nk = runif(1, 100);
+//     bool trans_l = runif(1);
+//     bool trans_r = runif(1);
+//     bool swap = runif(1);
+//     dbuffer_t input_1 = make_dbuffer(dtype_t::f32, ni*nj);
+//     input_1.ones();
+//     dbuffer_t input_2 = make_dbuffer(dtype_t::f32, nj*nk);
+//     input_2.ones();
+
+//     dbuffer_t output = make_dbuffer(dtype_t::f32, ni*nk);
+
+//     kernel_manager_t::matmul_t matmul;
+//     matmul.dtype = dtype_t::f32;
+//     matmul.ni = ni;
+//     matmul.nj = nj;
+//     matmul.nk = nk;
+//     matmul.trans_l = trans_l;
+//     matmul.trans_r = trans_r;
+//     matmul.swap = swap;
+
+//     void* gpu_input_1 = gpu_allocate_memory(input_1.size(), 0);
+//     void* gpu_input_2 = gpu_allocate_memory(input_2.size(), 0);
+//     cudaMemcpy(gpu_input_1, input_1.raw(), input_1.size(), cudaMemcpyHostToDevice);
+//     cudaMemcpy(gpu_input_2, input_2.raw(), input_2.size(), cudaMemcpyHostToDevice);
+
+//     void* gpu_output = gpu_allocate_memory(output.size(), 0);
+
+//     kernel_manager_t km(0);
+//     auto stream = cuda_create_stream();
+//     km.execute_matmul(matmul, stream, gpu_output, gpu_input_1, gpu_input_2);
+//     handle_cuda_error(cudaStreamSynchronize(stream));
+//     cudaMemcpy(output.raw(), gpu_output, output.size(), cudaMemcpyDeviceToHost);
+
+//     DOUT(output.max());
+//     DOUT(output.min());
+//     // throw an error if min and max are not the same
+//     if (output.max() != output.min()){
+//       throw std::runtime_error("cublaMatmulCheck failed");
+//     }
+//   }
+// }
+
 int main(int argc, char **argv) {
   // server_1(argc, argv);
-  server_2(argc, argv);
+  // server_3d_mamtmul(argc, argv);
+  // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
+  // cublaMatmulCheck();
+  server_ffnn();
 }

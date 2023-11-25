@@ -10,6 +10,12 @@ struct relation_t {
   placement_t placement;
   vtensor_t<int> tids;
 
+  static relation_t make_singleton(
+    dtype_t const& dtype,
+    vector<uint64_t> const& shape,
+    int id,
+    int loc = 0);
+
   relation_t as_singleton(int id, int loc = 0) const;
 
   static relation_t from_wire(string const& str);

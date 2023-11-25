@@ -129,6 +129,7 @@ vector<vector<int>> compute_equal_sums(int n, int d) {
 struct get_parts_t {
   graph_t const& graph;
   int log2_n;
+  parts_space_t search_space;
   optional<vector<partition_t>> set_parts;
 
   vector<partition_t> operator()(int gid) const {
@@ -138,15 +139,33 @@ struct get_parts_t {
 
     auto const& op = graph.nodes[gid].op;
 
-    if(op.is_einsummable() && op.get_einsummable().is_contraction())
-    {
+    if(search_space == parts_space_t::contraction) {
+      if(op.is_einsummable() && op.get_einsummable().is_contraction())
+      {
+        vector<uint64_t> shape = op.shape();
+        vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
+        return fix(shape, pps);
+      } else {
+        vector<uint64_t> shape = op.shape();
+        vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size() + 1);
+        return fix(shape, pps);
+      }
+    } else if(search_space == parts_space_t::all) {
       vector<uint64_t> shape = op.shape();
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       return fix(shape, pps);
-    } else {
+    } else if(search_space == parts_space_t::all_range) {
       vector<uint64_t> shape = op.shape();
-      vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size() + 1);
+      vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
+      vector_concatenate_into(
+        pps,
+        compute_equal_sums(log2_n + 1, shape.size()));
+      vector_concatenate_into(
+        pps,
+        compute_equal_sums(log2_n + 2, shape.size()));
       return fix(shape, pps);
+    } else {
+      throw std::runtime_error("get_parts_t: should not reach");
     }
   }
 
@@ -192,6 +211,8 @@ struct get_parts_t {
 struct compute_cost_t {
   graph_t const& graph;
   std::unordered_map<string, uint64_t> cache;
+  bool exact;
+  uint64_t discount_input_factor;
 
   tuple<uint64_t, uint64_t> cost(
     int gid,
@@ -211,12 +232,18 @@ struct compute_cost_t {
         // across the remaining portion of the grid
         {
           for(int i = 0; i != e.inns.size(); ++i) {
+            int const& inn_gid = node.inns[i];
+            uint64_t factor = 1;
+            if(graph.nodes[inn_gid].op.is_input()) {
+              factor = discount_input_factor;
+            }
+
             vector<int> inn_block_shape = e.get_input_from_join(op_block_shape, i);
             int inn_n_blocks = product(inn_block_shape);
-            int multiplier = op_n_blocks / inn_n_blocks;
+            uint64_t multiplier = uint64_t(op_n_blocks / inn_n_blocks);
 
             vector<uint64_t> inn_shape = e.get_input_from_join(e.join_shape, i);
-            compute_cost += product(inn_shape) * multiplier;
+            compute_cost += (product(inn_shape) * multiplier) / factor;
           }
         }
 
@@ -226,7 +253,7 @@ struct compute_cost_t {
             op_block_shape.begin(),
             op_block_shape.begin() + e.out_rank);
           int out_n_blocks = product(out_block_shape);
-          compute_cost += product(e.out_shape()) * (op_n_blocks - out_n_blocks);
+          compute_cost += product(e.out_shape()) / out_n_blocks * (op_n_blocks - out_n_blocks);
         }
 
         // Way 1:
@@ -269,6 +296,9 @@ struct compute_cost_t {
 
       repart_cost = compute_repart_cost(out_part, usage_part);
     }
+    if(node.op.is_input()) {
+      repart_cost = repart_cost / discount_input_factor;
+    }
 
     return {compute_cost, repart_cost};
   }
@@ -290,6 +320,21 @@ struct compute_cost_t {
       return 0;
     }
 
+    if(!exact) {
+      // If all dimensions are divisble by two,
+      // and splits are equal sized and divisible by two,
+      // then this is exact.
+      uint64_t block_size_out = out_part.max_block_size();
+      uint64_t block_size_refi = refi_part.max_block_size();
+      uint64_t num_intersection = 1;
+      for(int r = 0; r != out_part.partdims.size(); ++r) {
+        num_intersection *= std::max(
+          out_part.partdims[r].spans.size(),
+          refi_part.partdims[r].spans.size());
+      }
+      return (block_size_out + block_size_refi) * num_intersection;
+    }
+
     string lhs = write_with_ss(out_part);
     string rhs = write_with_ss(refi_part);
 
@@ -305,23 +350,21 @@ struct compute_cost_t {
       return iter->second;
     }
 
-    // TODO: This code is a hotspot; speed it up.
-    // {{{
     uint64_t ret = 0;
-    {
-      vector<uint64_t> block_sizes_aa = out_part.all_block_sizes().get();
-      vector<uint64_t> block_sizes_bb = refi_part.all_block_sizes().get();
+    // This is a hotspot {{{
+    vector<uint64_t> block_sizes_aa = out_part.all_block_sizes().get();
+    vector<uint64_t> block_sizes_bb = refi_part.all_block_sizes().get();
 
-      copyregion_full_t copyregion(out_part, refi_part);
+    copyregion_full_t copyregion(out_part, refi_part);
 
-      do {
-        ret += block_sizes_aa[copyregion.idx_aa];
-        ret += block_sizes_aa[copyregion.idx_bb];
-      } while(copyregion.increment());
-    }
+    do {
+      ret += block_sizes_aa[copyregion.idx_aa];
+      ret += block_sizes_bb[copyregion.idx_bb];
+    } while(copyregion.increment());
     // }}}
 
     cache.insert({key1, ret});
+
     return ret;
   }
 };
@@ -394,12 +437,11 @@ uint64_t _solve_tree(
       inn_num_plans.push_back(solved.at(inn_gid).size());
     }
 
-    vector<_plan_t>& plans = solved[gid];
-
-    for(auto const& part: get_possible_partitions(gid)) {
-      vector<int> best_which;
-      optional<uint64_t> best_cost = std::nullopt;
-
+    // Every refi part depends on the inputs but not the current partition.
+    // So don't compute this in the loop over parts, as that is a lot of recomputation
+    // and slows things down quite a bit.
+    vector<optional<partition_t>> all_refi_parts;
+    {
       vector<int> which(num_tree_inns, 0);
       do {
         auto get_partition = [&](int gid) -> partition_t const& {
@@ -417,24 +459,42 @@ uint64_t _solve_tree(
           return iter->second;
         };
 
-        uint64_t cost_from_children = 0.0;
+        all_refi_parts.push_back(
+          _get_refi_partition(graph, gid, get_partition));
+
+      } while(has_tree_inns && increment_idxs(inn_num_plans, which));
+    }
+    vector<_plan_t>& plans = solved[gid];
+    auto possible_parts = get_possible_partitions(gid);
+    for(auto const& part: possible_parts) {
+      vector<int> best_which;
+      optional<uint64_t> best_cost = std::nullopt;
+      vector<int> which(num_tree_inns, 0);
+      auto iter = all_refi_parts.begin();
+      do {
+        uint64_t cost_from_children = 0;
         for(int i = 0; i != num_tree_inns; ++i) {
           int const& w = which[i];
           int const& g = tree_inns[i];
           cost_from_children += solved.at(g)[w].cost;
         }
 
-        optional<partition_t> refi_partition = 
-          _get_refi_partition(graph, gid, get_partition);
+        optional<partition_t> const& refi_partition = *iter;
 
-        uint64_t cost_from_node = compute_cost(gid, part, refi_partition);
+        auto [cost_from_node_compute, cost_from_node_repart] =
+          compute_cost.cost(gid, part, refi_partition);
+        uint64_t cost = cost_from_fixed + cost_from_children +
+          cost_from_node_compute + cost_from_node_repart;
 
-        uint64_t cost = cost_from_fixed + cost_from_children + cost_from_node;
+        //uint64_t cost_from_node = compute_cost(gid, part, refi_partition);
+        //uint64_t cost = cost_from_fixed + cost_from_children + cost_from_node
 
         if(!bool(best_cost) || cost < best_cost.value()) {
           best_cost = cost;
           best_which = which;
         }
+
+        iter++;
       } while(has_tree_inns && increment_idxs(inn_num_plans, which));
 
       plans.push_back(_plan_t {
@@ -493,7 +553,9 @@ vector<partition_t> _build_vector(
 
 vector<partition_t> autopartition_for_bytes(
   graph_t const& graph,
-  int n_compute)
+  int n_compute,
+  int max_branching,
+  parts_space_t search_space)
 {
   //{
   //  std::ofstream f("g.gv");
@@ -501,11 +563,8 @@ vector<partition_t> autopartition_for_bytes(
   //  DOUT("printed g.gv");
   //}
 
-  int max_branching = 2;
   int log2_n = log2(n_compute);
   // TODO: ^ use this for the costing
-
-  // TODO: ^ fill this out
 
   // Note: every formation node has the same partition as the input
   //       and isn't solved as part of the graph
@@ -522,9 +581,7 @@ vector<partition_t> autopartition_for_bytes(
 
   // 1.
   ap_graph_t bgraph;
-  vector<int> graph_order = graph.get_order();
-  std::reverse(graph_order.begin(), graph_order.end());
-  for(int const& gid: graph_order) {
+  for(int const& gid: graph.get_reverse_order()) {
     auto const& node = graph.nodes[gid];
     if(node.op.is_formation()) {
       continue;
@@ -588,11 +645,14 @@ vector<partition_t> autopartition_for_bytes(
   // 3.
   get_parts_t get_possible_partitions {
     .graph = graph,
-    .log2_n = log2_n
+    .log2_n = log2_n,
+    .search_space = search_space
   };
   compute_cost_t compute_cost {
     .graph = graph,
-    .cache = {}
+    .cache = {},
+    .exact = false,
+    .discount_input_factor = 100 // TODO: this should be a parameter
   };
   map<int, partition_t> partitions_so_far;
   for(int const& root_id: btrees.dag_order_inns_to_outs()) {
@@ -613,7 +673,9 @@ uint64_t autopartition_for_bytes_cost(
 {
   compute_cost_t compute_cost {
     .graph = graph,
-    .cache = {}
+    .cache = {},
+    .exact = true,
+    .discount_input_factor = 1
   };
 
   auto get_partition = [&](int gid) -> partition_t const& {
@@ -628,7 +690,7 @@ uint64_t autopartition_for_bytes_cost(
       continue;
     }
 
-    optional<partition_t> refi_partition = 
+    optional<partition_t> refi_partition =
       _get_refi_partition(graph, gid, get_partition);
 
     //auto [compute_here, repart_here] = compute_cost.cost(

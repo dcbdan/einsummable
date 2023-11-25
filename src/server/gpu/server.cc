@@ -40,8 +40,10 @@ gpu_mg_server_t::gpu_mg_server_t(
 
   // allocate memory on each gpu into mems
   int num_gpus_here = num_gpus_per_node[this_rank];
+  kernel_managers.reserve(num_gpus_here);
   for (int i = 0; i < num_gpus_here; i++) {
     mems.push_back(gpu_allocate_memory(buffer_sizes[i], i));
+    kernel_managers.emplace_back(i);
   }
 
   // initialize the stream pool now that we have num_gpus_per_node
@@ -60,7 +62,7 @@ void gpu_mg_server_t::execute_memgraph(
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
-      memgraph, comm.get_this_rank(), kernel_manager, num_gpus_per_node[comm.get_this_rank()], mems);
+      memgraph, comm.get_this_rank(), kernel_managers, num_gpus_per_node[comm.get_this_rank()], mems);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
@@ -76,9 +78,12 @@ void gpu_mg_server_t::execute_memgraph(
   exec_state_t state(graph, resource_manager);
 
   DOUT("Executing...");
-  state.event_loop();  
-
-  DOUT("executed.");
+  // print the execution time of event_loop()
+  auto start = std::chrono::high_resolution_clock::now();
+  state.event_loop();
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
+  DOUT("Event Loop finished. Time: " << duration.count() << " ms");
 }
 
 // memstoloc_t is not a contiguous data structure,
@@ -227,11 +232,17 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     // copy from gpu at mems[local_gpu] from [offset, offset+size) into
     // buffer at this location and return
     auto ret_buffer = make_buffer(size);
-    cudaMemcpy(
+    cudaError_t error = cudaMemcpy(
       ret_buffer->data,
       increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->size,
       cudaMemcpyDeviceToHost);
+    
+    if(error != cudaSuccess) {
+      throw std::runtime_error("cudaMemcpy failed");
+    }
+    
+    // DLINEOUT(dbuffer_t(dtype_t::f32, ret_buffer));
 
     return ret_buffer;
   } else if(d.is_stoloc()) {
@@ -295,6 +306,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     } else {
       int id = 1 + storage.get_max_id();
 
+      // DOUT("Inserting into storage... id: " << id << " size: " << tensor->size);
       storage.write(tensor, id);
 
       stoloc_t stoloc {

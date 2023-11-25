@@ -7,9 +7,15 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/engine/communicator.h"
+#include "../src/autoplace/apart.h"
+#include "../src/autoplace/loadbalanceplace.h"
+#include "../src/autoplace/alocate.h"
+#include "../src/autoplace/autolinns.h"
+#include "../src/autoplace/autolinns2.h"
 
 #include "../src/server/base.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cuda_runtime_api.h>
 #include <cutensor.h>
@@ -141,6 +147,25 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
+vector<placement_t> autoplace(
+  graph_t const& graph,
+  int num_gpus)
+{
+  int max_branching = 1;
+  parts_space_t space = parts_space_t::contraction;
+
+  auto parts = autopartition_for_bytes(
+    graph,
+    num_gpus,
+    max_branching,
+    space);
+
+  uint64_t flops_per_byte_moved = 100;
+
+  return autolocate_agg_at_a_time_from_inns(
+    graph, parts, num_gpus, flops_per_byte_moved);
+}
+
 void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
   if (debug){
     print_memgraph(memgraph);
@@ -158,10 +183,13 @@ void translate_execute(memgraph_t memgraph, bool debug, int num_gpus_per_node){
     std::cout << "mem_sizes[" << i << "]: " << mem_sizes[i] << std::endl;
   }
 
-  kernel_manager_t km;
+  vector<kernel_manager_t> kms;
+  for (int i = 0; i < num_gpu; ++i){
+    kms.push_back(kernel_manager_t(i));
+  }
 
   exec_graph_t graph =
-    exec_graph_t::make_gpu_exec_graph(memgraph, 0, km, num_gpus_per_node, gpu_ptrs);
+    exec_graph_t::make_gpu_exec_graph(memgraph, 0, kms, num_gpus_per_node, gpu_ptrs);
 
   streampool_t stream_pool;
   stream_pool.initialize(5, 4);
@@ -202,28 +230,67 @@ tuple<graph_t, vector<placement_t>> build_graph_pls(
   graph_constructor_t g;
   dtype_t dtype = default_dtype();
 
-  int lhs = g.insert_input(partition_t({
+  int lhs_1 = g.insert_input(partition_t({
     partdim_t::split(ni, li),
     partdim_t::split(nj, lj) }));
-  int rhs = g.insert_input(partition_t({
+  int rhs_1 = g.insert_input(partition_t({
     partdim_t::split(nj, rj),
     partdim_t::split(nk, rk) }));
 
-  int join = g.insert_einsummable(
+  int join_1 = g.insert_einsummable(
     partition_t({
       partdim_t::split(ni, ji),
       partdim_t::split(nk, jk),
       partdim_t::split(nj, jj)
     }),
     einsummable_t::from_matmul(ni, nj, nk),
-    {lhs, rhs});
+    {lhs_1, rhs_1});
 
-  int out = g.insert_formation(
+  int out_1 = g.insert_formation(
     partition_t({
       partdim_t::split(ni, oi),
       partdim_t::split(nk, ok)
     }),
-    join);
+    join_1);
+
+  int lhs_2 = g.insert_input(partition_t({
+    partdim_t::split(ni, li),
+    partdim_t::split(nj, lj) }));
+  int rhs_2 = g.insert_input(partition_t({
+    partdim_t::split(nj, rj),
+    partdim_t::split(nk, rk) }));
+
+  int join_2 = g.insert_einsummable(
+    partition_t({
+      partdim_t::split(ni, ji),
+      partdim_t::split(nk, jk),
+      partdim_t::split(nj, jj)
+    }),
+    einsummable_t::from_matmul(ni, nj, nk),
+    {lhs_2, rhs_2});
+
+  int out_2 = g.insert_formation(
+    partition_t({
+      partdim_t::split(ni, oi),
+      partdim_t::split(nk, ok)
+    }),
+    join_2);
+
+  int join_out = g.insert_einsummable(
+    partition_t({
+      partdim_t::split(ni, ji),
+      partdim_t::split(nk, jk),
+      partdim_t::split(nj, jj)
+    }),
+    einsummable_t::from_matmul(ni, nj, nk),
+    {out_1, out_2});
+
+  int final_out = g.insert_formation(
+    partition_t({
+      partdim_t::split(ni, oi),
+      partdim_t::split(nk, ok)
+    }),
+    join_out);
 
   auto pls = g.get_placements();
   for(int i = 0; i != pls.size(); ++i) {
@@ -256,6 +323,7 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
 
   auto [graph, pls] = build_graph_pls(world_size, matrix_dim, partition);
 
@@ -267,6 +335,7 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
       dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
       // tensor.random("-0.01", "0.01");
       tensor.ones();
+      DOUT("Printing input tensor...");
       DOUT(tensor);
       server.insert_tensor(gid, pls[gid], tensor);
     }
@@ -282,6 +351,68 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
     auto const& node = graph.nodes[gid];
     if(node.op.is_save()) {
       dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      DOUT("Printing output tensor...");
+      DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  server.shutdown();
+}
+
+void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partition){
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  auto num_gpus = 2;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
+
+  graph_writer_t g;
+  auto A = g.input({matrix_dim, matrix_dim});
+  auto B = g.input({matrix_dim, matrix_dim});
+  auto C = g.input({matrix_dim, matrix_dim});
+  auto D = g.input({matrix_dim, matrix_dim});
+  auto E = g.matmul(A,B).save();
+  // auto F = g.matmul(C,D).save();
+  // auto G = g.matmul(E,F).save();
+  graph_t graph = g.get_graph();
+
+  auto pls = autoplace(graph, num_gpus);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      // tensor.random("-0.01", "0.01");
+      tensor.ones();
+      DOUT("Printing input tensor...");
+      DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+  DOUT("Printing graphviz...")
+  std::ofstream f("g_multiply.gv");
+  graph.print_graphviz(f, vector_from_each_member(pls, partition_t, partition));
+
+  server.execute_graph(graph, pls);
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      DOUT("Printing output tensor...");
       DOUT(tensor);
       //DOUT("gid sum is: " << tensor.sum());
     }
@@ -387,5 +518,34 @@ void contractionTest(int di, int dj, int dk) {
   //   printFloatCPU(reinterpret_cast<const float *>(gpu_out.data->data),
   //                 std::floor(gpu_out.data->size / sizeof(float)));
   // }
+}
+
+graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+
+  tensor_t x = writer.input({batch, dims[0]});
+
+  tensor_t out = x;
+
+  for (auto dim = 1; dim < dims.size() - 1; ++dim){
+    out = writer.matmul(out, writer.input({dims[dim-1], dims[dim]}));
+    out = writer.ew(scalarop_t::make_relu(), out);
+  }
+
+  out = writer.matmul(out, writer.input({dims[dims.size()-2], dims[dims.size()-1]}));
+  out = writer.softmax(out);
+
+  out.save_inplace();
+
+  auto graph = writer.get_graph();
+
+  // print the graph
+  DOUT("Printing graphviz for ffnn...");
+  std::ofstream f("ffnn.gv");
+  graph.print_graphviz(f);
+
+  return graph;
 }
 

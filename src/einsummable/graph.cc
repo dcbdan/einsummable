@@ -762,6 +762,40 @@ vector<int> graph_t::get_order() const {
   return ret;
 }
 
+vector<int> graph_t::get_reverse_order() const {
+  // Can't tell if this is just the reverse of get_order() or not,
+  // so wrote the full algorithm
+  vector<int> ret;
+  // reserve to not invalidate iterators
+  ret.reserve(nodes.size());
+
+  vector<int> deps;
+  deps.reserve(nodes.size());
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    int ndep = node.outs.size();
+    if(ndep == 0) {
+      ret.push_back(gid);
+    }
+    deps[gid] = ndep;
+  }
+
+  for(auto iter = ret.begin(); iter != ret.end(); ++iter) {
+    int gid = *iter;
+    auto const& node = nodes[gid];
+    set<int> inns(node.inns.begin(), node.inns.end());
+    for(auto const& out_gid: inns) {
+      int& cnt = deps[out_gid];
+      cnt--;
+      if(cnt == 0) {
+        ret.push_back(out_gid);
+      }
+    }
+  }
+
+  return ret;
+}
+
 int graph_t::insert(
   op_t const& op,
   vector<int> inns)

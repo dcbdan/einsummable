@@ -61,7 +61,7 @@ private:
   int get_num_gpus() const;
   vector<int> get_which_storage() const;
 
-  kernel_manager_t kernel_manager;
+  vector<kernel_manager_t> kernel_managers;
 
   gpu_storage_t storage;
 

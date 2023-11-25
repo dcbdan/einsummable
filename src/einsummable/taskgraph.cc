@@ -28,42 +28,6 @@
 //
 // The form phase grabs the input from the refinement.
 
-struct multiple_placement_t {
-  static multiple_placement_t from_single_placement(placement_t const& p);
-
-  static multiple_placement_t make_refinement(vector<placement_t> const& ps);
-
-  static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
-
-  // deduce the required multiple placement of an einsummable's
-  // input at which_input given that the einsummable is placed with
-  // with join_placement
-  static multiple_placement_t make_einsummable_input(
-    placement_t const& join_placement,
-    einsummable_t const& einsummable,
-    int which_input);
-
-  // deduce the required multiple_placement of a concat's
-  // input at which_input given that the concat is placed with
-  // join_placement
-  static multiple_placement_t make_concat_input(
-    placement_t const& join_placement,
-    concat_t const& concat,
-    int which_input);
-  static placement_t make_concat_input_placement(
-    placement_t const& join_placement,
-    concat_t const& concat,
-    int which_input);
-  static multiple_placement_t make_subset_input(
-    placement_t const& out_placement,
-    subset_t const& subset);
-
-  partition_t partition;
-  vtensor_t<set<int>> const locations;
-  // Note: it is possible to have empty location sets
-  //       (from a subset operation, for example)
-};
-
 struct multiple_tensor_t {
   struct locid_t {
     int loc;
@@ -229,7 +193,14 @@ struct taskgraph_make_state_t {
   // save into refined_tensors
   void communicate(int gid, vtensor_t<int> compute_result);
 
-  multiple_placement_t construct_refinement_placement(int gid) const;
+  multiple_placement_t construct_refinement_placement_(int gid) const {
+    return construct_refinement_placement(
+      graph, gid, [this](int other_gid) -> placement_t const&
+      {
+        return placements[other_gid];
+      }
+    );
+  }
   // ^ wrt real
 
   // Note: the join_result can include agg'd dimensions, in which case
@@ -890,7 +861,7 @@ taskgraph_make_state_t::form_relation(int gid)
 void
 taskgraph_make_state_t::communicate(int join_gid, vtensor_t<int> join_result)
 {
-  multiple_placement_t usage_placement = construct_refinement_placement(join_gid);
+  multiple_placement_t usage_placement = construct_refinement_placement_(join_gid);
 
   optional<castable_t> maybe_castable;
   auto const& node = graph.nodes[join_gid];
@@ -974,7 +945,10 @@ taskgraph_make_state_t::communicate(int join_gid, vtensor_t<int> join_result)
 }
 
 multiple_placement_t
-taskgraph_make_state_t::construct_refinement_placement(int join_gid) const
+construct_refinement_placement(
+  graph_t const& graph,
+  int join_gid,
+  std::function<placement_t const&(int)> get_placement)
 {
   auto const& join_node = graph.nodes[join_gid];
   auto const& join_dtype = join_node.op.out_dtype();
@@ -992,7 +966,7 @@ taskgraph_make_state_t::construct_refinement_placement(int join_gid) const
 
   for(auto const& out_gid: join_node.outs) {
     auto const& out_node = graph.nodes[out_gid];
-    auto const& out_pl   = placements[out_gid];
+    auto const& out_pl   = get_placement(out_gid);
     if(out_node.op.is_formation()) {
       insert_usage(
         multiple_placement_t::from_single_placement(out_pl));
@@ -2429,6 +2403,56 @@ vector<int> taskgraph_t::get_order() const {
   }
 
   return ret;
+}
+
+tuple<vector<int>, vector<int>>
+taskgraph_t::get_input_core_order() const
+{
+  auto is_inputable = [](op_t const& op) {
+    if(op.is_input()) {
+      return true;
+    } else if(op.is_partialize()) {
+      auto const& p = op.get_partialize();
+      return !p.does_agg();
+    } else if(op.is_move()) {
+      return true;
+    } else if(op.is_apply()) {
+      return false;
+    } else {
+      throw std::runtime_error("should not reach: is_inputable");
+    }
+  };
+
+  vector<int> inn_order;
+  vector<int> core_order;
+  set<int> inside_inn_order;
+  for(int const& id: get_order()) {
+    auto const& node = nodes[id];
+    if(is_inputable(node.op)) {
+      bool success = true;
+      for(int const& inn: node.op.inputs()) {
+        if(inside_inn_order.count(inn) == 0) {
+          success = false;
+          break;
+        }
+      }
+      if(success) {
+        inn_order.push_back(id);
+        inside_inn_order.insert(id);
+      } else {
+        core_order.push_back(id);
+      }
+    } else {
+      core_order.push_back(id);
+    }
+  }
+  return {inn_order, core_order};
+}
+
+set<int> taskgraph_t::get_input_everywhere_ids() const
+{
+  auto [ids, _] = get_input_core_order();
+  return set<int>(ids.begin(), ids.end());
 }
 
 bool taskgraph_t::all_zero_outs_is_save() const {
