@@ -554,6 +554,7 @@ struct memgraph_make_state_t {
   using op_t         = memgraph_t::op_t;
   using inputmem_t   = memgraph_t::inputmem_t;
   using inputsto_t   = memgraph_t::inputsto_t;
+  using constant_t   = memgraph_t::constant_t;
   using apply_t      = memgraph_t::apply_t;
   using move_t       = memgraph_t::move_t;
   using partialize_t = memgraph_t::partialize_t;

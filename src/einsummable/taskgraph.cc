@@ -2495,6 +2495,15 @@ string taskgraph_t::to_wire() const {
       es_proto::TGInput* i = n->mutable_input();
       i->set_loc(loc);
       i->set_size(size);
+    } else if(node.op.is_constant()) {
+      auto const& constant = node.op.get_constant();
+      es_proto::TGConstant* c = n->mutable_constant();
+      c->set_loc(constant.loc);
+      es_proto::Fill* f = c->mutable_fill();
+      f->set_value(write_with_ss(constant.fill.value));
+      for(auto const& dim: constant.fill.shape) {
+        f->add_shape(dim);
+      }
     } else if(node.op.is_apply()) {
       auto const& [loc, inns, einsummable] = node.op.get_apply();
 
@@ -2596,6 +2605,18 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
       auto const& m = n.move();
       ret.nodes.emplace_back(
         op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
+        is_save);
+    } else if(n.has_constant()) {
+      auto const& c = n.constant();
+      auto const& f = c.fill();
+
+      fill_t fill;
+      fill.value = parse_with_ss<scalar_t>(f.value());
+      auto ds = f.shape();
+      fill.shape = vector<uint64_t>(ds.begin(), ds.end());
+
+      ret.nodes.emplace_back(
+        op_t(constant_t { c.loc(), fill }),
         is_save);
     } else if(n.has_partialize()) {
       auto const& p = n.partialize();

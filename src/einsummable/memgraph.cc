@@ -276,6 +276,16 @@ string memgraph_t::to_wire() const {
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
       i->set_size(input.size);
+    } else if(node.op.is_constant()) {
+      auto const& constant = node.op.get_constant();
+      es_proto::MGConstant* c = n->mutable_constant();
+      c->set_loc(constant.loc);
+      c->set_offset(constant.offset);
+      es_proto::Fill* f = c->mutable_fill();
+      f->set_value(write_with_ss(constant.fill.value));
+      for(auto const& dim: constant.fill.shape) {
+        f->add_shape(dim);
+      }
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -389,6 +399,20 @@ memgraph_t memgraph_t::from_wire(string const& str) {
         .storage_loc = i.storage_loc(),
         .storage_id = i.storage_id(),
         .size = i.size()
+      });
+    } else if(n.has_constant()) {
+      auto const& c = n.constant();
+      auto const& f = c.fill();
+
+      fill_t fill;
+      fill.value = parse_with_ss<scalar_t>(f.value());
+      auto ds = f.shape();
+      fill.shape = vector<uint64_t>(ds.begin(), ds.end());
+
+      op = op_t(constant_t {
+        .loc = c.loc(),
+        .offset = c.offset(),
+        .fill = fill
       });
     } else if(n.has_apply()) {
       auto const& a = n.apply();
@@ -1132,7 +1156,7 @@ memgraph_make_state_t::memgraph_make_state_t(
   }
 }
 
-void memgraph_make_state_t::initialize_input(int inn){
+void memgraph_make_state_t::initialize_input(int inn) {
   auto const& node = taskgraph.nodes[inn];
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
@@ -1235,6 +1259,21 @@ void memgraph_make_state_t::add_to_memgraph(
       .mems = mems,
       .op = es,
       .group = -1
+    });
+  } else if(node.op.is_constant()) {
+    auto const& constant = node.op.get_constant();
+    auto const& fill = constant.fill;
+
+    used_tids.push_back(id);
+    auto [vector_deps, mems] = vector_unzip(
+      get_tensors_in_memory(used_tids));
+    deps = set<int>(vector_deps.begin(), vector_deps.end());
+    auto const& mem = mems[0];
+
+    op = op_t(constant_t {
+      .loc = constant.loc,
+      .offset = mem.offset,
+      .fill = constant.fill
     });
   } else if(node.op.is_move()) {
     auto const& [src,dst,task_inn,size] = node.op.get_move();

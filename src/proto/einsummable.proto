@@ -32,6 +32,11 @@ message Touch {
   required string dtype = 3;
 }
 
+message Fill {
+  required string value = 1;
+  repeated uint64 shape = 2;
+}
+
 message TGInput {
   required int32 loc = 1;
   required uint64 size = 2;
@@ -46,6 +51,10 @@ message TGMove {
   required int32 dst = 2;
   required int32 inn = 3;
   required uint64 size = 4;
+}
+message TGConstant {
+  required int32 loc = 1;
+  required Fill fill = 2;
 }
 
 message InnRegionDim {
@@ -79,9 +88,10 @@ message TaskGraphNode {
     TGInput input = 1;
     TGApply apply = 2;
     TGMove move = 3;
-    TGPartialize partialize = 4;
+    TGConstant constant = 4;
+    TGPartialize partialize = 5;
   }
-  required bool is_save = 5;
+  required bool is_save = 6;
 }
 
 message TaskGraph {
@@ -123,6 +133,12 @@ message MGInputSto {
   required int32 storage_loc = 2;
   required int32 storage_id = 3;
   required uint64 size = 4;
+}
+
+message MGConstant {
+  required int32 loc = 1;
+  required uint64 offset = 2;
+  required Fill fill = 3;
 }
 
 message MGApply {
@@ -182,15 +198,16 @@ message MemGraphNode {
   oneof node {
     MGInputMem inputmem = 1;
     MGInputSto inputsto = 2;
-    MGApply apply = 3;
-    MGMove move = 4;
-    MGEvict evict = 5;
-    MGLoad load = 6;
-    MGPartialize partialize = 7;
-    MGAlloc alloc = 8;
-    MGDel del = 9;
+    MGConstant constant = 3;
+    MGApply apply = 4;
+    MGMove move = 5;
+    MGEvict evict = 6;
+    MGLoad load = 7;
+    MGPartialize partialize = 8;
+    MGAlloc alloc = 9;
+    MGDel del = 10;
   }
-  repeated int32 inns = 10;
+  repeated int32 inns = 11;
 }
 
 message MemGraph {
