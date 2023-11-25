@@ -963,6 +963,14 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
     grads.push_back(grad.get_id());
   }
 
+  for(int i = 0; i != grads.size(); ++i) {
+    dtype_t w_dtype = nodes[weights[i]].op.out_dtype();
+    dtype_t g_dtype = nodes[grads[i]].op.out_dtype();
+    if(w_dtype != g_dtype) {
+      throw std::runtime_error("incorrect dtype of grad");
+    }
+  }
+
   return grads;
 }
 
@@ -1124,15 +1132,18 @@ graph_t::backprop_state_t::operator[](int id)
 
   auto const& node = self.nodes[id];
   vector<out_edge_t> out_edges = get_out_edges(id);
+  dtype_t dtype = node.op.out_dtype();
 
   vector<backprop_tensor_t> terms;
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn] : out_edges) {
     // building grad term for out with respect to this id
     backprop_tensor_t out_grad = (*this)[out];
-    terms.push_back(
-      self.build_grad_term(out, which_inn, out_grad)
-    );
+    backprop_tensor_t term = self.build_grad_term(out, which_inn, out_grad);
+    if(term.dtype(self) != dtype) {
+      throw std::runtime_error("invalid term dtype during backprop");
+    }
+    terms.push_back(term);
   }
 
   if(terms.size() == 0) {
