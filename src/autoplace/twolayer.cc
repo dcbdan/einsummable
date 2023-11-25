@@ -49,6 +49,8 @@ void twolayer_insert_join_deps(
 
   if(node.op.is_input()) {
     // input joins don't have deps, so nothing to do
+  } else if(node.op.is_fill()) {
+    // fill joins don't have deps, so nothing to do
   } else if(node.op.is_concat()) {
     auto join_block_shape = join_partition.block_shape();
     vector<int> join_index(join_block_shape.size(), 0);

@@ -186,6 +186,16 @@ public:
     stoloc_t as_stoloc() const { return stoloc_t { storage_loc, storage_id }; }
   };
 
+  struct constant_t {
+    int loc;
+    uint64_t offset;
+    fill_t fill;
+
+    uint64_t get_size() const { return dtype_size(fill.value.dtype) * product(fill.shape); }
+    memloc_t as_memloc() const { return memloc_t{offset, get_size(), loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
+  };
+
   // An apply needs these memories to do the computation
   // at hand. (for einsummable, output then inn memories)
   // (for touch, write memory then read memories)
@@ -292,7 +302,7 @@ public:
   struct op_t {
   private:
     using _op_t = std::variant<
-      inputmem_t, inputsto_t,
+      inputmem_t, inputsto_t, constant_t,
       apply_t, move_t,
       evict_t, load_t, partialize_t,
       alloc_t, del_t>;
@@ -301,6 +311,7 @@ public:
 
     op_t(inputmem_t   x): op_t(_op_t(x)) {}
     op_t(inputsto_t   x): op_t(_op_t(x)) {}
+    op_t(constant_t   x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
     op_t(evict_t      x): op_t(_op_t(x)) {}
@@ -311,6 +322,7 @@ public:
 
     bool is_inputmem()   const { return std::holds_alternative<inputmem_t>(op);   }
     bool is_inputsto()   const { return std::holds_alternative<inputsto_t>(op);   }
+    bool is_constant()   const { return std::holds_alternative<constant_t>(op);   }
     bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
     bool is_move()       const { return std::holds_alternative<move_t>(op);       }
     bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
@@ -321,6 +333,7 @@ public:
 
     inputmem_t   const& get_inputmem()   const { return std::get<inputmem_t>(op);   }
     inputsto_t   const& get_inputsto()   const { return std::get<inputsto_t>(op);   }
+    constant_t   const& get_constant()   const { return std::get<constant_t>(op);   }
     apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
     move_t       const& get_move()       const { return std::get<move_t>(op);       }
     evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
@@ -344,6 +357,7 @@ public:
 
     void print_type() {
       if (is_inputmem() || is_inputsto())      std::cout << "input";
+      if (is_constant())   std::cout << "constant";
       if (is_move())       std::cout << "move";
       if (is_evict())      std::cout << "evict";
       if (is_load())       std::cout << "load";
@@ -361,6 +375,7 @@ public:
     int get_loc() const{
       if (is_inputmem())   return get_inputmem().loc;
       if (is_inputsto())   return get_inputsto().loc;
+      if (is_constant())   return get_constant().loc;
       if (is_apply())      return get_apply_loc();
       if (is_move())       return get_move().get_dst_loc();
       if (is_evict())      return get_evict().src.loc;
@@ -397,6 +412,7 @@ public:
 
     void check_inputmem()   const;
     void check_inputsto()   const;
+    void check_constant()   const;
     void check_apply()      const;
     void check_move()       const;
     void check_evict()      const;

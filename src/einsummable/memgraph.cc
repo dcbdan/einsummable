@@ -98,6 +98,13 @@ void memgraph_t::print_graphviz(std::ostream& out) const {
       std::cout<<"Label is: " + label<<std::endl;
       //label = "input " + write_with_ss(id);
       label = "inputsto@sto_id=" + write_with_ss(input.storage_id);
+    } else if(op.is_constant()) {
+      memloc_t const& data = op.get_constant().as_memloc();
+      string data_str = write_with_ss(data);
+      label = "constant@" + data_str;
+      if(data.loc < colors.size()) {
+        color = colors[data.loc];
+      }
     } else if(op.is_apply()) {
       apply_t const& apply = op.get_apply();
       auto const& aop = apply.op;
@@ -614,7 +621,7 @@ string memgraph_t::op_t::get_name() const{
   } else if (is_apply()) {
     return "apply";
   } else if (is_evict()) {
-    return "evict";   
+    return "evict";
   } else if (is_load()) {
     return "load";
   } else if (is_inputsto()) {
@@ -625,11 +632,13 @@ string memgraph_t::op_t::get_name() const{
     return "del";
   } else if (is_inputmem()) {
     return "inputmem";
+  } else if (is_constant()) {
+    return "constant";
   } else if (is_partialize()) {
     return "partialize";
-  } 
+  }
 
-  return "unknown";
+  throw std::runtime_error("get_name not implemented for all");
 }
 
 void memgraph_t::op_t::check_op() const {
@@ -637,6 +646,8 @@ void memgraph_t::op_t::check_op() const {
     check_inputmem();
   } else if(is_inputsto()) {
     check_inputsto();
+  } else if(is_constant()) {
+    check_constant();
   } else if(is_apply()){
     check_apply();
   } else if(is_move()) {
@@ -658,6 +669,7 @@ void memgraph_t::op_t::check_op() const {
 
 void memgraph_t::op_t::check_inputmem() const {}
 void memgraph_t::op_t::check_inputsto() const {}
+void memgraph_t::op_t::check_constant() const {}
 void memgraph_t::op_t::check_apply() const {}
 void memgraph_t::op_t::check_move()  const {
   move_t const& move = get_move();
@@ -680,6 +692,9 @@ vector<memloc_t> memgraph_t::op_t::get_memlocs() const
     return { input.as_memloc() };
   } else if(is_inputsto()) {
     return {};
+  } else if(is_constant()) {
+    auto const& constant = get_constant();
+    return { constant.as_memloc() };
   } else if(is_apply()) {
     auto const& apply = get_apply();
     vector<memloc_t> ret;
@@ -730,6 +745,8 @@ memstoloc_t memgraph_t::op_t::get_output_memstoloc() const {
     return get_inputmem().as_memloc();
   } else if(is_inputsto()) {
     return get_inputsto().as_stoloc();
+  } else if(is_constant()) {
+    return get_constant().as_memloc();
   } else if(is_apply()) {
     auto const& apply = get_apply();
     auto const& out_mem = apply.mems[0];
@@ -796,6 +813,8 @@ bool memgraph_t::op_t::is_local_to(int loc) const {
     return loc == get_inputmem().loc;
   } else if(is_inputsto()) {
     return loc == get_inputsto().loc;
+  } else if(is_constant()) {
+    return loc == get_constant().loc;
   } else if(is_apply()) {
     return loc == get_apply().loc;
   } else if(is_move()) {
@@ -825,7 +844,7 @@ bool memgraph_t::op_t::is_local_to_gpu(int node, int num_gpu_per_node) const {
     return node == std::floor(get_apply().loc / num_gpu_per_node);
   } else if(is_move()) {
     auto const& move = get_move();
-    return node == std::floor(move.get_src_loc() / num_gpu_per_node) 
+    return node == std::floor(move.get_src_loc() / num_gpu_per_node)
       || std::floor(node == move.get_dst_loc() / num_gpu_per_node);
   } else if(is_evict()) {
     return std::floor(node == get_evict().src.loc / num_gpu_per_node);
