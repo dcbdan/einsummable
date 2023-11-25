@@ -32,6 +32,11 @@ struct taskgraph_t {
     vector<uint64_t> shape,
     bool is_save = false);
 
+  int insert_constant(
+    int loc,
+    fill_t const& fill,
+    bool is_save = false);
+
   int insert_einsummable(
     int loc,
     einsummable_t e,
@@ -141,6 +146,10 @@ private:
     int dst;
     int inn;
     uint64_t size;
+  };
+  struct constant_t {
+    int loc;
+    fill_t fill;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -269,6 +278,7 @@ private:
     vector<partial_unit_t> units;
   };
 
+
   friend
   bool operator==(
     partialize_t::out_regiondim_t const& lhs,
@@ -281,13 +291,14 @@ private:
 public:
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
+    using _op_t = std::variant<input_t, apply_t, move_t, constant_t, partialize_t>;
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t      x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(constant_t   x): op_t(_op_t(x)) {}
     op_t(partialize_t x): op_t(_op_t(x)) {}
 
     _op_t op;
@@ -309,6 +320,9 @@ public:
     bool is_move() const {
       return std::holds_alternative<move_t>(op);
     }
+    bool is_constant() const {
+      return std::holds_alternative<constant_t>(op);
+    }
     bool is_partialize() const {
       return std::holds_alternative<partialize_t>(op);
     }
@@ -328,6 +342,9 @@ public:
 
     move_t const& get_move() const { return std::get<move_t>(op); }
     move_t&       get_move()       { return std::get<move_t>(op); }
+
+    constant_t const& get_constant() const { return std::get<constant_t>(op); }
+    constant_t&       get_constant()       { return std::get<constant_t>(op); }
 
     partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }

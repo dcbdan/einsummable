@@ -219,6 +219,8 @@ struct taskgraph_make_state_t {
   // this will form the inputs as required
   vtensor_t<int> compute_einsummable(int gid);
 
+  vtensor_t<int> compute_fill(int gid);
+
   vtensor_t<int> compute_input(int gid);
 
   vtensor_t<int> form_relation(int gid);
@@ -817,6 +819,36 @@ taskgraph_make_state_t::compute_einsummable(int gid)
 }
 
 vtensor_t<int>
+taskgraph_make_state_t::compute_fill(int gid)
+{
+  graph_t::node_t const& node = graph.nodes[gid];
+  placement_t const& pl = placements[gid];
+
+  if(!node.op.is_fill()) {
+    throw std::runtime_error("compute_fill must have fill node");
+  }
+
+  auto const& full_fill = node.op.get_fill();
+
+  auto shape = pl.block_shape();
+  vtensor_t<int> ret(shape);
+  vector<int> index(shape.size(), 0);
+  do {
+    int const& loc = pl.locations.at(index);
+    auto subtensor_shape = pl.partition.tensor_shape_at(index);
+    ret.at(index) = taskgraph.insert_constant(
+      loc,
+      fill_t {
+        .value = full_fill.value,
+        .shape = subtensor_shape
+      }
+    );
+  } while(increment_idxs(shape, index));
+
+  return ret;
+}
+
+vtensor_t<int>
 taskgraph_make_state_t::form_relation(int gid)
 {
   graph_t::node_t const& node = graph.nodes.at(gid);
@@ -847,6 +879,9 @@ taskgraph_make_state_t::form_relation(int gid)
   }
   if(node.op.is_einsummable()) {
     return compute_einsummable(gid);
+  }
+  if(node.op.is_fill()) {
+    return compute_fill(gid);
   }
 
   throw std::runtime_error("state form relation should not reach");
@@ -1935,6 +1970,19 @@ int taskgraph_t::insert_input(
   };
 
   return insert(input, is_save);
+}
+
+int taskgraph_t::insert_constant(
+  int loc,
+  fill_t const& fill,
+  bool is_save)
+{
+  constant_t constant {
+    .loc = loc,
+    .fill = fill,
+  };
+
+  return insert(constant, is_save);
 }
 
 int taskgraph_t::insert_einsummable(

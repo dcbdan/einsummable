@@ -6,8 +6,8 @@
 #include "touch.h" // only for subset_t::as_touch
 #include "relation.h"
 
-// fill_t is used to describe constant valued tensors
-// (for now, only constant tensors are supported)
+// fill_t is used to describe a variety of constant tensors.
+// (for now, only tensors fill with a single constant value are supported)
 struct fill_t {
   scalar_t value;
   vector<uint64_t> shape;
