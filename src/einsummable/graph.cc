@@ -446,6 +446,20 @@ int graph_t::insert_to_real(int inn)
     {inn});
 }
 
+int graph_t::insert_fill(fill_t const& fill)
+{
+  if(fill.shape.size() == 0) {
+    throw std::runtime_error("invalid fill");
+  }
+  for(auto const& dim: fill.shape) {
+    if(dim == 0) {
+      throw std::runtime_error("invalid dim in fill");
+    }
+  }
+
+  return this->insert(fill, {});
+}
+
 int graph_constructor_t::insert_concat(
   placement_t placement,
   int dim,
@@ -613,6 +627,9 @@ dtype_t graph_t::op_t::out_dtype() const {
   if(is_complexer()) {
     return get_complexer().dtype;
   }
+  if(is_fill()) {
+    return get_fill().value.dtype;
+  }
   if(is_concat()) {
     return get_concat().dtype;
   }
@@ -644,6 +661,9 @@ graph_t::op_t::out_shape() const {
   if(is_complexer()) {
     return get_complexer().shape;
   }
+  if(is_fill()) {
+    return get_fill().shape;
+  }
   if(is_concat()) {
     return get_concat().shape();
   }
@@ -666,6 +686,9 @@ graph_t::op_t::shape() const {
   }
   if(is_complexer()) {
     return get_complexer().shape;
+  }
+  if(is_fill()) {
+    return get_fill().shape;
   }
   if(is_concat()) {
     return get_concat().shape();
@@ -781,6 +804,8 @@ void graph_t::print() const {
       } else {
         std::cout << "complexer (to complex)" << std::endl;
       }
+    } else if(node.op.is_fill()) {
+      std::cout << "fill[" << node.op.get_fill().value << "]" << std::endl;
     } else if(node.op.is_concat()) {
       std::cout << "concat[dim=" << node.op.get_concat().dim << "]" << std::endl;
     } else if(node.op.is_subset()) {
@@ -831,6 +856,8 @@ void graph_t::print_graphviz(
         color = "pink";
       }
       label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
+    } else if(op.is_fill()) {
+      label = "fill-" + write_with_ss(op.get_fill().value);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -1180,7 +1207,10 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     return grad_id;
   } else if(op.is_complexer()) {
     // TODO
-    throw std::runtime_error("not implemented builg grad term: complexer");
+    throw std::runtime_error("not implemented build grad term: complexer");
+  } else if(op.is_fill()) {
+    // TODO
+    throw std::runtime_error("not implemented build grad term: fill");
   } else if(op.is_concat()) {
     // TODO
     throw std::runtime_error("not implemented build grad term: concat");
@@ -1209,6 +1239,7 @@ graph_t::build_grad_term_einsummable(
   }
 
   if(e.has_broadcast()) {
+    // TODO
     throw std::runtime_error("build grad term: broadcast not supported");
   }
 
@@ -2210,8 +2241,8 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
 
 graph_writer_t::tensor_t
 graph_writer_t::input(
-    vector<uint64_t> shape,
-    dtype_t dtype)
+  vector<uint64_t> shape,
+  dtype_t dtype)
 {
   return this->input(full_shape_t::from_full(shape), dtype);
 }
@@ -2232,6 +2263,39 @@ graph_writer_t::input(
 {
   return this->input(full_shape_t::from_vecvec(shape), dtype);
 }
+
+graph_writer_t::tensor_t
+graph_writer_t::constant(
+  scalar_t value,
+  vector<uint64_t> shape,
+  dtype_t dtype)
+{
+  return this->constant(value, full_shape_t::from_full(shape), dtype);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::constant(
+  scalar_t value,
+  full_shape_t shape,
+  dtype_t dtype)
+{
+  int id = graph.insert_fill(fill_t {
+    .value = value,
+    .shape = shape.full()
+  });
+
+  return tensor_t(shape, id, this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::constant(
+  scalar_t value,
+  vector<vector<uint64_t>> const& shape,
+  dtype_t dtype)
+{
+  return this->constant(value, full_shape_t::from_vecvec(shape), dtype);
+}
+
 
 graph_writer_t::full_shape_t
 graph_writer_t::to_einsummable_info_t::get_out_shape() const

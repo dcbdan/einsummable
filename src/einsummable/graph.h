@@ -122,6 +122,8 @@ struct graph_t {
 
   int insert_to_real(int inn);
 
+  int insert_fill(fill_t const& fill);
+
   int insert_concat(
     int dim,
     vector<int> inns);
@@ -221,7 +223,7 @@ public:
   private:
     using _op_t = std::variant<
       input_t, formation_t, complexer_t,
-      concat_t, subset_t, einsummable_t>;
+      fill_t, concat_t, subset_t, einsummable_t>;
 
   public:
     op_t(_op_t op, bool is_save);
@@ -229,6 +231,7 @@ public:
     op_t(input_t       x, bool s = false): op_t(_op_t(x), s) {}
     op_t(formation_t   x, bool s = false): op_t(_op_t(x), s) {}
     op_t(complexer_t   x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(fill_t        x, bool s = false): op_t(_op_t(x), s) {}
     op_t(concat_t      x, bool s = false): op_t(_op_t(x), s) {}
     op_t(subset_t      x, bool s = false): op_t(_op_t(x), s) {}
     op_t(einsummable_t x, bool s = false): op_t(_op_t(x), s) {}
@@ -247,6 +250,7 @@ public:
     bool is_input()       const { return std::holds_alternative<input_t>(op);     }
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
     bool is_complexer()   const { return std::holds_alternative<complexer_t>(op); }
+    bool is_fill()        const { return std::holds_alternative<fill_t>(op);    }
     bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
     bool is_subset()      const { return std::holds_alternative<subset_t>(op);    }
     bool is_einsummable() const {
@@ -260,12 +264,13 @@ public:
       return is_einsummable() && get_einsummable().is_contraction();
     }
 
-    input_t       const& get_input()     const { return std::get<input_t>(op);     }
-    formation_t   const& get_formation() const { return std::get<formation_t>(op); }
-    formation_t        & get_formation()       { return std::get<formation_t>(op); }
-    complexer_t   const& get_complexer() const { return std::get<complexer_t>(op); }
-    concat_t      const& get_concat()    const { return std::get<concat_t>(op);    }
-    subset_t      const& get_subset()    const { return std::get<subset_t>(op);    }
+    input_t       const& get_input()       const { return std::get<input_t>(op);     }
+    formation_t   const& get_formation()   const { return std::get<formation_t>(op); }
+    formation_t        & get_formation()         { return std::get<formation_t>(op); }
+    complexer_t   const& get_complexer()   const { return std::get<complexer_t>(op); }
+    fill_t        const& get_fill()        const { return std::get<fill_t>(op);      }
+    concat_t      const& get_concat()      const { return std::get<concat_t>(op);    }
+    subset_t      const& get_subset()      const { return std::get<subset_t>(op);    }
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
     }
@@ -450,6 +455,8 @@ struct graph_constructor_t {
     int inn);
   int insert_to_real(
     int inn);
+
+  // TODO: add insert_fill
 
   int insert_concat(
     placement_t placement,
@@ -691,6 +698,19 @@ struct graph_writer_t {
     full_shape_t shape,
     dtype_t dtype = default_dtype());
   tensor_t input(
+    vector<vector<uint64_t>> const& shape,
+    dtype_t dtype = default_dtype());
+
+  tensor_t constant(
+    scalar_t value,
+    vector<uint64_t> shape,
+    dtype_t dtype = default_dtype());
+  tensor_t constant(
+    scalar_t value,
+    full_shape_t shape,
+    dtype_t dtype = default_dtype());
+  tensor_t constant(
+    scalar_t value,
     vector<vector<uint64_t>> const& shape,
     dtype_t dtype = default_dtype());
 
