@@ -13,8 +13,6 @@ void exp01() {
 
   auto y = g.ew(op, x);
 
-  DLINEOUT("x,y is " << x.get_id() << ", " << y.get_id());
-
   auto z = g.backprop(y, {x});
 
   string filename = "exp01.gv";
@@ -117,16 +115,10 @@ void exp04_matrixgraph() {
   DOUT("printed " << filename);
 }
 
-// TODO: backprop_state_t::start needs to start off with a constant value..
-
 int main() {
-  //exp01(); // TODO: fails: constants not implemented
-
+  exp01();
   exp02();
-
   exp03();
-
   exp04();
-
   exp05();
 }

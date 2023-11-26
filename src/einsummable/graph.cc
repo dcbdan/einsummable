@@ -891,7 +891,7 @@ void graph_t::print_graphviz(
       }
       label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
     } else if(op.is_fill()) {
-      label = "fill-" + write_with_ss(op.get_fill().value);
+      label = "fill" + write_with_ss(id) + ":" + write_with_ss(op.get_fill().value);
     } else if(op.is_concat()) {
       label = "concat" + write_with_ss(id);
     } else if(op.is_subset()) {
@@ -1019,9 +1019,10 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
   for(auto const& weight : weights) {
     backprop_tensor_t grad = state[weight];
     if(grad.is_constant()) {
-      throw std::runtime_error("not implemented: constants"); // TODO
+      grads.push_back(insert_fill(grad.get_fill()));
+    } else {
+      grads.push_back(grad.get_id());
     }
-    grads.push_back(grad.get_id());
   }
 
   for(int i = 0; i != grads.size(); ++i) {
@@ -1243,8 +1244,8 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     // TODO
     throw std::runtime_error("not implemented build grad term: complexer");
   } else if(op.is_fill()) {
-    // TODO
-    throw std::runtime_error("not implemented build grad term: fill");
+    // fill is just constant values that don't depend on anything
+    return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
   } else if(op.is_concat()) {
     // TODO
     throw std::runtime_error("not implemented build grad term: concat");
