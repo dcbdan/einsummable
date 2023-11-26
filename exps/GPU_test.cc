@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
+#include <sys/types.h>
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -359,28 +360,29 @@ void server_1 (int argc, char** argv){
 void server_multiple_mm (int argc, char** argv){
   if (argc != 3){
     DOUT("Square matrix multiplication");
-    DOUT("1) world_size 2) matrix_dim");
+    DOUT("1) matrix_dim 2) num gpus");
     return;
   }
-  int world_size, partition;
+  int world_size = 1;
+  int num_gpus;
   uint64_t matrix_dim;
   try {
-    world_size = parse_with_ss<int>(argv[1]);
-    matrix_dim = parse_with_ss<uint64_t>(argv[2]);
+    matrix_dim = parse_with_ss<int>(argv[1]);
+    num_gpus = parse_with_ss<uint64_t>(argv[2]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
     DOUT("1) world_size 2) matrix_dim");
     return;
   }
 
-  server_execute_multiple_mm(world_size, matrix_dim, partition);
+  server_execute_multiple_mm(world_size, matrix_dim, num_gpus);
 }
 
 
 // do 3d matmul on the server
 void server_3d_mamtmul (int argc, char** argv){
-  if (argc != 6) {
-    DOUT("pi pj pk matrix_dimension np");
+  if (argc != 8) {
+    DOUT("pi pj pk di dj dk np");
     return;
   }
 
@@ -392,9 +394,9 @@ void server_3d_mamtmul (int argc, char** argv){
     pj = parse_with_ss<int>(argv[2]);
     pk = parse_with_ss<int>(argv[3]);
     di = parse_with_ss<uint64_t>(argv[4]);
-    dj = parse_with_ss<uint64_t>(argv[4]);
-    dk = parse_with_ss<uint64_t>(argv[4]);
-    np = parse_with_ss<int>(argv[5]);
+    dj = parse_with_ss<uint64_t>(argv[5]);
+    dk = parse_with_ss<uint64_t>(argv[6]);
+    np = parse_with_ss<int>(argv[7]);
   } catch (...) {
     std::cout << "Parse error." << std::endl << std::endl;
     usage();
@@ -475,15 +477,21 @@ void server_ffnn(){
   auto start = std::chrono::high_resolution_clock::now();
 
   // DEFINE PARAMETERS HERE
-  // int batch_size = 100;
-  // int num_layers = 3;
-  // vector<uint64_t> dims = {784, 100, 10};
-  int np = 1;
-  int batch_size = 100;
-  int num_layers = 2;
-  vector<uint64_t> dims = {784, 10};
+  uint64_t batch_size = 256;
+  uint64_t H_1 = 1 << 10;
+  uint64_t H_2 = 1 << 14;
+  uint64_t output_class = 1 << 14;
+  uint64_t input_dim = 1 << 19;
 
-  auto graph = generate_ffnn(batch_size, dims);
+  uint64_t H_test = 100;
+  uint64_t output_test = 10;
+  uint64_t input_dim_test = 10;
+
+  vector<uint64_t> dims = {input_dim, H_2, output_class};
+  int np = 1;
+
+  // auto graph = generate_ffnn(batch_size, dims);
+  auto graph = ffnn_specific();
   auto pls = autoplace(graph, np);
   int world_size = 1;
 
@@ -491,7 +499,7 @@ void server_ffnn(){
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  uint64_t mem_size = 16lu * 1000lu * 1000lu * 1000lu;
   // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
@@ -513,6 +521,7 @@ void server_ffnn(){
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
+  
   // Time the random initialization
   auto data_init_time = std::chrono::high_resolution_clock::now();
   auto init_duration = std::chrono::duration_cast<std::chrono::microseconds>(data_init_time-start);
@@ -641,11 +650,19 @@ void mm_test2() {
 //   }
 // }
 
+// void reluCheck(){
+//   uint64_t size = 10000;
+//   auto buffer_size = size * sizeof(float);
+//   graph_writer_t writer;
+//   tensor_t x = writer.input({size, size});
+//   auto 
+// }
+
 int main(int argc, char **argv) {
   // server_1(argc, argv);
   // server_3d_mamtmul(argc, argv);
-  // server_multiple_mm(argc, argv);
+  server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
-  server_ffnn();
+  // server_ffnn();
 }

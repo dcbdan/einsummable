@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cuda_runtime_api.h>
 #include <cutensor.h>
 #include <cuda_runtime.h>
@@ -360,27 +361,26 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
   server.shutdown();
 }
 
-void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partition){
+void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpus){
 
   communicator_t c("0.0.0.0", true, world_size);
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
-  auto num_gpus = 2;
+  uint64_t mem_size = 14lu * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < num_gpus; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
+  server.set_split_off_inputs(true);
 
   graph_writer_t g;
   auto A = g.input({matrix_dim, matrix_dim});
   auto B = g.input({matrix_dim, matrix_dim});
-  auto C = g.input({matrix_dim, matrix_dim});
-  auto D = g.input({matrix_dim, matrix_dim});
+  // auto C = g.input({matrix_dim, matrix_dim});
+  // auto D = g.input({matrix_dim, matrix_dim});
   auto E = g.matmul(A,B).save();
   // auto F = g.matmul(C,D).save();
   // auto G = g.matmul(E,F).save();
@@ -394,16 +394,13 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partiti
     if(node.op.is_input()) {
       auto const& input = node.op.get_input();
       dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-      // tensor.random("-0.01", "0.01");
-      tensor.ones();
-      DOUT("Printing input tensor...");
-      DOUT(tensor);
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT("Printing input tensor...");
+      // DOUT(tensor);
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
-  DOUT("Printing graphviz...")
-  std::ofstream f("g_multiply.gv");
-  graph.print_graphviz(f, vector_from_each_member(pls, partition_t, partition));
 
   server.execute_graph(graph, pls);
 
@@ -412,8 +409,8 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partiti
     auto const& node = graph.nodes[gid];
     if(node.op.is_save()) {
       dbuffer_t tensor = server.get_tensor_from_gid(gid);
-      DOUT("Printing output tensor...");
-      DOUT(tensor);
+      // DOUT("Printing output tensor...");
+      // DOUT(tensor);
       //DOUT("gid sum is: " << tensor.sum());
     }
   }
@@ -529,14 +526,18 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
 
   tensor_t out = x;
 
-  for (auto dim = 1; dim < dims.size() - 1; ++dim){
+  for (auto dim = 1; dim < dims.size(); ++dim){
     out = writer.matmul(out, writer.input({dims[dim-1], dims[dim]}));
-    out = writer.ew(scalarop_t::make_relu(), out);
+    printf("out shape: %lu %lu\n", dims[dim-1], dims[dim]);
+    if (dim != dims.size() - 1){
+      out = writer.ew(scalarop_t::make_relu(), out);
+      printf("Relu\n");
+    }
+    else{
+      printf("Softmax\n");
+      out = writer.softmax(out);
+    }
   }
-
-  out = writer.matmul(out, writer.input({dims[dims.size()-2], dims[dims.size()-1]}));
-  out = writer.softmax(out);
-
   out.save_inplace();
 
   auto graph = writer.get_graph();
@@ -547,5 +548,39 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
   graph.print_graphviz(f);
 
   return graph;
+}
+
+// SOFTMAX(RELU(X * W_1) * W_2)
+graph_t ffnn_specific(){
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+
+  uint64_t batch_size = 256;
+  // H_1 and H_2 are different hidden dimensions of the Hidden layer (1 hidden layer only)
+  uint64_t H_1 = 1 << 10;
+  uint64_t H_2 = 1 << 14;
+  uint64_t output_class = 1 << 14;
+  uint64_t input_dim = 1 << 19;
+
+  tensor_t x = writer.input({batch_size, input_dim});
+  tensor_t out = x;
+
+  // [batch_size, input_dim] * [input_dim, H_1] = [batch_size, H_1]
+  out = writer.matmul(out, writer.input({input_dim, H_2}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, input_dim);
+  printf("MATMUL Matrix 2: %lu %lu\n", input_dim, H_2);
+  out = writer.ew(scalarop_t::make_relu(), out);
+  printf("Relu\n");
+  // [batch_size, H_1] * [H_2, output_class] = [batch_size, output_class]
+  out = writer.matmul(out, writer.input({H_2, output_class}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_2);
+  printf("MATMUL Matrix 2: %lu %lu\n", H_2, output_class);
+  out = writer.softmax(out);
+  printf("Softmax\n");
+
+  out.save_inplace();
+
+  return writer.get_graph();
 }
 

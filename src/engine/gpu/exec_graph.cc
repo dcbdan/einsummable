@@ -36,6 +36,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   vector<void*> gpu_mems)
 {
   exec_graph_t graph;
+  auto evict_called = false;
 
   map<int, int> mid_to_eid;
 
@@ -168,6 +169,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     } else if(node.op.is_evict()) {
       gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
       insert(op_ptr_t(op), mid);
+      if (!evict_called){
+        evict_called = true;
+        DOUT("Inserted evict op for node " << mid);
+      }
       // DOUT("Inserted evict op for node " << mid);
     } else if(node.op.is_load()) {
       gpu_load_t* op = new gpu_load_t(node.op.get_load());

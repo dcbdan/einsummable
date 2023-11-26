@@ -948,7 +948,7 @@ make_cutensor_elementwise_op(
 
         op.op = unary_op;
 
-        DOUT("RELU Detected and Built");
+        // DOUT("RELU Detected and Built");
         return op;
       }
     }

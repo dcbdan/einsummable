@@ -12,7 +12,7 @@ kernel_manager_t::kernel_manager_t()
 }
 
 kernel_manager_t::kernel_manager_t(int device): device(device) {
-  DOUT("Creating kernel manager on device " << device);
+  // DOUT("Creating kernel manager on device " << device);
   cudaSetDevice(device);
   handle_cutensor_error(
     cutensorCreate(&cutensor_handle),
@@ -73,7 +73,8 @@ kernel_manager_t::build(einsummable_t const& e_)
       return std::nullopt;
     }
 
-    if(einsummable.castable.value() == castable_t::add) {
+    if(einsummable.castable.value() == castable_t::add ||
+        einsummable.castable.value() == castable_t::max) {
       // this is something cutensor reduction should be able to do
       vector<int> const& inn_modes = einsummable.inns[0];
 
@@ -532,7 +533,7 @@ void kernel_manager_t::execute_matmul(
 
   // convert from row to column major
 
-  DOUT("Calling cublas");
+  // DOUT("Calling cublas");
 
   auto const& [dtype, ni, nj, 
     nk, _0, _1, _2] = matmul;
