@@ -768,7 +768,6 @@ stoloc_t memgraph_t::op_t::get_stoloc() const {
 }
 
 bool memgraph_t::is_local_to(int id, int loc) const {
-  DLINEOUT("is_local_to id" << id << " with loc " << loc);
   node_t const& node = nodes[id];
   if(node.op.is_inputsto()) {
     // Input storage nodes are special in that they don't map to
@@ -776,16 +775,12 @@ bool memgraph_t::is_local_to(int id, int loc) const {
     // any of its outgoing edges occur here.
     for(int const& out_id: node.outs) {
       if(is_local_to(out_id, loc)) {
-        DLINEOUT("TRUE");
         return true;
       }
     }
-    DLINEOUT("FALSE"):
     return false;
   } else {
-    auto ret = node.op.is_local_to(loc);
-    DLINEOUT(std::boolalpha << ret);
-    return ret;
+    return node.op.is_local_to(loc);
   }
 }
 
