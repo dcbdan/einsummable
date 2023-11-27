@@ -57,7 +57,7 @@ void gpu_mg_server_t::execute_memgraph(
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
-
+  auto initial = std::chrono::high_resolution_clock::now(); 
   DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
@@ -84,6 +84,7 @@ void gpu_mg_server_t::execute_memgraph(
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
   DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+  DOUT("Execute memgraph finished. Time: " << duration.count() << " ms");
 }
 
 // memstoloc_t is not a contiguous data structure,

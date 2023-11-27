@@ -548,7 +548,6 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
   }
 
   if(prune_edges) {
-
     all_deps.emplace_back(ret, 0);
 
     vector<char>& ret_deps = all_deps.back();

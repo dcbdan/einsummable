@@ -4,6 +4,8 @@ gpu_workspace_manager_t::~gpu_workspace_manager_t() {
   for(int gpu = 0; gpu != data.size(); ++gpu) {
     handle_cuda_error(cudaSetDevice(gpu), "~gpu_workspace_manager_t. set device");
     for(auto const& [mem, size]: data[gpu]) {
+      // TODO: for ffnn graph (ffnn_specific), 
+      // there's error what():  ~workspace_maanger_t. cuda free: invalid argument
       handle_cuda_error(cudaFree(mem), "~workspace_maanger_t. cuda free");
     }
   }

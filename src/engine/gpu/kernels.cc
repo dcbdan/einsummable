@@ -779,7 +779,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
       //          gamma, inns[2], &descC, modeC.data(),
       //                        out, &descC, modeC.data(),
       //          ternary.op_0_1, ternary.op_01_2, typeCompute, stream);
-      cudaDeviceSynchronize();
+      // cudaDeviceSynchronize();
 
       float alphayi = 1.0f;
       float betayi = 1.0f;
@@ -861,6 +861,8 @@ cutensor_elementwise_op_t::arg_t convert_arg(cutensor_scalarop_t::arg_t arg, vec
     op = CUTENSOR_OP_EXP;
   }else if(arg.op==cutensor_scalarop_t::cop_t::identity){
     op = CUTENSOR_OP_IDENTITY;
+  }else if(arg.op==cutensor_scalarop_t::cop_t::relu){
+    op = CUTENSOR_OP_RELU;
   }else{
     throw std::runtime_error("Unary op not found");
   }
@@ -928,6 +930,28 @@ make_cutensor_elementwise_op(
 
   if(e.inns.size()==1){
     scalarop_t join = e.join;
+
+    // TODO: cheat to make relu work on GPU
+    for (auto const& d : {dtype_t::f16, dtype_t::f32, dtype_t::f64}) {
+      if (join == scalarop_t::make_relu(d)){
+        
+        cutensor_scalarop_t::arg_t arg {scalar_t::one(join.out_dtype()),cutensor_scalarop_t::cop_t::relu};
+
+        cutensor_scalarop_t::unary_t unary_op_inter{arg};
+
+        cutensor_scalarop_t unary_scalarop;
+        unary_scalarop.op = unary_op_inter;
+
+        auto unary = std::get<cutensor_scalarop_t::unary_t>(unary_scalarop.op);
+
+        cutensor_elementwise_op_t::unary_t unary_op {convert_arg(unary.arg,e.inns[0])};
+
+        op.op = unary_op;
+
+        // DOUT("RELU Detected and Built");
+        return op;
+      }
+    }
 
     auto potential_scalarop = join.compile_cutensor_scalarop();
 

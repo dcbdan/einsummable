@@ -200,7 +200,7 @@ private:
 struct cutensor_scalarop_t {
   // list out cutensor elementwise ops that
   // may be discovered
-  enum cop_t { add, mul, min, max, exp, pow,identity };
+  enum cop_t { add, mul, min, max, exp, pow, identity, relu};
 
   struct arg_t {
     scalar_t scale;
