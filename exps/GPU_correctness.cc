@@ -150,14 +150,15 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
 
 vector<placement_t> autoplace(
   graph_t const& graph,
-  int num_gpus)
+  int num_gpus,
+  int num_parts_per_gpu = 1)
 {
   int max_branching = 1;
   parts_space_t space = parts_space_t::contraction;
 
   auto parts = autopartition_for_bytes(
     graph,
-    num_gpus,
+    num_gpus * num_parts_per_gpu,
     max_branching,
     space);
 
@@ -324,7 +325,7 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
+  server.set_split_off_inputs(true);
 
   auto [graph, pls] = build_graph_pls(world_size, matrix_dim, partition);
 

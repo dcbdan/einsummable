@@ -779,7 +779,7 @@ build_cutensor_elementwise(cutensor_elementwise_op_t op)
       //          gamma, inns[2], &descC, modeC.data(),
       //                        out, &descC, modeC.data(),
       //          ternary.op_0_1, ternary.op_01_2, typeCompute, stream);
-      cudaDeviceSynchronize();
+      // cudaDeviceSynchronize();
 
       float alphayi = 1.0f;
       float betayi = 1.0f;

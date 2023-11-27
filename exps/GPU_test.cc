@@ -5,6 +5,7 @@
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <sys/types.h>
+#include "../../src/engine/exec_graph.h"
 
 void mem_check(memgraph_t const &m) {
   for (int idx = 0; idx != m.nodes.size(); ++idx) {
@@ -423,7 +424,7 @@ void server_3d_mamtmul (int argc, char** argv){
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
+  server.set_split_off_inputs(true);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -471,7 +472,7 @@ void server_3d_mamtmul (int argc, char** argv){
 }
 
 // running feed forward neural network on the server
-void server_ffnn(){
+void server_ffnn(int argc, char** argv){
 
   // time the execution
   auto start = std::chrono::high_resolution_clock::now();
@@ -488,11 +489,26 @@ void server_ffnn(){
   uint64_t input_dim_test = 10;
 
   vector<uint64_t> dims = {input_dim, H_2, output_class};
-  int np = 1;
+  int np;
+  int partition;
+
+  if (argc != 3) {
+    DOUT("np partition");
+    return;
+  }
+
+  try {
+    np = parse_with_ss<int>(argv[1]);
+    partition = parse_with_ss<int>(argv[2]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("np partition");
+    return;
+  }
 
   // auto graph = generate_ffnn(batch_size, dims);
   auto graph = ffnn_specific();
-  auto pls = autoplace(graph, np);
+  auto pls = autoplace(graph, np, partition);
   int world_size = 1;
 
   communicator_t c("0.0.0.0", true, world_size);
@@ -500,14 +516,13 @@ void server_ffnn(){
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
   uint64_t mem_size = 16lu * 1000lu * 1000lu * 1000lu;
-  // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
+  server.set_split_off_inputs(true);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -552,6 +567,53 @@ void server_ffnn(){
   DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
 
   server.shutdown();
+}
+
+void ffnn_graph(){
+  auto graph = ffnn_specific();
+  auto pls = autoplace(graph, 1, 4);
+  int num_gpus = 1;
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  uint64_t mem_size = 16lu * 1000lu * 1000lu * 1000lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  vector<void*> buffer;
+  for (int i = 0; i < num_gpus; ++i){
+    cudaSetDevice(i);
+    void* b;
+    handle_cuda_error(cudaMalloc(&b, mem_size));
+    buffer.push_back(b);
+  }
+
+  bool use_storage = true;
+  bool split_off_inputs = true;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+    taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+    use_storage, split_off_inputs);
+
+  DOUT("TEST: " <<core_memgraph.nodes[5].outs.size());
+  auto tmp = core_memgraph.nodes[8].inns;
+  DOUT("Printing inns of node 8");
+  for (auto i : tmp){
+    DOUT(i);
+  }
+
+  vector<kernel_manager_t> kms;
+  for (int i = 0; i < num_gpus; ++i){
+    kms.emplace_back(i);
+  }
+  
+  std::cout << "ffnn_core_mem.gv" << std::endl;
+  std::ofstream f("ffnn_core_mem.gv");
+  core_memgraph.print_graphviz(f);
+
+  exec_graph_t::make_gpu_exec_graph(core_memgraph, 0, kms, 1, buffer);
 }
 
 void mm_test2() {
@@ -661,8 +723,9 @@ void mm_test2() {
 int main(int argc, char **argv) {
   // server_1(argc, argv);
   // server_3d_mamtmul(argc, argv);
-  server_multiple_mm(argc, argv);
+  // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
-  // server_ffnn();
+  server_ffnn(argc, argv);
+  // ffnn_graph();
 }

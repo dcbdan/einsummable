@@ -543,11 +543,11 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
-  if(prune_edges) {
-    for(auto const& inn: inns) {
+  for(auto const& inn: inns) {
       nodes[inn].outs.insert(ret);
-    }
+  }
 
+  if(prune_edges) {
     all_deps.emplace_back(ret, 0);
 
     vector<char>& ret_deps = all_deps.back();
