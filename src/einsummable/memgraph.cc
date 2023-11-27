@@ -543,10 +543,11 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
+  for(auto const& inn: inns) {
+    nodes[inn].outs.insert(ret);
+  }
+
   if(prune_edges) {
-    for(auto const& inn: inns) {
-      nodes[inn].outs.insert(ret);
-    }
 
     all_deps.emplace_back(ret, 0);
 
@@ -768,19 +769,24 @@ stoloc_t memgraph_t::op_t::get_stoloc() const {
 }
 
 bool memgraph_t::is_local_to(int id, int loc) const {
+  DLINEOUT("is_local_to id" << id << " with loc " << loc);
   node_t const& node = nodes[id];
   if(node.op.is_inputsto()) {
     // Input storage nodes are special in that they don't map to
     // a single location. We determine if this inputsto occurs here if
     // any of its outgoing edges occur here.
-    for(int const& id: node.outs) {
-      if(is_local_to(id, loc)) {
+    for(int const& out_id: node.outs) {
+      if(is_local_to(out_id, loc)) {
+        DLINEOUT("TRUE");
         return true;
       }
     }
+    DLINEOUT("FALSE"):
     return false;
   } else {
-    return node.op.is_local_to(loc);
+    auto ret = node.op.is_local_to(loc);
+    DLINEOUT(std::boolalpha << ret);
+    return ret;
   }
 }
 
