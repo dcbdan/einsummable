@@ -67,16 +67,28 @@ struct llama_autoplacer_t {
 int main(int argc, char** argv) {
   args_t args(argc, argv);
 
+  args.set_default("model", "7B");
+  int nfiles;
+  if(args.get<string>("model") == "7B") {
+    nfiles = 1;
+  } else if(args.get<string>("model") == "13B") {
+    nfiles = 2;
+  } else if(args.get<string>("model") == "30B") {
+    nfiles = 4;
+  } else if(args.get<string>("model") == "65B") {
+    nfiles = 8;
+  }
+
   args.set_default("batch_size", uint64_t(1));
   args.set_default("seq_len", uint64_t(512));
 
   uint64_t bsz    = args.get<uint64_t>("batch_size");
   uint64_t seqlen = args.get<uint64_t>("seq_len");
 
-  model_args_t margs = model_args_t::llama(1, bsz);
+  model_args_t margs = model_args_t::llama(nfiles, bsz);
   margs.max_seq_len = seqlen + 2;
 
-  args.set_default<int>("max_n_layers", 4);
+  args.set_default<int>("max_n_layers", -1);
   {
     int n_layers = args.get<int>("max_n_layers");
     if(n_layers >= 0) {
@@ -85,6 +97,10 @@ int main(int argc, char** argv) {
   }
 
   builder_t builder = builder_t::make_first_token(margs, seqlen);
+  args.set_default("is_next", false);
+  if(args.get<bool>("is_next")) {
+    builder = builder_t::make_next_token(builder);
+  }
 
   ///
 
