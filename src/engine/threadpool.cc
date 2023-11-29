@@ -73,10 +73,10 @@ void threadpool_t::runner(int which) {
       }
     }
 
-    auto start = clock_now();
+    //auto start = clock_now();
     f();
-    auto end = clock_now();
-    print_time(which, label, start, end);
+    //auto end = clock_now();
+    //print_time(which, label, start, end);
   }
 }
 

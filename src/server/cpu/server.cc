@@ -15,6 +15,11 @@ void cpu_mg_server_t::execute_memgraph(
   bool for_remap)
 {
   int this_rank = comm.get_this_rank();
+
+  if(this_rank == 0) {
+    DLINEOUT("execute_memgraph enter on cpu server");
+  }
+
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
       memgraph,

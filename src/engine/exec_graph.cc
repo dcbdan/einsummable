@@ -78,14 +78,10 @@ exec_graph_t::notify_recv_ready_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-  std::thread thread([this, callback, notifier] {
-    notifier->notify_recv_ready(this->dst, this->id);
-    notifier->wait_send_ready(this->id);
+  // TODO: should this be done in another thread or here?
+  notifier->notify_recv_ready(this->dst, this->id);
 
-    callback();
-  });
-
-  thread.detach();
+  notifier->wait_send_ready(this->id, callback);
 }
 
 void
@@ -98,13 +94,7 @@ exec_graph_t::wait_recv_ready_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-  std::thread thread([this, callback, notifier] {
-    notifier->wait_recv_ready(this->id);
-
-    callback();
-  });
-
-  thread.detach();
+  notifier->wait_recv_ready(this->id, callback);
 }
 
 void
