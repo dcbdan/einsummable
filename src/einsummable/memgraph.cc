@@ -544,7 +544,7 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
   int ret = nodes.size() - 1;
 
   for(auto const& inn: inns) {
-      nodes[inn].outs.insert(ret);
+    nodes[inn].outs.insert(ret);
   }
 
   if(prune_edges) {
@@ -773,8 +773,8 @@ bool memgraph_t::is_local_to(int id, int loc) const {
     // Input storage nodes are special in that they don't map to
     // a single location. We determine if this inputsto occurs here if
     // any of its outgoing edges occur here.
-    for(int const& id: node.outs) {
-      if(is_local_to(id, loc)) {
+    for(int const& out_id: node.outs) {
+      if(is_local_to(out_id, loc)) {
         return true;
       }
     }
