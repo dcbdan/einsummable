@@ -676,7 +676,7 @@ void mm_part_graph(int argc, char** argv){
   }
 
   bool use_storage = true;
-  bool split_off_inputs = false;
+  bool split_off_inputs = true;
 
   auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
     taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
@@ -886,6 +886,6 @@ int main(int argc, char **argv) {
   // server_ffnn(argc, argv);
   // ffnn_graph(argc, argv);
   // mm_graph(argc, argv);
-  mm_part_graph(argc, argv);
-  // server_mm_partition(argc, argv);
+  // mm_part_graph(argc, argv);
+  server_mm_partition(argc, argv);
 }

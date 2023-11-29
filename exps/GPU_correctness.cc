@@ -411,6 +411,19 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpu
 
   auto pls = autoplace(graph, num_gpus);
 
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  bool use_storage = true;
+  bool split_off_inputs = true;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+  taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+  use_storage, split_off_inputs);
+
+  std::cout << "mm_basic.gv" << std::endl;
+  std::ofstream f("mm_basic.gv");
+  core_memgraph.print_graphviz(f);
+
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
@@ -453,24 +466,26 @@ void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partitio
     buffer_sizes.push_back(mem_size);
   }
 
-  gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(true);
-
+  DOUT("num_gpus: " << num_gpus);
+  DOUT("partition: " << partition);
   auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
   auto pls = autolocate_agg_at_a_time_from_inns(graph, part, num_gpus, 100);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
 
   bool use_storage = true;
-  bool split_off_inputs = false;
+  bool split_off_inputs = true;
 
   auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
   taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
   use_storage, split_off_inputs);
 
-  std::cout << "core_mg.gv" << std::endl;
-  std::ofstream f("core_mg.gv");
+  std::cout << "mm_partition.gv" << std::endl;
+  std::ofstream f("mm_partition.gv");
   core_memgraph.print_graphviz(f);
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(true);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {

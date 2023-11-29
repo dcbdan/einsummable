@@ -84,7 +84,10 @@ void gpu_mg_server_t::execute_memgraph(
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
   DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-  DOUT("Execute memgraph finished. Time: " << duration.count() << " ms");
+  auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);  
+  if (duration2.count() - duration.count() > 10){
+    DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
+  }  
 }
 
 // memstoloc_t is not a contiguous data structure,
