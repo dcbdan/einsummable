@@ -1,8 +1,15 @@
 #include "notifier.h"
 
+int _filecount_ = 0;
+
 notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
   : comm(cm), recv_channel_manager(rcm)
 {
+  string filename = "notifier_rnk" + write_with_ss(comm.get_this_rank()) + 
+    "_cnt" + write_with_ss(_filecount_++);
+  print = std::ofstream(filename);
+  DLINEOUT(filename);
+
   comm.start_listen_notify(
     sizeof(msg_t),
     [this](vector<uint8_t> data) {
@@ -16,7 +23,8 @@ notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
         this->process(msg);
         return false;
       }
-  });
+    },
+    true);
 }
 
 notifier_t::~notifier_t() {
@@ -41,6 +49,7 @@ void notifier_t::notify_recv_ready(int dst, int id) {
   msg.msg.recv_info.id = id;
 
   comm.notify(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
+  print << "notify_recv_ready(dst,id) " << dst << " " << id << std::endl;
 }
 
 void notifier_t::wait_send_ready(int id, std::function<void()> callback) {
@@ -49,6 +58,7 @@ void notifier_t::wait_send_ready(int id, std::function<void()> callback) {
   if(!did_insert_callback) {
     // there was a dummy callback in send_promises, so the event has happened
     callback();
+    print << "wait_send_ready(id) " << id << std::endl;
   }
 }
 
@@ -58,6 +68,7 @@ void notifier_t::wait_recv_ready(int id, std::function<void()> callback) {
   if(!did_insert_callback) {
     // there was a dummy callback in recv_promises, so the event has happened
     callback();
+    print << "wait_recv_ready(id) " << id << std::endl;
   }
 }
 
@@ -69,6 +80,8 @@ void notifier_t::notify_send_ready(int dst, int id, int channel) {
   msg.msg.send_info.channel = channel;
 
   comm.notify(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
+  print << "notify_send_ready(dst,id,channel) " 
+    << dst << " " << id << " " << channel << std::endl;
 }
 
 void notifier_t::process(notifier_t::msg_t const& msg) {
@@ -82,6 +95,9 @@ void notifier_t::process(notifier_t::msg_t const& msg) {
     if(!did_insert_dummy) {
       auto& callback = iter->second;
       callback();
+      print << "process_recv_ready(id) " << id << std::endl;
+    } else {
+      print << "got_recv_ready(id) " << id << std::endl;
     }
   } else if(msg.msg_type == msg_t::send_ready) {
     auto const& [id, src, channel] = msg.msg.send_info;
@@ -94,6 +110,9 @@ void notifier_t::process(notifier_t::msg_t const& msg) {
     if(!did_insert_dummy) {
       auto& callback = iter->second;
       callback();
+      print << "process_send_ready(id,src,channel) " << id << " " << src << " " << channel << std::endl;
+    } else {
+      print << "got_send_ready(id,src,channel) " << id << " " << src << " " << channel << std::endl;
     }
   } else {
     throw std::runtime_error("invalid notifier msg type");

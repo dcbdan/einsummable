@@ -15,7 +15,8 @@ struct exec_state_t {
   exec_state_t(
     exec_graph_t const& g,
     rm_ptr_t r,
-    priority_t priority = priority_t::given);
+    priority_t priority = priority_t::given,
+    int rank = -1);
 
   struct compare_t {
     inline bool operator()(int const& lhs, int const& rhs) const {
@@ -69,4 +70,6 @@ struct exec_state_t {
 
   exec_graph_t const& exec_graph;
   rm_ptr_t resource_manager;
+
+  std::ofstream out;
 };

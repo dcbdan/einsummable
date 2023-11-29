@@ -404,7 +404,7 @@ void communicator_t::start_listen_notify(
 
       vector<struct epoll_event> evs(world_size-1);
 
-      // build the listeners, add then to epoll_fd and
+      // build the listeners, add them to epoll_fd and
       // post a recv
       for(int i = 0; i != world_size - 1; ++i) {
         listeners.push_back(recvs[i].make_listener(msg_size));

@@ -43,7 +43,7 @@ void cpu_mg_server_t::execute_memgraph(
     }
   ));
 
-  exec_state_t state(graph, resource_manager, priority_type);
+  exec_state_t state(graph, resource_manager, priority_type, this_rank);
 
   if(for_remap) {
     if(this_rank == 0) {

@@ -1,13 +1,23 @@
 #include "exec_state.h"
 
+int _filecount = 0;
+
 exec_state_t::exec_state_t(
   exec_graph_t const& g,
   rm_ptr_t r,
-  exec_state_t::priority_t p)
+  exec_state_t::priority_t p,
+  int this_rank)
   : exec_graph(g),
     resource_manager(r),
     ready_to_run(this)
 {
+  if(this_rank >= 0) {
+    string filename = "exec_state_rank" + write_with_ss(this_rank) + 
+                      "_cnt" + write_with_ss(_filecount++);
+    out = std::ofstream(filename);
+    DLINEOUT("exec state filename: " << filename);
+  }
+
   int num_nodes = exec_graph.nodes.size();
 
   num_remaining = num_nodes;
@@ -85,6 +95,14 @@ exec_state_t::exec_state_t(
   for(auto const& id: ready_to_run_) {
     ready_to_run.push(id);
   }
+
+  if(out.is_open()) {
+    for(int id = 0; id != exec_graph.nodes.size(); ++id) {
+      out << id << ": ";
+      exec_graph.nodes[id].print(out);
+      out << std::endl;
+    }
+  }
 }
 
 void exec_state_t::event_loop() {
@@ -99,6 +117,10 @@ void exec_state_t::event_loop() {
       resource_manager->release(iter->second);
 
       is_running.erase(iter);
+
+      if(out.is_open()) {
+        out << "finished " << id << std::endl;
+      }
 
       decrement_outs(id);
 
@@ -116,6 +138,9 @@ void exec_state_t::event_loop() {
         ready_to_run.pop();
         if(try_to_launch(id)) {
           // started id
+          if(out.is_open()) {
+            out << "started " << id << std::endl;
+          }
         } else {
           failed.push(id);
         }

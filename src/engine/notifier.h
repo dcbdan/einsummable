@@ -7,6 +7,8 @@
 
 #include <mutex>
 
+#include <fstream>
+
 struct notifier_t;
 
 struct notifier_resource_t {
@@ -73,4 +75,6 @@ private:
   }
 
   void release_impl(notifier_resource_t const&) {}
+
+  std::ofstream print;
 };
