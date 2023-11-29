@@ -379,6 +379,29 @@ void server_multiple_mm (int argc, char** argv){
   server_execute_multiple_mm(world_size, matrix_dim, num_gpus);
 }
 
+void server_mm_partition(int argc, char** argv){
+  if (argc != 4){
+    DOUT("Square matrix multiplication");
+    DOUT("1) matrix_dim 2) num gpus 3)partition");
+    return;
+  }
+  int world_size = 1;
+  int num_gpus;
+  uint64_t matrix_dim;
+  int partition;
+  try {
+    matrix_dim = parse_with_ss<int>(argv[1]);
+    num_gpus = parse_with_ss<uint64_t>(argv[2]);
+    partition = parse_with_ss<int>(argv[3]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("1) matrix_dim 2) num gpus 3)partition");
+    return;
+  }
+
+  server_execute_mm_partition(matrix_dim, num_gpus, partition);
+}
+
 
 // do 3d matmul on the server
 void server_3d_mamtmul (int argc, char** argv){
@@ -507,7 +530,7 @@ void server_ffnn(int argc, char** argv){
   }
 
   // auto graph = generate_ffnn(batch_size, dims);
-  auto graph = ffnn_specific();
+  auto graph = ffnn_specific_H1();
   auto pls = autoplace(graph, np, partition);
   int world_size = 1;
 
@@ -569,25 +592,155 @@ void server_ffnn(int argc, char** argv){
   server.shutdown();
 }
 
-void ffnn_graph(){
-  auto graph = ffnn_specific();
-  auto pls = autoplace(graph, 1, 4);
-  int num_gpus = 1;
+void mm_graph(int argc, char** argv){
+  graph_writer_t g;
+
+  int np;
+  uint64_t matrix_dim;
+  int partition;
+
+  if (argc != 4) {
+    DOUT("np matrix_dimension partition");
+    return;
+  }
+
+  try {
+    np = parse_with_ss<int>(argv[1]);
+    matrix_dim = parse_with_ss<int>(argv[2]);
+    partition = parse_with_ss<int>(argv[3]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("np matrix_dimension partition");
+    return;
+  }
+  auto A = g.input({matrix_dim, matrix_dim});
+  auto B = g.input({matrix_dim, matrix_dim});
+  auto E = g.matmul(A,B);
+  auto C = g.input({matrix_dim, matrix_dim});
+  auto D = g.input({matrix_dim, matrix_dim});
+  auto F = g.matmul(C,D);
+  auto G = g.matmul(E,F).save();
+
+  graph_t graph = g.get_graph();
+  auto pls = autoplace(graph, np);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
-
-  uint64_t mem_size = 16lu * 1000lu * 1000lu * 1000lu;
+  uint64_t mem_size = 2lu * 1000lu * 1000lu * 1000lu;
   vector<uint64_t> buffer_sizes;
-  for (int i = 0; i < num_gpus; ++i){
+  for (int i = 0; i < np; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
-  vector<void*> buffer;
-  for (int i = 0; i < num_gpus; ++i){
-    cudaSetDevice(i);
-    void* b;
-    handle_cuda_error(cudaMalloc(&b, mem_size));
-    buffer.push_back(b);
+  bool use_storage = true;
+  bool split_off_inputs = false;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+    taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+    use_storage, split_off_inputs);
+
+  std::cout << "mm_graph.gv" << std::endl;
+  std::ofstream f("mm_graph.gv");
+  core_memgraph.print_graphviz(f);
+  
+}
+
+void mm_part_graph(int argc, char** argv){
+
+  int np;
+  uint64_t matrix_dim;
+  int partition;
+
+  if (argc != 4) {
+    DOUT("np matrix_dimension partition");
+    return;
+  }
+
+  try {
+    np = parse_with_ss<int>(argv[1]);
+    matrix_dim = parse_with_ss<int>(argv[2]);
+    partition = parse_with_ss<int>(argv[3]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("np matrix_dimension partition");
+    return;
+  }
+
+  auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
+  auto pls = autolocate_agg_at_a_time_from_inns(graph, part, np, 100);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+  uint64_t mem_size = 2lu * 1000lu * 1000lu * 1000lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  bool use_storage = true;
+  bool split_off_inputs = false;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+    taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+    use_storage, split_off_inputs);
+
+  std::cout << "mm_part_graph.gv" << std::endl;
+  std::ofstream f("mm_part_graph.gv");
+  core_memgraph.print_graphviz(f);
+}
+
+
+void ffnn_graph(int argc, char** argv){
+  int np;
+  int partition;
+
+  if (argc != 3) {
+    DOUT("np partition");
+    return;
+  }
+
+  try {
+    np = parse_with_ss<int>(argv[1]);
+    partition = parse_with_ss<int>(argv[2]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("np partition");
+    return;
+  }
+
+  // auto graph = generate_ffnn(batch_size, dims);
+  auto graph = ffnn_specific();
+  auto pls = autoplace(graph, np, partition);
+  int world_size = 1;
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  int num_input_msgs = 0;
+  uint64_t num_input_bytes = 0;
+  int num_core_msgs = 0;
+  uint64_t num_core_bytes = 0;
+  set<int> inputs_everywhere = taskgraph.get_input_everywhere_ids();
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_move()) {
+      uint64_t sz = node.op.get_move().size;
+      if(inputs_everywhere.count(tid) > 0) {
+        num_input_msgs++;
+        num_input_bytes += sz;
+      } else {
+        num_core_msgs++;
+        num_core_bytes += sz;
+      }
+    }
+  }
+
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("input "
+      << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
+      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB");
+
+  uint64_t mem_size = 16lu * 1000lu * 1000lu * 1000lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
   }
 
   bool use_storage = true;
@@ -597,23 +750,27 @@ void ffnn_graph(){
     taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
     use_storage, split_off_inputs);
 
-  DOUT("TEST: " <<core_memgraph.nodes[5].outs.size());
-  auto tmp = core_memgraph.nodes[8].inns;
-  DOUT("Printing inns of node 8");
-  for (auto i : tmp){
-    DOUT(i);
-  }
-
-  vector<kernel_manager_t> kms;
-  for (int i = 0; i < num_gpus; ++i){
-    kms.emplace_back(i);
-  }
-  
-  std::cout << "ffnn_core_mem.gv" << std::endl;
-  std::ofstream f("ffnn_core_mem.gv");
+  std::cout << "ffnn_graph.gv" << std::endl;
+  std::ofstream f("ffnn_graph.gv");
   core_memgraph.print_graphviz(f);
 
-  exec_graph_t::make_gpu_exec_graph(core_memgraph, 0, kms, 1, buffer);
+  int num_evict_nodes = 0;
+  uint64_t num_evict_bytes = 0;
+  int num_load_nodes = 0;
+  uint64_t num_load_bytes = 0;
+  for (int tid = 0; tid < core_memgraph.nodes.size(); ++tid){
+    auto const& node = core_memgraph.nodes[tid];
+    if (node.op.is_evict()){
+      num_evict_nodes++;
+      num_evict_bytes += node.op.get_evict().src.size;
+    }
+    else if (node.op.is_load()){
+      num_load_nodes++;
+      num_load_bytes += node.op.get_load().dst.size;
+    }
+  }
+  DOUT("evict " << num_evict_nodes << "#, " << to_mb(num_evict_bytes) << "MB");
+  DOUT("load " << num_load_nodes << "#, " << to_mb(num_load_bytes) << "MB");
 }
 
 void mm_test2() {
@@ -726,6 +883,9 @@ int main(int argc, char **argv) {
   // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
-  server_ffnn(argc, argv);
-  // ffnn_graph();
+  // server_ffnn(argc, argv);
+  // ffnn_graph(argc, argv);
+  // mm_graph(argc, argv);
+  mm_part_graph(argc, argv);
+  // server_mm_partition(argc, argv);
 }

@@ -148,6 +148,28 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
+tuple<graph_t, vector<partition_t>>
+build_matmul_even_splits(uint64_t n, int n_split)
+{
+  partdim_t pd = partdim_t::split(n, n_split);
+  partition_t part2({pd,pd});
+  partition_t part3({pd,pd,pd});
+
+  graph_constructor_t g;
+  int lhs  = g.insert_input(part2);
+  int rhs  = g.insert_input(part2);
+  int join = g.insert_einsummable(part3, einsummable_t::from_matmul(n,n,n), {lhs,rhs});
+  int out  = g.insert_formation(part2, join, true);
+
+  auto const& graph = g.graph;
+  vector<partition_t> parts = vector_from_each_member(
+    g.get_placements(),
+    partition_t,
+    partition);
+
+  return {graph, parts};
+}
+
 vector<placement_t> autoplace(
   graph_t const& graph,
   int num_gpus,
@@ -419,6 +441,67 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpu
   server.shutdown();
 }
 
+void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partition){
+
+  communicator_t c("0.0.0.0", true, 1);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 2lu * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(true);
+
+  auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
+  auto pls = autolocate_agg_at_a_time_from_inns(graph, part, num_gpus, 100);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  bool use_storage = true;
+  bool split_off_inputs = false;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+  taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+  use_storage, split_off_inputs);
+
+  std::cout << "core_mg.gv" << std::endl;
+  std::ofstream f("core_mg.gv");
+  core_memgraph.print_graphviz(f);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT("Printing input tensor...");
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+
+  server.execute_graph(graph, pls);
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT("Printing output tensor...");
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  server.shutdown();
+}
+
 void contractionTest(int di, int dj, int dk) {
   auto num_elems = di * dj + dj * dk + di * dk;
   auto buffer_size = num_elems * sizeof(float);
@@ -584,4 +667,39 @@ graph_t ffnn_specific(){
 
   return writer.get_graph();
 }
+
+// SOFTMAX(RELU(X * W_1) * W_2)
+graph_t ffnn_specific_H1(){
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+
+  uint64_t batch_size = 256;
+  // H_1 and H_2 are different hidden dimensions of the Hidden layer (1 hidden layer only)
+  uint64_t H_1 = 1 << 10;
+  uint64_t H_2 = 1 << 14;
+  uint64_t output_class = 1 << 14;
+  uint64_t input_dim = 1 << 19;
+
+  tensor_t x = writer.input({batch_size, input_dim});
+  tensor_t out = x;
+
+  // [batch_size, input_dim] * [input_dim, H_1] = [batch_size, H_1]
+  out = writer.matmul(out, writer.input({input_dim, H_1}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, input_dim);
+  printf("MATMUL Matrix 2: %lu %lu\n", input_dim, H_1);
+  out = writer.ew(scalarop_t::make_relu(), out);
+  printf("Relu\n");
+  // [batch_size, H_1] * [H_1, output_class] = [batch_size, output_class]
+  out = writer.matmul(out, writer.input({H_1, output_class}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_1);
+  printf("MATMUL Matrix 2: %lu %lu\n", H_1, output_class);
+  out = writer.softmax(out);
+  printf("Softmax\n");
+
+  out.save_inplace();
+
+  return writer.get_graph();
+}
+
 
