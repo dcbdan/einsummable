@@ -453,6 +453,28 @@ void communicator_t::start_listen_notify(
         }
       }
 
+      // TODO: better understand how the wakeup mechanism works, as this
+      //       is a source of bugs.
+      //
+      // The things the listener does:
+      //   ucp_worker_progress
+      //   post_recv (listener_t::start)
+      //   arm the worker (first ucp_worker_progress till nothing to do, then ucp_worker_arm)
+      // What I think is going on:
+      //   * An event is one recv
+      //   * A worker might wake up multiple times for a single event; and
+      //     an event may _require_ more than one wakeup to occur
+      //   * After an event occurs, a worker will not wakeup again unless rearmed;
+      //     but a single event requires only one arming
+      //   * Whenever a wake up occurs, the worker must be progressed atleast once
+      // What I know: 
+      //   * on four machines, the code ran here seems to actually work but
+      //     the following does not:
+      //       after getting woken up:
+      //         keep calling ucp_worker_progress until the event completes
+      //     Since this doesn't always work, I'm assuming that
+      //     "An event may require more than one wakeup"
+
       std::vector<struct epoll_event> events(world_size - 1);
 
       while(listeners.size() > 0) {
