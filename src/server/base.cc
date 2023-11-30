@@ -147,7 +147,7 @@ void server_mg_base_t::listen() {
       remap_relations_t remap = remap_relations_t::from_wire(comm.recv_string(0));
       map<int, buffer_t> data = local_copy_source_data(remap);
       convert_remap_to_compute_node(remap);
-      repartition(comm, remap, data);
+      repartition(comm, remap, data, get_cpu_threadpool());
     } else if(cmd == cmd_t::insert_relation) {
       insert_relation_helper(
         remap_relations_t::from_wire(comm.recv_string(0)),
@@ -214,7 +214,7 @@ dbuffer_t server_mg_base_t::get_tensor(
   convert_remap_to_compute_node(remap);
 
   // remap here is with respect to compute-node
-  repartition(comm, remap, data);
+  repartition(comm, remap, data, get_cpu_threadpool());
 
   return dbuffer_t(relation.dtype, data.at(99));
 }
@@ -271,7 +271,7 @@ void server_mg_base_t::insert_relation_helper(
   convert_remap_to_compute_node(remap);
 
   // Now we repartition with respect to the compute nodes
-  repartition(comm, remap, data);
+  repartition(comm, remap, data, get_cpu_threadpool());
 
   // And insert with respect to locations
   map<int, tuple<int, buffer_t>> ret;

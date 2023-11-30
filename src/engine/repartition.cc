@@ -86,20 +86,20 @@ struct rp_touch_t : exec_graph_t::op_base_t {
     buffer_t out_buffer = buffers[0];
     buffer_t inn_buffer = buffers[1];
 
-    std::thread t([this, callback, out_buffer, inn_buffer] {
+    auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+    thread_resource.launch([this, callback, out_buffer, inn_buffer] {
       execute_touch(touch, out_buffer->raw(), inn_buffer->raw());
       callback();
     });
-
-    t.detach();
   }
 
   desc_ptr_t resource_description() const {
     vector<tuple<int, uint64_t>> mems;
     mems.push_back(out);
     mems.emplace_back(inn_tid, 0);
-    desc_ptr_t ptr = datamap_manager_t::make_desc(mems);
-    return resource_manager_t::make_desc({ ptr });
+    desc_ptr_t dm_ptr = datamap_manager_t::make_desc(mems);
+    desc_ptr_t th_ptr = threadpool_manager_t::make_desc();
+    return resource_manager_t::make_desc({ dm_ptr, th_ptr });
   }
 
   void print(std::ostream& out) const {
@@ -129,15 +129,15 @@ struct rp_send_t : exec_graph_t::op_base_t {
 
     buffer_t buffer = datamap_manager_t::get_resource(resources[2])[0];
 
-    std::thread t([this, notifier, wire, buffer, callback] {
+    auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
+
+    thread_resource.launch([this, notifier, wire, buffer, callback] {
       notifier->notify_send_ready(this->dst, this->dst_tid, wire.channel);
 
       wire.send(buffer->raw(), buffer->size);
 
       callback();
     });
-
-    t.detach();
   }
 
   desc_ptr_t resource_description() const {
@@ -145,7 +145,8 @@ struct rp_send_t : exec_graph_t::op_base_t {
       vector<desc_ptr_t> {
         notifier_t::make_desc(unit_t{}),
         send_channel_manager_t::make_desc(dst),
-        datamap_manager_t::make_desc(src_tid)
+        datamap_manager_t::make_desc(src_tid),
+        threadpool_manager_t::make_desc()
       }
     );
   }
@@ -172,23 +173,24 @@ struct rp_recv_t : exec_graph_t::op_base_t {
 
     auto const& wire = recv_channel_manager_t::get_resource(resources[1]);
 
+    auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
+
     if(buffer->size != size) {
       throw std::runtime_error("how come buffer has incorrect size?");
     }
 
-    std::thread t([this, wire, buffer, callback] {
+    thread_resource.launch([this, wire, buffer, callback] {
       wire.recv(buffer->raw(), buffer->size);
       callback();
     });
-
-    t.detach();
   }
 
   desc_ptr_t resource_description() const {
     return resource_manager_t::make_desc(
       vector<desc_ptr_t> {
         datamap_manager_t::make_desc(dst_tid, size),
-        recv_channel_manager_t::make_desc({ dst_tid, src })
+        recv_channel_manager_t::make_desc({ dst_tid, src }),
+        threadpool_manager_t::make_desc()
       }
     );
   }
@@ -280,7 +282,8 @@ exec_graph_t create_repartition_execgraph(
 
 rm_ptr_t create_repartition_resource_manager(
   communicator_t& communicator,
-  map<int, buffer_t>& data)
+  map<int, buffer_t>& data,
+  threadpool_t& threadpool)
 {
   vector<rm_ptr_t> managers;
 
@@ -292,13 +295,15 @@ rm_ptr_t create_repartition_resource_manager(
   managers.emplace_back(new notifier_t(communicator, rcm));
 
   managers.emplace_back(new send_channel_manager_t(communicator));
+  managers.emplace_back(new threadpool_manager_t(threadpool));
   return rm_ptr_t(new resource_manager_t(managers));
 }
 
 void repartition(
   communicator_t& comm,
   remap_relations_t const& _remap,
-  map<int, buffer_t>& data)
+  map<int, buffer_t>& data,
+  threadpool_t* threadpool)
 {
   auto const& remap = _remap.remap;
 
@@ -314,7 +319,14 @@ void repartition(
 
   exec_graph_t execgraph = create_repartition_execgraph(this_rank, taskgraph);
 
-  rm_ptr_t resource_manager = create_repartition_resource_manager(comm, data);
+  std::unique_ptr<threadpool_t> new_threadpool;
+  if(!threadpool) {
+    int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
+    new_threadpool = std::make_unique<threadpool_t>(num_threads);
+    threadpool = new_threadpool.get();
+  }
+
+  rm_ptr_t resource_manager = create_repartition_resource_manager(comm, data, *threadpool);
 
   exec_state_t state(execgraph, resource_manager);
   state.event_loop();

@@ -3,7 +3,7 @@
 
 #include <sys/sysinfo.h>
 
-threadpool_t::threadpool_t(string filename, int num_to_launch)
+threadpool_t::threadpool_t(int num_to_launch)
   : is_stopped(false), start_threadpool(clock_now()) 
 {
   get_numa_info();

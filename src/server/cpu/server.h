@@ -20,7 +20,7 @@ struct cpu_mg_server_t : server_mg_base_t
     int num_channels_per_move = 1,
     exec_state_t::priority_t priority_type = exec_state_t::priority_t::given)
     : server_mg_base_t(c_), mem(make_buffer(buffer_size)),
-      threadpool("tp" + write_with_ss(c_.get_this_rank()), num_threads),
+      threadpool(num_threads),
       num_channels_per_move(num_channels_per_move),
       priority_type(priority_type)
   {
@@ -39,6 +39,8 @@ struct cpu_mg_server_t : server_mg_base_t
   int get_num_threads() const {
     return threadpool.num_runners();
   }
+
+  threadpool_t* get_cpu_threadpool() { return &threadpool; }
 
   void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
 

@@ -8,7 +8,7 @@
 #include <fstream>
 
 struct threadpool_t {
-  threadpool_t(string filename, int num_to_launch);
+  threadpool_t(int num_to_launch);
 
   ~threadpool_t();
 
