@@ -444,7 +444,7 @@ void communicator_t::start_listen_notify(
             if(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, efd, NULL) == -1) {
               throw std::runtime_error("could not del with epoll_ctl");
             }
-            listeners.erase(iter);
+            iter = listeners.erase(iter);
           } else {
             listener->start();
           }
@@ -467,26 +467,9 @@ void communicator_t::start_listen_notify(
 
           bool do_erase = false;
 
-          // v1: does a few of these iterations
-          while(!listener->progress()) {}
-
-          // v2: calls epoll_wait a ton
-          //if(!listener->progress()) {
-          //  continue;
-          //}
-
-          // v3: Nothing ever progresses with this version
-          //if(!listener->get_is_done()) {
-          //  continue;
-          //}
-
-          // v4: a combination of v1 and v2
-          //if(!listener->get_is_done()) {
-          //  while(ucp_worker_progress(listener->get_worker())) {}
-          //}
-          //if(!listener->get_is_done()) {
-          //  continue;
-          //}
+          if(!listener->progress()) {
+            continue;
+          }
 
           // now the listener is done
           if(callback(listener->payload())) {
@@ -997,7 +980,7 @@ void communicator_t::wire_t::listener_t::start() {
 bool communicator_t::wire_t::listener_t::progress() {
   if(is_done) { return true; }
 
-  ucp_worker_progress(self.worker);
+  while(ucp_worker_progress(self.worker)) {}
 
   return is_done;
 }

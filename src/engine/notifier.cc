@@ -10,6 +10,7 @@ notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
   print = std::ofstream(filename);
   DLINEOUT(filename);
 
+  bool constant_poll = false;
   comm.start_listen_notify(
     sizeof(msg_t),
     [this](vector<uint8_t> data) {
@@ -24,7 +25,7 @@ notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
         return false;
       }
     },
-    true);
+    constant_poll);
 }
 
 notifier_t::~notifier_t() {
