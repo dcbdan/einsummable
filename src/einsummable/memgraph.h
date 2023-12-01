@@ -446,7 +446,7 @@ private:
   using iter_t = vector<block_t>::iterator;
 
   optional<tuple<iter_t, iter_t, uint64_t>>
-  find_lowest_dependency_available(uint64_t size);
+  find_lowest_dependency_available(uint64_t size, vector<optional<  tuple< tuple<iter_t, iter_t, uint64_t>, uint64_t>  >> maybe_infos);
 
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate_impl(uint64_t size_without_rem, bool no_deps);
