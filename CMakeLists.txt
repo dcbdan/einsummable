@@ -155,6 +155,7 @@ if(${CPU_EXECUTION_ENGINE})
   endfunction()
 
   add_cpu_llama_application("llama_cpu" "cpu2")
+  add_cpu_llama_application("inference_exp" "inference_exp")
 
 endif()
 

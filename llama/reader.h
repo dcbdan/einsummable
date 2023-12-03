@@ -36,6 +36,12 @@ struct tensor_reader_t {
     string const& base_filename, int n_total_files,
     dtype_t dtype = default_dtype());
 
+  static placement_t get_placement(
+    string const& tensor_name,
+    vector<uint64_t> const& shape,
+    int world_size,
+    int n_total_files);
+
   // Should only be called by rank zero {{{
   relation_t operator()(
     string register_cmd,
@@ -59,8 +65,6 @@ private:
 
   map<int, buffer_t> _read(
     string const& tensor_name, vector<int> const& whiches);
-
-  placement_t get_placement(string const& str, vector<uint64_t> const& shape) const;
 
   communicator_t& comm;
   std::function<void(map<int, buffer_t> const&)> process_data;
