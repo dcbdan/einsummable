@@ -27,15 +27,37 @@
 #include "../src/engine/cpu/kernel_executor.h"
 #include "../src/engine/cpu/workspace_manager.h"
 
+#include <sys/mman.h>
+
+//
+#include "../src/engine/cpu/kernel_executor.h"
+
+void do_a_matmul() {
+  DLINEOUT("doin a matmul...");
+  dbuffer_t x = make_dbuffer(dtype_t::f32, 1000*1000);
+  dbuffer_t y = make_dbuffer(dtype_t::f32, 1000*1000);
+  dbuffer_t z = make_dbuffer(dtype_t::f32, 1000*1000);
+
+  x.random("-0.00001", "0.00001");
+  y.random("-0.00001", "0.00001");
+
+  matrix_multiply(
+    dtype_t::f32,
+    1000, 1000, 1000,
+    false, false,
+    z.raw(), x.raw(), y.raw());
+}
+//
+
 string get_model_base_filename(int num_files) {
   if(num_files == 1) {
-    return ""; // TODO
+    return "/llama_7B_13B_for_einsummable/7B"; 
   } else if(num_files == 2) {
-    return ""; // TODO
+    return "/llama_7B_13B_for_einsummable/13B";
   } else if(num_files == 4) {
-    return ""; // TODO
+    return "/llama30B/es/30B"; 
   } else if(num_files == 8) {
-    return ""; // TODO
+    return "/llama65B/es/65B";
   } else {
     throw std::runtime_error("invalid number of files");
   }
@@ -274,6 +296,8 @@ private:
     relation_t const& src_rel,
     partition_t const& dst_part,
     vector<memloc_t> const& dst_mems);
+
+  void allocate_data(uint64_t size);
 
 private:
   enum class cmd_t {
@@ -659,6 +683,13 @@ vector<event_t> events_from_wire(string const& str) {
   return ret;
 }
 
+vector<event_t> events_from_file(string const& filename) {
+  std::ifstream t(filename);
+  std::stringstream buffer;
+  buffer << t.rdbuf();
+  return events_from_wire(buffer.str());
+}
+
 void main_build(int argc, char** argv) {
   set_default_dtype(dtype_t::f32); // just in case
 
@@ -698,6 +729,13 @@ void main_build(int argc, char** argv) {
     .batch_size  = batch_size,
     .seq_len     = seq_len
   };
+
+  DLINEOUT("world size: " << world_size);
+  DLINEOUT("mem size:   " << mem_size);
+  DLINEOUT("num threads " << num_threads);
+  DLINEOUT("num files   " << num_files);
+  DLINEOUT("batch sz    " << batch_size);
+  DLINEOUT("seq len     " << seq_len);
 
   model_args_t margs = event_init.make_model_args();
 
@@ -744,6 +782,8 @@ void main_build(int argc, char** argv) {
 }
 
 void main_execute(int argc, char** argv) {
+  do_a_matmul();
+
   string usage = "addr_zero is_client world_size "
                  "num_channels num_channels_per_move "
                  "event_filename args";
@@ -1154,7 +1194,7 @@ void executor_t::operator()(event_t const& event) {
 
     broadcast_cmd(cmd_t::alloc);
     comm.broadcast_contig_obj(e.mem_size);
-    data = make_buffer(e.mem_size);
+    allocate_data(e.mem_size);
 
     margs = e.make_model_args();
     num_files = e.num_files;
@@ -1198,6 +1238,13 @@ void executor_t::operator()(event_t const& event) {
     push_tensor_server(embeddings, dst_part, dst_data_locs);
   } else {
     throw std::runtime_error("missing case: event_t");
+  }
+}
+
+void executor_t::allocate_data(uint64_t mem_size) {
+  data = make_buffer(mem_size);
+  if(mlock(data->raw(), data->size) != 0) {
+    throw std::runtime_error("could not pin buffer");
   }
 }
 
@@ -1245,7 +1292,7 @@ void executor_t::listen() {
       readers.clear();
     } else if(cmd == cmd_t::alloc) {
       uint64_t memsize = comm.recv_contig_obj<uint64_t>(0);
-      data = make_buffer(memsize);
+      allocate_data(memsize);
     } else if(cmd == cmd_t::shutdown) {
       return;
     } else {
@@ -1267,12 +1314,16 @@ void executor_t::copy_into_data(buffer_t buffer, mem_t mem)
 
 void executor_t::execute(memgraph_t const& memgraph, string message)
 {
+  DLINEOUT(message << " | num memgraph nodes " << memgraph.nodes.size());
+
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
       memgraph,
       this_rank,
       kernel_executor,
       num_channels_per_move);
+
+  comm.barrier();
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
