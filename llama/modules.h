@@ -175,6 +175,7 @@ struct transformer_t {
   static dbuffer_t form_full_freqs_cis(model_args_t const& args);
   static dbuffer_t form_full_freqs_cis(
     uint64_t args_dim, uint64_t args_n_heads, uint64_t args_max_seq_len);
+  static dbuffer_t form_freqs_cis(uint64_t dim, uint64_t end);
   static dbuffer_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
 
   // grab full_freqs_cis from [start_pos: start_pos+seqlen]

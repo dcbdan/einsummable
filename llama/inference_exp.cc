@@ -28,8 +28,6 @@
 #include "../src/engine/cpu/workspace_manager.h"
 
 string get_model_base_filename(int num_files) {
-  throw std::runtime_error("not implemented");
-
   if(num_files == 1) {
     return ""; // TODO
   } else if(num_files == 2) {
@@ -220,8 +218,21 @@ private:
 };
 
 struct executor_t {
+  executor_t(
+    communicator_t& c,
+    int n,
+    exec_state_t::priority_t p)
+    : comm(c),
+      threadpool("_", std::max(1, int(std::thread::hardware_concurrency()))),
+      num_channels_per_move(n), priority_type(p)
+  {
+    this_rank = comm.get_this_rank();
+    world_size = comm.get_world_size();
+  }
+
   // only for location zero to do
   void operator()(event_t const& event);
+  void shutdown();
 
   // for every non zero location to do
   void listen();
@@ -308,7 +319,7 @@ private:
   }
 
 private:
-  communicator_t comm;
+  communicator_t& comm;
   int this_rank;
   int world_size;
 
@@ -648,7 +659,7 @@ vector<event_t> events_from_wire(string const& str) {
   return ret;
 }
 
-int main(int argc, char** argv) {
+void main_build(int argc, char** argv) {
   set_default_dtype(dtype_t::f32); // just in case
 
   args_t args(argc, argv);
@@ -691,42 +702,34 @@ int main(int argc, char** argv) {
   model_args_t margs = event_init.make_model_args();
 
   builder_t builder = builder_t::make_first_token(margs, seq_len);
-  DLINE;
 
   recorder_t recorder(event_init);
-  DLINE;
 
   recorder.read_data_matrix(builder.embeddings,
     batch_size, seq_len, margs.n_heads, margs.head_dim());
-  DLINE;
 
   for(auto const& [name, gid]: builder.weights) {
     auto shape = builder.input_shape(gid);
     recorder.read_weight(gid, name, shape);
   }
-  DLINE;
 
   recorder.close_readers();
 
-  DLINE;
   if(builder.mask) {
     int const& gid = builder.mask.value();
     recorder.insert_mask(gid, seq_len);
   }
-  DLINE;
 
   {
     int const& gid = builder.freqs_cis;
     recorder.insert_freqs_cis(
       gid, margs.dim, margs.n_heads, margs.max_seq_len);
   }
-  DLINE;
 
   {
     vector<placement_t> pls = autoplacer(builder.graph);
     recorder.execute_graph(builder.graph, pls, "init");
   }
-  DLINE;
 
   {
     int scores_gid = builder.scores;
@@ -735,10 +738,68 @@ int main(int argc, char** argv) {
 
     recorder.build_next_relation(scores_gid, builder, pls);
   }
-  DLINE;
 
   std::ofstream out(filename);
   out << events_to_wire(recorder.get_events());
+}
+
+void main_execute(int argc, char** argv) {
+  string usage = "addr_zero is_client world_size "
+                 "num_channels num_channels_per_move "
+                 "event_filename args";
+  if(argc <= 4) {
+    throw std::runtime_error(usage);
+  }
+
+  string addr_zero = parse_with_ss<string>(argv[1]);
+  bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
+  int world_size = parse_with_ss<int>(argv[3]);
+
+  int num_channels = parse_with_ss<int>(argv[4]);
+  int num_channels_per_move = parse_with_ss<int>(argv[5]);
+
+  communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
+
+  string events_filename = argv[6];
+
+  args_t args(argc-6, argv+6);
+
+  args.set_default("priority_type", "given");
+  exec_state_t::priority_t priority_type =
+    parse_priority_type(args.get<string>("priority_type"));
+
+  executor_t executor(communicator, num_channels_per_move, priority_type);
+
+  if(is_rank_zero) {
+    es_proto::InferenceEvents es;
+    std::fstream f(events_filename, std::ios::in | std::ios::binary);
+    if(!es.ParseFromIstream(&f)) {
+      throw std::runtime_error("could not parse from " + events_filename);
+    }
+    int n = es.event_size();
+    for(int i = 0; i != n; ++i) {
+      event_t event = event_t::from_proto(es.event(i));
+      executor(event);
+    }
+
+    executor.shutdown();
+  } else {
+    executor.listen();
+  }
+}
+
+int main(int argc, char** argv) {
+  string usage = "usage: " + string(argv[0]) + " [execute|build]";
+  if(argc <= 1) {
+    throw std::runtime_error(usage);
+  }
+  if(string(argv[1]) == "execute") {
+    main_execute(argc-1, argv+1);
+  } else if(string(argv[1]) == "build") {
+    main_build(argc-1, argv+1);
+  } else {
+    throw std::runtime_error(usage);
+  }
 }
 
 void recorder_t::read_data_matrix(int gid,
@@ -777,10 +838,11 @@ void recorder_t::insert_freqs_cis(
 {
   uint64_t dim  = uint64_div(args_dim, args_n_heads);
   uint64_t hdim = uint64_div(dim, 2);
+  uint64_t end  = 2*args_max_seq_len;
 
   auto data_locs = insert_relation(
     gid,
-    relation_t::make_singleton(dtype_t::c64, {args_max_seq_len, hdim}, _max_tid+1));
+    relation_t::make_singleton(dtype_t::c64, {end, hdim}, _max_tid+1));
   events.emplace_back(event_t::load_freqs_cis_t {
     args_dim, args_n_heads, args_max_seq_len, data_locs[0].as_mem()
   });
@@ -802,11 +864,9 @@ void recorder_t::execute_graph(
     };
   };
 
-  DLINE;
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
     taskgraph_t::make(graph, placements);
 
-  DLINE;
   remap_relations_t r;
 
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
@@ -815,16 +875,12 @@ void recorder_t::execute_graph(
 
     r.insert(src_rel, dst_rel);
   }
-  DLINE;
 
   remap(r, message);
-  DLINE;
 
   execute_taskgraph(taskgraph, message);
-  DLINE;
 
   relations.clear();
-  DLINE;
   _max_tid = 0;
   for(auto const& [gid, tids]: out_g_to_t) {
     relations.insert({gid, make_relation(gid, tids)});
@@ -832,7 +888,6 @@ void recorder_t::execute_graph(
       *std::max_element(tids.get().begin(), tids.get().end()),
       _max_tid);
   }
-  DLINE;
 }
 
 void recorder_t::build_next_relation(
@@ -840,24 +895,19 @@ void recorder_t::build_next_relation(
   builder_t const& next_builder,
   vector<placement_t> const& next_pls)
 {
-  DLINE;
   // Must copy scores_rel since it will be deleted
   // from relations in remap_gids
   relation_t scores_rel = relations.at(scores_gid);
   auto src_data_locs = get_data_locs(scores_rel.tids.get());
 
-  DLINE;
   remap_gids(next_builder.remap.value());
 
-  DLINE;
   int const& embedding_gid = next_builder.embeddings;
   auto const& embedding_pl = next_pls[embedding_gid];
 
-  DLINE;
   auto embedding_data_locs = insert_relation(
     embedding_gid, dtype_t::f32, embedding_pl);
 
-  DLINE;
   events.emplace_back(event_t::build_next_data_matrix_t {
     .src_partition = scores_rel.placement.partition,
     .src_data_locs = src_data_locs,
@@ -865,7 +915,6 @@ void recorder_t::build_next_relation(
     .dst_data_locs = embedding_data_locs
   });
 
-  DLINE;
   execute_graph(next_builder.graph, next_pls, "next");
 }
 
@@ -966,7 +1015,8 @@ recorder_t::insert_relation(int gid, relation_t const& relation)
   }
 
   auto const& locs = relation.placement.locations.get();
-  vector<uint64_t> sizes = relation.placement.partition.all_block_sizes().get();
+  vector<uint64_t> nelems = relation.placement.partition.all_block_sizes().get();
+  uint64_t dsz = dtype_size(relation.dtype);
 
   int nbid = tids.size();
   vector<memloc_t> ret;
@@ -974,7 +1024,8 @@ recorder_t::insert_relation(int gid, relation_t const& relation)
   for(int bid = 0; bid != nbid; ++bid) {
     int const& tid = tids[bid];
     int const& loc = locs[bid];
-    uint64_t const& size = sizes[bid];
+    uint64_t const& nelem = nelems[bid];
+    uint64_t size = nelem * dsz;
     ret.push_back(insert_data(tid, loc, size));
   }
 
@@ -1094,8 +1145,11 @@ void executor_t::operator()(event_t const& event) {
     if(e.world_size != world_size) {
       throw std::runtime_error("invalid world size provided by init");
     }
+    if(e.num_threads > threadpool.num_runners()) {
+      throw std::runtime_error("insufficient number of threads");
+    }
     if(e.num_threads != threadpool.num_runners()) {
-      throw std::runtime_error("incorrect number of threads");
+      DOUT("warning: num plan threads < num threadpool threads");
     }
 
     broadcast_cmd(cmd_t::alloc);
@@ -1123,7 +1177,6 @@ void executor_t::operator()(event_t const& event) {
     }
 
     fill_embedding_matrix_server();
-
   } else if(event.is_close_readers()) {
     broadcast_cmd(cmd_t::close_readers);
     readers.clear();
@@ -1146,6 +1199,13 @@ void executor_t::operator()(event_t const& event) {
   } else {
     throw std::runtime_error("missing case: event_t");
   }
+}
+
+void executor_t::shutdown() {
+  if(this_rank != 0) {
+    throw std::runtime_error("must shutdown on rank 0!");
+  }
+  broadcast_cmd(cmd_t::shutdown);
 }
 
 void executor_t::listen() {
@@ -1233,6 +1293,7 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
 
   if(this_rank == 0) {
     gremlin_t gremlin(message);
+    state.event_loop();
   } else {
     state.event_loop();
   }
