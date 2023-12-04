@@ -223,7 +223,7 @@ struct executor_t {
     int n,
     exec_state_t::priority_t p)
     : comm(c),
-      threadpool("_", std::max(1, int(std::thread::hardware_concurrency()))),
+      threadpool(std::max(1, int(std::thread::hardware_concurrency()))),
       num_channels_per_move(n), priority_type(p)
   {
     this_rank = comm.get_this_rank();
@@ -1385,7 +1385,7 @@ executor_t::fill_embedding_matrix(remap_relations_t const& remap)
     }
   }
 
-  repartition(comm, remap, ret);
+  repartition(comm, remap, ret, &threadpool);
 
   return ret;
 }
@@ -1475,7 +1475,7 @@ map<int, buffer_t> executor_t::get_data(
   remap_relations_t remap;
   remap.insert(src_rel, dst_rel);
 
-  repartition(comm, remap, data_map);
+  repartition(comm, remap, data_map, &threadpool);
 
   return data_map;
 }
@@ -1514,7 +1514,7 @@ void executor_t::push_data(
   remap_relations_t remap;
   remap.insert(src_rel, dst_rel);
 
-  repartition(comm, remap, data_map);
+  repartition(comm, remap, data_map, &threadpool);
 
   int nbid = dst_part.num_parts();
   for(int tid = 0; tid != nbid; ++tid) {
