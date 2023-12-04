@@ -1416,7 +1416,8 @@ relation_t _build_relation(
   partition_t const& part,
   vector<memloc_t> const& mems)
 {
-  if(mems.size() != part.num_parts()) {
+  int nbid = part.num_parts();
+  if(mems.size() != nbid) {
     throw std::runtime_error("invalid src mems length");
   }
 
@@ -1427,13 +1428,15 @@ relation_t _build_relation(
   };
 
   {
-    auto iter = mems.begin();
-    for(int& loc: rel.placement.locations.get()) {
-      loc = iter->loc;
+    vector<int>& locs = rel.placement.locations.get();
+    for(int bid = 0; bid != nbid; ++bid) {
+      auto const& memloc = mems[bid];
+      int& loc = locs[bid];
+      loc = memloc.loc;
     }
   }
 
-  rel.tids.get() = vector_iota<int>(part.num_parts());
+  rel.tids.get() = vector_iota<int>(nbid);
 
   vector<uint64_t> nelems_per_block =
     rel.placement.partition.all_block_sizes().get();
