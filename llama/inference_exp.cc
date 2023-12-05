@@ -1314,7 +1314,24 @@ void executor_t::copy_into_data(buffer_t buffer, mem_t mem)
 
 void executor_t::execute(memgraph_t const& memgraph, string message)
 {
-  DLINEOUT(message << " | num memgraph nodes " << memgraph.nodes.size());
+  if(this_rank == 0) {
+    int num_move_nodes = 0;
+    uint64_t bytes_moved = 0;
+    for(auto const& node: memgraph.nodes) {
+      if(node.op.is_move()) {
+        num_move_nodes++;
+        bytes_moved += node.op.get_move().size;
+      }
+    }
+    uint64_t MB = 1000000;
+    uint64_t mb_moved = bytes_moved / MB;
+
+    DLINEOUT(
+       message 
+       << " | num nodes " << memgraph.nodes.size() 
+       << " | num move nodes " << num_move_nodes 
+       << " | data moved " << mb_moved << "MB");
+  } 
 
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(

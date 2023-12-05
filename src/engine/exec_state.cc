@@ -1,5 +1,8 @@
 #include "exec_state.h"
 
+// #include <fstream>
+// int _filecnt = 0;
+
 exec_state_t::exec_state_t(
   exec_graph_t const& g,
   rm_ptr_t r,
@@ -9,6 +12,20 @@ exec_state_t::exec_state_t(
     resource_manager(r),
     ready_to_run(this)
 {
+  //if(this_rank > 0) {
+  //  out = std::ofstream(
+  //    "exec_state_out_cnt" + write_with_ss(_filecnt++) +
+  //    "_rank" + write_with_ss(this_rank));
+  //}
+
+  //if(out.is_open()) {
+  //  for(int i = 0; i != g.nodes.size(); ++i) {
+  //    out << i << ": ";
+  //    g.nodes[i].print(out);
+  //    out << std::endl;
+  //  }
+  //}
+
   int num_nodes = exec_graph.nodes.size();
 
   num_remaining = num_nodes;

@@ -71,5 +71,5 @@ struct exec_state_t {
   exec_graph_t const& exec_graph;
   rm_ptr_t resource_manager;
 
-  std::ofstream out;
+  //std::ofstream out;
 };

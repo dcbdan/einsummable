@@ -84,15 +84,22 @@ communicator_t::communicator_t(
       }
     }
 
-    for(int rank = 1; rank != world_size; ++rank) {
-      int oob_sock = -1;
-      oob_sock = connect_common(NULL, server_port, ai_family);
-      if(oob_sock == -1) {
-        throw std::runtime_error("_server_recv_addrs failed to connect");
-      }
+    std::mutex mutex_rank;
 
-      all_send_addr.push_back(_oob_recv_addrs(oob_sock));
-      all_recv_addr.push_back(_oob_recv_addrs(oob_sock));
+    auto connect_to_client = [&](int oob_sock) {
+      // DLINEOUT("connect_to_client: enter");
+      int rank;
+      {
+        vector<addr_data_t> some_send_addr = _oob_recv_addrs(oob_sock);
+        vector<addr_data_t> some_recv_addr = _oob_recv_addrs(oob_sock);
+
+        std::lock_guard lk(mutex_rank);
+        all_send_addr.push_back(some_send_addr);
+        all_recv_addr.push_back(some_recv_addr);
+
+        rank = all_send_addr.size() - 1;
+      }
+      // DLINEOUT("connect_to_client: rank " << rank);
 
       // Setup the endpoints here on the server
       {
@@ -118,8 +125,21 @@ communicator_t::communicator_t(
         vector<addr_data_t> recv_peers = _get_peers_less(all_send_addr, rank);
         _oob_send_addrs(oob_sock, recv_peers);
       }
+      // DLINEOUT("connect_to_client: exit");
+    };
 
-      close(oob_sock);
+    {
+		  listen_server_t connecter;
+      vector<connection_ptr_t> cs;
+      cs.reserve(world_size-1);
+      vector<std::thread> threads;
+      for(int i = 0; i != world_size-1; ++i) {
+        cs.push_back(connecter.connect());
+        threads.emplace_back(connect_to_client, cs.back()->get());
+      }	
+      for(auto& thread: threads) {
+        thread.join();
+      }
     }
 
     for(int rank = 1; rank < world_size-1; ++rank) {
@@ -134,18 +154,8 @@ communicator_t::communicator_t(
       }
     }
   } else {
-    int oob_sock = -1;
-    for(int i = 0; i != 30; ++i) {
-      using namespace std::chrono_literals;
-      std::this_thread::sleep_for(2000ms);
-      oob_sock = connect_common(addr_zero.c_str(), server_port, ai_family);
-      if(oob_sock != -1) {
-        break;
-      }
-    }
-    if(oob_sock == -1) {
-      throw std::runtime_error("_client_send_addrs failed to connect");
-    }
+    connection_ptr_t connection = connect_client(addr_zero);
+    int const& oob_sock = connection->get();
 
     {
       vector<addr_data_t> send_addr;
@@ -181,7 +191,8 @@ communicator_t::communicator_t(
       }
     }
 
-    close(oob_sock);
+    // this should close the file descriptor
+    connection = nullptr;
 
     if(this_rank < world_size - 1) {
       {
@@ -618,10 +629,10 @@ communicator_t::_oob_recv_addrs(int oob_sock) {
     data.resize(msg_size);
 
     int x =
-      read(oob_sock, data.raw(), msg_size);
-      //recv(oob_sock, data.raw(), msg_size, MSG_WAITALL);
+      //read(oob_sock, data.raw(), msg_size);
+      ::recv(oob_sock, data.raw(), msg_size, MSG_WAITALL);
     if(x != msg_size) {
-      throw std::runtime_error("did not recv the message");
+      throw std::runtime_error("did not recv the message (_oob_recv_addrs)");
     }
   }
   return ret;
@@ -639,7 +650,7 @@ void communicator_t::_oob_send_addrs(int oob_sock, vector<addr_data_t>& addr)
       //send(oob_sock, a.raw(), msg_size, 0);
 
     if(x != msg_size) {
-      throw std::runtime_error("did not send the message");
+      throw std::runtime_error("did not send the message (_oob_send_addrs)");
     }
   }
 }
@@ -647,8 +658,8 @@ void communicator_t::_oob_send_addrs(int oob_sock, vector<addr_data_t>& addr)
 int communicator_t::_oob_recv_int(int oob_sock) {
   int ret;
   int x =
-    read(oob_sock, &ret, sizeof(int));
-    //recv(oob_sock, &ret, sizeof(int), MSG_WAITALL);
+    //read(oob_sock, &ret, sizeof(int));
+    ::recv(oob_sock, &ret, sizeof(int), MSG_WAITALL);
   if(x != sizeof(int)) {
     throw std::runtime_error("oob_recv_int");
   }
