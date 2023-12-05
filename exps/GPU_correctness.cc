@@ -66,6 +66,34 @@ void print_memgraph(memgraph_t memgraph){
   }
 }
 
+auto taskgraph_stats(taskgraph_t taskgraph){
+  int num_input_msgs = 0;
+  uint64_t num_input_bytes = 0;
+  int num_core_msgs = 0;
+  uint64_t num_core_bytes = 0;
+  set<int> inputs_everywhere = taskgraph.get_input_everywhere_ids();
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_move()) {
+      uint64_t sz = node.op.get_move().size;
+      if(inputs_everywhere.count(tid) > 0) {
+        num_input_msgs++;
+        num_input_bytes += sz;
+      } else {
+        num_core_msgs++;
+        num_core_bytes += sz;
+      }
+    }
+  }
+
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("Printing taskgraph stats");
+  // DOUT("# nodes that are not moves: " << taskgraph.nodes.size() - num_input_msgs - num_core_msgs);
+  DOUT("input "
+      << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
+      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB");
+}
+
 // check if the offset in mems is greater than the bound
 // throw an error if it is
 // also check if the offset + size is greater than the bound
@@ -396,9 +424,6 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpu
     buffer_sizes.push_back(mem_size);
   }
 
-  gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(true);
-
   graph_writer_t g;
   auto A = g.input({matrix_dim, matrix_dim});
   auto B = g.input({matrix_dim, matrix_dim});
@@ -423,6 +448,9 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpu
   std::cout << "mm_basic.gv" << std::endl;
   std::ofstream f("mm_basic.gv");
   core_memgraph.print_graphviz(f);
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(true);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -460,7 +488,7 @@ void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partitio
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  uint64_t mem_size = 2lu * 1024lu * 1024lu * 1024lu;
+  uint64_t mem_size = 14lu * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < num_gpus; ++i){
     buffer_sizes.push_back(mem_size);
@@ -472,6 +500,8 @@ void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partitio
   auto pls = autolocate_agg_at_a_time_from_inns(graph, part, num_gpus, 100);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  taskgraph_stats(taskgraph);
 
   bool use_storage = true;
   bool split_off_inputs = true;

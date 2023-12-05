@@ -530,7 +530,7 @@ void server_ffnn(int argc, char** argv){
   }
 
   // auto graph = generate_ffnn(batch_size, dims);
-  auto graph = ffnn_specific_H1();
+  auto graph = ffnn_specific();
   auto pls = autoplace(graph, np, partition);
   int world_size = 1;
 
@@ -883,9 +883,9 @@ int main(int argc, char **argv) {
   // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
-  // server_ffnn(argc, argv);
+  server_ffnn(argc, argv);
   // ffnn_graph(argc, argv);
   // mm_graph(argc, argv);
   // mm_part_graph(argc, argv);
-  server_mm_partition(argc, argv);
+  // server_mm_partition(argc, argv);
 }
