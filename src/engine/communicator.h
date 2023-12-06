@@ -7,6 +7,8 @@
 #include <atomic>
 #include <memory>
 
+#include "threadpool.h"
+
 struct communicator_t {
   communicator_t(
     string addr_zero, bool is_server, int world_size_, int n_channels = 1);
@@ -28,6 +30,10 @@ struct communicator_t {
 
   void send_int(int dst, int channel, int val);
   int  recv_int(int src, int channel);
+
+  void send_parallel(threadpool_t& tp, int dst, void const* data, uint64_t size);
+  void recv_parallel(threadpool_t& tp, int src, void*       data, uint64_t size);
+
 
   // TODO: In practice, it appears to be the case that a recv post on a stream cannot
   //       be cancelled. The problem with this is that start_listen_notify originally
@@ -142,9 +148,10 @@ struct communicator_t {
   }
   string recv_string(int src) {
     int sz = recv_int(src);
-    vector<char> data(sz);
-    recv(src, reinterpret_cast<void*>(data.data()), sz);
-    return string(data.begin(), data.end());
+    string ret(sz, ' ');
+    char* ptr = &ret[0];
+    recv(src, reinterpret_cast<void*>(ptr), sz);
+    return ret;
   }
   void broadcast_string(string const& str) {
     for(int rank = 0; rank != world_size; ++rank) {
@@ -152,6 +159,28 @@ struct communicator_t {
         continue;
       }
       send_string(rank, str);
+    }
+  }
+
+  void send_string_parallel(threadpool_t& tp, int dst, string const& str) {
+    int sz = str.size();
+    char const* ptr = str.c_str();
+    send_int(dst, sz);
+    send_parallel(tp, dst, reinterpret_cast<void const*>(ptr), sz);
+  }
+  string recv_string_parallel(threadpool_t& tp, int src) {
+    int sz = recv_int(src);
+    string ret(sz, ' ');
+    char* ptr = &ret[0];
+    recv_parallel(tp, src, reinterpret_cast<void*>(ptr), sz);
+    return ret;
+  }
+  void broadcast_string_parallel(threadpool_t& tp, string const& str) {
+    for(int rank = 0; rank != world_size; ++rank) {
+      if(rank == this_rank) {
+        continue;
+      }
+      send_string_parallel(tp, rank, str);
     }
   }
 

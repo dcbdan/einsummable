@@ -8,6 +8,8 @@
 
 #include <sys/epoll.h>
 
+#include "../base/partdim.h"
+
 // TODO: put this somewhere
 static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
@@ -318,6 +320,74 @@ void communicator_t::send(int dst, int channel, void const* data, uint64_t size)
 
 void communicator_t::recv(int src, int channel, void* data, uint64_t size) {
   get_stream_recv_wire(src, channel).recv(data, size);
+}
+
+void communicator_t::send_parallel(
+  threadpool_t& threadpool,
+  int dst, 
+  void const* data,
+  uint64_t size)
+{
+  int nparts = num_channels(dst);
+  if(threadpool.num_runners() < nparts) {
+    throw std::runtime_error("must have more threads than channels");
+  }
+  partdim_t pd = partdim_t::split(size, nparts);
+
+  std::mutex m;
+  std::promise<void> promise;
+  int count = nparts;
+
+  for(int i = 0; i != nparts; ++i) {
+    uint64_t size_here = pd.size_at(i);
+    uint64_t offset = pd.offset_at(i);
+    int channel = i;
+    threadpool.insert([&, size_here, offset, channel]() {
+      send(dst, channel, increment_void_ptr(data, offset), size_here);
+
+      std::lock_guard lk(m);
+      count--;
+      if(count == 0) {
+        promise.set_value();
+      }
+    });
+  }
+
+  promise.get_future().wait();
+}
+
+void communicator_t::recv_parallel(
+  threadpool_t& threadpool,
+  int src, 
+  void* data,
+  uint64_t size)
+{
+  int nparts = num_channels(src);
+  if(threadpool.num_runners() < nparts) {
+    throw std::runtime_error("must have more threads than channels");
+  }
+  partdim_t pd = partdim_t::split(size, nparts);
+
+  std::mutex m;
+  std::promise<void> promise;
+  int count = nparts;
+
+  for(int i = 0; i != nparts; ++i) {
+    uint64_t size_here = pd.size_at(i);
+    uint64_t offset = pd.offset_at(i);
+    int channel = i;
+    threadpool.insert([&, size_here, offset, channel]() {
+      recv(src, channel, increment_void_ptr(data, offset), size_here);
+
+      std::lock_guard lk(m);
+      count--;
+      if(count == 0) {
+        promise.set_value();
+      }
+    });
+  }
+
+  promise.get_future().wait();
 }
 
 std::future<void> communicator_t::send_async(

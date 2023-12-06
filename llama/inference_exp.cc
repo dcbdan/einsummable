@@ -49,6 +49,8 @@ void do_a_matmul() {
 }
 //
 
+#define ROUT(x) if(this_rank == 0) DOUT(x)
+
 string get_model_base_filename(int num_files) {
   if(num_files == 1) {
     return "/llama_7B_13B_for_einsummable/7B"; 
@@ -799,6 +801,9 @@ void main_execute(int argc, char** argv) {
   int num_channels_per_move = parse_with_ss<int>(argv[5]);
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
+  if(is_rank_zero) {
+    DOUT("connected the communicator");
+  }
 
   string events_filename = argv[6];
 
@@ -1138,6 +1143,7 @@ void executor_t::operator()(event_t const& event) {
   }
 
   if(event.is_load_weight()) {
+    DLINE;
     auto const& [name, memlocs] = event.get_load_weight();
     int num_files = memlocs.size();
     for(int chunk = 0; chunk != num_files; ++chunk) {
@@ -1147,7 +1153,9 @@ void executor_t::operator()(event_t const& event) {
       }
       read_weight_chunk_server(chunk, name, memloc);
     }
+    DOUT("loaded weight " << name);
   } else if(event.is_load_data_matrix()) {
+    DLINE;
     auto const& [bsz, seq_len, d_embed, mem] = event.get_load_data_matrix();
     if(bsz != margs.batch_size) {
       throw std::runtime_error("bsz does not line up");
@@ -1165,22 +1173,34 @@ void executor_t::operator()(event_t const& event) {
       throw std::runtime_error("invalid size in embeddings");
     }
     copy_into_data(embeddings.data, mem);
+    DOUT("loaded data matrix");
   } else if(event.is_load_mask()) {
+    DLINE;
     auto const& [seq_len, mem] = event.get_load_mask();
     buffer_t mask = transformer_t::form_start_mask(seq_len, dtype_t::f32).data;
     copy_into_data(mask, mem);
+    DOUT("loaded mask");
   } else if(event.is_load_freqs_cis()) {
+    DLINE;
     auto const& [dim, heads, max_seq_len, mem] = event.get_load_freqs_cis();
     buffer_t freqs_cis =
       transformer_t::form_full_freqs_cis(dim, heads, max_seq_len).data;
     copy_into_data(freqs_cis, mem);
+    DOUT("loaded freqscis");
   } else if(event.is_execute()) {
+    DOUT("starting execute");
     auto const& [message, memgraph] = event.get_execute();
+    DLINE;
     broadcast_cmd(cmd_t::execute);
+    DLINE;
     comm.broadcast_string(message);
-    comm.broadcast_string(memgraph.to_wire());
+    DLINE;
+    comm.broadcast_string_parallel(threadpool, memgraph.to_wire());
+    DLINE;
     execute(memgraph, message);
+    DLINE;
   } else if(event.is_init()) {
+    DOUT("starting init");
     auto const& e = event.get_init();
     if(e.world_size != world_size) {
       throw std::runtime_error("invalid world size provided by init");
@@ -1217,10 +1237,14 @@ void executor_t::operator()(event_t const& event) {
     }
 
     fill_embedding_matrix_server();
+    DOUT("finished init");
   } else if(event.is_close_readers()) {
+    DOUT("startint close readers");
     broadcast_cmd(cmd_t::close_readers);
     readers.clear();
+    DOUT("closed readers");
   } else if(event.is_build_next_data_matrix()) {
+    DOUT("starting build next data matrix");
     auto const& [src_part, src_data_locs, dst_part, dst_data_locs] =
       event.get_build_next_data_matrix();
 
@@ -1236,6 +1260,7 @@ void executor_t::operator()(event_t const& event) {
       top_choices);
 
     push_tensor_server(embeddings, dst_part, dst_data_locs);
+    DOUT("built next data matrix");
   } else {
     throw std::runtime_error("missing case: event_t");
   }
@@ -1264,7 +1289,8 @@ void executor_t::listen() {
     cmd_t cmd = recv_cmd();
     if(cmd == cmd_t::execute) {
       string message = comm.recv_string(0);
-      memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
+      memgraph_t memgraph = memgraph_t::from_wire(
+        comm.recv_string_parallel(threadpool, 0));
       execute(memgraph, message);
     } else if(cmd == cmd_t::read_weight_chunk) {
       int chunk = comm.recv_int(0);
