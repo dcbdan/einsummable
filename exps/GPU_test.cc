@@ -669,6 +669,9 @@ void mm_part_graph(int argc, char** argv){
   auto pls = autolocate_agg_at_a_time_from_inns(graph, part, np, 100);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  taskgraph_stats(taskgraph);
+
   uint64_t mem_size = 2lu * 1000lu * 1000lu * 1000lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
@@ -681,6 +684,8 @@ void mm_part_graph(int argc, char** argv){
   auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
     taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
     use_storage, split_off_inputs);
+
+  memgraph_mem_stats(core_memgraph);
 
   std::cout << "mm_part_graph.gv" << std::endl;
   std::ofstream f("mm_part_graph.gv");
@@ -883,9 +888,9 @@ int main(int argc, char **argv) {
   // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
-  server_ffnn(argc, argv);
+  // server_ffnn(argc, argv);
   // ffnn_graph(argc, argv);
   // mm_graph(argc, argv);
   // mm_part_graph(argc, argv);
-  // server_mm_partition(argc, argv);
+  server_mm_partition(argc, argv);
 }

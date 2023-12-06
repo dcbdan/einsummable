@@ -89,9 +89,42 @@ auto taskgraph_stats(taskgraph_t taskgraph){
   auto to_mb = [](uint64_t n) { return double(n)/1e6; };
   DOUT("Printing taskgraph stats");
   // DOUT("# nodes that are not moves: " << taskgraph.nodes.size() - num_input_msgs - num_core_msgs);
-  DOUT("input "
-      << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
-      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB");
+  DOUT("input Moves: " << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
+      << "Core Moves: " << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB");
+}
+
+auto memgraph_mem_stats(memgraph_t memgraph){
+  DOUT("Number of nodes in memgraph: " << memgraph.nodes.size());
+  int num_moves = 0;
+  int num_loads = 0;
+  int num_evicts = 0;
+  uint64_t num_move_bytes = 0;
+  uint64_t num_load_bytes = 0;
+  uint64_t num_evict_bytes = 0;
+  for(int tid = 0; tid != memgraph.nodes.size(); ++tid) {
+    auto const& node = memgraph.nodes[tid];
+    if(node.op.is_move()) {
+      uint64_t sz = node.op.get_move().size;
+      num_moves++;
+      num_move_bytes += sz;
+    }
+    else if (node.op.is_evict()){
+      uint64_t sz = node.op.get_evict().src.size;
+      num_evicts++;
+      num_evict_bytes += sz;
+    }
+    else if (node.op.is_load()){
+      uint64_t sz = node.op.get_load().dst.size;
+      num_loads++;
+      num_load_bytes += sz;
+    }
+  }
+
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("Printing memgraph stats");
+  DOUT("Moves: " << num_moves << "#, " << to_mb(num_move_bytes) << "MB, "
+      << "Loads: " << num_loads << "#, " << to_mb(num_load_bytes) << "MB, "
+      << "Evicts: " << num_evicts << "#, " << to_mb(num_evict_bytes) << "MB");
 }
 
 // check if the offset in mems is greater than the bound
