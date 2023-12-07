@@ -4,6 +4,8 @@
 #include "exec_graph.h"
 #include "resource_manager.h"
 
+// #define EXEC_STATE_PRINT
+
 struct exec_state_t {
   enum class priority_t {
     given,
@@ -71,5 +73,7 @@ struct exec_state_t {
   exec_graph_t const& exec_graph;
   rm_ptr_t resource_manager;
 
-  //std::ofstream out;
+#ifdef EXEC_STATE_PRINT 
+  std::ofstream out;
+#endif
 };

@@ -120,11 +120,14 @@ struct event_t {
     partition_t dst_partition;
     vector<memloc_t> dst_data_locs;
   };
+  struct random_t {
+    vector<memloc_t> mems;
+  };
 
   std::variant<
     init_t, close_readers_t,
     load_weight_t, load_data_matrix_t, load_mask_t, load_freqs_cis_t,
-    execute_t, build_next_data_matrix_t
+    execute_t, build_next_data_matrix_t, random_t
   > op;
 
   string to_wire() const;
@@ -149,6 +152,8 @@ struct event_t {
     return std::holds_alternative<execute_t>(               op); }
   bool is_build_next_data_matrix() const {
     return std::holds_alternative<build_next_data_matrix_t>(op); }
+  bool is_random()                 const {
+    return std::holds_alternative<random_t>(                op); }
 
   init_t                   const& get_init()                   const {
     return std::get<init_t>(                  op); }
@@ -166,6 +171,8 @@ struct event_t {
     return std::get<execute_t>(               op); }
   build_next_data_matrix_t const& get_build_next_data_matrix() const {
     return std::get<build_next_data_matrix_t>(op); }
+  random_t                 const& get_random()                 const {
+    return std::get<random_t>(                op); }
 };
 
 struct recorder_t {
@@ -192,7 +199,8 @@ struct recorder_t {
   void execute_graph(
     graph_t const& graph,
     vector<placement_t> const& pls,
-    string message);
+    string message,
+    set<int> random_gids = {});
 
   void build_next_relation(
     int scores_gids,
@@ -218,7 +226,10 @@ private:
 
   void remap(remap_relations_t const& remap_relations, string message);
 
-  void execute_taskgraph(taskgraph_t const& taskgraph, string message);
+  void execute_taskgraph(
+    taskgraph_t const& taskgraph, 
+    string message, 
+    vector<int> const& random_tids);
 
   vector<memloc_t> get_data_locs(vector<int> const& tids);
 
@@ -301,6 +312,7 @@ private:
 
   void allocate_data(uint64_t size);
 
+  void fill_random_f32s(vector<mem_t> const& mems);
 private:
   enum class cmd_t {
     execute,
@@ -311,6 +323,7 @@ private:
     open_reader,
     close_readers,
     alloc,
+    random,
     shutdown
   };
 
@@ -324,6 +337,7 @@ private:
       "open_reader",
       "close_reader",
       "alloc",
+      "random",
       "shutdown"
     };
     return ret;
@@ -692,6 +706,12 @@ vector<event_t> events_from_file(string const& filename) {
   return events_from_wire(buffer.str());
 }
 
+enum class build_type_t {
+  init_next = 0,
+  just_init,
+  just_next
+};
+
 void main_build(int argc, char** argv) {
   set_default_dtype(dtype_t::f32); // just in case
 
@@ -708,10 +728,6 @@ void main_build(int argc, char** argv) {
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  string filename = args.get<string>("filename");
-
-  llama_autoplacer_t autoplacer(world_size, num_threads, args);
-
   int num_files;
   if(model == "7B") {
     num_files = 1;
@@ -722,6 +738,22 @@ void main_build(int argc, char** argv) {
   } else if(model == "65B") {
     num_files = 8;
   }
+
+  args.set_default("build_type", "init_next");
+  build_type_t build_type;
+  if(args.get<string>("build_type") == "init_next") {
+    build_type = build_type_t::init_next;
+  } else if(args.get<string>("build_type") == "just_next") {
+    build_type = build_type_t::just_next;
+  } else if(args.get<string>("build_type") == "just_init") {
+    build_type = build_type_t::just_init;
+  } else {
+    throw std::runtime_error("invalid build_type");
+  }
+
+  string filename = args.get<string>("filename");
+
+  llama_autoplacer_t autoplacer(world_size, num_threads, args);
 
   event_t::init_t event_init {
     .world_size  = world_size,
@@ -738,15 +770,25 @@ void main_build(int argc, char** argv) {
   DLINEOUT("num files   " << num_files);
   DLINEOUT("batch sz    " << batch_size);
   DLINEOUT("seq len     " << seq_len);
-
-  model_args_t margs = event_init.make_model_args();
-
-  builder_t builder = builder_t::make_first_token(margs, seq_len);
+  DLINEOUT("build type  " << int(build_type));
 
   recorder_t recorder(event_init);
 
-  recorder.read_data_matrix(builder.embeddings,
-    batch_size, seq_len, margs.n_heads, margs.head_dim());
+  model_args_t margs = event_init.make_model_args();
+
+  builder_t builder = [&] {
+    if(build_type == build_type_t::just_next) {
+      auto init = builder_t::make_first_token(margs, seq_len - 1);
+      return builder_t::make_next_token(init);
+    } else {
+      return builder_t::make_first_token(margs, seq_len);
+    }
+  }();
+
+  if(build_type != build_type_t::just_next) {
+    recorder.read_data_matrix(builder.embeddings,
+      batch_size, seq_len, margs.n_heads, margs.head_dim());
+  }
 
   for(auto const& [name, gid]: builder.weights) {
     auto shape = builder.input_shape(gid);
@@ -768,10 +810,22 @@ void main_build(int argc, char** argv) {
 
   {
     vector<placement_t> pls = autoplacer(builder.graph);
-    recorder.execute_graph(builder.graph, pls, "init");
+
+    set<int> random_gids;
+    if(build_type == build_type_t::just_next) {
+      random_gids.insert(builder.embeddings);
+      for(auto const& [key_id, value_id]: builder.prev_kv.value()) {
+        random_gids.insert(key_id);
+        random_gids.insert(value_id);
+      }
+    }
+
+    string msg = build_type == build_type_t::just_next ? "next" : "init";
+    recorder.execute_graph(builder.graph, pls, msg, random_gids);
   }
 
-  {
+
+  if(build_type == build_type_t::init_next) {
     int scores_gid = builder.scores;
     builder = builder_t::make_next_token(builder);
     vector<placement_t> pls = autoplacer(builder.graph);
@@ -903,8 +957,15 @@ void recorder_t::insert_freqs_cis(
 void recorder_t::execute_graph(
   graph_t const& graph,
   vector<placement_t> const& placements,
-  string message)
+  string message,
+  set<int> random_gids)
 {
+  for(auto const& gid: random_gids) {
+    if(graph.nodes[gid].op.out_dtype() != dtype_t::f32) {
+      throw std::runtime_error("invalid dtype in random_gids");
+    }
+  }
+
   // it's all about to get wonky, so just reset the allocators
   _allocators = std::nullopt;
 
@@ -919,9 +980,18 @@ void recorder_t::execute_graph(
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
     taskgraph_t::make(graph, placements);
 
+  vector<int> random_tids;
+  for(auto const& gid: random_gids) {
+    vector_concatenate_into(random_tids, inn_g_to_t.at(gid).get());
+  }
+
   remap_relations_t r;
 
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
+    if(random_gids.count(gid) > 0) {
+      continue;
+    }
+
     relation_t const& src_rel = get_relation(gid);
     relation_t        dst_rel = make_relation(gid, dst_tids);
 
@@ -930,7 +1000,7 @@ void recorder_t::execute_graph(
 
   remap(r, message);
 
-  execute_taskgraph(taskgraph, message);
+  execute_taskgraph(taskgraph, message, random_tids);
 
   relations.clear();
   _max_tid = 0;
@@ -1009,7 +1079,11 @@ void recorder_t::remap(remap_relations_t const& remap_relations, string message)
   }
 }
 
-void recorder_t::execute_taskgraph(taskgraph_t const& taskgraph, string message) {
+void recorder_t::execute_taskgraph(
+  taskgraph_t const& taskgraph, 
+  string message,
+  vector<int> const& random_tids)
+{
   map<int, memstoloc_t> tensors_;
   for(auto const& [tid, memloc]: tensors) {
     tensors_.insert({tid, memstoloc_t(memloc)});
@@ -1023,6 +1097,17 @@ void recorder_t::execute_taskgraph(taskgraph_t const& taskgraph, string message)
       tensors_, alloc_settings, false, true);
 
   tensors_.clear();
+
+  if(random_tids.size() > 0) {
+    vector<memloc_t> random_locs;
+    random_locs.reserve(random_tids.size());
+    for(auto const& tid: random_tids) {
+      random_locs.push_back(inn_tg_to_loc.at(tid).get_memloc());
+    }
+    events.emplace_back(event_t::random_t {
+      .mems = random_locs
+    });
+  }
 
   events.emplace_back(event_t::execute_t {
     .message = message + ":inputs",
@@ -1268,6 +1353,18 @@ void executor_t::operator()(event_t const& event) {
 
     push_tensor_server(embeddings, dst_part, dst_data_locs);
     DOUT("built next data matrix");
+  } else if(event.is_random()) {
+    DOUT("random");
+    broadcast_cmd(cmd_t::random);
+    auto const& memlocs = event.get_random().mems;
+    vector<vector<mem_t>> mems(world_size);
+    for(auto const& memloc: memlocs) {
+      mems[memloc.loc].push_back(memloc.as_mem());
+    }
+    for(int dst = 1; dst != world_size; ++dst) {
+      comm.send_vector(dst, mems[dst]);
+    }
+    fill_random_f32s(mems[this_rank]);
   } else {
     throw std::runtime_error("missing case: event_t");
   }
@@ -1277,6 +1374,15 @@ void executor_t::allocate_data(uint64_t mem_size) {
   data = make_buffer(mem_size);
   if(mlock(data->raw(), data->size) != 0) {
     throw std::runtime_error("could not pin buffer");
+  }
+}
+
+void executor_t::fill_random_f32s(vector<mem_t> const& mems) {
+  for(auto const& mem: mems) {
+    dbuffer_t dbuffer(
+      dtype_t::f32,
+      make_buffer_reference(data->data + mem.offset, mem.size));
+    dbuffer.random("-0.00001", "0.00001");
   }
 }
 
@@ -1326,6 +1432,8 @@ void executor_t::listen() {
     } else if(cmd == cmd_t::alloc) {
       uint64_t memsize = comm.recv_contig_obj<uint64_t>(0);
       allocate_data(memsize);
+    } else if(cmd == cmd_t::random) {
+      fill_random_f32s(comm.recv_vector<mem_t>(0));
     } else if(cmd == cmd_t::shutdown) {
       return;
     } else {
@@ -1397,7 +1505,7 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
     }
   ));
 
-  exec_state_t state(graph, resource_manager, priority_type);
+  exec_state_t state(graph, resource_manager, priority_type, this_rank);
 
   if(this_rank == 0) {
     gremlin_t gremlin(message);
@@ -1713,6 +1821,12 @@ void event_t::to_proto(es_proto::InferenceEvent& ret) const
     for(auto const& mem: build_next.dst_data_locs) {
       mem.to_proto(*i->add_dst_data_locs());
     }
+  } else if(is_random()) {
+    auto const& mems = get_random().mems;
+    auto* i = ret.mutable_random();
+    for(auto const& mem: mems) {
+      mem.to_proto(*i->add_mems());
+    }
   } else {
     throw std::runtime_error("missing case: event to proto");
   }
@@ -1807,6 +1921,17 @@ event_t event_t::from_proto(es_proto::InferenceEvent const& ie)
       .src_data_locs = src_data_locs,
       .dst_partition = partition_t::from_proto(b.dst_part()),
       .dst_data_locs = dst_data_locs
+    });
+  } else if(ie.has_random()) {
+    auto const& r = ie.random();
+    vector<memloc_t> mems;
+    int num = r.mems_size();
+    mems.reserve(num);
+    for(int i = 0; i != num; ++i) {
+      mems.push_back(memloc_t::from_proto(r.mems(i)));
+    }
+    return event_t(random_t {
+      .mems = std::move(mems)
     });
   } else {
     throw std::runtime_error("missing case");

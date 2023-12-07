@@ -45,7 +45,6 @@ optional<int>
 send_channel_manager_t::acquire_channel(int loc)
 {
   if(num_remaining == 0) {
-    DLINEOUT("send_channel_manager: count hit zero!");
     return std::nullopt;
   }
 

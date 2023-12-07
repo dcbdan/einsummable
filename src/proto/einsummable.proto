@@ -259,6 +259,10 @@ message IEBuildNext {
   repeated MemLoc dst_data_locs = 4;
 }
 
+message IERandom {
+  repeated MemLoc mems = 1;
+}
+
 message InferenceEvent {
   oneof op {
     IEInit init = 1;
@@ -269,6 +273,7 @@ message InferenceEvent {
     IELoadFreqsCis load_freqs_cis = 6;
     IEExecute execute = 7;
     IEBuildNext build_next = 8;
+    IERandom random = 9;
   }
 }
 

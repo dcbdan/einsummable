@@ -1,7 +1,7 @@
 #include "exec_state.h"
 
-// #include <fstream>
-// int _filecnt = 0;
+#include <fstream>
+int _filecnt = 0;
 
 exec_state_t::exec_state_t(
   exec_graph_t const& g,
@@ -12,19 +12,19 @@ exec_state_t::exec_state_t(
     resource_manager(r),
     ready_to_run(this)
 {
-  //if(this_rank > 0) {
-  //  out = std::ofstream(
-  //    "exec_state_out_cnt" + write_with_ss(_filecnt++) +
-  //    "_rank" + write_with_ss(this_rank));
-  //}
+  DLINEOUT("this rank is " << this_rank << " | num exec graph nodes " << g.nodes.size());
+#ifdef EXEC_STATE_PRINT
+  DLINEOUT("this rank is " << this_rank << " | filecnt " << _filecnt);
+  out = std::ofstream(
+    "exec_state_out_cnt" + write_with_ss(_filecnt++) +
+    "_rank" + write_with_ss(this_rank));
 
-  //if(out.is_open()) {
-  //  for(int i = 0; i != g.nodes.size(); ++i) {
-  //    out << i << ": ";
-  //    g.nodes[i].print(out);
-  //    out << std::endl;
-  //  }
-  //}
+  for(int i = 0; i != g.nodes.size(); ++i) {
+    out << i << ": ";
+    g.nodes[i].print(out);
+    out << std::endl;
+  }
+#endif  
 
   int num_nodes = exec_graph.nodes.size();
 
@@ -112,6 +112,10 @@ void exec_state_t::event_loop() {
       int id = processing.back();
       processing.pop_back();
 
+#ifdef EXEC_STATE_PRINT 
+      out << "finished " << id << std::endl;
+#endif
+
       auto iter = is_running.find(id);
 
       resource_manager->release(iter->second);
@@ -134,6 +138,9 @@ void exec_state_t::event_loop() {
         ready_to_run.pop();
         if(try_to_launch(id)) {
           // started id
+#ifdef EXEC_STATE_PRINT 
+          out << "started " << id << std::endl;
+#endif
         } else {
           failed.push(id);
         }
