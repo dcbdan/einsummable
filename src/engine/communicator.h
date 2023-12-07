@@ -113,8 +113,8 @@ struct communicator_t {
 
   template <typename T>
   void send_vector(int dst, vector<T> const& xs) {
-    int n = xs.size();
-    send_int(dst, n);
+    uint64_t n = xs.size();
+    send_contig_obj(dst, n);
     send(
       dst,
       reinterpret_cast<void const*>(xs.data()),
@@ -122,7 +122,7 @@ struct communicator_t {
   }
   template <typename T>
   vector<T> recv_vector(int src) {
-    int n = recv_int(src);
+    uint64_t n = recv_contig_obj<uint64_t>(src);
     vector<T> ret(n);
     recv(
       src,
@@ -141,13 +141,13 @@ struct communicator_t {
   }
 
   void send_string(int dst, string const& str) {
-    int sz = str.size();
+    uint64_t sz = str.size();
     char const* ptr = str.c_str();
-    send_int(dst, sz);
+    send_contig_obj(dst, sz);
     send(dst, reinterpret_cast<void const*>(ptr), sz);
   }
   string recv_string(int src) {
-    int sz = recv_int(src);
+    uint64_t sz = recv_contig_obj<uint64_t>(src);
     string ret(sz, ' ');
     char* ptr = &ret[0];
     recv(src, reinterpret_cast<void*>(ptr), sz);
@@ -163,13 +163,13 @@ struct communicator_t {
   }
 
   void send_string_parallel(threadpool_t& tp, int dst, string const& str) {
-    int sz = str.size();
+    uint64_t sz = str.size();
     char const* ptr = str.c_str();
-    send_int(dst, sz);
+    send_contig_obj(dst, sz);
     send_parallel(tp, dst, reinterpret_cast<void const*>(ptr), sz);
   }
   string recv_string_parallel(threadpool_t& tp, int src) {
-    int sz = recv_int(src);
+    uint64_t sz = recv_contig_obj<uint64_t>(src);
     string ret(sz, ' ');
     char* ptr = &ret[0];
     recv_parallel(tp, src, reinterpret_cast<void*>(ptr), sz);

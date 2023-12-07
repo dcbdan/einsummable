@@ -188,7 +188,10 @@ struct exec_graph_t {
       out << "send {id = " << id << "}";
     }
 
-    int get_priority() const { return 10; }
+    // Note: the priority of recv_t should be lower than send_t since
+    // a send node can't finish until the opposing recv node has
+    // been launched whereas a recv node can always finish.
+    int get_priority() const { return 11; }
   };
 
   struct recv_t : op_base_t {

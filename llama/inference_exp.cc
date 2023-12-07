@@ -816,14 +816,21 @@ void main_execute(int argc, char** argv) {
   executor_t executor(communicator, num_channels_per_move, priority_type);
 
   if(is_rank_zero) {
-    es_proto::InferenceEvents es;
-    std::fstream f(events_filename, std::ios::in | std::ios::binary);
-    if(!es.ParseFromIstream(&f)) {
-      throw std::runtime_error("could not parse from " + events_filename);
+    // Load all the events first instead of one at a time so 
+    // that if an out of memory error will occur, it will occur earlier 
+    vector<event_t> events;
+    {
+      es_proto::InferenceEvents es;
+      std::fstream f(events_filename, std::ios::in | std::ios::binary);
+      if(!es.ParseFromIstream(&f)) {
+        throw std::runtime_error("could not parse from " + events_filename);
+      }
+      int n = es.event_size();
+      for(int i = 0; i != n; ++i) {
+        events.push_back(event_t::from_proto(es.event(i)));
+      }
     }
-    int n = es.event_size();
-    for(int i = 0; i != n; ++i) {
-      event_t event = event_t::from_proto(es.event(i));
+    for(auto const& event: events) {
       executor(event);
     }
 
@@ -1366,7 +1373,9 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
       kernel_executor,
       num_channels_per_move);
 
+  ROUT("barrier...");
   comm.barrier();
+  ROUT("...");
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
@@ -1387,6 +1396,7 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
 
   if(this_rank == 0) {
     gremlin_t gremlin(message);
+    ROUT("event loop");
     state.event_loop();
   } else {
     state.event_loop();
