@@ -285,6 +285,11 @@ rm_ptr_t create_repartition_resource_manager(
   map<int, buffer_t>& data,
   threadpool_t& threadpool)
 {
+  int n_threads = threadpool.num_runners();
+  if(n_threads == 1) {
+    throw std::runtime_error("must have more than one thread in the threadpool");
+  }
+
   vector<rm_ptr_t> managers;
 
   managers.reserve(3);
@@ -294,7 +299,7 @@ rm_ptr_t create_repartition_resource_manager(
   auto& rcm = *static_cast<recv_channel_manager_t*>(managers.back().get());
   managers.emplace_back(new notifier_t(communicator, rcm));
 
-  managers.emplace_back(new send_channel_manager_t(communicator));
+  managers.emplace_back(new send_channel_manager_t(communicator, n_threads - 1));
   managers.emplace_back(new threadpool_manager_t(threadpool));
   return rm_ptr_t(new resource_manager_t(managers));
 }

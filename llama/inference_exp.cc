@@ -1347,6 +1347,11 @@ void executor_t::copy_into_data(buffer_t buffer, mem_t mem)
 
 void executor_t::execute(memgraph_t const& memgraph, string message)
 {
+  int n_threads = threadpool.num_runners();
+  if(n_threads == 1) {
+    throw std::runtime_error("must have more than one thread in the threadpool");
+  }
+
   if(this_rank == 0) {
     int num_move_nodes = 0;
     uint64_t bytes_moved = 0;
@@ -1386,7 +1391,7 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
       rm_ptr_t(new group_manager_t()),
       rm_ptr_t(new global_buffers_t(data->raw())),
       rm_ptr_t(new notifier_t(comm, rcm)),
-      rm_ptr_t(new send_channel_manager_t(comm)),
+      rm_ptr_t(new send_channel_manager_t(comm, n_threads - 1)),
       rcm_ptr,
       rm_ptr_t(new threadpool_manager_t(threadpool))
     }

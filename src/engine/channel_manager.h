@@ -18,7 +18,7 @@ struct send_channel_manager_t
   : rm_template_t<int, send_channel_manager_resource_t>
     // desc_t { int the_loc }
 {
-  send_channel_manager_t(communicator_t& comm);
+  send_channel_manager_t(communicator_t& comm, int max_count);
 
 private:
   communicator_t& comm;
@@ -35,6 +35,9 @@ private:
   try_to_acquire_impl(int const& loc);
 
   void release_impl(send_channel_manager_resource_t const& rsrc);
+
+private:
+  int num_remaining;
 };
 
 /////////
