@@ -53,11 +53,11 @@ void do_a_matmul() {
 
 string get_model_base_filename(int num_files) {
   if(num_files == 1) {
-    return "/llama_7B_13B_for_einsummable/7B"; 
+    return "/llama_7B_13B_for_einsummable/7B";
   } else if(num_files == 2) {
     return "/llama_7B_13B_for_einsummable/13B";
   } else if(num_files == 4) {
-    return "/llama30B/es/30B"; 
+    return "/llama30B/es/30B";
   } else if(num_files == 8) {
     return "/llama65B/es/65B";
   } else {
@@ -177,7 +177,7 @@ struct event_t {
 
 struct recorder_t {
   recorder_t(event_t::init_t const& event_init)
-    : _max_tid(0),
+    : _max_tid(0), _current_read_rank(0),
       world_size(event_init.world_size),
       mem_size(event_init.mem_size),
       num_files(event_init.num_files),
@@ -227,19 +227,27 @@ private:
   void remap(remap_relations_t const& remap_relations, string message);
 
   void execute_taskgraph(
-    taskgraph_t const& taskgraph, 
-    string message, 
+    taskgraph_t const& taskgraph,
+    string message,
     vector<int> const& random_tids);
 
   vector<memloc_t> get_data_locs(vector<int> const& tids);
 
   void remap_gids(vector<tuple<int,int>> const& remap);
 
+  int current_read_rank() {
+    int ret = _current_read_rank;
+    _current_read_rank += 1;
+    return ret % world_size;
+  }
+
 private:
   map<int, relation_t> relations;
   map<int, memloc_t> tensors;
 
   int _max_tid;
+
+  int _current_read_rank;
 
   int world_size;
   uint64_t mem_size;
@@ -380,7 +388,6 @@ private:
   int num_files;
   model_args_t margs;
   // }}}
-
 };
 
 struct token_maker_t {
@@ -870,8 +877,8 @@ void main_execute(int argc, char** argv) {
   executor_t executor(communicator, num_channels_per_move, priority_type);
 
   if(is_rank_zero) {
-    // Load all the events first instead of one at a time so 
-    // that if an out of memory error will occur, it will occur earlier 
+    // Load all the events first instead of one at a time so
+    // that if an out of memory error will occur, it will occur earlier
     vector<event_t> events;
     {
       es_proto::InferenceEvents es;
@@ -922,6 +929,12 @@ void recorder_t::read_data_matrix(int gid,
 void recorder_t::read_weight(int gid, string name, vector<uint64_t> const& shape)
 {
   auto rel = tensor_reader_t::get_placement(name, shape, world_size, num_files);
+
+  // the locations in rel refer to file locations which are always
+  // 0,1,...
+  for(int& loc: rel.locations.get()) {
+    loc = current_read_rank();
+  }
 
   auto data_locs = insert_relation(gid, dtype_t::f32, rel);
 
@@ -1080,7 +1093,7 @@ void recorder_t::remap(remap_relations_t const& remap_relations, string message)
 }
 
 void recorder_t::execute_taskgraph(
-  taskgraph_t const& taskgraph, 
+  taskgraph_t const& taskgraph,
   string message,
   vector<int> const& random_tids)
 {
@@ -1240,9 +1253,6 @@ void executor_t::operator()(event_t const& event) {
     int num_files = memlocs.size();
     for(int chunk = 0; chunk != num_files; ++chunk) {
       auto const& memloc = memlocs[chunk];
-      if(memloc.loc != (chunk % world_size)) {
-        throw std::runtime_error("read weight: this loc is probably wrong");
-      }
       read_weight_chunk_server(chunk, name, memloc);
     }
     DOUT("loaded weight " << name);
@@ -1318,10 +1328,9 @@ void executor_t::operator()(event_t const& event) {
         si = "0" + si;
       }
       string filename = base_filename + "_" + si;
-      int loc = i % world_size;
-      if(loc == 0) {
-        readers.insert({i, local_tensor_reader_t(filename)});
-      } else {
+
+      readers.insert({i, local_tensor_reader_t(filename)});
+      for(int loc = 1; loc != world_size; ++loc) {
         send_cmd(loc, cmd_t::open_reader);
         comm.send_int(loc, i);
         comm.send_string(loc, filename);
@@ -1473,11 +1482,11 @@ void executor_t::execute(memgraph_t const& memgraph, string message)
     uint64_t mb_moved = bytes_moved / MB;
 
     DLINEOUT(
-       message 
-       << " | num nodes " << memgraph.nodes.size() 
-       << " | num move nodes " << num_move_nodes 
+       message
+       << " | num nodes " << memgraph.nodes.size()
+       << " | num move nodes " << num_move_nodes
        << " | data moved " << mb_moved << "MB");
-  } 
+  }
 
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
