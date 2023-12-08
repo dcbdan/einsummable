@@ -73,7 +73,8 @@ struct exec_state_t {
   exec_graph_t const& exec_graph;
   rm_ptr_t resource_manager;
 
-#ifdef EXEC_STATE_PRINT 
+#ifdef EXEC_STATE_PRINT
   std::ofstream out;
 #endif
+  int this_rank;
 };
