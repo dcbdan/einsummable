@@ -53,6 +53,32 @@ gpu_mg_server_t::gpu_mg_server_t(
 
   // initialize the stream pool now that we have num_gpus_per_node
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
+
+  // When creating the gpu server, also enable peer access to have best transfer performance
+  int deviceCount;
+  cudaGetDeviceCount(&deviceCount);
+  for (int i = 0; i < deviceCount; ++i) {
+    for (int j = 0; j < deviceCount; ++j) {
+      if (i != j) {
+        cudaSetDevice(i);
+        cudaDeviceEnablePeerAccess(j, 0);
+      }
+    }
+  }
+
+  // check if the peer access is really enabled
+  for (int i = 0; i < deviceCount; ++i) {
+    for (int j = 0; j < deviceCount; ++j) {
+      if (i != j) {
+        int canAccessPeer;
+        cudaSetDevice(i);
+        cudaDeviceCanAccessPeer(&canAccessPeer, i, j);
+        if (canAccessPeer != 1){
+          throw std::runtime_error("Peer access is not enabled");
+        }
+      }
+    }
+  }
 }
 
 void gpu_mg_server_t::execute_memgraph(
