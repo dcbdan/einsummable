@@ -153,7 +153,7 @@ relation_t tensor_reader_t::operator()(
 
   // Everything that isn't a norm is partitioned into column strips
   // or into row strips.
-  auto placement = get_placement(name, shape);
+  auto placement = get_placement(name, shape, world_size, n_total_files);
   auto block_shape = placement.block_shape();
 
   // construct the tids
@@ -222,8 +222,15 @@ map<int, buffer_t> tensor_reader_t::_read(
 
 placement_t tensor_reader_t::get_placement(
   string const& name,
-  vector<uint64_t> const& shape) const
+  vector<uint64_t> const& shape,
+  int world_size,
+  int n_total_files)
 {
+  if(name.find("norm") != string::npos) {
+    return placement_t(partition_t::singleton(shape));
+  }
+  /////////
+
   vector<int> locs;
   locs.reserve(n_total_files);
   for(int i = 0; i != n_total_files; ++i) {

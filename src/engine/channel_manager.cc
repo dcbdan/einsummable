@@ -1,8 +1,12 @@
 #include "channel_manager.h"
 
-send_channel_manager_t::send_channel_manager_t(communicator_t& comm)
-  : comm(comm)
+send_channel_manager_t::send_channel_manager_t(communicator_t& comm, int max_count)
+  : comm(comm), num_remaining(max_count)
 {
+  if(num_remaining <= 0) {
+    throw std::runtime_error("invalid max_count provided to send_channel_manager");
+  }
+
   int world_size = comm.get_world_size();
   int this_rank = comm.get_this_rank();
   for(int rank = 0; rank != world_size; ++rank) {
@@ -40,11 +44,17 @@ send_channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
 optional<int>
 send_channel_manager_t::acquire_channel(int loc)
 {
+  if(num_remaining == 0) {
+    return std::nullopt;
+  }
+
   auto& cs = avail_channels.at(loc);
 
   if(cs.size() == 0) {
     return std::nullopt;
   }
+
+  num_remaining--;
 
   optional<int> ret(cs.back());
   cs.pop_back();
@@ -54,6 +64,7 @@ send_channel_manager_t::acquire_channel(int loc)
 
 void send_channel_manager_t::release_channel(int loc, int channel) {
   avail_channels.at(loc).push_back(channel);
+  num_remaining++;
 }
 
 /////////

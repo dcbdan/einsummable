@@ -3,6 +3,7 @@
 notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
   : comm(cm), recv_channel_manager(rcm)
 {
+  bool constant_poll = false;
   comm.start_listen_notify(
     sizeof(msg_t),
     [this](vector<uint8_t> data) {
@@ -16,7 +17,8 @@ notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
         this->process(msg);
         return false;
       }
-  });
+    },
+    constant_poll);
 }
 
 notifier_t::~notifier_t() {
@@ -43,14 +45,22 @@ void notifier_t::notify_recv_ready(int dst, int id) {
   comm.notify(dst, reinterpret_cast<void*>(&msg), sizeof(msg));
 }
 
-void notifier_t::wait_send_ready(int id) {
-  std::future<void> f = get_send_future(id);
-  return f.get();
+void notifier_t::wait_send_ready(int id, std::function<void()> callback) {
+  std::unique_lock lk(m);
+  auto [_0, did_insert_callback] = send_promises.insert({id, callback});
+  if(!did_insert_callback) {
+    // there was a dummy callback in send_promises, so the event has happened
+    callback();
+  }
 }
 
-void notifier_t::wait_recv_ready(int id) {
-  std::future<void> f = get_recv_future(id);
-  return f.get();
+void notifier_t::wait_recv_ready(int id, std::function<void()> callback) {
+  std::unique_lock lk(m);
+  auto [_0, did_insert_callback] = recv_promises.insert({id, callback});
+  if(!did_insert_callback) {
+    // there was a dummy callback in recv_promises, so the event has happened
+    callback();
+  }
 }
 
 void notifier_t::notify_send_ready(int dst, int id, int channel) {
@@ -69,32 +79,27 @@ void notifier_t::process(notifier_t::msg_t const& msg) {
   if(msg.msg_type == msg_t::recv_ready) {
     int const& id = msg.msg.recv_info.id;
 
-    auto [iter, _0] = recv_promises.insert({id, std::promise<void>()});
-    iter->second.set_value();
+    auto [iter, did_insert_dummy] = 
+      recv_promises.insert({id, std::function<void()>()});
+    if(!did_insert_dummy) {
+      auto& callback = iter->second;
+      callback();
+    } else {
+    }
   } else if(msg.msg_type == msg_t::send_ready) {
     auto const& [id, src, channel] = msg.msg.send_info;
 
     // Make sure to notify the recv channel before setting the promise!
     recv_channel_manager.notify(id, src, channel);
 
-    auto [iter, _2] = send_promises.insert({id, std::promise<void>()});
-    iter->second.set_value();
+    auto [iter, did_insert_dummy] = 
+      send_promises.insert({id, std::function<void()>()});
+    if(!did_insert_dummy) {
+      auto& callback = iter->second;
+      callback();
+    }
   } else {
     throw std::runtime_error("invalid notifier msg type");
   }
-}
-
-std::future<void> notifier_t::get_send_future(int id) {
-  std::unique_lock lk(m);
-
-  auto [iter, _] = send_promises.insert({id, std::promise<void>()});
-  return iter->second.get_future();
-}
-
-std::future<void> notifier_t::get_recv_future(int id) {
-  std::unique_lock lk(m);
-
-  auto [iter, _] = recv_promises.insert({id, std::promise<void>()});
-  return iter->second.get_future();
 }
 

@@ -3,8 +3,8 @@
 
 #include <sys/sysinfo.h>
 
-threadpool_t::threadpool_t(string filename, int num_to_launch)
-  : is_stopped(false), start_threadpool(clock_now()), out(filename)
+threadpool_t::threadpool_t(int num_to_launch)
+  : is_stopped(false), start_threadpool(clock_now()) 
 {
   get_numa_info();
 
@@ -43,7 +43,6 @@ void threadpool_t::runner(int which) {
   //get_numa_info().pin_to_this_numa_thread(which);
   get_numa_info().pin_to_thread(which);
 
-  string label;
   std::function<void()> f;
 
   auto check_and_set = [&, this] {
@@ -51,9 +50,7 @@ void threadpool_t::runner(int which) {
       return true;
     }
     if(work_queue.size() > 0) {
-      auto const& [l_,f_] = work_queue.front();
-      label = l_;
-      f = f_;
+      f = work_queue.front();
       work_queue.pop();
       return true;
     }
@@ -73,14 +70,11 @@ void threadpool_t::runner(int which) {
       }
     }
 
-    auto start = clock_now();
     f();
-    auto end = clock_now();
-    print_time(which, label, start, end);
   }
 }
 
-void threadpool_t::insert(string label, std::function<void()> f) {
+void threadpool_t::insert(std::function<void()> f) {
   {
     std::unique_lock lk(m);
 
@@ -88,20 +82,8 @@ void threadpool_t::insert(string label, std::function<void()> f) {
       throw std::runtime_error("this thread pool has been shutdown");
     }
 
-    work_queue.push({label, f});
+    work_queue.push(f);
   }
 
   cv.notify_one();
 }
-
-void threadpool_t::print_time(
-   int which, string label, 
-   timestamp_t const& start, timestamp_t const& end) 
-{
-  using namespace std::chrono;
-  double s = duration<double>(start - start_threadpool).count();
-  double e = duration<double>(end   - start_threadpool).count();
-  std::unique_lock lk(m_print);
-  out << which << " " << label << " " << s << " " << e << std::endl;
-}
-

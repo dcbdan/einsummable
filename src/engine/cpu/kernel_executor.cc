@@ -304,7 +304,7 @@ void cpu_kernel_executor_t::operator()(
   void* out,
   void const* inn) const
 {
-  auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("touch");
+  //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("touch");
   execute_touch(touch.simplify(), out, inn);
 }
 
@@ -314,7 +314,7 @@ void cpu_kernel_executor_t::operator()(
   vector<void const*> inns,
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
-  auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:total");
+  //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:total");
   auto const& info = get_built_kernel_info(e);
   call(info, out, inns, maybe_workspace);
 }
@@ -335,7 +335,7 @@ void cpu_kernel_executor_t::call(
   };
 
   if(holds_alternative<batch_matmul_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:batch_matmul");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:batch_matmul");
     assert_num_inputs(2);
     auto const& b = get<batch_matmul_t>(kernel);
     batch_matrix_multiply(
@@ -346,7 +346,7 @@ void cpu_kernel_executor_t::call(
       b.info.trans_lhs, b.info.trans_rhs,
       out, inns[0], inns[1]);
   } else if(holds_alternative<contraction_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:contraction");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:contraction");
     assert_num_inputs(2);
     auto const& c = get<contraction_t>(kernel);
     if(c.workspace_size == 0) {
@@ -361,37 +361,37 @@ void cpu_kernel_executor_t::call(
       c(workspace, out, inns[0], inns[1]);
     }
   } else if(holds_alternative<unary_straight_ew_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:uew");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:uew");
     assert_num_inputs(1);
     auto const& [n,data,f] = get<unary_straight_ew_t>(kernel);
     f(data.data(), n, out, inns[0]);
   } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bew");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bew");
     assert_num_inputs(2);
     auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
     f(data.data(), n, out, inns[0], inns[1]);
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:b212");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:b212");
     assert_num_inputs(2);
     auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
     f(data.data(), na, nb, out, inns[0], inns[1]);
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:tensor_permute");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:tensor_permute");
     assert_num_inputs(1);
     auto const& [dtype, inn_shape, out_perm] = get<tensor_permute_t>(kernel);
     permute_kernel(dtype, 1024, inn_shape, out_perm, out, inns[0]);
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:red_ab_a");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:red_ab_a");
     assert_num_inputs(1);
     auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
     f(na,nb,out,inns[0]);
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_b_ab");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_b_ab");
     assert_num_inputs(1);
     auto const& [sz_a,sz_b] = get<broadcast_b_ab_t>(kernel);
     broadcast_b_ab_kernel(sz_a, sz_b, out, inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
-    auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:misc");
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:misc");
     auto const& f = get<kernel_t>(kernel);
     f(out, inns);
   } else {

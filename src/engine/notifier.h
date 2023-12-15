@@ -5,7 +5,6 @@
 #include "communicator.h"
 #include "channel_manager.h"
 
-#include <future>
 #include <mutex>
 
 struct notifier_t;
@@ -27,10 +26,10 @@ struct notifier_t
 
   // Called on the recv side
   void notify_recv_ready(int dst, int id);
-  void wait_send_ready(int id);
+  void wait_send_ready(int id, std::function<void()> callback);
 
   // Called on the send side
-  void wait_recv_ready(int id);
+  void wait_recv_ready(int id, std::function<void()> callback);
   void notify_send_ready(int dst, int id, int channel);
 
 private:
@@ -61,11 +60,12 @@ private:
   // threads can access
   std::mutex m;
 
-  map<int, std::promise<void>> send_promises;
-  map<int, std::promise<void>> recv_promises;
-
-  std::future<void> get_send_future(int id);
-  std::future<void> get_recv_future(int id);
+  // For each id on either the send or recv side,
+  // we either have a callback that we will call when that arrives,
+  // or we insert an empty function to signal that the id is already
+  // ready
+  map<int, std::function<void()>> send_promises;
+  map<int, std::function<void()>> recv_promises;
 
 private:
   optional<notifier_resource_t> try_to_acquire_impl(unit_t const&){

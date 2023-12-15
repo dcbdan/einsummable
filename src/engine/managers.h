@@ -52,8 +52,7 @@ struct threadpool_resource_t {
     : id(i), self(s)
   {}
 
-  void launch(std::function<void()> f) const { launch("tp_resource_na", f); }
-  void launch(string label, std::function<void()> f) const;
+  void launch(std::function<void()> f) const;
 
 private:
   friend class threadpool_manager_t;
@@ -86,5 +85,5 @@ private:
 private:
   friend class threadpool_resource_t;
 
-  void launch(int which, string label, std::function<void()> f);
+  void launch(int which, std::function<void()> f);
 };

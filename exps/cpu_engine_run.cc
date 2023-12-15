@@ -23,7 +23,7 @@ void usage() {
 }
 
 tuple<
-  graph_t, 
+  graph_t,
   optional<vector<placement_t>>>
 build_graph(args_t& args);
 
@@ -141,7 +141,7 @@ void main0(int argc, char** argv) {
       } else {
         pls = maybe_placements.value();
       }
-  
+
       for(int rep = 0; rep != nrep; ++rep) {
         // initialize input tensors and distribute across the cluster
        for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -154,10 +154,10 @@ void main0(int argc, char** argv) {
             server.insert_tensor(gid, pls[gid], tensor);
           }
         }
-  
+
         // execute
         server.execute_graph(graph, pls);
-  
+
         //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
         //  auto const& node = graph.nodes[gid];
         //  if(node.op.is_save()) {
@@ -204,6 +204,27 @@ void main1(int argc, char** argv) {
       graph, world_size, num_threads, max_branching, space, false);
   } else {
     pls = maybe_placements.value();
+  }
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("g.gv");
+  }
+
+  {
+    std::ofstream f("g_.gv");
+    graph.print_graphviz(f,
+      vector_from_each_member(pls, partition_t, partition));
+    DOUT("g.gv");
+  }
+
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("tg.gv");
   }
 }
 
@@ -517,7 +538,7 @@ graph_t make_graph_attention_feedforward(model_args_t const& args)
     tensor_t w1t = w1.transpose(0,1);
     tensor_t w2t = w2.transpose(0,1);
     tensor_t w3t = w3.transpose(0,1);
-  
+
     scalarop_t silu = scalarop_t::make_silu(x.get_dtype());
 
     tensor_t a = writer.ew(silu, writer.matmul(x, w1t));
@@ -613,7 +634,7 @@ model_args_t make_model_args(args_t& args) {
   return margs;
 }
 
-tuple<graph_t, optional<vector<placement_t>>> 
+tuple<graph_t, optional<vector<placement_t>>>
 build_graph(args_t& args)
 {
   args.set_default("graph", "matmul");
@@ -679,5 +700,5 @@ build_graph(args_t& args)
 }
 
 int main(int argc, char** argv) {
-  main0(argc, argv);
+  main1(argc, argv);
 }

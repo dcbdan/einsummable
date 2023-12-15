@@ -109,6 +109,21 @@ struct exec_graph_t {
   // The following communication nodes implement portions of the handshake while
   // only utilizing the necc resources.
 
+  // One big note about deadlocks:
+  //   In the following, a launched send_t cannot be finished until recv_t
+  //   is launched. Once launched, a recv_t can finish. 
+  //   
+  //   If all nodes launch launch sends on all threads, nothing can progress!
+  //   And this sort of deadlock really does happen!
+  //
+  //   Two things are done: 
+  //   1. The priority of recv_t is less than send_t.. This will only help
+  //      when the priority is being used but does not prevent deadlocks.
+  //   2. The send_t requires resoruces from a send_channel_manager. One solution
+  //      is to have the channel manager make sure the maximum number of sends
+  //      happening at a time is less than the total number of threads. If the 
+  //      total number of threads is zero, the deadlock could still happen.
+
   struct notify_recv_ready_t : op_base_t {
     notify_recv_ready_t(int a, int b)
       : id(a), dst(b)
@@ -188,7 +203,10 @@ struct exec_graph_t {
       out << "send {id = " << id << "}";
     }
 
-    int get_priority() const { return 10; }
+    // Note: the priority of recv_t should be lower than send_t since
+    // a send node can't finish until the opposing recv node has
+    // been launched whereas a recv node can always finish.
+    int get_priority() const { return 11; }
   };
 
   struct recv_t : op_base_t {

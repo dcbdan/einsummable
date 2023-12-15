@@ -3,12 +3,14 @@
 
 #include "../base/buffer.h"
 #include "communicator.h"
+#include "threadpool.h"
 #include "../einsummable/relation.h"
 
 void repartition(
   communicator_t& comm,
   remap_relations_t const& remap,
-  map<int, buffer_t>& data);
+  map<int, buffer_t>& data,
+  threadpool_t* maybe_threadpool);
 
 template <typename T>
 void _update_map_with_new_tg_inns(
