@@ -85,21 +85,6 @@ void exp04() {
   DOUT("printed " << filename);
 }
 
-void exp05() {
-  graph_writer_t g;
-  auto x = g.input({10,20});
-  auto y = g.input({20,30});
-  auto z = g.matmul(x,y);
-  auto ws = g.backprop(z, {x,y});
-  ws[0].save_inplace();
-  ws[1].save_inplace();
-
-  string filename = "exp05.gv";
-  std::ofstream f(filename);
-  g.get_graph().print_graphviz(f);
-  DOUT("printed " << filename);
-}
-
 void exp04_matrixgraph() {
   matrixgraph_t g;
   auto x = g.insert_input(10,20);
@@ -115,10 +100,47 @@ void exp04_matrixgraph() {
   DOUT("printed " << filename);
 }
 
+void exp05() {
+  graph_writer_t g;
+  auto x = g.input({10,20});
+  auto y = g.input({20,30});
+  auto z = g.matmul(x,y);
+  auto ws = g.backprop(z, {x,y});
+  ws[0].save_inplace();
+  ws[1].save_inplace();
+
+  string filename = "exp05.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+void exp06(bool with_mm = true) {
+  graph_writer_t g;
+  auto x = g.input({10,20});
+  auto y = g.input({20,20});
+  auto z = g.input({30,20});
+  auto w = g.concat(0, {x,y,z});
+  if(with_mm) {
+    auto a = g.input({20,10});
+    auto b = g.matmul(w, a);
+    auto grads = g.backprop(b, {x,y,z});
+  } else {
+    auto grads = g.backprop(w, {x,y,z});
+  }
+
+  /////
+  string filename = "exp06.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
 int main() {
   exp01();
   exp02();
   exp03();
   exp04();
   exp05();
+  exp06();
 }

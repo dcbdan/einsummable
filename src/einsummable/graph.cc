@@ -1247,8 +1247,7 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     // fill is just constant values that don't depend on anything
     return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
   } else if(op.is_concat()) {
-    // TODO
-    throw std::runtime_error("not implemented build grad term: concat");
+    return build_grad_term_concat(op.get_concat(), which_inn, grad_id);
   } else if(op.is_subset()) {
     // TODO
     throw std::runtime_error("not implemented build grad term: subset");
@@ -1550,6 +1549,24 @@ graph_t::build_grad_term_ewu(
     einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
     int term_id = insert_einsummable(new_e, { inn, grad.get_id() });
     return backprop_tensor_t(term_id);
+  }
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_concat(
+  concat_t const& concat,
+  int which_inn,
+  backprop_tensor_t grad)
+{
+  if(grad.is_constant()) {
+    return backprop_tensor_t(fill_t {
+      .value = grad.get_constant(),
+      .shape = concat.inn_shapes[which_inn]
+    });
+  } else {
+    return backprop_tensor_t(insert_subset(
+      concat.get_hrect(which_inn),
+      grad.get_id()));
   }
 }
 

@@ -384,6 +384,11 @@ private:
     einsummable_t const& e,
     int inn,
     backprop_tensor_t grad_id);
+  backprop_tensor_t
+  build_grad_term_concat(
+    concat_t const& concat,
+    int which_inn,
+    backprop_tensor_t grad_id);
 
   //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
   //int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
