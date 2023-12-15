@@ -8,6 +8,7 @@
 #include "../einsummable/dbuffer.h"
 
 #include "../engine/communicator.h"
+#include "../engine/threadpool.h"
 
 // Some definitions:
 // * compute-node: The place where an excutable is running on. A single
@@ -103,6 +104,10 @@ struct server_base_t {
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
 
   virtual bool make_parallel_partialize_groups() = 0;
+
+  // This is used for the repartition funciton, which will create a threadpool
+  // if none is given
+  virtual threadpool_t* get_cpu_threadpool() { return nullptr; }
 
 private:
   // Note: gid_map only exists at the server

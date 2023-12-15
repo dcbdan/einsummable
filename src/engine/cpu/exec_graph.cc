@@ -77,8 +77,7 @@ exec_graph_t::make_cpu_exec_graph(
           cpu_executor,
           e,
           apply.mems,
-          maybe_worksize.value(),
-          cpu_executor.as_str(e)
+          maybe_worksize.value()
         );
 
         // insert into the graph
@@ -237,7 +236,6 @@ void cpu_einsummable_t::launch(
   }
 
   thread_resource.launch(
-    thread_msg_str,
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
@@ -294,7 +292,6 @@ void cpu_touch_t::launch(
   }
 
   thread_resource.launch(
-    "touch",
     [this, callback, this_touch, out_mem, inn_mem] {
       cpu_executor(this_touch, out_mem, inn_mem);
       callback();

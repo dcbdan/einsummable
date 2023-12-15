@@ -1,13 +1,32 @@
 #include "exec_state.h"
 
+#include <fstream>
+int _filecnt = 0;
+
 exec_state_t::exec_state_t(
   exec_graph_t const& g,
   rm_ptr_t r,
-  exec_state_t::priority_t p)
+  exec_state_t::priority_t p,
+  int this_rank)
   : exec_graph(g),
     resource_manager(r),
-    ready_to_run(this)
+    ready_to_run(this),
+    this_rank(this_rank)
 {
+  DLINEOUT("this rank is " << this_rank << " | num exec graph nodes " << g.nodes.size());
+#ifdef EXEC_STATE_PRINT
+  DLINEOUT("this rank is " << this_rank << " | filecnt " << _filecnt);
+  out = std::ofstream(
+    "exec_state_out_cnt" + write_with_ss(_filecnt++) +
+    "_rank" + write_with_ss(this_rank));
+
+  for(int i = 0; i != g.nodes.size(); ++i) {
+    out << i << ": ";
+    g.nodes[i].print(out);
+    out << std::endl;
+  }
+#endif
+
   int num_nodes = exec_graph.nodes.size();
 
   num_remaining = num_nodes;
@@ -94,6 +113,10 @@ void exec_state_t::event_loop() {
       int id = processing.back();
       processing.pop_back();
 
+#ifdef EXEC_STATE_PRINT
+      out << "finished " << id << std::endl;
+#endif
+
       auto iter = is_running.find(id);
 
       resource_manager->release(iter->second);
@@ -108,6 +131,9 @@ void exec_state_t::event_loop() {
     if(num_remaining == 0) {
       return;
     }
+    if(this_rank == 0 && num_remaining % 1000 == 0) {
+      DOUT("num_remaining on rank 0: " << num_remaining);
+    }
 
     {
       queue_t failed(this);
@@ -116,6 +142,9 @@ void exec_state_t::event_loop() {
         ready_to_run.pop();
         if(try_to_launch(id)) {
           // started id
+#ifdef EXEC_STATE_PRINT
+          out << "started " << id << std::endl;
+#endif
         } else {
           failed.push(id);
         }

@@ -8,6 +8,8 @@
 
 #include <sys/epoll.h>
 
+#include "../base/partdim.h"
+
 // TODO: put this somewhere
 static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
@@ -84,15 +86,22 @@ communicator_t::communicator_t(
       }
     }
 
-    for(int rank = 1; rank != world_size; ++rank) {
-      int oob_sock = -1;
-      oob_sock = connect_common(NULL, server_port, ai_family);
-      if(oob_sock == -1) {
-        throw std::runtime_error("_server_recv_addrs failed to connect");
-      }
+    std::mutex mutex_rank;
 
-      all_send_addr.push_back(_oob_recv_addrs(oob_sock));
-      all_recv_addr.push_back(_oob_recv_addrs(oob_sock));
+    auto connect_to_client = [&](int oob_sock) {
+      // DLINEOUT("connect_to_client: enter");
+      int rank;
+      {
+        vector<addr_data_t> some_send_addr = _oob_recv_addrs(oob_sock);
+        vector<addr_data_t> some_recv_addr = _oob_recv_addrs(oob_sock);
+
+        std::lock_guard lk(mutex_rank);
+        all_send_addr.push_back(some_send_addr);
+        all_recv_addr.push_back(some_recv_addr);
+
+        rank = all_send_addr.size() - 1;
+      }
+      // DLINEOUT("connect_to_client: rank " << rank);
 
       // Setup the endpoints here on the server
       {
@@ -118,8 +127,21 @@ communicator_t::communicator_t(
         vector<addr_data_t> recv_peers = _get_peers_less(all_send_addr, rank);
         _oob_send_addrs(oob_sock, recv_peers);
       }
+      // DLINEOUT("connect_to_client: exit");
+    };
 
-      close(oob_sock);
+    {
+		  listen_server_t connecter;
+      vector<connection_ptr_t> cs;
+      cs.reserve(world_size-1);
+      vector<std::thread> threads;
+      for(int i = 0; i != world_size-1; ++i) {
+        cs.push_back(connecter.connect());
+        threads.emplace_back(connect_to_client, cs.back()->get());
+      }	
+      for(auto& thread: threads) {
+        thread.join();
+      }
     }
 
     for(int rank = 1; rank < world_size-1; ++rank) {
@@ -134,18 +156,8 @@ communicator_t::communicator_t(
       }
     }
   } else {
-    int oob_sock = -1;
-    for(int i = 0; i != 30; ++i) {
-      using namespace std::chrono_literals;
-      std::this_thread::sleep_for(2000ms);
-      oob_sock = connect_common(addr_zero.c_str(), server_port, ai_family);
-      if(oob_sock != -1) {
-        break;
-      }
-    }
-    if(oob_sock == -1) {
-      throw std::runtime_error("_client_send_addrs failed to connect");
-    }
+    connection_ptr_t connection = connect_client(addr_zero);
+    int const& oob_sock = connection->get();
 
     {
       vector<addr_data_t> send_addr;
@@ -181,7 +193,8 @@ communicator_t::communicator_t(
       }
     }
 
-    close(oob_sock);
+    // this should close the file descriptor
+    connection = nullptr;
 
     if(this_rank < world_size - 1) {
       {
@@ -309,6 +322,74 @@ void communicator_t::recv(int src, int channel, void* data, uint64_t size) {
   get_stream_recv_wire(src, channel).recv(data, size);
 }
 
+void communicator_t::send_parallel(
+  threadpool_t& threadpool,
+  int dst, 
+  void const* data,
+  uint64_t size)
+{
+  int nparts = num_channels(dst);
+  if(threadpool.num_runners() < nparts) {
+    throw std::runtime_error("must have more threads than channels");
+  }
+  partdim_t pd = partdim_t::split(size, nparts);
+
+  std::mutex m;
+  std::promise<void> promise;
+  int count = nparts;
+
+  for(int i = 0; i != nparts; ++i) {
+    uint64_t size_here = pd.size_at(i);
+    uint64_t offset = pd.offset_at(i);
+    int channel = i;
+    threadpool.insert([&, size_here, offset, channel]() {
+      send(dst, channel, increment_void_ptr(data, offset), size_here);
+
+      std::lock_guard lk(m);
+      count--;
+      if(count == 0) {
+        promise.set_value();
+      }
+    });
+  }
+
+  promise.get_future().wait();
+}
+
+void communicator_t::recv_parallel(
+  threadpool_t& threadpool,
+  int src, 
+  void* data,
+  uint64_t size)
+{
+  int nparts = num_channels(src);
+  if(threadpool.num_runners() < nparts) {
+    throw std::runtime_error("must have more threads than channels");
+  }
+  partdim_t pd = partdim_t::split(size, nparts);
+
+  std::mutex m;
+  std::promise<void> promise;
+  int count = nparts;
+
+  for(int i = 0; i != nparts; ++i) {
+    uint64_t size_here = pd.size_at(i);
+    uint64_t offset = pd.offset_at(i);
+    int channel = i;
+    threadpool.insert([&, size_here, offset, channel]() {
+      recv(src, channel, increment_void_ptr(data, offset), size_here);
+
+      std::lock_guard lk(m);
+      count--;
+      if(count == 0) {
+        promise.set_value();
+      }
+    });
+  }
+
+  promise.get_future().wait();
+}
+
 std::future<void> communicator_t::send_async(
   int dst, int channel, void const* data, uint64_t size)
 {
@@ -404,7 +485,7 @@ void communicator_t::start_listen_notify(
 
       vector<struct epoll_event> evs(world_size-1);
 
-      // build the listeners, add then to epoll_fd and
+      // build the listeners, add them to epoll_fd and
       // post a recv
       for(int i = 0; i != world_size - 1; ++i) {
         listeners.push_back(recvs[i].make_listener(msg_size));
@@ -444,7 +525,7 @@ void communicator_t::start_listen_notify(
             if(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, efd, NULL) == -1) {
               throw std::runtime_error("could not del with epoll_ctl");
             }
-            listeners.erase(iter);
+            iter = listeners.erase(iter);
           } else {
             listener->start();
           }
@@ -452,6 +533,28 @@ void communicator_t::start_listen_notify(
           iter++;
         }
       }
+
+      // TODO: better understand how the wakeup mechanism works, as this
+      //       is a source of bugs.
+      //
+      // The things the listener does:
+      //   ucp_worker_progress
+      //   post_recv (listener_t::start)
+      //   arm the worker (first ucp_worker_progress till nothing to do, then ucp_worker_arm)
+      // What I think is going on:
+      //   * An event is one recv
+      //   * A worker might wake up multiple times for a single event; and
+      //     an event may _require_ more than one wakeup to occur
+      //   * After an event occurs, a worker will not wakeup again unless rearmed;
+      //     but a single event requires only one arming
+      //   * Whenever a wake up occurs, the worker must be progressed atleast once
+      // What I know: 
+      //   * on four machines, the code ran here seems to actually work but
+      //     the following does not:
+      //       after getting woken up:
+      //         keep calling ucp_worker_progress until the event completes
+      //     Since this doesn't always work, I'm assuming that
+      //     "An event may require more than one wakeup"
 
       std::vector<struct epoll_event> events(world_size - 1);
 
@@ -467,26 +570,9 @@ void communicator_t::start_listen_notify(
 
           bool do_erase = false;
 
-          // v1: does a few of these iterations
-          while(!listener->progress()) {}
-
-          // v2: calls epoll_wait a ton
-          //if(!listener->progress()) {
-          //  continue;
-          //}
-
-          // v3: Nothing ever progresses with this version
-          //if(!listener->get_is_done()) {
-          //  continue;
-          //}
-
-          // v4: a combination of v1 and v2
-          //if(!listener->get_is_done()) {
-          //  while(ucp_worker_progress(listener->get_worker())) {}
-          //}
-          //if(!listener->get_is_done()) {
-          //  continue;
-          //}
+          if(!listener->progress()) {
+            continue;
+          }
 
           // now the listener is done
           if(callback(listener->payload())) {
@@ -613,10 +699,10 @@ communicator_t::_oob_recv_addrs(int oob_sock) {
     data.resize(msg_size);
 
     int x =
-      read(oob_sock, data.raw(), msg_size);
-      //recv(oob_sock, data.raw(), msg_size, MSG_WAITALL);
+      //read(oob_sock, data.raw(), msg_size);
+      ::recv(oob_sock, data.raw(), msg_size, MSG_WAITALL);
     if(x != msg_size) {
-      throw std::runtime_error("did not recv the message");
+      throw std::runtime_error("did not recv the message (_oob_recv_addrs)");
     }
   }
   return ret;
@@ -634,7 +720,7 @@ void communicator_t::_oob_send_addrs(int oob_sock, vector<addr_data_t>& addr)
       //send(oob_sock, a.raw(), msg_size, 0);
 
     if(x != msg_size) {
-      throw std::runtime_error("did not send the message");
+      throw std::runtime_error("did not send the message (_oob_send_addrs)");
     }
   }
 }
@@ -642,8 +728,8 @@ void communicator_t::_oob_send_addrs(int oob_sock, vector<addr_data_t>& addr)
 int communicator_t::_oob_recv_int(int oob_sock) {
   int ret;
   int x =
-    read(oob_sock, &ret, sizeof(int));
-    //recv(oob_sock, &ret, sizeof(int), MSG_WAITALL);
+    //read(oob_sock, &ret, sizeof(int));
+    ::recv(oob_sock, &ret, sizeof(int), MSG_WAITALL);
   if(x != sizeof(int)) {
     throw std::runtime_error("oob_recv_int");
   }
@@ -890,28 +976,11 @@ void communicator_t::wire_t::send(void const* data, uint64_t size) {
         "send fail: " + write_with_ss(UCS_PTR_STATUS(status)));
     }
 
-    auto start = clock_now();
     while(!is_done) {
-     for(int i = 0; i != 2000000 && !is_done; ++i) {
-        ucp_worker_progress(worker);
-      }
-      if(!is_done) {
-        auto val = ucp_request_check_status(status);
-        if(val != UCS_INPROGRESS) {
-          throw std::runtime_error("request is not in progress");
-        }
-        auto now = clock_now();
-        double seconds = std::chrono::duration<double>(now - start).count();
-        if(seconds > _timeout) {
-          throw std::runtime_error("this send has timed out");
-        }
+      if(!ucp_worker_progress(worker)) {
+        handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
       }
     }
-    //while(!is_done) {
-    //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at send");
-    //  }
-    //}
 
     ucp_request_free(status);
   }
@@ -949,30 +1018,11 @@ void communicator_t::wire_t::recv(void* data, uint64_t size) {
     // Two ways to do the wait:
     //   constant polling vs ucp_worker_wait (requires the wakeup feature)
 
-    auto start = clock_now();
     while(!is_done) {
-      for(int i = 0; i != 2000000 && !is_done; ++i) {
-        ucp_worker_progress(worker);
-      }
-      if(!is_done) {
-        auto val = ucp_request_check_status(status);
-        if(val != UCS_INPROGRESS) {
-          throw std::runtime_error("request is not in progress");
-        }
-        auto now = clock_now();
-        double seconds = std::chrono::duration<double>(now - start).count();
-        if(seconds > _timeout) {
-          throw std::runtime_error("this recv has timed out");
-        }
+      if(!ucp_worker_progress(worker)) {
+        handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
       }
     }
-    // If the recv loop hangs for more than 5 seconds, something is probably amiss.
-
-    //while(!is_done) {
-    //  if(!ucp_worker_progress(worker)) {
-    //    handle_ucs_error(ucp_worker_wait(worker), "ucp_worker_wait at recv");
-    //  }
-    //}
 
     ucp_request_free(status);
   }
@@ -1033,7 +1083,7 @@ void communicator_t::wire_t::listener_t::start() {
 bool communicator_t::wire_t::listener_t::progress() {
   if(is_done) { return true; }
 
-  ucp_worker_progress(self.worker);
+  while(ucp_worker_progress(self.worker)) {}
 
   return is_done;
 }

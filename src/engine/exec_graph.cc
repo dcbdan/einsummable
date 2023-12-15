@@ -78,14 +78,10 @@ exec_graph_t::notify_recv_ready_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-  std::thread thread([this, callback, notifier] {
-    notifier->notify_recv_ready(this->dst, this->id);
-    notifier->wait_send_ready(this->id);
+  // TODO: should this be done in another thread or here?
+  notifier->notify_recv_ready(this->dst, this->id);
 
-    callback();
-  });
-
-  thread.detach();
+  notifier->wait_send_ready(this->id, callback);
 }
 
 void
@@ -98,13 +94,7 @@ exec_graph_t::wait_recv_ready_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
-  std::thread thread([this, callback, notifier] {
-    notifier->wait_recv_ready(this->id);
-
-    callback();
-  });
-
-  thread.detach();
+  notifier->wait_recv_ready(this->id, callback);
 }
 
 void
@@ -125,7 +115,7 @@ exec_graph_t::send_t::launch(
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
-  thread_resource.launch("send", [this, callback, notifier, wire, ptr] {
+  thread_resource.launch([this, callback, notifier, wire, ptr] {
     notifier->notify_send_ready(this->dst, this->id, wire.channel);
 
     wire.send(ptr, this->mem.size);
@@ -150,7 +140,7 @@ exec_graph_t::recv_t::launch(
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
 
-  thread_resource.launch("recv", [this, callback, wire, ptr] {
+  thread_resource.launch([this, callback, wire, ptr] {
     wire.recv(ptr, this->mem.size);
 
     callback();

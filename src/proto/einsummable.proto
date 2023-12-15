@@ -198,3 +198,85 @@ message MemGraph {
   repeated int32 storage_locs = 3;
   repeated MemGraphNode nodes = 4;
 }
+
+message Mem {
+  required uint64 offset = 1;
+  required uint64 size = 2;
+}
+
+message MemLoc {
+  required uint64 offset = 1;
+  required uint64 size = 2;
+  required int32 loc = 3;
+}
+
+message IEInit {
+  required int32 world_size = 1;
+  required uint64 mem_size = 2;
+  required int32 num_threads = 3;
+  required int32 num_files = 4;
+  required uint64 batch_size = 5;
+  required uint64 seq_len = 6;
+};
+
+message IECloseReaders {
+  required int32 dummy = 1;
+}
+
+message IELoadWeight {
+  required string name = 1;
+  repeated MemLoc data_locs = 2;
+}
+
+message IELoadDataMatrix {
+  required uint64 batch_size = 1;
+  required uint64 seq_len = 2;
+  required uint64 d_embed = 3;
+  required Mem mem = 4;
+}
+
+message IELoadMask {
+  required uint64 seq_len = 1;
+  required Mem mem = 2;
+}
+
+message IELoadFreqsCis {
+  required uint64 dim = 1;
+  required uint64 heads = 2;
+  required uint64 max_seq_len = 3;
+  required Mem mem = 4;
+}
+
+message IEExecute {
+  required string msg = 1;
+  required MemGraph memgraph = 2;
+}
+
+message IEBuildNext {
+  required Partition src_part = 1;
+  repeated MemLoc src_data_locs = 2;
+  required Partition dst_part = 3;
+  repeated MemLoc dst_data_locs = 4;
+}
+
+message IERandom {
+  repeated MemLoc mems = 1;
+}
+
+message InferenceEvent {
+  oneof op {
+    IEInit init = 1;
+    IECloseReaders close_readers = 2;
+    IELoadWeight load_weight = 3;
+    IELoadDataMatrix load_data_matrix = 4;
+    IELoadMask load_mask = 5;
+    IELoadFreqsCis load_freqs_cis = 6;
+    IEExecute execute = 7;
+    IEBuildNext build_next = 8;
+    IERandom random = 9;
+  }
+}
+
+message InferenceEvents {
+  repeated InferenceEvent event = 1;
+}

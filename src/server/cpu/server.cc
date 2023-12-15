@@ -14,7 +14,17 @@ void cpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
   bool for_remap)
 {
+  int n_threads = threadpool.num_runners();
+  if(n_threads == 1) {
+    throw std::runtime_error("must have more than one thread in the threadpool");
+  }
+
   int this_rank = comm.get_this_rank();
+
+  if(this_rank == 0) {
+    DLINEOUT("execute_memgraph enter on cpu server");
+  }
+
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
       memgraph,
@@ -32,13 +42,13 @@ void cpu_mg_server_t::execute_memgraph(
       rm_ptr_t(new global_buffers_t(mem->raw())),
       rm_ptr_t(new cpu_storage_manager_t(&storage)),
       rm_ptr_t(new notifier_t(comm, rcm)),
-      rm_ptr_t(new send_channel_manager_t(comm)),
+      rm_ptr_t(new send_channel_manager_t(comm, n_threads-1)),
       rcm_ptr,
-      rm_ptr_t(new threadpool_manager_t(threadpool))
+      rm_ptr_t(new threadpool_manager_t(threadpool)),
     }
   ));
 
-  exec_state_t state(graph, resource_manager, priority_type);
+  exec_state_t state(graph, resource_manager, priority_type, this_rank);
 
   if(for_remap) {
     if(this_rank == 0) {
