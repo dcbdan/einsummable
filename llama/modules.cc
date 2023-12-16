@@ -448,7 +448,7 @@ transformer_t::transformer_t(
   }
 
   full_freqs_cis = writer->input(
-    { args.max_seq_len, uint64_div(args.head_dim(), 2) },
+    { 2*args.max_seq_len, uint64_div(args.head_dim(), 2) },
     dtype_t::c64);
 
   norm = rms_norm_t(writer, "norm.", args.full_dim(), args.norm_eps);
@@ -515,10 +515,23 @@ map<string, tensor_t> transformer_t::weight_map() const {
 }
 
 dbuffer_t transformer_t::form_full_freqs_cis(model_args_t const& args) {
+  return form_full_freqs_cis(args.dim, args.n_heads, args.max_seq_len);
+}
+
+dbuffer_t transformer_t::form_full_freqs_cis(
+  uint64_t args_dim, uint64_t args_n_heads, uint64_t args_max_seq_len)
+{
+  uint64_t dim  = uint64_div(args_dim, args_n_heads);
+  uint64_t end = 2*args_max_seq_len;
+
+  return form_freqs_cis(dim, end);
+}
+
+dbuffer_t transformer_t::form_freqs_cis(
+  uint64_t dim, uint64_t end)
+{
   float theta = 10000.0;
-  uint64_t dim  = uint64_div(args.dim, args.n_heads);
   uint64_t hdim = uint64_div(dim, 2);
-  uint64_t end = 2*args.max_seq_len;
 
   dbuffer_t xs = make_dbuffer(dtype_t::f32, hdim);
   for(int i = 0; i != hdim; ++i) {
@@ -537,7 +550,7 @@ dbuffer_t transformer_t::form_full_freqs_cis(model_args_t const& args) {
   }}
 
   dbuffer_t freqs_cis = make_dbuffer(dtype_t::c64, end*hdim);
-  for(int i = 0; i != hdim*dim; ++i) {
+  for(int i = 0; i != end*hdim; ++i) {
     freqs_cis.c64()[i] = std::polar(float(1.0), freqs.f32()[i]);
   }
 

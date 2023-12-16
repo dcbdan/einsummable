@@ -12,6 +12,9 @@ struct mem_t {
   uint64_t size;
 
   memloc_t as_memloc(int loc) const;
+
+  static mem_t from_proto(es_proto::Mem const& m);
+  void to_proto(es_proto::Mem& m) const;
 };
 
 // This does not use std::variant so that it can be sent over the wire.
@@ -41,6 +44,9 @@ struct memloc_t {
   memsto_t as_memsto() const { return memsto_t(as_mem()); }
 
   mem_t as_mem() const;
+
+  static memloc_t from_proto(es_proto::MemLoc const& m);
+  void to_proto(es_proto::MemLoc& m) const;
 };
 
 struct stoloc_t {
@@ -166,6 +172,9 @@ struct memgraph_t {
   }
 
   string to_wire() const;
+  void to_proto(es_proto::MemGraph& mg) const;
+
+  static memgraph_t from_proto(es_proto::MemGraph const& mg);
   static memgraph_t from_wire(string const& str);
 
   int num_compute_locs;

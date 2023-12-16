@@ -4,6 +4,8 @@
 #include "exec_graph.h"
 #include "resource_manager.h"
 
+// #define EXEC_STATE_PRINT
+
 struct exec_state_t {
   enum class priority_t {
     given,
@@ -15,7 +17,8 @@ struct exec_state_t {
   exec_state_t(
     exec_graph_t const& g,
     rm_ptr_t r,
-    priority_t priority = priority_t::given);
+    priority_t priority = priority_t::given,
+    int rank = -1);
 
   struct compare_t {
     inline bool operator()(int const& lhs, int const& rhs) const {
@@ -69,4 +72,9 @@ struct exec_state_t {
 
   exec_graph_t const& exec_graph;
   rm_ptr_t resource_manager;
+
+#ifdef EXEC_STATE_PRINT
+  std::ofstream out;
+#endif
+  int this_rank;
 };

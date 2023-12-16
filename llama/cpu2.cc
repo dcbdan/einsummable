@@ -10,6 +10,26 @@
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/autolinns.h"
 
+//
+#include "../src/engine/cpu/kernel_executor.h"
+
+void do_a_matmul() {
+  DLINEOUT("doin a matmul...");
+  dbuffer_t x = make_dbuffer(dtype_t::f32, 1000*1000);
+  dbuffer_t y = make_dbuffer(dtype_t::f32, 1000*1000);
+  dbuffer_t z = make_dbuffer(dtype_t::f32, 1000*1000);
+
+  x.random("-0.00001", "0.00001");
+  y.random("-0.00001", "0.00001");
+
+  matrix_multiply(
+    dtype_t::f32,
+    1000, 1000, 1000,
+    false, false,
+    z.raw(), x.raw(), y.raw());
+}
+//
+
 struct token_maker_t {
   token_maker_t(vector<vector<int>> const ps):
     prompts(ps)
@@ -620,6 +640,10 @@ void main_rank_zero(
 }
 
 int main(int argc, char** argv) {
+  // Sometimes mkl is slow on the first call. So 
+  // "wakeup" mkl by doing a matmul
+  do_a_matmul();
+
   if(argc < 9) {
     DOUT("argc " << argc);
     throw std::runtime_error("required args: "

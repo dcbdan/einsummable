@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cuda_runtime_api.h>
 #include <cutensor.h>
 #include <cuda_runtime.h>
@@ -63,6 +64,67 @@ void print_memgraph(memgraph_t memgraph){
     }
     std::cout << std::endl;
   }
+}
+
+auto taskgraph_stats(taskgraph_t taskgraph){
+  int num_input_msgs = 0;
+  uint64_t num_input_bytes = 0;
+  int num_core_msgs = 0;
+  uint64_t num_core_bytes = 0;
+  set<int> inputs_everywhere = taskgraph.get_input_everywhere_ids();
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_move()) {
+      uint64_t sz = node.op.get_move().size;
+      if(inputs_everywhere.count(tid) > 0) {
+        num_input_msgs++;
+        num_input_bytes += sz;
+      } else {
+        num_core_msgs++;
+        num_core_bytes += sz;
+      }
+    }
+  }
+
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("Printing taskgraph stats");
+  // DOUT("# nodes that are not moves: " << taskgraph.nodes.size() - num_input_msgs - num_core_msgs);
+  DOUT("input Moves: " << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
+      << "Core Moves: " << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB");
+}
+
+auto memgraph_mem_stats(memgraph_t memgraph){
+  DOUT("Number of nodes in memgraph: " << memgraph.nodes.size());
+  int num_moves = 0;
+  int num_loads = 0;
+  int num_evicts = 0;
+  uint64_t num_move_bytes = 0;
+  uint64_t num_load_bytes = 0;
+  uint64_t num_evict_bytes = 0;
+  for(int tid = 0; tid != memgraph.nodes.size(); ++tid) {
+    auto const& node = memgraph.nodes[tid];
+    if(node.op.is_move()) {
+      uint64_t sz = node.op.get_move().size;
+      num_moves++;
+      num_move_bytes += sz;
+    }
+    else if (node.op.is_evict()){
+      uint64_t sz = node.op.get_evict().src.size;
+      num_evicts++;
+      num_evict_bytes += sz;
+    }
+    else if (node.op.is_load()){
+      uint64_t sz = node.op.get_load().dst.size;
+      num_loads++;
+      num_load_bytes += sz;
+    }
+  }
+
+  auto to_mb = [](uint64_t n) { return double(n)/1e6; };
+  DOUT("Printing memgraph stats");
+  DOUT("Moves: " << num_moves << "#, " << to_mb(num_move_bytes) << "MB, "
+      << "Loads: " << num_loads << "#, " << to_mb(num_load_bytes) << "MB, "
+      << "Evicts: " << num_evicts << "#, " << to_mb(num_evict_bytes) << "MB");
 }
 
 // check if the offset in mems is greater than the bound
@@ -147,16 +209,39 @@ void check_bounds(memgraph_t memgraph, uint64_t bound){
   }
 }
 
+tuple<graph_t, vector<partition_t>>
+build_matmul_even_splits(uint64_t n, int n_split)
+{
+  partdim_t pd = partdim_t::split(n, n_split);
+  partition_t part2({pd,pd});
+  partition_t part3({pd,pd,pd});
+
+  graph_constructor_t g;
+  int lhs  = g.insert_input(part2);
+  int rhs  = g.insert_input(part2);
+  int join = g.insert_einsummable(part3, einsummable_t::from_matmul(n,n,n), {lhs,rhs});
+  int out  = g.insert_formation(part2, join, true);
+
+  auto const& graph = g.graph;
+  vector<partition_t> parts = vector_from_each_member(
+    g.get_placements(),
+    partition_t,
+    partition);
+
+  return {graph, parts};
+}
+
 vector<placement_t> autoplace(
   graph_t const& graph,
-  int num_gpus)
+  int num_gpus,
+  int num_parts_per_gpu = 1)
 {
   int max_branching = 1;
   parts_space_t space = parts_space_t::contraction;
 
   auto parts = autopartition_for_bytes(
     graph,
-    num_gpus,
+    num_gpus * num_parts_per_gpu,
     max_branching,
     space);
 
@@ -323,7 +408,7 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
+  server.set_split_off_inputs(true);
 
   auto [graph, pls] = build_graph_pls(world_size, matrix_dim, partition);
 
@@ -360,27 +445,23 @@ void server_execute_mm(int world_size, uint64_t matrix_dim, int partition){
   server.shutdown();
 }
 
-void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partition){
+void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int num_gpus){
 
   communicator_t c("0.0.0.0", true, world_size);
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
-  auto num_gpus = 2;
+  uint64_t mem_size = 14lu * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < num_gpus; ++i){
     buffer_sizes.push_back(mem_size);
   }
 
-  gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(false);
-
   graph_writer_t g;
   auto A = g.input({matrix_dim, matrix_dim});
   auto B = g.input({matrix_dim, matrix_dim});
-  auto C = g.input({matrix_dim, matrix_dim});
-  auto D = g.input({matrix_dim, matrix_dim});
+  // auto C = g.input({matrix_dim, matrix_dim});
+  // auto D = g.input({matrix_dim, matrix_dim});
   auto E = g.matmul(A,B).save();
   // auto F = g.matmul(C,D).save();
   // auto G = g.matmul(E,F).save();
@@ -388,22 +469,35 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partiti
 
   auto pls = autoplace(graph, num_gpus);
 
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  bool use_storage = true;
+  bool split_off_inputs = true;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+  taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+  use_storage, split_off_inputs);
+
+  std::cout << "mm_basic.gv" << std::endl;
+  std::ofstream f("mm_basic.gv");
+  core_memgraph.print_graphviz(f);
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(true);
+
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
     if(node.op.is_input()) {
       auto const& input = node.op.get_input();
       dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
-      // tensor.random("-0.01", "0.01");
-      tensor.ones();
-      DOUT("Printing input tensor...");
-      DOUT(tensor);
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT("Printing input tensor...");
+      // DOUT(tensor);
       server.insert_tensor(gid, pls[gid], tensor);
     }
   }
-  DOUT("Printing graphviz...")
-  std::ofstream f("g_multiply.gv");
-  graph.print_graphviz(f, vector_from_each_member(pls, partition_t, partition));
 
   server.execute_graph(graph, pls);
 
@@ -412,8 +506,73 @@ void server_execute_multiple_mm(int world_size, uint64_t matrix_dim, int partiti
     auto const& node = graph.nodes[gid];
     if(node.op.is_save()) {
       dbuffer_t tensor = server.get_tensor_from_gid(gid);
-      DOUT("Printing output tensor...");
-      DOUT(tensor);
+      // DOUT("Printing output tensor...");
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
+
+  server.shutdown();
+}
+
+void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partition){
+
+  communicator_t c("0.0.0.0", true, 1);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 14lu * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  DOUT("num_gpus: " << num_gpus);
+  DOUT("partition: " << partition);
+  auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
+  auto pls = autolocate_agg_at_a_time_from_inns(graph, part, num_gpus, 100);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+  taskgraph_stats(taskgraph);
+
+  bool use_storage = true;
+  bool split_off_inputs = true;
+
+  auto [_2, _3, maybe_init_memgraph, core_memgraph] = memgraph_t::make_(
+  taskgraph, {}, buffer_sizes, {}, allocator_settings_t::gpu_alignment_settings(),
+  use_storage, split_off_inputs);
+
+  std::cout << "mm_partition.gv" << std::endl;
+  std::ofstream f("mm_partition.gv");
+  core_memgraph.print_graphviz(f);
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(true);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT("Printing input tensor...");
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+
+  server.execute_graph(graph, pls);
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT("Printing output tensor...");
+      // DOUT(tensor);
       //DOUT("gid sum is: " << tensor.sum());
     }
   }
@@ -529,14 +688,18 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
 
   tensor_t out = x;
 
-  for (auto dim = 1; dim < dims.size() - 1; ++dim){
+  for (auto dim = 1; dim < dims.size(); ++dim){
     out = writer.matmul(out, writer.input({dims[dim-1], dims[dim]}));
-    out = writer.ew(scalarop_t::make_relu(), out);
+    printf("out shape: %lu %lu\n", dims[dim-1], dims[dim]);
+    if (dim != dims.size() - 1){
+      out = writer.ew(scalarop_t::make_relu(), out);
+      printf("Relu\n");
+    }
+    else{
+      printf("Softmax\n");
+      out = writer.softmax(out);
+    }
   }
-
-  out = writer.matmul(out, writer.input({dims[dims.size()-2], dims[dims.size()-1]}));
-  out = writer.softmax(out);
-
   out.save_inplace();
 
   auto graph = writer.get_graph();
@@ -548,4 +711,73 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
 
   return graph;
 }
+
+// SOFTMAX(RELU(X * W_1) * W_2)
+graph_t ffnn_specific(){
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+
+  uint64_t batch_size = 256;
+  // H_1 and H_2 are different hidden dimensions of the Hidden layer (1 hidden layer only)
+  uint64_t H_1 = 1 << 10;
+  uint64_t H_2 = 1 << 14;
+  uint64_t output_class = 1 << 14;
+  uint64_t input_dim = 1 << 19;
+
+  tensor_t x = writer.input({batch_size, input_dim});
+  tensor_t out = x;
+
+  // [batch_size, input_dim] * [input_dim, H_1] = [batch_size, H_1]
+  out = writer.matmul(out, writer.input({input_dim, H_2}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, input_dim);
+  printf("MATMUL Matrix 2: %lu %lu\n", input_dim, H_2);
+  out = writer.ew(scalarop_t::make_relu(), out);
+  printf("Relu\n");
+  // [batch_size, H_1] * [H_2, output_class] = [batch_size, output_class]
+  out = writer.matmul(out, writer.input({H_2, output_class}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_2);
+  printf("MATMUL Matrix 2: %lu %lu\n", H_2, output_class);
+  out = writer.softmax(out);
+  printf("Softmax\n");
+
+  out.save_inplace();
+
+  return writer.get_graph();
+}
+
+// SOFTMAX(RELU(X * W_1) * W_2)
+graph_t ffnn_specific_H1(){
+  graph_writer_t writer;
+
+  using tensor_t = graph_writer_t::tensor_t;
+
+  uint64_t batch_size = 256;
+  // H_1 and H_2 are different hidden dimensions of the Hidden layer (1 hidden layer only)
+  uint64_t H_1 = 1 << 10;
+  uint64_t H_2 = 1 << 14;
+  uint64_t output_class = 1 << 14;
+  uint64_t input_dim = 1 << 19;
+
+  tensor_t x = writer.input({batch_size, input_dim});
+  tensor_t out = x;
+
+  // [batch_size, input_dim] * [input_dim, H_1] = [batch_size, H_1]
+  out = writer.matmul(out, writer.input({input_dim, H_1}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, input_dim);
+  printf("MATMUL Matrix 2: %lu %lu\n", input_dim, H_1);
+  out = writer.ew(scalarop_t::make_relu(), out);
+  printf("Relu\n");
+  // [batch_size, H_1] * [H_1, output_class] = [batch_size, output_class]
+  out = writer.matmul(out, writer.input({H_1, output_class}));
+  printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_1);
+  printf("MATMUL Matrix 2: %lu %lu\n", H_1, output_class);
+  out = writer.softmax(out);
+  printf("Softmax\n");
+
+  out.save_inplace();
+
+  return writer.get_graph();
+}
+
 

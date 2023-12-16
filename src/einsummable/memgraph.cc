@@ -8,11 +8,30 @@ memloc_t mem_t::as_memloc(int loc) const {
   };
 }
 
+mem_t mem_t::from_proto(es_proto::Mem const& m) {
+  return mem_t { m.offset(), m.size() };
+}
+
+void mem_t::to_proto(es_proto::Mem& m) const {
+  m.set_offset(offset);
+  m.set_size(size);
+}
+
 mem_t memloc_t::as_mem() const {
   return mem_t {
     .offset = offset,
     .size = size
   };
+}
+
+memloc_t memloc_t::from_proto(es_proto::MemLoc const& m) {
+  return memloc_t { m.offset(), m.size(), m.loc() };
+}
+
+void memloc_t::to_proto(es_proto::MemLoc& m) const {
+  m.set_offset(offset);
+  m.set_size(size);
+  m.set_loc(loc);
 }
 
 mem_t const& memsto_t::get_mem() const {
@@ -249,7 +268,13 @@ vector<uint64_t> memgraph_t::mem_sizes() const {
 
 string memgraph_t::to_wire() const {
   es_proto::MemGraph mg;
+  to_proto(mg);
+  string ret;
+  mg.SerializeToString(&ret);
+  return ret;
+}
 
+void memgraph_t::to_proto(es_proto::MemGraph& mg) const {
   mg.set_num_compute_locs(num_compute_locs);
   mg.set_num_storage_locs(num_storage_locs);
   for(auto const& cl: storage_locs) {
@@ -356,10 +381,6 @@ string memgraph_t::to_wire() const {
       n->add_inns(inn);
     }
   }
-
-  string ret;
-  mg.SerializeToString(&ret);
-  return ret;
 }
 
 memgraph_t memgraph_t::from_wire(string const& str) {
@@ -367,7 +388,10 @@ memgraph_t memgraph_t::from_wire(string const& str) {
   if(!mg.ParseFromString(str)) {
     throw std::runtime_error("could not parse memgraph!");
   }
+  return from_proto(mg);
+}
 
+memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg) {
   auto cls = mg.storage_locs();
   vector<int> storage_locs(cls.begin(), cls.end());
 
@@ -580,11 +604,11 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps) {
 
   int ret = nodes.size() - 1;
 
-  if(prune_edges) {
-    for(auto const& inn: inns) {
-      nodes[inn].outs.insert(ret);
-    }
+  for(auto const& inn: inns) {
+    nodes[inn].outs.insert(ret);
+  }
 
+  if(prune_edges) {
     all_deps.emplace_back(ret, 0);
 
     vector<char>& ret_deps = all_deps.back();
@@ -844,8 +868,8 @@ bool memgraph_t::is_local_to(int id, int loc) const {
     // Input storage nodes are special in that they don't map to
     // a single location. We determine if this inputsto occurs here if
     // any of its outgoing edges occur here.
-    for(int const& id: node.outs) {
-      if(is_local_to(id, loc)) {
+    for(int const& out_id: node.outs) {
+      if(is_local_to(out_id, loc)) {
         return true;
       }
     }

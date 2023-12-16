@@ -46,8 +46,39 @@ gpu_mg_server_t::gpu_mg_server_t(
     kernel_managers.emplace_back(i);
   }
 
+  // print all mems
+  // for (auto i = 0; i < mems.size(); i++){
+  //   DOUT("mems GPU[" << i << "]: " << mems[i]);
+  // }
+
   // initialize the stream pool now that we have num_gpus_per_node
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
+
+  // When creating the gpu server, also enable peer access to have best transfer performance
+  int deviceCount;
+  cudaGetDeviceCount(&deviceCount);
+  for (int i = 0; i < deviceCount; ++i) {
+    for (int j = 0; j < deviceCount; ++j) {
+      if (i != j) {
+        cudaSetDevice(i);
+        cudaDeviceEnablePeerAccess(j, 0);
+      }
+    }
+  }
+
+  // check if the peer access is really enabled
+  for (int i = 0; i < deviceCount; ++i) {
+    for (int j = 0; j < deviceCount; ++j) {
+      if (i != j) {
+        int canAccessPeer;
+        cudaSetDevice(i);
+        cudaDeviceCanAccessPeer(&canAccessPeer, i, j);
+        if (canAccessPeer != 1){
+          throw std::runtime_error("Peer access is not enabled");
+        }
+      }
+    }
+  }
 }
 
 void gpu_mg_server_t::execute_memgraph(
@@ -57,7 +88,7 @@ void gpu_mg_server_t::execute_memgraph(
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
-
+  auto initial = std::chrono::high_resolution_clock::now(); 
   DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
@@ -75,7 +106,8 @@ void gpu_mg_server_t::execute_memgraph(
     }
   ));
 
-  exec_state_t state(graph, resource_manager);
+  exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
+  // exec_state_t state(graph, resource_manager);
 
   DOUT("Executing...");
   // print the execution time of event_loop()
@@ -84,6 +116,10 @@ void gpu_mg_server_t::execute_memgraph(
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
   DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+  auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);  
+  if (duration2.count() - duration.count() > 10){
+    DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
+  }  
 }
 
 // memstoloc_t is not a contiguous data structure,
