@@ -551,7 +551,7 @@ vector<partition_t> _build_vector(
   return ret;
 }
 
-vector<partition_t> autopartition_for_bytes(
+vector<partition_t> apart01(
   graph_t const& graph,
   int n_compute,
   int max_branching,
@@ -667,7 +667,7 @@ vector<partition_t> autopartition_for_bytes(
   return _build_vector(graph, partitions_so_far);
 }
 
-uint64_t autopartition_for_bytes_cost(
+uint64_t apart01_cost(
   graph_t const& graph,
   vector<partition_t> const& partitions)
 {
