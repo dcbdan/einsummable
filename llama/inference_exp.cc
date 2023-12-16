@@ -14,7 +14,7 @@
 #include "../src/server/cpu/server.h"
 
 #include "../src/autoplace/apart.h"
-#include "../src/autoplace/autolinns.h"
+#include "../src/autoplace/alocate.h"
 
 #include "../src/engine/repartition.h"
 #include "../src/engine/communicator.h"
@@ -656,7 +656,7 @@ struct llama_autoplacer_t {
     int multiplier = double_workers ? 2 : 1 ;
 
     gremlin_t* gremlin_parts = new gremlin_t("parts");
-    auto parts = autopartition_for_bytes(
+    auto parts = apart01(
       graph,
       multiplier * world_size * num_threads_per,
       max_branching,
@@ -665,7 +665,7 @@ struct llama_autoplacer_t {
 
     gremlin_t gremlin_locate("locate");
     uint64_t flops_per_byte_moved = 100;
-    auto ret = autolocate_agg_at_a_time_from_inns(
+    auto ret = alocate01(
       graph, parts, world_size, flops_per_byte_moved);
     _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
     return ret;

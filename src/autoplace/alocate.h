@@ -17,7 +17,7 @@
 // Cost of an agg plan:
 //   The cost to move inputs to site + flops.
 //   Here, a move cost is flops_per_byte_moved * bytes moved
-vector<placement_t> aplace01(
+vector<placement_t> alocate01(
   graph_t const& graph,
   vector<partition_t> const& parts,
   int nlocs,

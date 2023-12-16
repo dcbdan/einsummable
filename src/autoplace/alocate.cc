@@ -1,7 +1,7 @@
 #include "alocate.h"
 
-struct _aplace01_rw_t {
-  _aplace01_rw_t(
+struct _alocate01_rw_t {
+  _alocate01_rw_t(
     int nlocs,
     uint64_t flops_per_byte_moved,
     graph_t const& graph,
@@ -34,13 +34,13 @@ private:
   relationwise_t _rw;
 };
 
-vector<placement_t> aplace01(
+vector<placement_t> alocate01(
   graph_t const& graph,
   vector<partition_t> const& parts,
   int nlocs,
   uint64_t flops_per_byte_moved)
 {
-  _aplace01_rw_t rw(nlocs, flops_per_byte_moved, graph, parts);
+  _alocate01_rw_t rw(nlocs, flops_per_byte_moved, graph, parts);
 
   for(int const& gid: graph.get_order()) {
     auto const& node = graph.nodes[gid];
@@ -148,7 +148,7 @@ vector<placement_t> aplace01(
   return rw.get_placements();
 }
 
-_aplace01_rw_t::_aplace01_rw_t(
+_alocate01_rw_t::_alocate01_rw_t(
   int nls,
   uint64_t f,
   graph_t const& graph,
@@ -159,7 +159,7 @@ _aplace01_rw_t::_aplace01_rw_t(
     _rw(graph, parts)
 {}
 
-vector<uint64_t> _aplace01_rw_t::cost_agg_plan(
+vector<uint64_t> _alocate01_rw_t::cost_agg_plan(
   int gid,
   int out_bid,
   agg_plan_t const& plan,
