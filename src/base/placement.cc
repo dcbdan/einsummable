@@ -100,6 +100,13 @@ placement_t placement_t::refine(partition_t const& refined_partition) const {
   return placement_t(refined_partition, ret);
 }
 
+placement_t placement_t::subset(vector<tuple<uint64_t, uint64_t>> const& hrect) const {
+  auto inexact_region = partition.get_region(hrect);
+  return placement_t(
+    partition.subset(hrect),
+    locations.subset(inexact_region));
+}
+
 placement_t placement_t::subset(vector<tuple<int, int>> const& region) const {
   return placement_t(
     partition.subset(region),

@@ -30,14 +30,14 @@ add_subdirectory(src/proto)
 file(GLOB BA_FILES ${PROJECT_SOURCE_DIR}/src/base/*.cc)
 file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
 file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
-file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
+#file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
 
 add_library(einsummable
   STATIC
   ${BA_FILES}
   ${ES_FILES}
   ${MG_FILES}
-  ${AP_FILES}
+  #  ${AP_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -109,7 +109,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${BA_FILES}
     ${ES_FILES}
     ${MG_FILES}
-    ${AP_FILES}
+    #    ${AP_FILES}
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
@@ -210,7 +210,7 @@ if(${GPU_EXECUTION_ENGINE})
     ${BA_FILES}
     ${ES_FILES}
     ${MG_FILES}
-    ${AP_FILES}
+    #    ${AP_FILES}
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}

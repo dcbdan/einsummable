@@ -66,16 +66,12 @@ map<int, dbuffer_t> reference_compute_graph(
         inns.push_back(tensors[id_inn]);
       }
       tensors[id] = reference_einsummable(node.op.get_einsummable(), inns);
-    } else if(node.op.is_concat()) {
+    } else if(node.op.is_select()) {
       vector<dbuffer_t> inns;
-      inns.reserve(node.inns.size());
       for(auto const& id_inn: node.inns) {
         inns.push_back(tensors[id_inn]);
       }
-      tensors[id] = reference_concat(node.op.get_concat(), inns);
-    } else if(node.op.is_subset()) {
-      dbuffer_t inn = tensors[node.inns[0]];
-      tensors[id] = reference_subset(node.op.get_subset(), inn);
+      tensors[id] = reference_select(node.op.get_select(), inns);
     } else {
       throw std::runtime_error("should not reach: reference compute graph");
     }
@@ -498,57 +494,16 @@ void reference_einsummable_inplace(
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 }
 
-dbuffer_t reference_concat(
-  concat_t const& concat,
+dbuffer_t reference_select(
+  select_t const& select,
   vector<dbuffer_t> const& inns)
 {
-  if(inns.size() != concat.inn_shapes.size()) {
-    throw std::runtime_error("incorrect number of inputs");
-  }
-  for(auto const& inn: inns) {
-    _assert_correct_dtype("reference_concat", concat.dtype, inn);
-  }
-
-  vector<uint64_t> out_shape = concat.shape();
-
-  vector<uint64_t> offsets = concat.get_offsets();
-
-  dbuffer_t ret = make_dbuffer(concat.dtype, product(out_shape));
+  uint64_t nelem = product(select.out_shape);
+  dbuffer_t out = make_dbuffer(select.dtype, nelem);
 
   for(int i = 0; i != inns.size(); ++i) {
-    dbuffer_t const& inn = inns[i];
-    vector<uint64_t> const& inn_shape = concat.inn_shapes[i];
-
-    if(inn.nelem() != product(inn_shape)) {
-      throw std::runtime_error("incorrectly sized input");
-    }
-
-    uint64_t offset = offsets[i];
-
-    vector<tuple<uint64_t, uint64_t>> hrect = concat.get_hrect(i);
-    auto out_index = vector_mapfst(hrect);
-    do {
-      vector<uint64_t> inn_index = out_index;
-      inn_index[concat.dim] -= offset;
-
-      auto out_idx = indexer_utils<uint64_t>::idxs_to_index(out_shape, out_index);
-      auto inn_idx = indexer_utils<uint64_t>::idxs_to_index(inn_shape, inn_index);
-
-      ret.set(out_idx, inn.get(inn_idx));
-    } while(indexer_utils<uint64_t>::increment_idxs_region(hrect, out_index));
+    reference_touch(select.as_touch(i), out, inns[i]);
   }
-
-  return ret;
-}
-
-dbuffer_t reference_subset(
-  subset_t const& subset,
-  dbuffer_t const& inn)
-{
-  uint64_t nelem = product(subset.out_shape());
-  dbuffer_t out = make_dbuffer(subset.dtype, nelem);
-
-  reference_touch(subset.as_touch(), out, inn);
 
   return out;
 }

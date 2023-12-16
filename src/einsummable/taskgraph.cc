@@ -53,11 +53,6 @@ struct multiple_tensor_t {
   vtensor_t<int> to_tensor(placement_t const& placement);
 };
 
-vector<tuple<int,int>> get_concat_input_region(
-  partition_t const& split_part,
-  concat_t const& concat,
-  int which_input);
-
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x);
 
 struct tg_region_t {
@@ -176,9 +171,7 @@ struct taskgraph_make_state_t {
     placement_t const& placement,
     bool wrt_graph = true);
 
-  vtensor_t<int> form_concat(int gid);
-
-  vtensor_t<int> form_subset(int gid);
+  vtensor_t<int> form_select(int gid);
 
   // this will form the inputs as required
   vtensor_t<int> compute_einsummable(int gid);
@@ -565,33 +558,33 @@ vector<tuple<int,int>> _get_sum_breaks(
 }
 
 vtensor_t<int>
-taskgraph_make_state_t::form_concat(int gid) {
-  graph_t::node_t const& node = graph.nodes.at(gid);
+taskgraph_make_state_t::form_select(int gid) {
+  graph_t::node_t const& node = graph.nodes[gid];
+  placement_t const& pl = placements[gid];
 
-  if(!node.op.is_concat()) {
-    throw std::runtime_error("form_concat needs concat node");
+  if(!node.op.is_select()) {
+    throw std::runtime_error("form_select must have select node");
   }
 
-  auto concat = node.op.get_concat();
-  int rank = concat.shape().size();
-  auto pl = placements.at(gid);
-  if(dtype_is_complex(concat.dtype)) {
-    // change the concat and the pl to be with respect to reals!
+  auto select = node.op.get_select();
+  if(dtype_is_complex(select.dtype)) {
+    select.dtype = complex_to_real(select.dtype);
 
-    auto new_shapes = concat.inn_shapes;
-    for(auto& shape: new_shapes) {
-      shape.back() *= 2;
+    select.out_shape.back() *= 2;
+    for(auto& inn_region: select.inn_regions) {
+      auto& selectdim = inn_region.back();
+      selectdim.d_inn      *= 2;
+      selectdim.offset_inn *= 2;
+      selectdim.offset_out *= 2;
+      selectdim.size       *= 2;
     }
-
-    concat = concat_t(
-      concat.dim,
-      complex_to_real(concat.dtype),
-      new_shapes);
-
-    double_last_dim_inplace(pl);
   }
 
-  vector<uint64_t> dim_offset = concat.get_offsets();
+  auto shape = pl.block_shape();
+  vtensor_t<int> ret(shape);
+  vector<int> index(shape.size(), 0);
+
+  int rank = shape.size();
 
   // For every block, loc in pl,
   //   if this block has a single graph input?
@@ -600,122 +593,56 @@ taskgraph_make_state_t::form_concat(int gid) {
   //     create a builder,
   //     for each of the inputs,
   //       call add_from_refinement
-  vtensor_t<int> ret(pl.partition.block_shape());
-  auto block_shape = pl.partition.block_shape();
-  vector<int> idx(block_shape.size(), 0);
+
+  // Some naming:
+  //   rel means relational with respect to gid
+  //   out means with respect to the hrect
+  //   inn means with respect to which_inn
+
+  using hrect_t = vector<tuple<uint64_t, uint64_t>>;
   do {
-    int const& loc = pl.locations.at(idx);
-    auto hrect = pl.partition.get_hrect(idx);
-    auto [which_inn_beg,which_inn_end] = concat.get_inn_region(hrect[concat.dim]);
-    if(which_inn_beg + 1 == which_inn_end) {
-      int const& which_inn = which_inn_beg;
-      uint64_t const& offset = dim_offset[which_inn];
+    int const& loc = pl.locations.at(index);
+    hrect_t rel_out_hrect = pl.partition.get_hrect(index);
 
-      int const& inn_id = node.inns[which_inn];
+    vector<tuple<hrect_t, int>> rel_inn_hrects = select.collect(rel_out_hrect);
 
-      auto& [b,e] = hrect[concat.dim];
-      b -= offset;
-      e -= offset;
-
-      ret.at(idx) = access(inn_id, hrect, loc);
+    if(rel_inn_hrects.size() == 1) {
+      auto const& [rel_inn_hrect, which_inn] = rel_inn_hrects[0];
+      int const& inn_gid = node.inns[which_inn];
+      ret.at(index) = access(inn_gid, rel_inn_hrect, loc);
     } else {
-      int builder_id = taskgraph.new_partial(loc, concat.dtype, hrect_shape(hrect));
+      int builder_id = taskgraph.new_partial(loc, select.dtype, hrect_shape(rel_out_hrect));
 
-      // Some naming:
-      //   rel means relational with respect to gid
-      //   out means with respect to the hrect
-      //   inn means with respect to which_inn
+      for(auto const& [rel_inn_hrect, which_inn]: rel_inn_hrects) {
+        vector<uint64_t> rel_inn_offset = vector_mapfst(rel_inn_hrect);
+        vector<uint64_t> rel_out_offset = select.wrt_output_point(rel_inn_offset, which_inn);
 
-      auto const& rel_hrect = hrect;
-      auto const& [rel_b,rel_e] = rel_hrect[concat.dim];
+        vector<uint64_t> out_offset;
+        out_offset.reserve(rank);
+        for(int i = 0; i != rank; ++i) {
+          auto const& [rel_out_begin, _] = rel_out_hrect[i];
+          out_offset.push_back(rel_out_offset[i] - rel_out_begin);
+        }
 
-      for(int which_inn = which_inn_beg; which_inn != which_inn_end; ++which_inn) {
-        auto rel_inn_hrect = concat.get_hrect(which_inn);
-        auto const& [rel_inn_b,rel_inn_e] = rel_inn_hrect[concat.dim];
+        int const& inn_gid = node.inns[which_inn];
 
-        uint64_t rb = std::max(rel_inn_b,rel_b);
-        uint64_t re = std::min(rel_inn_e,rel_e);
-
-        vector<uint64_t> inn_offset = vector_mapfst(rel_hrect);
-        inn_offset[concat.dim] = rb - rel_inn_b;
-
-        vector<uint64_t> out_offset(rank, 0);
-        out_offset[concat.dim] = rb - rel_b;
-
-        vector<uint64_t> size = hrect_shape(rel_hrect);
-        size[concat.dim] = re - rb;
-
+        // A: with respect to the partialize output shape of builder_id
+        // B: with respect to the inn tensor shape (relation)
         copy_from_refinement(
-          inn_offset,
-          out_offset,
-          size,
-          node.inns[which_inn],
-          builder_id);
+          vector_mapfst(rel_inn_hrect), // B
+          out_offset,                   // A
+          hrect_shape(rel_inn_hrect),   // A
+          inn_gid,                      // B
+          builder_id                    // A
+        );
       }
 
-      ret.at(idx) = builder_id;
+      ret.at(index) = builder_id;
     }
-  } while(increment_idxs(block_shape, idx));
+
+  } while(increment_idxs(shape, index));
 
   return ret;
-}
-
-vtensor_t<int>
-taskgraph_make_state_t::form_subset(int gid) {
-  graph_t::node_t const& node = graph.nodes.at(gid);
-
-  if(!node.op.is_subset()) {
-    throw std::runtime_error("form_subset needs subset node");
-  }
-
-  placement_t const& s_pl = placements.at(gid);
-  auto const& s_subset = node.op.get_subset();
-
-  // take s_subset and s_pl and
-  // (1) add back the squeeze dimensions and
-  // (2) double the last complex dimension, if complex
-
-  int const& inn_gid = node.inns[0];
-  int inn_rank = graph.out_shape(inn_gid).size();
-
-  auto [subset, partition] = unsqueeze_subset_partition(
-    s_subset, s_pl.partition);
-
-  if(dtype_is_complex(subset.dtype)) {
-    subset.dtype = complex_to_real(subset.dtype);
-
-    auto& [last_dinn, last_dout, last_offset] = subset.selection.back();
-    last_dinn   *= 2;
-    last_dout   *= 2;
-    last_offset *= 2;
-
-    double_last_dim_inplace(partition);
-  }
-
-  auto block_shape = partition.block_shape();
-
-  placement_t pl(
-    partition,
-    vtensor_t<int>(block_shape, s_pl.locations.get()));
-
-  // get the offsets of placement with respect to the input
-  vector<uint64_t> offsets = vector_mapfst(subset.get_hrect());
-
-  vtensor_t<int> ret(block_shape);
-  vector<int> idx(block_shape.size(), 0);
-  do {
-    auto hrect = pl.partition.get_hrect(idx);
-    for(int i = 0; i != hrect.size(); ++i) {
-      auto& [b,e] = hrect[i];
-      auto const& offset = offsets[i];
-      b += offset;
-      e += offset;
-    }
-    ret.at(idx) = access(inn_gid, hrect, pl.at(idx));
-  } while(increment_idxs(block_shape, idx));
-
-  // remove the squeeze dimensions in ret
-  return vtensor_t<int>(s_pl.partition.block_shape(), ret.get());
 }
 
 vtensor_t<int>
@@ -842,11 +769,8 @@ taskgraph_make_state_t::form_relation(int gid)
       return form_from_refinement(inn_gid, double_last_dim(placements.at(gid)));
     }
   }
-  if(node.op.is_subset()) {
-    return form_subset(gid);
-  }
-  if(node.op.is_concat()) {
-    return form_concat(gid);
+  if(node.op.is_select()) {
+    return form_select(gid);
   }
   if(node.op.is_einsummable()) {
     return compute_einsummable(gid);
@@ -992,22 +916,18 @@ construct_refinement_placement(
               which_input));
         }
       }
-    } else if(out_node.op.is_concat()) {
-      auto const& concat = out_node.op.get_concat();
+    } else if(out_node.op.is_select()) {
+      // Note that a select node can use an input multiple times
+      // and therefore there may be multiple usage placements to collect
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
+          auto const& select = out_node.op.get_select();
+          auto const& inn_hrect = select.wrt_output_inn_hrect(which_input);
           insert_usage(
-            multiple_placement_t::make_concat_input(
-              out_pl,
-              concat,
-              which_input));
+            multiple_placement_t::from_single_placement(
+              out_pl.subset(inn_hrect)));
         }
       }
-    } else if(out_node.op.is_subset()) {
-      auto const& subset = out_node.op.get_subset();
-      insert_usage(
-        multiple_placement_t::make_subset_input(
-          out_pl, subset));
     } else {
       throw std::runtime_error(
           "taskgraph state construct refinement placement: "
@@ -1639,67 +1559,6 @@ multiple_placement_t multiple_placement_t::make_einsummable_input(
   };
 }
 
-placement_t
-multiple_placement_t::make_concat_input_placement(
-  placement_t const& join_placement,
-  concat_t const& concat,
-  int which_input)
-{
-  // the first thing to do is split the placement along concat_dim
-  placement_t split_placement = concat_split_placement(join_placement, concat);
-
-  auto region = get_concat_input_region(
-    split_placement.partition, concat, which_input);
-
-  return split_placement.subset(region);
-}
-
-multiple_placement_t multiple_placement_t::make_concat_input(
-  placement_t const& join_placement,
-  concat_t const& concat,
-  int which_input)
-{
-  return multiple_placement_t::from_single_placement(
-    make_concat_input_placement(
-      join_placement, concat, which_input));
-}
-
-multiple_placement_t
-multiple_placement_t::make_subset_input(
-  placement_t const& out_placement_,
-  subset_t const& subset_)
-{
-  auto inn_partition = make_subset_input_partition(
-    subset_, out_placement_.partition);
-
-  auto [subset, out_partition] =
-    unsqueeze_subset_partition(subset_, out_placement_.partition);
-
-  placement_t out_placement(
-    out_partition,
-    vtensor_t<int>(out_partition.block_shape(), out_placement_.locations.get()));
-
-  auto hrect = subset.get_hrect();
-  auto inn_shape = subset.inn_shape();
-
-  vtensor_t<set<int>> locs(inn_partition.block_shape());
-
-  auto region = inn_partition.get_exact_region(hrect);
-
-  vector<int> offset_idx = vector_mapfst(region);
-
-  vector<int> inn_idx = offset_idx;
-  do {
-    auto out_idx = vector_sub(inn_idx, offset_idx);
-    locs.at(inn_idx).insert(out_placement.at(out_idx));
-  } while(increment_idxs_region(region, inn_idx));
-
-  return multiple_placement_t {
-    .partition = inn_partition,
-    .locations = locs
-  };
-}
-
 multiple_tensor_t::multiple_tensor_t(
   partition_t p,
   vtensor_t<vector<locid_t>> && t)
@@ -1772,122 +1631,6 @@ vtensor_t<int> multiple_tensor_t::to_tensor(placement_t const& placement) {
   }
 
   return vtensor_t<int>(tensor.get_shape(), ret);
-}
-
-vector<tuple<int,int>> get_concat_input_region(
-  partition_t const& split_part,
-  concat_t const& concat,
-  int which_input)
-{
-  auto const& partdim = split_part.partdims[concat.dim];
-
-  vector<tuple<int,int>> breaks = _get_sum_breaks(
-    concat.dim_parts(),
-    partdim.sizes());
-
-  auto block_shape = split_part.block_shape();
-  vector<tuple<int,int>> region;
-  region.reserve(block_shape.size());
-  for(auto const& d: block_shape) {
-    region.emplace_back(0, d);
-  }
-
-  region[concat.dim] = breaks[which_input];
-
-  return region;
-}
-
-partition_t concat_split_partition(
-  partition_t const& partition,
-  concat_t const& concat)
-{
-  int const& dim = concat.dim;
-  auto const dim_parts = concat.dim_parts();
-
-  vector<partdim_t> split_partdims = partition.partdims;
-  split_partdims[dim] = partdim_t::unions({
-    split_partdims[dim],
-    partdim_t::from_sizes(dim_parts)
-  });
-
-  return partition_t(split_partdims);
-}
-
-partition_t concat_get_input_partition(
-  partition_t const& concat_part,
-  concat_t const& concat,
-  int which_input)
-{
-  partition_t split_part = concat_split_partition(concat_part, concat);
-
-  auto region = get_concat_input_region(split_part, concat, which_input);
-
-  return split_part.subset(region);
-}
-
-placement_t concat_split_placement(
-  placement_t const& placement,
-  concat_t const& concat)
-{
-  partition_t split_partition = concat_split_partition(
-    placement.partition, concat);
-
-  return placement.refine(split_partition);
-}
-
-tuple<subset_t, partition_t> unsqueeze_subset_partition(
-  subset_t const& subset,
-  partition_t const& partition)
-{
-  partition_t ret(subset.unsqueeze_vec(
-    partition.partdims, partdim_t::singleton(1)));
-
-  int n_block_inn = product(ret.block_shape());
-  int n_block_out = product(partition.block_shape());
-  if(n_block_inn != n_block_out) {
-    throw std::runtime_error("unsqueeze_subset_partition: impl error");
-  }
-
-  return {
-    subset_t(subset.selection, {}, subset.dtype),
-    ret
-  };
-}
-
-partition_t make_subset_input_partition(
-  subset_t const& subset_,
-  partition_t const& out_partition_)
-{
-  auto [subset, out_partition] =
-    unsqueeze_subset_partition(subset_, out_partition_);
-
-  auto hrect = subset.get_hrect();
-  auto inn_shape = subset.inn_shape();
-
-  auto const& out_pds = out_partition.partdims;
-  vector<partdim_t> inn_pds;
-  inn_pds.reserve(out_pds.size());
-  for(int i = 0; i != out_pds.size(); ++i) {
-    auto const& [b,e] = hrect[i];
-    auto const& out_pd = out_pds[i];
-    uint64_t d = inn_shape[i];
-
-    vector<uint64_t> out_pd_sizes = out_pd.sizes();
-    vector<uint64_t> inn_pd_sizes;
-    inn_pd_sizes.reserve(out_pd_sizes.size() + 2);
-    if(b != 0) {
-      inn_pd_sizes.push_back(b);
-    }
-    for(auto const& sz: out_pd_sizes) {
-      inn_pd_sizes.push_back(sz);
-    }
-    if(e != d) {
-      inn_pd_sizes.push_back(d-e);
-    }
-    inn_pds.push_back(partdim_t::from_sizes(inn_pd_sizes));
-  }
-
-  return partition_t(inn_pds);
 }
 
 std::ostream& operator<<(std::ostream& out, multiple_tensor_t::locid_t const& x)
@@ -3074,71 +2817,29 @@ taskgraph_t::partialize_t::get_touch(int which_unit, int which_touch) const
 
 bool taskgraph_t::partialize_t::valid() const
 {
-  int rank = write_shape.size();
-
-  // Cut the write_shape hrect into a refined set of blocks
-  // based on the partial units
-  partition_t refinement = [&] {
-    vector<partdim_t> partdims;
-    partdims.reserve(rank);
-    {
-      vector<vector<uint64_t>> spans(rank);
-      for(int i = 0; i != rank; ++i) {
-        spans[i].push_back(write_shape[i]);
-      }
-      for(auto const& unit: units) {
-        for(int i = 0; i != rank; ++i) {
-          auto const& [offset, size] = unit.out_region[i];
-          auto& ss = spans[i];
-          if(offset != 0) {
-            ss.push_back(offset);
-          }
-          ss.push_back(offset + size);
-        }
-      }
-      for(vector<uint64_t>& ss: spans) {
-        std::sort(ss.begin(), ss.end());
-        vector_remove_duplicates(ss);
-        partdims.push_back(partdim_t::from_spans(ss));
-      }
-    }
-    return partition_t(partdims);
-  }();
-
-  // for each touch, increment the relevant write regions
-  auto refinement_shape = refinement.block_shape();
-  vtensor_t<int> counts(
-    refinement_shape,
-    vector<int>(product(refinement_shape), 0));
-
+  // Make sure that if there are multiple inputs
+  // to a unit, there is a castable to do the aggregation
   for(auto const& unit: units) {
-    vector<tuple<uint64_t, uint64_t>> hrect;
-    hrect.reserve(rank);
-    for(int i = 0; i != rank; ++i) {
-      auto const& [offset, size] = unit.out_region[i];
-      hrect.emplace_back(offset, offset + size);
-    }
-
-    vector<tuple<int,int>> region = refinement.get_exact_region(hrect);
-    vector<int> index = vector_mapfst(region);
-    do {
-      counts.at(index) += 1;
-    } while(increment_idxs_region(region, index));
-  }
-
-  // Check that the entire write shape is partitioned.
-  //
-  // If the out regions are not disjoint, then
-  //   some num_touch will be bigger than one.
-  // If some of the write_shape is not written to,
-  //   then some nume_touch will be zero.
-
-  for(auto const& num_touch: counts.get()) {
-    if(num_touch != 1) {
+    if(unit.inputs.size() > 1 && !bool(unit.castable)) {
       return false;
     }
   }
-  return true;
+
+  // make sure the units partition the write shape
+  vector<vector<tuple<uint64_t, uint64_t>>> hrects;
+  hrects.reserve(units.size());
+  for(auto const& unit: units) {
+    hrects.emplace_back();
+    auto& x = hrects.back();
+    x.reserve(unit.out_region.size());
+    for(auto const& [offset, size]: unit.out_region) {
+      x.emplace_back(offset, offset + size);
+    }
+  }
+
+  return partitions_region(hrects, write_shape);
+
+  // TODO: any other checks?
 }
 
 bool taskgraph_t::partialize_t::is_straight_copy() const {

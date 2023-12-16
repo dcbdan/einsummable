@@ -2,6 +2,8 @@
 #include "../src/einsummable/graph.h"
 #include "../src/matrixgraph/matrixgraph.h"
 
+#include "../src/einsummable/taskgraph.h"
+
 #include <fstream>
 
 void exp01() {
@@ -136,11 +138,60 @@ void exp06(bool with_mm = true) {
   DOUT("printed " << filename);
 }
 
+void exp07() {
+  graph_constructor_t g;
+  int x = g.insert_input(
+    partition_t( { partdim_t::from_sizes({11,9}) }),
+    dtype_t::f32);
+  int y = g.insert_to_complex(
+    partition_t( { partdim_t::from_sizes({5,5}) }),
+    x);
+  g.graph.nodes[y].op.set_save(true);
+
+  string filename = "exp07_graph.gv";
+  std::ofstream f(filename);
+  g.graph.print_graphviz(f);
+  DOUT("printed " << filename);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
+  filename = "exp07.gv";
+  f = std::ofstream(filename);
+  taskgraph.print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+void exp08() {
+  select_t select = make_concat(0, default_dtype(),
+    vector<vector<uint64_t>>{ {20,30}, {10,30}, {40,30} });
+  {
+    hrect_t out_hrect;
+    out_hrect.emplace_back(0, 70);
+    out_hrect.emplace_back(0, 30);
+    for(auto const& [inn_hrect, which_inn]: select.collect(out_hrect)) {
+      hrect_t out_portion = select.wrt_output_hrect(inn_hrect, which_inn);
+      DOUT(inn_hrect << " from " << which_inn << " .. (write region " << out_portion << ")");
+    }
+  }
+  DOUT("");
+  DOUT("");
+  {
+    hrect_t out_hrect;
+    out_hrect.emplace_back(20, 70);
+    out_hrect.emplace_back(10, 30);
+    for(auto const& [inn_hrect, which_inn]: select.collect(out_hrect)) {
+      hrect_t out_portion = select.wrt_output_hrect(inn_hrect, which_inn);
+      DOUT(inn_hrect << " from " << which_inn << " .. (write region " << out_portion << ")");
+    }
+  }
+}
+
 int main() {
-  exp01();
-  exp02();
-  exp03();
-  exp04();
-  exp05();
-  exp06();
+//  exp01();
+//  exp02();
+//  exp03();
+//  exp04();
+//  exp05();
+//  exp06();
+//  exp07();
+  exp08();
 }

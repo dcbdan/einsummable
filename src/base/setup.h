@@ -75,6 +75,8 @@ using std::string;
 
 using float16_t = half_float::half;
 
+using hrect_t = vector<tuple<uint64_t, uint64_t>>;
+
 template <typename T>
 T product(vector<T> const& xs)
 {

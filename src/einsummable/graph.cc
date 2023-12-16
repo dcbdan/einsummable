@@ -1,229 +1,291 @@
 #include "graph.h"
 #include "../base/hrect.h"
 
-concat_t::concat_t(int d, dtype_t dt, vector<vector<uint64_t>> const& ss):
-  dim(d), dtype(dt), inn_shapes(ss)
+bool partitions_region(
+  vector<vector<tuple<uint64_t, uint64_t>>> const& hrects,
+  vector<uint64_t> const& shape)
 {
-  optional<string> err_msg = check_concat_shapes(dim, inn_shapes);
-  if(err_msg) {
-    throw std::runtime_error("concat_t: " + err_msg.value());
+  int rank = shape.size();
+
+  // Cut the shape hrect into a refined set of blocks
+  // based on the partial units
+  partition_t refinement = [&] {
+    vector<partdim_t> partdims;
+    partdims.reserve(rank);
+    {
+      vector<vector<uint64_t>> spans(rank);
+      for(int i = 0; i != rank; ++i) {
+        spans[i].push_back(shape[i]);
+      }
+      for(auto const& hrect: hrects) {
+        for(int i = 0; i != rank; ++i) {
+          auto const& [beg,end] = hrect[i];
+          auto& ss = spans[i];
+          if(beg != 0) {
+            ss.push_back(beg);
+          }
+          ss.push_back(end);
+        }
+      }
+      for(vector<uint64_t>& ss: spans) {
+        std::sort(ss.begin(), ss.end());
+        vector_remove_duplicates(ss);
+        partdims.push_back(partdim_t::from_spans(ss));
+      }
+    }
+    return partition_t(partdims);
+  }();
+
+  // for each touch, increment the relevant write regions
+  auto refinement_shape = refinement.block_shape();
+  vtensor_t<int> counts(refinement_shape);
+
+  for(auto const& hrect: hrects) {
+    vector<tuple<int,int>> region = refinement.get_exact_region(hrect);
+    vector<int> index = vector_mapfst(region);
+    do {
+      counts.at(index) += 1;
+    } while(increment_idxs_region(region, index));
   }
 
-  if(inn_shapes.size() <= 1) {
-    throw std::runtime_error("concat_t: expects >1 input");
-  }
-}
+  // Check that the entire write shape is partitioned.
+  //
+  // If the out regions are not disjoint, then
+  //   some num_touch will be bigger than one.
+  // If some of the shape is not written to,
+  //   then some nume_touch will be zero.
 
-vector<uint64_t> concat_t::shape() const
-{
-  vector<uint64_t> ret = inn_shapes[0];
-  for(int i = 1; i != inn_shapes.size(); ++i) {
-    ret[dim] += inn_shapes[i][dim];
-  }
-  return ret;
-}
-
-vector<uint64_t> concat_t::dim_parts() const
-{
-  vector<uint64_t> ret;
-  ret.reserve(inn_shapes.size());
-  for(auto const& inn_shape: inn_shapes) {
-    ret.push_back(inn_shape[dim]);
-  }
-  return ret;
-}
-
-vector<tuple<uint64_t, uint64_t>>
-concat_t::get_hrect(int which_inn) const
-{
-  vector<tuple<uint64_t, uint64_t>> ret;
-  auto offsets = get_offsets();
-  int rank = inn_shapes[0].size();
-  ret.reserve(rank);
-  for(int which_dim = 0; which_dim != rank; ++which_dim) {
-    if(which_dim == dim) {
-      uint64_t offset = offsets[which_inn];
-      uint64_t const& sz = inn_shapes[which_inn][dim];
-      ret.emplace_back(offset, offset + sz);
-    } else {
-      uint64_t const& sz = inn_shapes[0][which_dim];
-      ret.emplace_back(0, sz);
+  for(auto const& num_touch: counts.get()) {
+    if(num_touch != 1) {
+      return false;
     }
   }
-  return ret;
+  return true;
 }
 
-vector<uint64_t> concat_t::get_offsets() const {
-  vector<uint64_t> ret(inn_shapes.size());
-  auto ds = dim_parts();
-
-  // 0, ds[0], ds[0] + ds[1], ...
-  std::exclusive_scan(
-    ds.begin(),
-    ds.end(),
-    ret.begin(),
-    0);
-
-  return ret;
-}
-
-tuple<int, int> concat_t::get_inn_region(uint64_t beg, uint64_t end) const {
-  auto offsets = get_offsets();
-  uint64_t dim_nelem = offsets.back() + inn_shapes.back()[dim];
-  if(beg >= end || end > dim_nelem) {
-    throw std::runtime_error("concat_t::get_inns invalid inputs");
-  }
-  offsets.push_back(dim_nelem);
-
-  int b = -1;
-  int e = -1;
-  for(int i = 0; i != offsets.size()-1; ++i) {
-    auto const& inn_b = offsets[i  ];
-    auto const& inn_e = offsets[i+1];
-    if(beg >= inn_b && beg < inn_e) {
-      b = i;
-    }
-    if(end > inn_b && end <= inn_e) {
-      e = i;
-    }
-  }
-  if(b == -1 || e == -1) {
-    throw std::runtime_error("concat_t::get_inn_region");
-  }
-  return {b,e+1};
-}
-
-tuple<int, int> concat_t::get_inn_region(
-  tuple<uint64_t,uint64_t> const& be) const
+select_t::select_t(
+  dtype_t dtype,
+  vector<uint64_t> const& os,
+  vector<select_t::inn_region_t> const& irs)
+  : out_shape(os), inn_regions(irs)
 {
-  auto const& [b,e] = be;
-  return get_inn_region(b,e);
+  int rank = out_shape.size();
+  if(rank == 0) {
+    throw std::runtime_error("cannot have empty out shape in select");
+  }
+  for(auto const& d: out_shape) {
+    if(d == 0) {
+      throw std::runtime_error("cannot have dimension of size zero");
+    }
+  }
+
+  vector<vector<tuple<uint64_t, uint64_t>>> hrects;
+  hrects.reserve(inn_regions.size());
+  for(auto const& inn_region: inn_regions) {
+    if(inn_region.size() != rank) {
+      throw std::runtime_error("inn region must have same rank as output");
+    }
+
+    hrects.emplace_back();
+    auto& hrect = hrects.back();
+    hrect.reserve(rank);
+
+    for(int i = 0; i != rank; ++i) {
+      auto const& d_out = out_shape[i];
+      auto const& [d_inn, offset_inn, offset_out, size] = inn_region[i];
+
+      if(size + offset_inn > d_out ||
+         size + offset_out > d_out ||
+         size + offset_inn > d_inn ||
+         d_inn == 0 || size == 0)
+      {
+        throw std::runtime_error("invalid select given");
+      }
+
+      hrect.emplace_back(offset_out, offset_out + size);
+    }
+  }
+
+  if(!partitions_region(hrects, out_shape)) {
+    throw std::runtime_error("This select does not partition the write region");
+  }
 }
 
-vector<subset_t::subsetdim_t>
-subset_t::make_selection(
+vector<touch_t> select_t::as_touches() const {
+  vector<touch_t> ret;
+  ret.reserve(inn_regions.size());
+  for(int i = 0; i != inn_regions.size(); ++i) {
+    ret.push_back(as_touch(i));
+  }
+  return ret;
+}
+
+touch_t select_t::as_touch(int which) const {
+  vector<touchdim_t> tds;
+  auto const& sds = inn_regions.at(which);
+  for(int i = 0; i != sds.size(); ++i) {
+    uint64_t d_out = out_shape[i];
+    auto const& sd = sds[i];
+    tds.push_back(touchdim_t {
+      .d_inn      = sd.d_inn,
+      .d_out      = d_out,
+      .offset_inn = sd.offset_inn,
+      .offset_out = sd.offset_out,
+      .size       = sd.size
+    });
+  }
+
+  return touch_t {
+    .selection = tds,
+    .castable = std::nullopt,
+    .dtype = dtype
+  };
+}
+
+vector<uint64_t>
+select_t::wrt_output_point(
+  vector<uint64_t> const& inn_point,
+  int which_inn) const
+{
+  auto const& inn_region = inn_regions.at(which_inn);
+  int rank = inn_region.size();
+
+  vector<uint64_t> out_point;
+  out_point.reserve(rank);
+  for(int i = 0; i != rank; ++i) {
+    auto const& sd = inn_region[i];
+    uint64_t const& b_inn = inn_point[i];
+    out_point.push_back(
+      sd.offset_out + (b_inn - sd.offset_inn)
+    );
+  }
+
+  return out_point;
+}
+
+hrect_t select_t::wrt_output_hrect(hrect_t const& inn_hrect, int which_inn) const
+{
+  auto ret_b = wrt_output_point(vector_mapfst(inn_hrect), which_inn);
+  auto ret_e = wrt_output_point(vector_mapsnd(inn_hrect), which_inn);
+  return vector_zip(ret_b, ret_e);
+}
+
+hrect_t select_t::wrt_output_inn_hrect(int which_input) const
+{
+  hrect_t ret;
+  for(auto const& sd: inn_regions.at(which_input)) {
+    ret.emplace_back(sd.offset_out, sd.offset_out + sd.size);
+  }
+  return ret;
+}
+
+vector<tuple<hrect_t, int>>
+select_t::collect(hrect_t out_hrect) const
+{
+  // for each input, does it intersect, if so, where?
+  vector<tuple<hrect_t, int>> ret;
+  int rank = out_shape.size();
+  for(int which_inn = 0; which_inn != inn_regions.size(); ++which_inn) {
+    auto const& inn_region = inn_regions[which_inn];
+    vector<tuple<uint64_t, uint64_t>> inn_hrect;
+    for(int i = 0; i != rank; ++i) {
+      selectdim_t const& sd = inn_region[i];
+      auto const& [out_blk_b, out_blk_e] = out_hrect[i];
+      uint64_t const& here_b = sd.offset_out;
+      uint64_t        here_e = sd.offset_out + sd.size;
+      uint64_t out_b = std::max(out_blk_b, here_b);
+      uint64_t out_e = std::min(out_blk_e, here_e);
+      if(out_b < out_e) {
+        inn_hrect.emplace_back(
+          sd.offset_inn + (out_b - sd.offset_out),
+          sd.offset_inn + (out_e - sd.offset_out));
+      } else {
+        break;
+      }
+    }
+    if(inn_hrect.size() == rank) {
+      ret.emplace_back(inn_hrect, which_inn);
+    }
+  }
+
+  return ret;
+}
+
+
+select_t make_concat(
+  int dim,
+  dtype_t dtype,
+  vector<vector<uint64_t>> const& input_shapes)
+{
+  using selectdim_t = select_t::selectdim_t;
+
+  if(input_shapes.size() == 0) {
+    throw std::runtime_error("cannot concat empty list");
+  }
+
+  uint64_t offset_dim = 0;
+
+  vector<vector<selectdim_t>> sdss;
+  sdss.reserve(input_shapes.size());
+
+  for(auto const& inn_shape: input_shapes) {
+    sdss.emplace_back();
+    auto& sds = sdss.back();
+    for(int i = 0; i != inn_shape.size(); ++i) {
+      uint64_t const& d_inn = inn_shape[i];
+      if(i == dim) {
+        sds.push_back(selectdim_t {
+          .d_inn      = d_inn,
+          .offset_inn = 0,
+          .offset_out = offset_dim,
+          .size       = d_inn
+        });
+        offset_dim += d_inn;
+      } else {
+        sds.push_back(selectdim_t {
+          .d_inn      = d_inn,
+          .offset_inn = 0,
+          .offset_out = 0,
+          .size       = d_inn
+        });
+      }
+    }
+  }
+  vector<uint64_t> out_shape = vector_from_each_member(sdss[0], uint64_t, size);
+  out_shape[dim] = offset_dim;
+
+  return select_t(dtype, out_shape, sdss);
+}
+
+select_t make_subset(
+  dtype_t dtype,
   vector<tuple<uint64_t, uint64_t>> const& hrect,
   vector<uint64_t> inn_shape)
 {
+  using selectdim_t = select_t::selectdim_t;
+
   int rank = hrect.size();
-  if(inn_shape.size() != rank) {
-    throw std::runtime_error("subset_t::make_selection");
+  if(inn_shape.size() != rank || rank == 0) {
+    throw std::runtime_error("invalid input to make_subset");
   }
 
-  vector<subsetdim_t> ret;
-  ret.reserve(rank);
+  vector<selectdim_t> sds;
+  vector<uint64_t> out_shape;
+  sds.reserve(rank);
+  out_shape.reserve(rank);
   for(int i = 0; i != rank; ++i) {
-    auto const& d_inn = inn_shape[i];
-    auto const& [b,e] = hrect[i];
-    if(e <= b) {
-      throw std::runtime_error("must have positive hrect");
-    }
-    uint64_t d_out = e-b;
-    if(d_inn < d_out) {
-      throw std::runtime_error("can't subset to bigger");
-    }
-
-    ret.push_back(subsetdim_t {
-      .d_inn = d_inn,
-      .d_out = d_out,
-      .offset = b
-    });
-  }
-
-  return ret;
-}
-
-subset_t::subset_t(
-  vector<tuple<uint64_t, uint64_t>> const& hrect,
-  vector<uint64_t> inn_shape,
-  set<int> squeeze,
-  dtype_t dtype)
-  : subset_t(make_selection(hrect, inn_shape), squeeze, dtype)
-{}
-
-subset_t::subset_t(
-  vector<subsetdim_t> se,
-  set<int> sq,
-  dtype_t dt)
-  : dtype(dt), selection(se), squeeze(sq)
-{
-  for(auto const& [d_inn,d_out,offset]: selection) {
-    if(d_out + offset > d_inn) {
-      throw std::runtime_error("subset construction: invalid selection");
-    }
-  }
-  int rank = selection.size();
-  for(auto const& s: squeeze) {
-    if(s < 0 || s >= rank) {
-      throw std::runtime_error("can only sqeeze modes in [0,rank)");
-    }
-    if(selection[s].d_out != 1) {
-      throw std::runtime_error("can only squeeze modes with size 1");
-    }
-  }
-
-  if(squeeze.size() == selection.size()) {
-    throw std::runtime_error("selection must end up with more than zero dims");
-  }
-
-  bool is_no_op = true;
-  for(auto const& [d_inn, d_out, offset]: selection) {
-    if(d_inn != d_out || offset != 0) {
-      is_no_op = false;
-      break;
-    }
-  }
-  if(is_no_op) {
-    throw std::runtime_error("subset_t cannot be no op");
-  }
-}
-
-vector<uint64_t> subset_t::inn_shape() const {
-  return vector_from_each_member(selection, uint64_t, d_inn);
-}
-
-vector<uint64_t> subset_t::out_shape() const {
-  int rank = selection.size();
-  vector<uint64_t> shape;
-  shape.reserve(rank - squeeze.size());
-  for(int i = 0; i != rank; ++i) {
-    if(squeeze.count(i) > 0) {
-      // don't add this rank
-    } else {
-      shape.push_back(selection[i].d_out);
-    }
-  }
-  return shape;
-}
-
-vector<tuple<uint64_t, uint64_t>>
-subset_t::get_hrect() const {
-  vector<tuple<uint64_t, uint64_t>> ret;
-  int rank = selection.size();
-  ret.reserve(rank);
-  for(auto const& [d_inn, d_out, offset]: selection) {
-    ret.emplace_back(offset, offset+d_out);
-  }
-  return ret;
-}
-
-touch_t subset_t::as_touch() const {
-  vector<touchdim_t> tds;
-  tds.reserve(selection.size());
-  for(auto const& [d_inn, d_out, offset]: selection) {
-    tds.push_back(touchdim_t {
-      .d_inn      = d_inn,
-      .d_out      = d_out,
-      .offset_inn = offset,
+    auto const& [beg,end] = hrect[i];
+    uint64_t size = end-beg;
+    sds.push_back(selectdim_t {
+      .d_inn = inn_shape[i],
+      .offset_inn = beg,
       .offset_out = 0,
-      .size       = d_out
+      .size = size
     });
+    out_shape.push_back(size);
   }
-  return touch_t {
-    .selection = tds,
-    .castable  = std::nullopt,
-    .dtype     = dtype
-  };
+
+  return select_t(dtype, out_shape, {sds});
 }
 
 int graph_constructor_t::insert_input(
@@ -522,19 +584,18 @@ int graph_t::insert_concat(
     shapes.push_back(out_shape(inn));
   }
 
-  return this->insert(concat_t(dim, dtype, shapes), inns);
+  return this->insert(make_concat(dim, dtype, shapes), inns);
 }
 
 int graph_constructor_t::insert_subset(
   placement_t placement,
   vector<tuple<uint64_t, uint64_t>> hrect,
-  int inn,
-  set<int> squeeze)
+  int inn)
 {
-  int ret = graph.insert_subset(hrect, inn, squeeze);
+  int ret = graph.insert_subset(hrect, inn);
 
   if(placement.total_shape() != graph.out_shape(ret)) {
-    throw std::runtime_error("graph constructor: invalid concat");
+    throw std::runtime_error("graph constructor: invalid subset");
   }
 
   placements.insert({ret, placement});
@@ -544,13 +605,12 @@ int graph_constructor_t::insert_subset(
 int graph_constructor_t::insert_subset(
   partition_t partition,
   vector<tuple<uint64_t, uint64_t>> hrect,
-  int inn,
-  set<int> squeeze)
+  int inn)
 {
-  int ret = graph.insert_subset(hrect, inn, squeeze);
+  int ret = graph.insert_subset(hrect, inn);
 
   if(partition.total_shape() != graph.out_shape(ret)) {
-    throw std::runtime_error("graph constructor: invalid concat");
+    throw std::runtime_error("graph constructor: invalid subset");
   }
 
   placements.insert({ret, placement_t(partition)});
@@ -559,10 +619,9 @@ int graph_constructor_t::insert_subset(
 
 int graph_constructor_t::insert_subset(
   vector<tuple<uint64_t, uint64_t>> hrect,
-  int inn,
-  set<int> squeeze)
+  int inn)
 {
-  int ret = graph.insert_subset(hrect, inn, squeeze);
+  int ret = graph.insert_subset(hrect, inn);
 
   partition_t partition = partition_t::singleton(graph.out_shape(ret));
 
@@ -572,14 +631,12 @@ int graph_constructor_t::insert_subset(
 
 int graph_t::insert_subset(
   vector<tuple<uint64_t, uint64_t>> hrect,
-  int inn,
-  set<int> squeeze)
+  int inn)
 {
   dtype_t dtype = out_dtype(inn);
   vector<uint64_t> inn_shape = out_shape(inn);
-  subset_t subset(hrect, inn_shape, squeeze, dtype);
 
-  return this->insert(subset_t(hrect, inn_shape, squeeze, dtype), {inn});
+  return this->insert(make_subset(dtype, hrect, inn_shape), {inn});
 }
 
 dtype_t graph_t::complexer_t::inn_dtype() const {
@@ -630,11 +687,8 @@ dtype_t graph_t::op_t::out_dtype() const {
   if(is_fill()) {
     return get_fill().value.dtype;
   }
-  if(is_concat()) {
-    return get_concat().dtype;
-  }
-  if(is_subset()) {
-    return get_subset().dtype;
+  if(is_select()) {
+    return get_select().dtype;
   }
   if(is_einsummable()) {
     return get_einsummable().out_dtype();
@@ -664,11 +718,8 @@ graph_t::op_t::out_shape() const {
   if(is_fill()) {
     return get_fill().shape;
   }
-  if(is_concat()) {
-    return get_concat().shape();
-  }
-  if(is_subset()) {
-    return get_subset().out_shape();
+  if(is_select()) {
+    return get_select().out_shape;
   }
   if(is_einsummable()) {
     return get_einsummable().out_shape();
@@ -690,11 +741,8 @@ graph_t::op_t::shape() const {
   if(is_fill()) {
     return get_fill().shape;
   }
-  if(is_concat()) {
-    return get_concat().shape();
-  }
-  if(is_subset()) {
-    return get_subset().out_shape();
+  if(is_select()) {
+    return get_select().out_shape;
   }
   if(is_einsummable()) {
     return get_einsummable().join_shape;
@@ -840,10 +888,8 @@ void graph_t::print() const {
       }
     } else if(node.op.is_fill()) {
       std::cout << "fill[" << node.op.get_fill().value << "]" << std::endl;
-    } else if(node.op.is_concat()) {
-      std::cout << "concat[dim=" << node.op.get_concat().dim << "]" << std::endl;
-    } else if(node.op.is_subset()) {
-      std::cout << "subset" << std::endl;
+    } else if(node.op.is_select()) {
+      std::cout << "select" << std::endl;
     } else {
       throw std::runtime_error("graph_t print should not reach");
     }
@@ -892,10 +938,8 @@ void graph_t::print_graphviz(
       label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
     } else if(op.is_fill()) {
       label = "fill" + write_with_ss(id) + ":" + write_with_ss(op.get_fill().value);
-    } else if(op.is_concat()) {
-      label = "concat" + write_with_ss(id);
-    } else if(op.is_subset()) {
-      label = "subset" + write_with_ss(id);
+    } else if(op.is_select()) {
+      label = "select" + write_with_ss(id);
     } else {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
@@ -1246,11 +1290,8 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
   } else if(op.is_fill()) {
     // fill is just constant values that don't depend on anything
     return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
-  } else if(op.is_concat()) {
-    return build_grad_term_concat(op.get_concat(), which_inn, grad_id);
-  } else if(op.is_subset()) {
-    // TODO
-    throw std::runtime_error("not implemented build grad term: subset");
+  } else if(op.is_select()) {
+    throw std::runtime_error("not implemented build grad term: select");
   } else if(op.is_einsummable()) {
     return build_grad_term_einsummable(
       op.get_einsummable(), inns, which_inn, grad_id);
@@ -1549,24 +1590,6 @@ graph_t::build_grad_term_ewu(
     einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
     int term_id = insert_einsummable(new_e, { inn, grad.get_id() });
     return backprop_tensor_t(term_id);
-  }
-}
-
-graph_t::backprop_tensor_t
-graph_t::build_grad_term_concat(
-  concat_t const& concat,
-  int which_inn,
-  backprop_tensor_t grad)
-{
-  if(grad.is_constant()) {
-    return backprop_tensor_t(fill_t {
-      .value = grad.get_constant(),
-      .shape = concat.inn_shapes[which_inn]
-    });
-  } else {
-    return backprop_tensor_t(insert_subset(
-      concat.get_hrect(which_inn),
-      grad.get_id()));
   }
 }
 
@@ -2149,15 +2172,14 @@ graph_writer_t::tensor_t::subset(
   }
   vector<tuple<uint64_t, uint64_t>> hrect;
   hrect.reserve(rank);
-  set<int> squeeze;
   for(int i = 0; i != rank; ++i) {
     auto const& idx = idxs[i];
     hrect.push_back(idx.get(_shape[i]));
     if(idx.is_squeeze()) {
-      squeeze.insert(i);
+      throw std::runtime_error("squeezes not implemented");
     }
   }
-  return self->subset(hrect, squeeze, *this);
+  return self->subset(hrect, *this);
 }
 
 bool
@@ -2558,7 +2580,6 @@ graph_writer_t::concat(
 graph_writer_t::tensor_t
 graph_writer_t::subset(
   vector<tuple<uint64_t, uint64_t>> const& hrect,
-  set<int> squeeze,
   tensor_t const& inn)
 {
   full_shape_t inn_shape = inn.get_shape();
@@ -2609,8 +2630,6 @@ graph_writer_t::subset(
   vector<tuple<uint64_t, uint64_t>> full_hrect;
   full_hrect.reserve(inn_full_shape.size());
 
-  set<int> full_squeeze;
-
   vector<vector<uint64_t>> out_vecvec;
 
   for(int i = 0; i != rank; ++i) {
@@ -2618,16 +2637,9 @@ graph_writer_t::subset(
 
     if(is_subset_dim(i)) {
       full_hrect.push_back(hrect[i]);
-      if(squeeze.count(i) == 0) {
-        auto const& [_b,_e] = hrect[i];
-        out_vecvec.push_back({ _e-_b});
-      } else {
-        full_squeeze.insert(b);
-      }
+      auto const& [_b,_e] = hrect[i];
+      out_vecvec.push_back({ _e-_b});
     } else {
-      if(squeeze.count(i) > 0) {
-        throw std::runtime_error("subset graph writer error");
-      }
       out_vecvec.emplace_back();
       for(int f = b; f != e; ++f) {
         uint64_t const& d = inn_full_shape[f];
@@ -2637,7 +2649,7 @@ graph_writer_t::subset(
     }
   }
 
-  int out_id = graph.insert_subset(full_hrect, inn.get_id(), full_squeeze);
+  int out_id = graph.insert_subset(full_hrect, inn.get_id());
 
   full_shape_t out_shape = full_shape_t::from_vecvec(out_vecvec);
 

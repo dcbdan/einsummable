@@ -13,95 +13,56 @@ struct fill_t {
   vector<uint64_t> shape;
 };
 
-struct concat_t {
-  concat_t(int dim, dtype_t dtype, vector<vector<uint64_t>> const& input_shapes);
+bool partitions_region(
+  vector<vector<tuple<uint64_t, uint64_t>>> const& hrects,
+  vector<uint64_t> const& shape);
 
-  int dim;
-  dtype_t dtype;
-  vector<vector<uint64_t>> inn_shapes;
-
-  int num_inns() const { return inn_shapes.size(); }
-
-  vector<uint64_t> shape() const;
-
-  vector<uint64_t> dim_parts() const;
-
-  vector<tuple<uint64_t, uint64_t>> get_hrect(int which_inn) const;
-
-  vector<uint64_t> get_offsets() const;
-
-  // return [b,e) for the idxs that [beg,end) reaches
-  tuple<int, int> get_inn_region(uint64_t beg, uint64_t end) const;
-  tuple<int, int> get_inn_region(tuple<uint64_t,uint64_t> const&) const;
-};
-
-struct subset_t {
-  struct subsetdim_t {
+struct select_t {
+  struct selectdim_t {
     uint64_t d_inn;
-    uint64_t d_out;
-    uint64_t offset;
+    uint64_t offset_inn;
+    uint64_t offset_out;
+    uint64_t size;
   };
 
-  subset_t(
-    vector<tuple<uint64_t, uint64_t>> const& hrect,
-    vector<uint64_t> inn_shape,
-    set<int> squeeze = {},
-    dtype_t dtype = default_dtype());
-
-  subset_t(
-    vector<subsetdim_t> selection,
-    set<int> squeeze = {},
-    dtype_t dtype = default_dtype());
+  using inn_region_t = vector<selectdim_t>;
 
   dtype_t dtype;
-  vector<subsetdim_t> selection;
-  set<int> squeeze;
+  vector<uint64_t> out_shape;
+  vector<inn_region_t> inn_regions;
 
-  vector<uint64_t> inn_shape() const;
-  vector<uint64_t> out_shape() const;
+  select_t(
+    dtype_t dtype,
+    vector<uint64_t> const& out_shape,
+    vector<inn_region_t> const& inn_regions);
 
-  vector<tuple<uint64_t, uint64_t>> get_hrect() const;
+  vector<touch_t> as_touches() const;
+  touch_t as_touch(int which) const;
 
-  touch_t as_touch() const;
+  vector<uint64_t> // a point with respect to the output tensor
+  wrt_output_point(
+    vector<uint64_t> const& inn_point, // a point with respect to an input tensor
+    int which_inn) const; // which input tensor
 
-  template <typename T>
-  vector<T> squeeze_vec(vector<T> const& inn) const {
-    if(inn.size() != selection.size()) {
-      throw std::runtime_error("invalid input to squeeze");
-    }
-    vector<T> ret;
-    ret.reserve(selection.size() - squeeze.size());
-    for(int i = 0; i != selection.size(); ++i) {
-      if(squeeze.count(i) == 0) {
-        ret.push_back(inn[i]);
-      }
-    }
-    return ret;
-  }
-  template <typename T>
-  vector<T> unsqueeze_vec(vector<T> const& out, T const& v) const {
-    if(out.size() + squeeze.size() != selection.size()) {
-      throw std::runtime_error("invalid input to unsqueeze");
-    }
-    vector<T> ret;
-    ret.reserve(selection.size());
-    int j = 0;
-    for(int i = 0; i != selection.size(); ++i) {
-      if(squeeze.count(i) > 0) {
-        ret.push_back(v);
-      } else {
-        ret.push_back(out[j]);
-        j++;
-      }
-    }
-    return ret;
-  }
+  hrect_t wrt_output_hrect(hrect_t const& inn_hrect, int which_inn) const;
 
-private:
-  static vector<subsetdim_t> make_selection(
-    vector<tuple<uint64_t, uint64_t>> const& hrect,
-    vector<uint64_t> inn_shape);
+  // For each input that touches into the out_hrect,
+  //   return the hrect portion of the input tensor and which input
+  vector<tuple<hrect_t, int>>
+  collect(hrect_t out_hrect) const;
+
+  hrect_t wrt_output_inn_hrect(int which_input) const;
 };
+
+select_t make_concat(
+  int dim,
+  dtype_t dtype,
+  vector<vector<uint64_t>> const& input_shapes);
+
+select_t make_subset(
+  dtype_t dtype,
+  vector<tuple<uint64_t, uint64_t>> const& hrect,
+  vector<uint64_t> inn_shape);
 
 struct graph_t {
   // Methods to construct a graph object
@@ -130,8 +91,7 @@ struct graph_t {
 
   int insert_subset(
     vector<tuple<uint64_t, uint64_t>> hrect,
-    int inn,
-    set<int> squeeze = {});
+    int inn);
 
   // For each non-save node, make sure it gets marked as save if it isn't used
   // elsewhere.
@@ -203,9 +163,9 @@ public:
 
   // An op for converting complex <-> float
   // The idea is that the last dimension is either
-  // double (complex -> float) or halved (float -> complex)
+  // doubled (complex -> float) or halved (float -> complex)
   struct complexer_t {
-    dtype_t dtype;
+    dtype_t dtype; // out dtype
     vector<uint64_t> shape;
     // these are the out shape and out dtypes which is the join shape
     // (The join shape == the shape for annotated partitions)
@@ -225,7 +185,7 @@ public:
   private:
     using _op_t = std::variant<
       input_t, formation_t, complexer_t,
-      fill_t, concat_t, subset_t, einsummable_t>;
+      fill_t, select_t, einsummable_t>;
 
   public:
     op_t(_op_t op, bool is_save);
@@ -234,8 +194,7 @@ public:
     op_t(formation_t   x, bool s = false): op_t(_op_t(x), s) {}
     op_t(complexer_t   x, bool s = false): op_t(_op_t(x), s) {}
     op_t(fill_t        x, bool s = false): op_t(_op_t(x), s) {}
-    op_t(concat_t      x, bool s = false): op_t(_op_t(x), s) {}
-    op_t(subset_t      x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(select_t      x, bool s = false): op_t(_op_t(x), s) {}
     op_t(einsummable_t x, bool s = false): op_t(_op_t(x), s) {}
 
     vector<uint64_t> out_shape() const;
@@ -252,9 +211,8 @@ public:
     bool is_input()       const { return std::holds_alternative<input_t>(op);     }
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
     bool is_complexer()   const { return std::holds_alternative<complexer_t>(op); }
-    bool is_fill()        const { return std::holds_alternative<fill_t>(op);    }
-    bool is_concat()      const { return std::holds_alternative<concat_t>(op);    }
-    bool is_subset()      const { return std::holds_alternative<subset_t>(op);    }
+    bool is_fill()        const { return std::holds_alternative<fill_t>(op);      }
+    bool is_select()      const { return std::holds_alternative<select_t>(op);    }
     bool is_einsummable() const {
       return std::holds_alternative<einsummable_t>(op);
     }
@@ -271,8 +229,7 @@ public:
     formation_t        & get_formation()         { return std::get<formation_t>(op); }
     complexer_t   const& get_complexer()   const { return std::get<complexer_t>(op); }
     fill_t        const& get_fill()        const { return std::get<fill_t>(op);      }
-    concat_t      const& get_concat()      const { return std::get<concat_t>(op);    }
-    subset_t      const& get_subset()      const { return std::get<subset_t>(op);    }
+    select_t      const& get_select()      const { return std::get<select_t>(op);    }
     einsummable_t const& get_einsummable() const {
       return std::get<einsummable_t>(op);
     }
@@ -384,11 +341,6 @@ private:
     einsummable_t const& e,
     int inn,
     backprop_tensor_t grad_id);
-  backprop_tensor_t
-  build_grad_term_concat(
-    concat_t const& concat,
-    int which_inn,
-    backprop_tensor_t grad_id);
 
   //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
   //int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
@@ -480,17 +432,14 @@ struct graph_constructor_t {
   int insert_subset(
     placement_t placement,
     vector<tuple<uint64_t, uint64_t>> hrect,
-    int inn,
-    set<int> squeeze = {});
+    int inn);
   int insert_subset(
     partition_t partition,
     vector<tuple<uint64_t, uint64_t>> hrect,
-    int inn,
-    set<int> squeeze = {});
+    int inn);
   int insert_subset(
     vector<tuple<uint64_t, uint64_t>> hrect,
-    int inn,
-    set<int> squeeze = {});
+    int inn);
 
   vector<placement_t> get_placements() const;
 
@@ -754,7 +703,6 @@ struct graph_writer_t {
 
   tensor_t subset(
     vector<tuple<uint64_t, uint64_t>> const& hrect,
-    set<int> squeeze,
     tensor_t const& inn);
 
   tensor_t to_real(tensor_t const& inn);

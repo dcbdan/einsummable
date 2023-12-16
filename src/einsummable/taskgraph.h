@@ -372,30 +372,6 @@ private:
   int insert(op_t op, bool is_save);
 };
 
-partition_t concat_split_partition(
-  partition_t const& partition,
-  concat_t const& concat);
-
-// get the slice of concat_partition at
-// the which_input part of the concat op
-partition_t concat_get_input_partition(
-  partition_t const& concat_partition,
-  concat_t const& concat,
-  int which_input);
-
-placement_t concat_split_placement(
-  placement_t const& placement,
-  concat_t const& concat);
-
-tuple<subset_t, partition_t>
-unsqueeze_subset_partition(
-  subset_t const& subset,
-  partition_t const& partition);
-
-partition_t make_subset_input_partition(
-  subset_t const& subset,
-  partition_t const& out_partition);
-
 partition_t double_last_dim(partition_t const& p);
 placement_t double_last_dim(placement_t const& p);
 
@@ -434,21 +410,6 @@ struct multiple_placement_t {
     placement_t const& join_placement,
     einsummable_t const& einsummable,
     int which_input);
-
-  // deduce the required multiple_placement of a concat's
-  // input at which_input given that the concat is placed with
-  // join_placement
-  static multiple_placement_t make_concat_input(
-    placement_t const& join_placement,
-    concat_t const& concat,
-    int which_input);
-  static placement_t make_concat_input_placement(
-    placement_t const& join_placement,
-    concat_t const& concat,
-    int which_input);
-  static multiple_placement_t make_subset_input(
-    placement_t const& out_placement,
-    subset_t const& subset);
 
   partition_t partition;
   vtensor_t<set<int>> const locations;
