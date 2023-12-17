@@ -2364,40 +2364,47 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
     throw std::runtime_error("should not be summing empty list of tensors");
   }
 
+  dtype_t dtype;
+  vector<uint64_t> shape;
+  int rank;
+  {
+    auto const& tensor = items_[0];
+    dtype = tensor.dtype(*this);
+    shape = tensor.shape(*this);
+    rank = shape.size();
+  }
+
+  scalar_t sum = scalar_t::zero(dtype);
   vector<int> items;
   items.reserve(items_.size());
   for(auto const& tensor: items_) {
-    if(tensor.is_zeros()) {
-      // this item does not need to be included in the sum
-    } else if(tensor.is_constant()) {
-      throw std::runtime_error("not implemented: insert constant tensor into graph");
-      // insert this fill into the graph and use that id
+    if(tensor.is_constant()) {
+      sum += tensor.get_constant();
     } else {
       items.push_back(tensor.get_id());
     }
   }
 
-  dtype_t dtype;
-  vector<uint64_t> shape;
-  {
-    auto const& tensor = items_[0];
-    dtype = tensor.dtype(*this);
-    shape = tensor.shape(*this);
-  }
-
   if(items.size() == 0) {
-    // In this case, all the terms to add were constant zeros,
-    // so all those zeros are statically added up, producing
-    // more constant zeros
-    return backprop_tensor_t::zeros(dtype, shape);
+    // In this case, all the terms were constants
+    return backprop_tensor_t(fill_t {
+      .value = sum,
+      .shape = shape
+    });
   }
 
-  int rank = shape.size();
+  if(sum != scalar_t::zero(dtype)) {
+    items.push_back(insert_fill(fill_t {
+      .value = sum,
+      .shape = shape
+    }));
+  }
+
   vector<int> is = vector_iota<int>(rank);
   vector<vector<int>> inns{ is, is };
   einsummable_t e(shape, inns, rank, scalarop_t::make_add(dtype));
 
-  while(items.size() == 1) {
+  while(items.size() != 1) {
     int n = items.size() / 2;
     int r = items.size() % 2;
     vector<int> next_up;
@@ -2406,7 +2413,6 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
       next_up.push_back(items.back());
     }
     for(int i = 0; i != n; ++i) {
-      std::cout << "\t Inserted ewb add node" << std::endl;
       next_up.push_back(insert_einsummable(e, {items[2*i], items[2*i+1]}));
     }
     items = next_up;

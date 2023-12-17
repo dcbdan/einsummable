@@ -59,6 +59,8 @@ struct scalar_t {
   //  Also, sometimes you want 1 + 1i and sometimes
   //  you want 1 + 0i...
 
+  scalar_t& operator+=(scalar_t const& rhs);
+
   dtype_t dtype;
   uint8_t data[8];
 
@@ -350,6 +352,8 @@ std::istream& operator>>(std::istream& inn, dtype_t& c);
 
 std::ostream& operator<<(std::ostream& out, scalar_t const& c);
 std::istream& operator>>(std::istream& inn, scalar_t& c);
+
+scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs);
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs);
 bool operator!=(scalar_t const& lhs, scalar_t const& rhs);

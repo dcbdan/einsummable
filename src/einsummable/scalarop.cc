@@ -1667,6 +1667,44 @@ scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
   return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
 }
 
+// These + ops could be implemented with scalarop
+scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
+  if(dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+
+  if(dtype == dtype_t::f16) {
+    f16() += rhs.f16();
+  } else if(dtype == dtype_t::f32) {
+    f32() += rhs.f32();
+  } else if(dtype == dtype_t::f64) {
+    f64() += rhs.f64();
+  } else if(dtype == dtype_t::c64) {
+    c64() += rhs.c64();
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+
+  return *this;
+}
+
+scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() + rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() + rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() + rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() + rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+}
+
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {
   if(lhs.dtype != rhs.dtype) {
     return false;
