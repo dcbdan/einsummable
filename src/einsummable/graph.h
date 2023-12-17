@@ -48,6 +48,7 @@ struct select_t {
   collect(hrect_t out_hrect) const;
 
   hrect_t wrt_output_inn_hrect(int which_input) const;
+  hrect_t wrt_input_inn_hrect(int which_input) const;
 
   vector<uint64_t> inn_shape(int which_input) const;
 };

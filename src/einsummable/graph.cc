@@ -116,6 +116,15 @@ hrect_t select_t::wrt_output_inn_hrect(int which_input) const
   return ret;
 }
 
+hrect_t select_t::wrt_input_inn_hrect(int which_input) const
+{
+  hrect_t ret;
+  for(auto const& sd: inn_regions.at(which_input)) {
+    ret.emplace_back(sd.offset_inn, sd.offset_inn + sd.size);
+  }
+  return ret;
+}
+
 vector<tuple<hrect_t, int>>
 select_t::collect(hrect_t out_hrect) const
 {
@@ -1572,7 +1581,118 @@ graph_t::build_grad_term_select(
       grad_id));
   }
 
-  throw std::runtime_error("not implemented!");
+  // Only portion of the input region is getting selected by the output. All other
+  // portions are to be set to zero.
+  hrect_t inn_grad_hrect = select.wrt_input_inn_hrect(which_inn);
+  vector<uint64_t> inn_shape = select.inn_shape(which_inn);
+  int rank = inn_shape.size();
+  partition_t partition = [&] {
+    vector<partdim_t> pds;
+    pds.reserve(rank);
+    for(int i = 0; i != rank; ++i) {
+      auto const& [beg,end] = inn_grad_hrect[i];
+      uint64_t const& size = inn_shape[i];
+      vector<uint64_t> spans;
+      if(beg != 0) {    spans.push_back(beg); }
+      if(end != size) { spans.push_back(end); }
+      spans.push_back(size);
+      pds.push_back(partdim_t::from_spans(spans));
+    }
+    return partition_t(pds);
+  }();
+
+  dtype_t const& dtype = select.dtype;
+
+  vector<int> block_shape = partition.block_shape();
+  int num_blocks = product(block_shape);
+
+  vector<int> inn_ids;
+  inn_ids.reserve(num_blocks);
+
+  using selectdim_t = select_t::selectdim_t;
+
+  vector<vector<selectdim_t>> inn_regions;
+  inn_regions.reserve(num_blocks);
+
+  vector<int> index(rank);
+  do {
+    hrect_t block_hrect = partition.get_hrect(index);
+
+    // Case 1: this block is the grad block
+    //   Case 1a: grad is just a constant, so we need to fill the block with
+    //            a constant of that value
+    //   Case 1b: grad is not a constant, so we need to use those values
+    // Case 2: this block is not the grad block, fill the block with zeros
+
+    // Filling with a constant is mechanically
+    // the same code, so separate those out
+    optional<scalar_t> maybe_constant_fill = std::nullopt;
+    if(block_hrect == inn_grad_hrect) {
+      if(grad.is_constant()) {
+        maybe_constant_fill = grad.get_constant();
+      } else {
+        // case 1b
+      }
+    } else {
+      maybe_constant_fill = scalar_t::zero(dtype);
+    }
+
+    if(maybe_constant_fill) {
+      // Case 1a, Case 2
+      inn_regions.emplace_back();
+      auto& inn_region = inn_regions.back();
+      inn_region.reserve(rank);
+      vector<uint64_t> block_shape;
+      block_shape.reserve(rank);
+      for(int i = 0; i != rank; ++i) {
+        auto const& [beg,end] = block_hrect[i];
+        uint64_t size = end-beg;
+        inn_region.push_back(selectdim_t {
+          .d_inn = size,
+          .offset_inn = 0,
+          .offset_out = beg,
+          .size = size
+        });
+        block_shape.push_back(size);
+      }
+
+      inn_ids.push_back(insert_fill(fill_t {
+        .value = maybe_constant_fill.value(),
+        .shape = block_shape
+      }));
+    } else {
+      // Case 1b
+      vector<uint64_t> out_start = select.wrt_output_point(
+        vector_mapfst(block_hrect),
+        which_inn);
+      vector<uint64_t> const& out_shape = select.out_shape;
+
+      inn_regions.emplace_back();
+      auto& inn_region = inn_regions.back();
+      inn_region.reserve(rank);
+      vector<uint64_t> block_shape;
+      block_shape.reserve(rank);
+      for(int i = 0; i != rank; ++i) {
+        auto const& [beg,end] = block_hrect[i];
+        uint64_t size = end-beg;
+        auto const& o_beg = out_start[i];
+        auto const& o_dim = out_shape[i];
+        inn_region.push_back(selectdim_t {
+          .d_inn = o_dim,
+          .offset_inn = o_beg,
+          .offset_out = beg,
+          .size = size
+        });
+        block_shape.push_back(size);
+      }
+
+      int const& grad_id = grad.get_id();
+      inn_ids.push_back(grad_id);
+    }
+  } while(increment_idxs(block_shape, index));
+
+  select_t new_select(dtype, inn_shape, inn_regions);
+  return backprop_tensor_t(insert(op_t(new_select), inn_ids));
 }
 
 //int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {

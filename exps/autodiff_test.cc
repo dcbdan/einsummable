@@ -185,6 +185,33 @@ void exp08() {
   }
 }
 
+void exp09() {
+  graph_writer_t g;
+  auto x = g.input({100,400});
+  auto y = g.input({200,400});
+  auto x1 = g.subset({ {0,100}, {0,200} }, x);
+  auto z = g.matmul(x1, y);
+  auto grad_x = g.backprop(z, {x})[0];
+
+  /////
+  string filename = "exp09.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+void exp10() {
+  graph_writer_t g;
+  auto x = g.input({100,200});
+  auto y = g.subset({ {30,40}, {80,100} }, x);
+  auto grads = g.backprop(y, {x});
+  /////
+  string filename = "exp10.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
 int main() {
   //exp01();
   //exp02();
@@ -192,6 +219,8 @@ int main() {
   //exp04();
   //exp05();
   //exp06(false);
-  exp06(true);
+  //exp06(true);
   //exp07();
+  //exp09();
+  exp10();
 }
