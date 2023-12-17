@@ -1236,8 +1236,7 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     // this node, at the graph_t level here, is just an identity operation.
     return grad_id;
   } else if(op.is_complexer()) {
-    // TODO
-    throw std::runtime_error("not implemented build grad term: complexer");
+    return build_grad_term_complexer(grad_id);
   } else if(op.is_fill()) {
     // fill is just constant values that don't depend on anything
     return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
@@ -1693,6 +1692,70 @@ graph_t::build_grad_term_select(
 
   select_t new_select(dtype, inn_shape, inn_regions);
   return backprop_tensor_t(insert(op_t(new_select), inn_ids));
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_complexer(
+  graph_t::backprop_tensor_t grad)
+{
+  // The complexer op is a no op, basically...
+  // if grad is complex, turn it real
+  // if grad is real, turn it complex
+  if(grad.is_constant()) {
+    vector<uint64_t> shape = grad.get_fill().shape;
+    scalar_t value = grad.get_constant();
+    dtype_t const& dtype = value.dtype;
+    if(dtype_is_real(dtype)) {
+      // (v,v,v,v,v,v) -> ( (v,v), (v,v), (v,v) )
+      if(dtype != dtype_t::f32) {
+        throw std::runtime_error("complexer confusion");
+      }
+      float v = value.f32();
+      std::complex<float> vv(v,v);
+
+      if(shape.back() % 2 != 0) {
+        throw std::runtime_error("odd number of last dims in complexer");
+      }
+      vector<uint64_t> complex_shape = shape;
+      complex_shape.back() /= 2;
+
+      return backprop_tensor_t(fill_t {
+        .value = scalar_t(vv),
+        .shape = complex_shape
+      });
+    } else {
+      // ( (v,v), (v,v), (v,v) ) ->  (v,v,v,v,v,v)
+      if(dtype != dtype_t::c64) {
+        throw std::runtime_error("complexer confusion");
+      }
+      std::complex<float> vu = value.c64();
+      if(vu.real() == vu.imag()) {
+        float v = vu.real();
+        vector<uint64_t> real_shape = shape;
+        real_shape.back() *= 2;
+        return backprop_tensor_t(fill_t {
+          .value = scalar_t(v),
+          .shape = real_shape
+        });
+      } else {
+        // ( (v,u), (v,u), (v,u) ) cannot be represented as a constant
+        // float tensor, so form it and convert it real
+        int id = insert_fill(fill_t {
+          .value = value,
+          .shape = shape
+        });
+        return backprop_tensor_t(insert_to_real(id));
+      }
+    }
+  } else {
+    int const& id = grad.get_id();
+    dtype_t dtype = out_dtype(id);
+    if(dtype_is_real(dtype)) {
+      return backprop_tensor_t(insert_to_complex(id));
+    } else {
+      return backprop_tensor_t(insert_to_real(id));
+    }
+  }
 }
 
 //int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {

@@ -345,6 +345,9 @@ private:
     select_t const& select,
     int which_inn,
     backprop_tensor_t grad_id);
+  backprop_tensor_t
+  build_grad_term_complexer(
+    backprop_tensor_t grad_id);
 
 
   //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);

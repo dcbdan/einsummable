@@ -212,6 +212,37 @@ void exp10() {
   DOUT("printed " << filename);
 }
 
+void exp11() {
+  graph_writer_t g;
+  auto x = g.input({100,200}, dtype_t::f32);
+
+  auto y = g.input({100,100}, dtype_t::c64);
+  auto z = g.to_real(y);
+  auto w = g.add(x, z);
+  auto grads = g.backprop(w, {x,y});
+  /////
+  string filename = "exp11.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+void exp12() {
+  graph_writer_t g;
+  auto x = g.input({100,200}, dtype_t::f32);
+
+  auto y = g.input({100,100}, dtype_t::c64);
+  auto z = g.to_real(y);
+  auto w = g.matmul(x, z.transpose(0,1));
+  auto grads = g.backprop(w, {x,y});
+  /////
+  string filename = "exp12.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+
 int main() {
   //exp01();
   //exp02();
@@ -222,5 +253,10 @@ int main() {
   //exp06(true);
   //exp07();
   //exp09();
-  exp10();
+  //exp10();
+
+  // TODO
+  //exp11();
+
+  exp12();
 }
