@@ -186,12 +186,12 @@ void exp08() {
 }
 
 int main() {
-//  exp01();
-//  exp02();
-//  exp03();
-//  exp04();
-//  exp05();
-//  exp06();
-//  exp07();
-  exp08();
+  //exp01();
+  //exp02();
+  //exp03();
+  //exp04();
+  //exp05();
+  //exp06(false);
+  exp06(true);
+  //exp07();
 }

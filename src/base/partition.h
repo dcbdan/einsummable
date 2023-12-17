@@ -61,6 +61,10 @@ struct partition_t {
   vector<partdim_t> partdims;
 };
 
+bool partitions_region(
+  vector<vector<tuple<uint64_t, uint64_t>>> const& hrects,
+  vector<uint64_t> const& shape);
+
 bool operator==(partition_t const& lhs, partition_t const& rhs);
 bool operator!=(partition_t const& lhs, partition_t const& rhs);
 

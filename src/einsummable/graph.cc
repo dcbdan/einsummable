@@ -1,73 +1,11 @@
 #include "graph.h"
 #include "../base/hrect.h"
 
-bool partitions_region(
-  vector<vector<tuple<uint64_t, uint64_t>>> const& hrects,
-  vector<uint64_t> const& shape)
-{
-  int rank = shape.size();
-
-  // Cut the shape hrect into a refined set of blocks
-  // based on the partial units
-  partition_t refinement = [&] {
-    vector<partdim_t> partdims;
-    partdims.reserve(rank);
-    {
-      vector<vector<uint64_t>> spans(rank);
-      for(int i = 0; i != rank; ++i) {
-        spans[i].push_back(shape[i]);
-      }
-      for(auto const& hrect: hrects) {
-        for(int i = 0; i != rank; ++i) {
-          auto const& [beg,end] = hrect[i];
-          auto& ss = spans[i];
-          if(beg != 0) {
-            ss.push_back(beg);
-          }
-          ss.push_back(end);
-        }
-      }
-      for(vector<uint64_t>& ss: spans) {
-        std::sort(ss.begin(), ss.end());
-        vector_remove_duplicates(ss);
-        partdims.push_back(partdim_t::from_spans(ss));
-      }
-    }
-    return partition_t(partdims);
-  }();
-
-  // for each touch, increment the relevant write regions
-  auto refinement_shape = refinement.block_shape();
-  vtensor_t<int> counts(refinement_shape);
-
-  for(auto const& hrect: hrects) {
-    vector<tuple<int,int>> region = refinement.get_exact_region(hrect);
-    vector<int> index = vector_mapfst(region);
-    do {
-      counts.at(index) += 1;
-    } while(increment_idxs_region(region, index));
-  }
-
-  // Check that the entire write shape is partitioned.
-  //
-  // If the out regions are not disjoint, then
-  //   some num_touch will be bigger than one.
-  // If some of the shape is not written to,
-  //   then some nume_touch will be zero.
-
-  for(auto const& num_touch: counts.get()) {
-    if(num_touch != 1) {
-      return false;
-    }
-  }
-  return true;
-}
-
 select_t::select_t(
   dtype_t dtype,
   vector<uint64_t> const& os,
   vector<select_t::inn_region_t> const& irs)
-  : out_shape(os), inn_regions(irs)
+  : dtype(dtype), out_shape(os), inn_regions(irs)
 {
   int rank = out_shape.size();
   if(rank == 0) {
@@ -94,8 +32,7 @@ select_t::select_t(
       auto const& d_out = out_shape[i];
       auto const& [d_inn, offset_inn, offset_out, size] = inn_region[i];
 
-      if(size + offset_inn > d_out ||
-         size + offset_out > d_out ||
+      if(size + offset_out > d_out ||
          size + offset_inn > d_inn ||
          d_inn == 0 || size == 0)
       {
@@ -211,6 +148,11 @@ select_t::collect(hrect_t out_hrect) const
   return ret;
 }
 
+vector<uint64_t>
+select_t::inn_shape(int which_inn) const
+{
+  return vector_from_each_member(inn_regions[which_inn], uint64_t, d_inn);
+}
 
 select_t make_concat(
   int dim,
@@ -1291,7 +1233,8 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     // fill is just constant values that don't depend on anything
     return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
   } else if(op.is_select()) {
-    throw std::runtime_error("not implemented build grad term: select");
+    return build_grad_term_select(
+      op.get_select(), which_inn, grad_id);
   } else if(op.is_einsummable()) {
     return build_grad_term_einsummable(
       op.get_einsummable(), inns, which_inn, grad_id);
@@ -1591,6 +1534,45 @@ graph_t::build_grad_term_ewu(
     int term_id = insert_einsummable(new_e, { inn, grad.get_id() });
     return backprop_tensor_t(term_id);
   }
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_select(
+  select_t const& select,
+  int which_inn,
+  backprop_tensor_t grad)
+{
+  // If grad is zeros, then just return zeros from the input shape
+  if(grad.is_zeros()) {
+    dtype_t const& dtype = grad.get_constant().dtype;
+    return backprop_tensor_t::zeros(dtype, select.inn_shape(which_inn));
+  }
+
+  // If which_inn uses the full input tensor:
+  bool uses_full_input = true;
+  {
+    for(auto const& sd: select.inn_regions[which_inn]) {
+      if(sd.d_inn != sd.size) {
+        uses_full_input = false;
+        break;
+      }
+    }
+  }
+  if(uses_full_input) {
+    if(grad.is_constant()) {
+      return backprop_tensor_t(fill_t {
+        .value = grad.get_constant(),
+        .shape = select.inn_shape(which_inn)
+      });
+    }
+    // Subset the gradient and return that
+    int const& grad_id = grad.get_id();
+    return backprop_tensor_t(insert_subset(
+      select.wrt_output_inn_hrect(which_inn),
+      grad_id));
+  }
+
+  throw std::runtime_error("not implemented!");
 }
 
 //int graph_t::build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn) {
