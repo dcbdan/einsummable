@@ -8,10 +8,7 @@
 #include "../src/server/cpu/server.h"
 
 #include "../src/autoplace/apart.h"
-#include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/alocate.h"
-#include "../src/autoplace/autolinns.h"
-#include "../src/autoplace/autolinns2.h"
 
 #include "../llama/modules.h"
 
@@ -266,23 +263,10 @@ void _print_pl_info(
     }
   }
 
-  vector<uint64_t> tensor_move_costs = compute_tensor_move_costs(graph, placements);
-  uint64_t input_total = 0;
-  uint64_t core_total = 0;
-  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
-    auto const& node = graph.nodes[gid];
-    if(node.op.is_input()) {
-      input_total += tensor_move_costs[gid];
-    } else {
-      core_total += tensor_move_costs[gid];
-    }
-  }
   auto to_mb = [](uint64_t n) { return double(n)/1e6; };
   DOUT("(" << msg << ") input "
       << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB, "
-      << to_mb(input_total) << "MB | core "
-      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB, "
-      << to_mb(core_total) << "MB");
+      << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB, ");
 
   ///////
   //for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -308,15 +292,15 @@ vector<placement_t> autoplace(
   bool double_workers)
 {
   int multiplier = double_workers ? 2 : 1 ;
-  gremlin_t* gremlin_parts = new gremlin_t("parts");
-  auto parts = autopartition_for_bytes(
+  gremlin_t* gremlin_parts = new gremlin_t("apart01");
+  auto parts = apart01(
     graph,
     multiplier * world_size * num_threads_per,
     max_branching,
     space);
   delete gremlin_parts;
 
-  DOUT(" partition cost " << double(autopartition_for_bytes_cost(graph, parts)) / 1e9);
+  DOUT(" partition cost " << double(apart01_cost(graph, parts)) / 1e9);
 
   {
     std::ofstream f("g.gv");
@@ -324,26 +308,11 @@ vector<placement_t> autoplace(
     DOUT("printed g.gv");
   }
 
-  //{
-  //  uint64_t flops_per_byte_moved = 100;
-  //  auto ret = autolocate_bipartite(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("bipartite 100", graph, ret);
-  //  return ret;
-  //}
-
-  //{
-  //  uint64_t flops_per_byte_moved = 100;
-  //  auto ret = autolocate_agg_at_a_time_from_inns_v2(
-  //    graph, parts, world_size, flops_per_byte_moved);
-  //  _print_pl_info("v2 100", graph, ret);
-  //}
-
   {
     uint64_t flops_per_byte_moved = 100;
-    auto ret = autolocate_agg_at_a_time_from_inns(
+    auto ret = alocate01(
       graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
+    _print_pl_info("alocate01 100", graph, ret);
     return ret;
   }
 }

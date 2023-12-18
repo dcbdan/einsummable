@@ -37,7 +37,7 @@ vector<partition_t> apart01(
   int max_branching = 2,
   parts_space_t search_space = parts_space_t::contraction);
 
-uint64_t apar01_cost(
+uint64_t apart01_cost(
   graph_t const& graph,
   vector<partition_t> const& partitions);
 

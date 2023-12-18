@@ -1,6 +1,5 @@
 #include "../src/base/setup.h"
 #include "../src/einsummable/graph.h"
-#include "../src/matrixgraph/matrixgraph.h"
 
 #include "../src/einsummable/taskgraph.h"
 
@@ -23,24 +22,6 @@ void exp01() {
   DOUT("printed " << filename);
 }
 
-void exp01_matrixgraph() {
-  matrixgraph_t g;
-  int x = g.insert_input(10,20);
-
-  scalar_t factor(dtype_t::f32, "9.9");
-  scalarop_t op = scalarop_t::make_scale(factor);
-  int y = g.insert_ew(op, x);
-  int z = g.backprop(y, {x})[0];
-
-  auto [graph, _] = g.compile();
-
-  string filename = "exp01_matrixgraph.gv";
-  std::ofstream f(filename);
-  graph.print_graphviz(f);
-  DOUT("printed " << filename);
-
-  // TODO: this is incorrect!!!!!
-}
 void exp02() {
   graph_writer_t g;
   auto x = g.input({10,20,30});
@@ -84,21 +65,6 @@ void exp04() {
   string filename = "exp04.gv";
   std::ofstream f(filename);
   g.get_graph().print_graphviz(f);
-  DOUT("printed " << filename);
-}
-
-void exp04_matrixgraph() {
-  matrixgraph_t g;
-  auto x = g.insert_input(10,20);
-  auto y = g.insert_input(20,30);
-  auto z = g.insert_matmul_ss(x,y);
-  auto w = g.backprop(z, {x})[0];
-
-  auto [graph, _] = g.compile();
-
-  string filename = "exp04_matrixgraph.gv";
-  std::ofstream f(filename);
-  graph.print_graphviz(f);
   DOUT("printed " << filename);
 }
 
