@@ -3,6 +3,7 @@
 #include "../src/base/args.h"
 
 #include "../src/einsummable/graph.h"
+#include "../src/einsummable/gwriter.h"
 
 #include "../src/engine/communicator.h"
 #include "../src/server/cpu/server.h"

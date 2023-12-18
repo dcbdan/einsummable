@@ -8,6 +8,7 @@
 #include "../src/base/args.h"
 
 #include "../src/einsummable/graph.h"
+#include "../src/einsummable/gwriter.h"
 #include "../src/einsummable/taskgraph.h"
 #include "../src/einsummable/memgraph.h"
 

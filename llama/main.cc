@@ -2,6 +2,7 @@
 #include "modules.h"
 
 #include "../src/einsummable/graph.h"
+#include "../src/einsummable/gwriter.h"
 #include "../src/einsummable/reference.h"
 
 #include <fstream>

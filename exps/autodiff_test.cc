@@ -1,5 +1,6 @@
 #include "../src/base/setup.h"
 #include "../src/einsummable/graph.h"
+#include "../src/einsummable/gwriter.h"
 
 #include "../src/einsummable/taskgraph.h"
 
