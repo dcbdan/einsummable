@@ -344,9 +344,10 @@ private:
     backprop_tensor_t grad_id);
 
   backprop_tensor_t
-  build_grad_term_ewu(
+  build_grad_term_ew(
     einsummable_t const& e,
-    int inn,
+    vector<int> inn_ids,
+    int which_inn,
     backprop_tensor_t grad_id);
 
   backprop_tensor_t
@@ -358,12 +359,6 @@ private:
   backprop_tensor_t
   build_grad_term_complexer(
     backprop_tensor_t grad_id);
-
-
-  //int build_grad_term_ewb_arg(einsummable_t einsummable, int node_grad, int arg, int other, int which_inn);
-  //int build_grad_term_ewb_lhs(einsummable_t einsummable, int node_grad, int arg, int other);
-  //int build_grad_term_ewb_rhs(einsummable_t einsummable, int node_grad, int arg, int other);
-  //int build_grad_term_reduction(einsummable_t einsummable, int node_grad, int node, int inn);
 
   // In case that one node has multiple edges
   // We need to sum all of its contributions to output function

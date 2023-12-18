@@ -251,6 +251,8 @@ struct scalarop_t {
 
   optional<dtype_t> inn_dtype(int arg) const;
 
+  bool is_used(int arg) const { return bool(inn_dtype(arg)); }
+
   void remap_inputs(map<int, int> const& remap);
 
   set<int> which_inputs() const;

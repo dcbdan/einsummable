@@ -262,20 +262,17 @@ void exp13() {
 // TODO: fixed_grad_id in build grad term einsummable
 
 int main() {
-  //exp01();
-  //exp02();
-  //exp03();
-  //exp04();
-  //exp05();
-  //exp06(false);
-  //exp06(true);
-  //exp07();
-  //exp09();
-  //exp10();
-
-  // TODO: need support for backprop through a+b
-  //exp11();
-
-  //exp12();
+  exp01();
+  exp02();
+  exp03();
+  exp04();
+  exp05();
+  exp06(false);
+  exp06(true);
+  exp07();
+  exp09();
+  exp10();
+  exp11();
+  exp12();
   exp13();
 }
