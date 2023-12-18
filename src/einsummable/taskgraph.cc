@@ -73,6 +73,33 @@ template <> struct std::hash<tg_region_t> {
 bool operator==(tg_region_t const& lhs, tg_region_t const& rhs);
 bool operator!=(tg_region_t const& lhs, tg_region_t const& rhs);
 
+partition_t _squeezer_partition(
+  vector<uint64_t> new_shape,
+  partition_t const& part)
+{
+  vector<partdim_t> core_pds;
+  for(partdim_t const& pd: part.partdims) {
+    if(pd.total() != 1) {
+      core_pds.push_back(pd);
+    }
+  }
+  auto iter = core_pds.begin();
+  vector<partdim_t> ret_pds;
+  ret_pds.reserve(new_shape.size());
+  for(uint64_t sz: new_shape) {
+    if(sz == 1) {
+      ret_pds.push_back(partdim_t::singleton(1));
+    } else {
+      ret_pds.push_back(*iter);
+      iter++;
+    }
+  }
+  if(iter != core_pds.end()) {
+    throw std::runtime_error("invalid squeezer in _squeezer_partition");
+  }
+  return partition_t(ret_pds);
+}
+
 // Note that to_complex and to_real graph_t operations should
 // become no ops at the taskgraph level when the partitions
 // line up.
@@ -769,6 +796,17 @@ taskgraph_make_state_t::form_relation(int gid)
       return form_from_refinement(inn_gid, double_last_dim(placements.at(gid)));
     }
   }
+  if(node.op.is_squeezer()) {
+    int inn_gid = node.inns[0];
+    auto const& squeezer = node.op.get_squeezer();
+    auto const& pl = placements.at(gid);
+    auto const& part = pl.partition;
+
+    placement_t unsqueeze_pl(
+      _squeezer_partition(squeezer.inn_shape, part),
+      pl.locations);
+    return form_from_refinement(inn_gid, unsqueeze_pl);
+  }
   if(node.op.is_select()) {
     return form_select(gid);
   }
@@ -904,6 +942,13 @@ construct_refinement_placement(
         usage_placements.push_back(
           multiple_placement_t::from_single_placement(double_last_dim(out_pl)));
       }
+    } else if(out_node.op.is_squeezer()) {
+      auto const& squeezer = out_node.op.get_squeezer();
+      auto const& inn_shape = squeezer.inn_shape;
+      insert_usage(multiple_placement_t::from_single_placement(
+        placement_t(
+          _squeezer_partition(inn_shape, out_pl.partition),
+          out_pl.locations)));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage placements to collect
