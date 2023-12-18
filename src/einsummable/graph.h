@@ -80,6 +80,8 @@ struct graph_t {
 
   int insert_to_complex(int inn);
 
+  int insert_squeezer(vector<uint64_t> const& new_shape, int inn);
+
   int insert_to_real(int inn);
 
   int insert_fill(fill_t const& fill);
@@ -175,6 +177,15 @@ public:
     bool is_to_real()   const { return dtype_is_real(dtype); }
     bool is_to_complex() const { return dtype_is_complex(dtype); }
   };
+
+  // Any combination of inserting and removing singleton dimensions
+  // are allowed; otherwise this is a no-op
+  struct squeezer_t {
+    dtype_t dtype;
+    vector<uint64_t> inn_shape;
+    vector<uint64_t> out_shape;
+  };
+
   // This has to be an op because a (5,3) partition of reals
   // can't be converted into complexes without a change of partition.
   // That is, (4,4) real parts can be viewed as (2,2) complex parts
@@ -183,7 +194,7 @@ public:
   struct op_t {
   private:
     using _op_t = std::variant<
-      input_t, formation_t, complexer_t,
+      input_t, formation_t, complexer_t, squeezer_t,
       fill_t, select_t, einsummable_t>;
 
   public:
@@ -192,6 +203,7 @@ public:
     op_t(input_t       x, bool s = false): op_t(_op_t(x), s) {}
     op_t(formation_t   x, bool s = false): op_t(_op_t(x), s) {}
     op_t(complexer_t   x, bool s = false): op_t(_op_t(x), s) {}
+    op_t(squeezer_t    x, bool s = false): op_t(_op_t(x), s) {}
     op_t(fill_t        x, bool s = false): op_t(_op_t(x), s) {}
     op_t(select_t      x, bool s = false): op_t(_op_t(x), s) {}
     op_t(einsummable_t x, bool s = false): op_t(_op_t(x), s) {}
@@ -210,6 +222,7 @@ public:
     bool is_input()       const { return std::holds_alternative<input_t>(op);     }
     bool is_formation()   const { return std::holds_alternative<formation_t>(op); }
     bool is_complexer()   const { return std::holds_alternative<complexer_t>(op); }
+    bool is_squeezer()    const { return std::holds_alternative<squeezer_t>(op);  }
     bool is_fill()        const { return std::holds_alternative<fill_t>(op);      }
     bool is_select()      const { return std::holds_alternative<select_t>(op);    }
     bool is_einsummable() const {
@@ -227,6 +240,7 @@ public:
     formation_t   const& get_formation()   const { return std::get<formation_t>(op); }
     formation_t        & get_formation()         { return std::get<formation_t>(op); }
     complexer_t   const& get_complexer()   const { return std::get<complexer_t>(op); }
+    squeezer_t    const& get_squeezer()    const { return std::get<squeezer_t>(op);  }
     fill_t        const& get_fill()        const { return std::get<fill_t>(op);      }
     select_t      const& get_select()      const { return std::get<select_t>(op);    }
     einsummable_t const& get_einsummable() const {
@@ -359,6 +373,11 @@ private:
 
   backprop_tensor_t
   build_grad_term_complexer(
+    backprop_tensor_t grad_id);
+
+  backprop_tensor_t
+  build_grad_term_squeezer(
+    vector<uint64_t> const& inn_shape,
     backprop_tensor_t grad_id);
 
   backprop_tensor_t

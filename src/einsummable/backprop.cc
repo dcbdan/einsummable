@@ -240,6 +240,9 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
     return grad_id;
   } else if(op.is_complexer()) {
     return build_grad_term_complexer(grad_id);
+  } else if(op.is_squeezer()) {
+    auto const& inn_shape = op.get_squeezer().inn_shape;
+    return build_grad_term_squeezer(inn_shape, grad_id);
   } else if(op.is_fill()) {
     // fill is just constant values that don't depend on anything
     return backprop_tensor_t::zeros(op.out_dtype(), op.out_shape());
@@ -882,6 +885,21 @@ graph_t::build_grad_term_complexer(
       return backprop_tensor_t(insert_to_real(id));
     }
   }
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_squeezer(
+  vector<uint64_t> const& inn_shape,
+  graph_t::backprop_tensor_t grad)
+{
+  if(grad.is_constant()) {
+    return backprop_tensor_t(fill_t {
+      .value = grad.get_constant(),
+      .shape = inn_shape
+    });
+  }
+
+  return backprop_tensor_t(insert_squeezer(inn_shape, grad.get_id()));
 }
 
 graph_t::backprop_tensor_t

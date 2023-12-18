@@ -287,16 +287,40 @@ graph_writer_t::tensor_t::subset(
   if(idxs.size() != rank) {
     throw std::runtime_error("tensor subset: invalid rank idxs");
   }
+  set<int> squeeze_dims;
   vector<tuple<uint64_t, uint64_t>> hrect;
   hrect.reserve(rank);
   for(int i = 0; i != rank; ++i) {
     auto const& idx = idxs[i];
     hrect.push_back(idx.get(_shape[i]));
     if(idx.is_squeeze()) {
-      throw std::runtime_error("squeezes not implemented");
+      squeeze_dims.insert(i);
     }
   }
-  return self->subset(hrect, *this);
+
+  tensor_t ret = self->subset(hrect, *this);
+
+  if(squeeze_dims.size() > 0) {
+    if(ret._has_permutation()) {
+      // this is super subtle: subset may have been a no op and did nothing.
+      ret = ret.physically_permute();
+    }
+
+    vector<full_dim_t> new_parts;
+    auto const& prev_parts = ret.get_shape().parts;
+    for(int i = 0; i != prev_parts.size(); ++i) {
+      if(squeeze_dims.count(i) == 0) {
+        new_parts.push_back(prev_parts[i]);
+      }
+    }
+    full_shape_t new_shape(new_parts);
+
+    int new_id = self->graph.insert_squeezer(new_shape.full(), ret.get_id());
+
+    ret = tensor_t(new_shape, new_id, self);
+  }
+
+  return ret;
 }
 
 bool

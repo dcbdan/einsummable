@@ -415,6 +415,37 @@ int graph_t::insert_to_complex(int inn)
     {inn});
 }
 
+int graph_t::insert_squeezer(vector<uint64_t> const& out_shape, int inn) {
+  squeezer_t squeezer {
+    .dtype     = this->out_dtype(inn),
+    .inn_shape = this->out_shape(inn),
+    .out_shape = out_shape
+  };
+
+  auto get_core = [](vector<uint64_t> const& ds) {
+    vector<uint64_t> ret;
+    ret.reserve(ds.size());
+    for(auto const& d: ds) {
+      if(d != 1) {
+        ret.push_back(d);
+      }
+    }
+    return ret;
+  };
+
+  if(!vector_equal(
+        get_core(squeezer.inn_shape),
+        get_core(squeezer.out_shape)))
+  {
+    throw std::runtime_error(
+      "squeezer given invalid reshaping " +
+      write_with_ss(squeezer.inn_shape) + "->" +
+      write_with_ss(squeezer.out_shape));
+  }
+
+  return this->insert(squeezer, {inn});
+}
+
 int graph_constructor_t::insert_to_real(
   placement_t placement,
   int inn)
@@ -635,6 +666,9 @@ dtype_t graph_t::op_t::out_dtype() const {
   if(is_complexer()) {
     return get_complexer().dtype;
   }
+  if(is_squeezer()) {
+    return get_squeezer().dtype;
+  }
   if(is_fill()) {
     return get_fill().value.dtype;
   }
@@ -666,6 +700,9 @@ graph_t::op_t::out_shape() const {
   if(is_complexer()) {
     return get_complexer().shape;
   }
+  if(is_squeezer()) {
+    return get_squeezer().out_shape;
+  }
   if(is_fill()) {
     return get_fill().shape;
   }
@@ -688,6 +725,9 @@ graph_t::op_t::shape() const {
   }
   if(is_complexer()) {
     return get_complexer().shape;
+  }
+  if(is_squeezer()) {
+    return get_squeezer().out_shape;
   }
   if(is_fill()) {
     return get_fill().shape;
@@ -837,6 +877,8 @@ void graph_t::print() const {
       } else {
         std::cout << "complexer (to complex)" << std::endl;
       }
+    } else if(node.op.is_squeezer()) {
+      std::cout << "squeezer" << std::endl;
     } else if(node.op.is_fill()) {
       std::cout << "fill[" << node.op.get_fill().value << "]" << std::endl;
     } else if(node.op.is_select()) {
@@ -879,6 +921,9 @@ void graph_t::print_graphviz(
       label += "\n" + write_with_ss(op.out_shape());
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
+    } else if(op.is_squeezer()) {
+      label = "squeezer" + write_with_ss(id);
+      color = "azure2";
     } else if(op.is_einsummable()) {
       auto const& e = op.get_einsummable();
       label = "einsummable" + write_with_ss(id) +
