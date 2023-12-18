@@ -326,6 +326,7 @@ private:
   backprop_tensor_t
   build_grad_term_einsummable(
     einsummable_t const& e,
+    int out_id,
     vector<int> const& inn_ids,
     int which_inn,
     backprop_tensor_t grad_id);
@@ -368,22 +369,14 @@ private:
     backprop_tensor_t grad_id);
 
   backprop_tensor_t
-  build_grad_term_reduction_mul(
+  build_grad_term_reduction_mulmaxmin(
+    castable_t castable,
     vector<uint64_t> const& join_shape,
     vector<int> const& inn,
     int out_rank,
+    int out_id,
     int inn_id,
     backprop_tensor_t grad_id);
-
-  backprop_tensor_t
-  build_grad_term_reduction_maxmin(
-    bool is_max_else_min,
-    vector<uint64_t> const& join_shape,
-    vector<int> const& inn,
-    int out_rank,
-    int inn_id,
-    backprop_tensor_t grad_id);
-
 
   // In case that one node has multiple edges
   // We need to sum all of its contributions to output function

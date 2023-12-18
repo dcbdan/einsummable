@@ -1245,7 +1245,7 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
       op.get_select(), which_inn, grad_id);
   } else if(op.is_einsummable()) {
     return build_grad_term_einsummable(
-      op.get_einsummable(), inns, which_inn, grad_id);
+      op.get_einsummable(), id, inns, which_inn, grad_id);
   } else {
     throw std::runtime_error("should not reach: missing graph type");
   }
@@ -1254,6 +1254,7 @@ graph_t::build_grad_term(int id, int which_inn, backprop_tensor_t grad_id)
 graph_t::backprop_tensor_t
 graph_t::build_grad_term_einsummable(
   einsummable_t const& e,
+  int out_id,
   vector<int> const& inn_ids,
   int which_inn,
   backprop_tensor_t grad_id)
@@ -1301,6 +1302,7 @@ graph_t::build_grad_term_einsummable(
       // recurse to the compute part.
       return build_grad_term_einsummable(
         e.remove_broadcast(),
+        out_id,
         inn_ids,
         which_inn,
         fixed_grad_id);
@@ -1313,20 +1315,25 @@ graph_t::build_grad_term_einsummable(
   }
 
   if(num_inn == 1 && e.join.is_identity()) {
+    // Fix out_id so that if there is an outgoing formation, that gets used
+    {
+      auto const& out_node = nodes[out_id];
+      for(auto const& out_out_id: out_node.outs) {
+        auto const& out_out_node = nodes[out_out_id];
+        if(out_out_node.op.is_formation()) {
+          out_id = out_out_id;
+          break;
+        }
+      }
+    }
+
     if(e.castable == castable_t::add) {
       return build_grad_term_reduction_add(
         e.join_shape, e.inns[0], e.out_rank, grad_id);
-    } else if(e.castable == castable_t::mul) {
-      return build_grad_term_reduction_mul(
-        e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
-    } else if(e.castable == castable_t::max) {
-      return build_grad_term_reduction_maxmin(
-        true, e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
-    } else if(e.castable == castable_t::min) {
-      return build_grad_term_reduction_maxmin(
-        false, e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
     } else {
-      throw std::runtime_error("build_grad_term_reduction missing castable");
+      return build_grad_term_reduction_mulmaxmin(
+        e.castable.value(), e.join_shape, e.inns[0], e.out_rank,
+        out_id, inn_ids[0], grad_id);
     }
   } else if(e.is_contraction()) {
     // This is a contraction, so multiply the grad_id with either the
@@ -1879,32 +1886,112 @@ graph_t::build_grad_term_reduction_add(
   vector<uint64_t> const& join_shape,
   vector<int> const& inn,
   int out_rank,
-  graph_t::backprop_tensor_t grad_id)
+  graph_t::backprop_tensor_t grad)
 {
-  // TODO
+  // This is easy, just do a broadcast in the other direction
+
+  vector<uint64_t> inn_shape = einsummable_t::get_input_from_join_(
+    inn,
+    join_shape);
+
+  if(grad.is_constant()) {
+    scalar_t value = grad.get_constant();
+
+    return backprop_tensor_t(fill_t {
+      .value = value,
+      .shape = inn_shape
+    });
+  }
+
+  auto [old_out_str, old_inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
+  string const& old_inn_str = old_inn_strs[0];
+  string new_str = old_out_str + "->" + old_inn_str;
+
+  int const& id = grad.get_id();
+  dtype_t dtype = out_dtype(id);
+
+  auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+  einsummable_t e(
+    inn_shape, new_inns, new_out_rank,
+    scalarop_t::make_identity(dtype));
+
+  return backprop_tensor_t(insert_einsummable(e, { id }));
 }
 
 graph_t::backprop_tensor_t
-graph_t::build_grad_term_reduction_mul(
+graph_t::build_grad_term_reduction_mulmaxmin(
+  castable_t castable,
   vector<uint64_t> const& join_shape,
   vector<int> const& inn,
   int out_rank,
+  int out_id,
   int inn_id,
-  graph_t::backprop_tensor_t grad_id)
+  graph_t::backprop_tensor_t grad)
 {
-  // TODO
-}
+  dtype_t dtype = grad.dtype(*this);
 
-graph_t::backprop_tensor_t
-graph_t::build_grad_term_reduction_maxmin(
-  bool is_max_else_min,
-  vector<uint64_t> const& join_shape,
-  vector<int> const& inn,
-  int out_rank,
-  int inn_id,
-  graph_t::backprop_tensor_t grad_id)
-{
-  // TODO
+  vector<uint64_t> inn_shape = einsummable_t::get_input_from_join_(
+    inn,
+    join_shape);
+
+  vector<uint64_t> out_shape(join_shape.begin(), join_shape.begin() + out_rank);
+
+
+  auto [old_out_str, old_inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
+  string const& old_inn_str = old_inn_strs[0];
+
+  scalarop_t base = [&] {
+    // For ij->i, input X, output Y
+    if(castable == castable_t::mul) {
+      // Wij = Yi / Xij * uij
+      return scalarop_t::make_div(dtype);
+    } else if(castable == castable_t::max) {
+      // Wij = 1{ Yi >= Xij } * uij
+      return scalarop_t::make_is_max(dtype);
+    } else if(castable == castable_t::min) {
+      // Wij = 1{ Yi <= Xij } * uij
+      return scalarop_t::make_is_min(dtype);
+    } else {
+      throw std::runtime_error("invalid castable for build_grad_term_deduction_mulmaxmin");
+    }
+  }();
+
+  if(grad.is_constant()) {
+    if(grad.is_zeros()) {
+      return backprop_tensor_t::zeros(dtype, inn_shape);
+    }
+    scalar_t value = grad.get_constant();
+    scalarop_t join = scalarop_t::combine(
+      scalarop_t::make_mul(dtype),
+      { base, scalarop_t::make_constant(value) });
+
+    string new_str = old_out_str + "," + old_inn_str + "->" + old_inn_str;
+
+    auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+    auto new_join_shape = einsummable_t::construct_join_shape(
+      inn_shape,
+      new_inns,
+      { out_shape, inn_shape });
+
+    einsummable_t e(new_join_shape, new_inns, new_out_rank, join);
+    return backprop_tensor_t(insert_einsummable(e, { out_id, inn_id }));
+  }
+
+  scalarop_t join = scalarop_t::combine(
+    scalarop_t::make_mul(dtype),
+    { base, scalarop_t::make_arg(0, dtype) });
+
+  string new_str = old_out_str + "," + old_inn_str + "," + old_out_str + "->" + old_inn_str;
+
+  auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+  auto new_join_shape = einsummable_t::construct_join_shape(
+    inn_shape,
+    new_inns,
+    { out_shape, inn_shape, out_shape });
+
+  int grad_id = grad.get_id();
+  einsummable_t e(new_join_shape, new_inns, new_out_rank, join);
+  return backprop_tensor_t(insert_einsummable(e, { out_id, inn_id, grad_id }));
 }
 
 // Construct a 3D matmul graph, (ij,jk->ik)

@@ -313,6 +313,12 @@ struct scalarop_t {
   // max(x0, x1);
   static scalarop_t make_max(dtype_t d = default_dtype());
 
+  // x0 <= x1 ? 1.0 : 0.0
+  static scalarop_t make_is_min(dtype_t d = default_dtype());
+
+  // x0 >= x1 ? 1.0 : 0.0
+  static scalarop_t make_is_max(dtype_t d = default_dtype());
+
   // xn * val
   static scalarop_t make_scale_which(scalar_t val, int arg);
 

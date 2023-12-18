@@ -1562,6 +1562,23 @@ scalarop_t scalarop_t::make_max(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("ite_>["+h0+","+h1+","+h0+","+h1+"]");
 }
 
+// x0 <= x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_min(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_<=["+h0+","+h1+","+one+","+zero+"]");
+}
+// x0 >= x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_max(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_>=["+h0+","+h1+","+one+","+zero+"]");
+}
+
 // xn * val
 scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
   string hole = op_t::h_str(arg, val.dtype);

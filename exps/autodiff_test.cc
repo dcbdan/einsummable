@@ -258,21 +258,65 @@ void exp13() {
   DOUT("printed " << filename);
 }
 
+void exp14() {
+  graph_writer_t g;
+  auto x = g.input({20,30,40});
+  auto a = g.reduction("ijk->ji", castable_t::add, x);
+  auto b = g.reduction("ijk->k", castable_t::min, x);
+  auto c = g.reduction("ijk->ik", castable_t::mul, x);
+  auto d = g.reduction("ijk->j", castable_t::max, x);
+
+  g.backprop(a, {x});
+  g.backprop(b, {x});
+  g.backprop(c, {x});
+  g.backprop(d, {x});
+
+  /////
+  string filename = "exp14.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+void exp15() {
+  graph_writer_t g;
+  auto x = g.input({20,30,40});
+  auto y = g.input({40,50});
+  auto a = g.reduction("ijk->ik", castable_t::min, x);
+  auto b = g.matmul(a,y).save();
+  /////
+  {
+    string filename = "exp15_before.gv";
+    std::ofstream f(filename);
+    g.get_graph().print_graphviz(f);
+    DOUT("printed " << filename);
+  }
+
+  g.backprop(b, {x});
+  /////
+  string filename = "exp15.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
 // TODO: check einsummable_t remove_broadcast
 // TODO: fixed_grad_id in build grad term einsummable
 
 int main() {
-  exp01();
-  exp02();
-  exp03();
-  exp04();
-  exp05();
-  exp06(false);
-  exp06(true);
-  exp07();
-  exp09();
-  exp10();
-  exp11();
-  exp12();
-  exp13();
+  //exp01();
+  //exp02();
+  //exp03();
+  //exp04();
+  //exp05();
+  //exp06(false);
+  //exp06(true);
+  //exp07();
+  //exp09();
+  //exp10();
+  //exp11();
+  //exp12();
+  //exp13();
+  //exp14();
+  exp15();
 }
