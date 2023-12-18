@@ -1259,10 +1259,6 @@ graph_t::build_grad_term_einsummable(
   backprop_tensor_t grad_id)
 {
   int num_inn = inn_ids.size();
-  if(num_inn > 2 || num_inn == 0) {
-    throw std::runtime_error("build grad term: only einsummable "
-                             "with 1 or 2 inputs supported");
-  }
 
   if(e.has_broadcast()) {
     // Given ijk->ijkl,
@@ -1311,33 +1307,51 @@ graph_t::build_grad_term_einsummable(
     }
   }
 
-  if(num_inn == 1) {
-    if(which_inn != 0) {
-      throw std::runtime_error("invalid which inn");
-    }
-    if(e.has_aggregation()) {
-      // TODO
-      // What if the join is not identity?
-    } else {
-      return build_grad_term_ew(e, inn_ids, 0, grad_id);
-    }
-  } else {
-    if(e.has_aggregation()) {
-      if(!(e.join.is_mul() && e.castable.value() == castable_t::add)) {
-        throw std::runtime_error("with multiple inputs and an agg, must be contraction");
-      }
-
-      // This is a contraction, so multiply the grad_id with either the
-      // left or the right input
-      return build_grad_term_contraction(e, inn_ids, which_inn, grad_id);
-    } else {
-      // This is a binary elementwise op
-      return build_grad_term_ew(e, inn_ids, which_inn, grad_id);
-    }
+  if(!e.has_aggregation()) {
+    // no broadcast but an aggregation -> elementwise
+    return build_grad_term_ew(e, inn_ids, which_inn, grad_id);
   }
 
+  if(num_inn == 1 && e.join.is_identity()) {
+    if(e.castable == castable_t::add) {
+      return build_grad_term_reduction_add(
+        e.join_shape, e.inns[0], e.out_rank, grad_id);
+    } else if(e.castable == castable_t::mul) {
+      return build_grad_term_reduction_mul(
+        e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
+    } else if(e.castable == castable_t::max) {
+      return build_grad_term_reduction_maxmin(
+        true, e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
+    } else if(e.castable == castable_t::min) {
+      return build_grad_term_reduction_maxmin(
+        false, e.join_shape, e.inns[0], e.out_rank, inn_ids[0], grad_id);
+    } else {
+      throw std::runtime_error("build_grad_term_reduction missing castable");
+    }
+  } else if(e.is_contraction()) {
+    // This is a contraction, so multiply the grad_id with either the
+    // left or the right input
+    return build_grad_term_contraction(e, inn_ids, which_inn, grad_id);
+  }
+
+  // One option would be to split the einsummable into
+  //   (1) a reduction, (2) an elementwise op
+  // Then return
+  //   build_grad_term_einsummable(
+  //     e_ew,
+  //     inn_ids,
+  //     which_inn,
+  //     build_grad_term_einsummable(e_reduction, ?, 0, grad_id));
+  // However, there is no inn_id to the reduction portion since it
+  // is never formed.
+  //
+  // The solution seems to be either (a) don't form these non-standard "compound"
+  // einsummables and (b) special case standard "compound" einsummables such
+  // as contraction.
+
   throw std::runtime_error(
-    "should not reach; something probably not implemented");
+    "not implemented: einsummable characterized by \n"
+    "no broadcast, with aggregation, not a contraction, not a reduction");
 }
 
 graph_t::backprop_tensor_t
@@ -1858,6 +1872,39 @@ graph_t::build_grad_term_complexer(
       return backprop_tensor_t(insert_to_real(id));
     }
   }
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_reduction_add(
+  vector<uint64_t> const& join_shape,
+  vector<int> const& inn,
+  int out_rank,
+  graph_t::backprop_tensor_t grad_id)
+{
+  // TODO
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_reduction_mul(
+  vector<uint64_t> const& join_shape,
+  vector<int> const& inn,
+  int out_rank,
+  int inn_id,
+  graph_t::backprop_tensor_t grad_id)
+{
+  // TODO
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_reduction_maxmin(
+  bool is_max_else_min,
+  vector<uint64_t> const& join_shape,
+  vector<int> const& inn,
+  int out_rank,
+  int inn_id,
+  graph_t::backprop_tensor_t grad_id)
+{
+  // TODO
 }
 
 // Construct a 3D matmul graph, (ij,jk->ik)

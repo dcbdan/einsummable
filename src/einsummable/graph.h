@@ -360,6 +360,31 @@ private:
   build_grad_term_complexer(
     backprop_tensor_t grad_id);
 
+  backprop_tensor_t
+  build_grad_term_reduction_add(
+    vector<uint64_t> const& join_shape,
+    vector<int> const& inn,
+    int out_rank,
+    backprop_tensor_t grad_id);
+
+  backprop_tensor_t
+  build_grad_term_reduction_mul(
+    vector<uint64_t> const& join_shape,
+    vector<int> const& inn,
+    int out_rank,
+    int inn_id,
+    backprop_tensor_t grad_id);
+
+  backprop_tensor_t
+  build_grad_term_reduction_maxmin(
+    bool is_max_else_min,
+    vector<uint64_t> const& join_shape,
+    vector<int> const& inn,
+    int out_rank,
+    int inn_id,
+    backprop_tensor_t grad_id);
+
+
   // In case that one node has multiple edges
   // We need to sum all of its contributions to output function
   // Let's say that we have f(u,v) where u = u(x,y)  and v = v(x,y)
