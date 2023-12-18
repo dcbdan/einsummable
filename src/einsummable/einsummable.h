@@ -62,16 +62,27 @@ struct einsummable_t {
     uint64_t di, uint64_t dj, uint64_t dk,
     dtype_t dtype = default_dtype());
 
+  static einsummable_t aggregate(
+    vector<uint64_t> const& inn_shape,
+    vector<int> const& inn,
+    int out_rank,
+    dtype_t dtype = default_dtype(),
+    castable_t castable = castable_t::add);
+
   static einsummable_t with_new_shape(
     einsummable_t const& e, vector<uint64_t> const& new_join_shape);
 
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
+  static tuple<string , vector<string>>
+  make_str_terms(vector<vector<int>> const& inns, vector<int> const& out);
+
   static tuple<string, vector<string>>
   make_str_terms(vector<vector<int>> const& inns, int out_rank);
 
   static string make_str(vector<vector<int>> const& inns, int out_rank);
+  static string make_str(vector<vector<int>> const& inns, vector<int> const& out_rank);
 
   static string normalize_str(string const& str);
 
@@ -80,6 +91,8 @@ struct einsummable_t {
     int out_rank);
 
   // will return None if has_broadcast
+  // (except for ijk->ijkl sort of broadcast; this function
+  //  will think the join shape is rank 3 instead of rank 4)
   static optional<vector<uint64_t>> construct_join_shape(
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
@@ -132,7 +145,7 @@ struct einsummable_t {
   bool is_contraction() const;
 
   // is broadcast means this op is just doing a broadcast on a single
-  // element and nothing else
+  // input and nothing else
   bool is_broadcast() const;
 
   // is_broadcast includes permutation style broadcasts like
@@ -142,8 +155,21 @@ struct einsummable_t {
   //      012->0123 is not
   bool is_straight_broadcast() const;
 
+  // Example:
+  //   ijkm->ijkl
+  //   0124->0123
+  //
+  //   ijk: normal modes
+  //   m:   agg mode
+  //   l:   broadcast mode
+  set<int> get_agg_modes() const;
+  set<int> get_normal_modes() const;
+  set<int> get_broadcast_modes() const;
+
   // has broadcast is true if there are any broadcast modes
   bool has_broadcast() const;
+
+  einsummable_t remove_broadcast() const;
 
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
@@ -162,18 +188,28 @@ struct einsummable_t {
   }
 
   template <typename T>
+  static vector<T> get_input_from_join_(
+    vector<int> const& inn,
+    vector<T> const& join_ts)
+  {
+    vector<T> ret;
+    ret.reserve(inn.size());
+    for(auto const& j: inn) {
+      ret.push_back(join_ts.at(j));
+    }
+    return ret;
+  }
+
+  template <typename T>
   static vector<vector<T>> get_inputs_from_join_(
     vector<vector<int>> const& inns,
     vector<T> const& join_ts)
   {
-    vector<vector<T>> ret(inns.size());
-    for(int i = 0; i != inns.size(); ++i) {
-      ret[i].reserve(inns.size());
-      for(auto const& j: inns[i]) {
-        ret[i].push_back(join_ts[j]);
-      }
+    vector<vector<T>> ret;
+    ret.reserve(inns.size());
+    for(auto const& inn: inns) {
+      ret.emplace_back(get_input_from_join_(inn, join_ts));
     }
-
     return ret;
   }
 

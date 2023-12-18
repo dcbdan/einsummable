@@ -60,6 +60,7 @@ struct scalar_t {
   //  you want 1 + 0i...
 
   scalar_t& operator+=(scalar_t const& rhs);
+  scalar_t& operator*=(double value);
 
   dtype_t dtype;
   uint8_t data[8];

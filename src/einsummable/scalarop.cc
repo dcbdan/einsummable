@@ -1688,6 +1688,26 @@ scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
   return *this;
 }
 
+scalar_t& scalar_t::operator*=(double mult) {
+  if(dtype == dtype_t::f16) {
+    f16() = float16_t(double(f16()) * mult);
+  } else if(dtype == dtype_t::f32) {
+    f32() = float(double(f32()) * mult);
+  } else if(dtype == dtype_t::f64) {
+    f64() = f64() * mult;
+  } else if(dtype == dtype_t::c64) {
+    float real = c64().real();
+    float imag = c64().imag();
+    c64() = std::complex<float>(
+      float(double(real) * mult),
+      float(double(imag) * mult));
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+
+  return *this;
+}
+
 scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
   if(lhs.dtype != rhs.dtype) {
     throw std::runtime_error("can only add with the same dtype");

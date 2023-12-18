@@ -347,6 +347,21 @@ einsummable_t einsummable_t::from_matmul_tt(
   return _einsummable_matmul_helper(di, dj, dk, dtype, "ji,kj->ik");
 }
 
+einsummable_t einsummable_t::aggregate(
+  vector<uint64_t> const& inn_shape,
+  vector<int> const& inn,
+  int out_rank,
+  dtype_t dtype,
+  castable_t castable)
+{
+  vector<uint64_t> join_shape = einsummable_t::construct_join_shape(
+    { inn }, { inn_shape }).value();
+  return einsummable_t(
+    join_shape, { inn }, out_rank,
+    scalarop_t::make_identity(dtype),
+    castable);
+}
+
 einsummable_t einsummable_t::with_new_shape(
   einsummable_t const& e,
   vector<uint64_t> const& new_join_shape)
@@ -442,34 +457,55 @@ einsummable_t::parse_str(string str)
   return {ret, out.size()};
 }
 
-tuple<string, vector<string>>
+tuple<string , vector<string>>
 einsummable_t::make_str_terms(
   vector<vector<int>> const& inns,
-  int out_rank)
+  vector<int> const& out)
 {
-  int join_rank = _compute_join_rank(inns, out_rank);
+  if(out.size() == 0) {
+    throw std::runtime_error("out size is zero");
+  }
+  for(auto const& inn: inns) {
+    if(inn.size() == 0) {
+      throw std::runtime_error("inn size is zero");
+    }
+  }
+  ///
 
-  vector<char> letters(join_rank); // How many different letters are there
+  int max_rank = *std::max_element(out.begin(), out.end());
+  for(auto const& inn: inns) {
+    max_rank = std::max(max_rank, *std::max_element(inn.begin(), inn.end()));
+  }
+  max_rank += 1;
+
+  vector<char> letters(max_rank); // How many different letters are there
   std::iota(letters.begin(), letters.end(), 'a');
 
-  auto words = get_inputs_from_join_(inns, letters);
-
-  vector<char> outword(letters.begin(), letters.begin() + out_rank);
+  vector<char> outword = get_input_from_join_(out, letters);
+  vector<vector<char>> innwords = get_inputs_from_join_(inns, letters);
 
   vector<string> ret;
-  ret.reserve(words.size());
-  for(auto const& word: words) {
+  ret.reserve(innwords.size());
+  for(auto const& word: innwords) {
     ret.emplace_back(word.begin(), word.end());
   }
 
   return {string(outword.begin(), outword.end()), ret};
 }
 
-string einsummable_t::make_str(
+tuple<string, vector<string>>
+einsummable_t::make_str_terms(
   vector<vector<int>> const& inns,
   int out_rank)
 {
-  auto [outword, words] = make_str_terms(inns, out_rank);
+  return make_str_terms(inns, vector_iota<int>(out_rank));
+}
+
+string einsummable_t::make_str(
+  vector<vector<int>> const& inns,
+  vector<int> const& out)
+{
+  auto [outword, words] = make_str_terms(inns, out);
 
   std::ostringstream ss;
   ss << string(words[0]);
@@ -481,6 +517,13 @@ string einsummable_t::make_str(
   ss << "->" << outword;
 
   return ss.str();
+}
+
+string einsummable_t::make_str(
+  vector<vector<int>> const& inns,
+  int out_rank)
+{
+  return make_str(inns, vector_iota<int>(out_rank));
 }
 
 //string
@@ -724,7 +767,19 @@ bool einsummable_t::is_contraction() const {
     join.is_mul()                       ;
 }
 
-bool einsummable_t::has_broadcast() const {
+set<int> einsummable_t::get_agg_modes() const {
+  set<int> agg_modes;
+  for(auto const& inn: inns) {
+    for(auto const& i: inn) {
+      if(i >= out_rank) {
+        agg_modes.insert(i);
+      }
+    }
+  }
+  return agg_modes;
+}
+
+set<int> einsummable_t::get_normal_modes() const {
   set<int> normal_modes;
   for(auto const& inn: inns) {
     for(auto const& i: inn) {
@@ -733,14 +788,22 @@ bool einsummable_t::has_broadcast() const {
       }
     }
   }
-  // Example:
-  //   ijkm->ijkl
-  //   0124->0123
-  //
-  //   ijk: normal modes
-  //   m:   agg mode
-  //   l:   broadcast mode
-  return normal_modes.size() != out_rank;
+  return normal_modes;
+}
+
+set<int> einsummable_t::get_broadcast_modes() const {
+  set<int> normal_modes = get_normal_modes();
+  set<int> ret;
+  for(int i = 0; i != out_rank; ++i) {
+    if(normal_modes.count(i) == 0) {
+      ret.insert(i);
+    }
+  }
+  return ret;
+}
+
+bool einsummable_t::has_broadcast() const {
+  return get_normal_modes().size() != out_rank;
 }
 
 bool einsummable_t::is_broadcast() const {
@@ -765,6 +828,24 @@ bool einsummable_t::is_straight_broadcast() const {
   }
 
   return true;
+}
+
+einsummable_t einsummable_t::remove_broadcast() const {
+  set<int> bmodes = get_broadcast_modes();
+
+  vector<int> out;
+  out.reserve(out_rank - bmodes.size());
+  for(int i = 0; i != out_rank; ++i) {
+    if(bmodes.count(i) == 0) {
+      out.push_back(i);
+    }
+  }
+
+  auto [new_inns, new_out_rank] = parse_str(make_str(inns, out));
+  vector<uint64_t> new_join_shape =
+    construct_join_shape(new_inns, inn_shapes()).value();
+
+  return einsummable_t(new_join_shape, new_inns, new_out_rank, join, castable);
 }
 
 std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {

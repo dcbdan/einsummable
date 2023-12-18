@@ -242,6 +242,24 @@ void exp12() {
   DOUT("printed " << filename);
 }
 
+void exp13() {
+  graph_writer_t g;
+  auto x = g.input(vector<uint64_t>{100});
+  auto y = g.broadcast(101, x);
+  auto z = g.broadcast(102, y);
+  auto a = g.input({35,36});
+  a = a.transpose(0,1);
+  a = a.scale("1.99");
+  auto grads = g.backprop(z, {x});
+  /////
+  string filename = "exp13.gv";
+  std::ofstream f(filename);
+  g.get_graph().print_graphviz(f);
+  DOUT("printed " << filename);
+}
+
+// TODO: check einsummable_t remove_broadcast
+// TODO: fixed_grad_id in build grad term einsummable
 
 int main() {
   //exp01();
@@ -255,8 +273,9 @@ int main() {
   //exp09();
   //exp10();
 
-  // TODO
+  // TODO: need support for backprop through a+b
   //exp11();
 
-  exp12();
+  //exp12();
+  exp13();
 }

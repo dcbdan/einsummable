@@ -1265,8 +1265,50 @@ graph_t::build_grad_term_einsummable(
   }
 
   if(e.has_broadcast()) {
-    // TODO
-    throw std::runtime_error("build grad term: broadcast not supported");
+    // Given ijk->ijkl,
+    // form ijkl->ijk
+    vector<int> inns;
+    int out_rank;
+    {
+      set<int> bmodes = e.get_broadcast_modes();
+
+      string letters(e.out_rank, ' ');
+      std::iota(letters.begin(), letters.end(), 'a');
+
+      string const& inn = letters;
+
+      string out(e.out_rank - bmodes.size(), ' ');
+      auto iter = out.begin();
+      for(int i = 0; i != e.out_rank; ++i) {
+        if(bmodes.count(i) == 0) {
+          *iter++ = letters[i];
+        }
+      }
+      if(iter != out.end()) {
+        throw std::runtime_error("invalid iter end state");
+      }
+
+      string str = inn + "->" + out;
+
+      auto [inns_, out_rank_] = einsummable_t::parse_str(str);
+      inns = inns_[0];
+      out_rank = out_rank_;
+    }
+
+    backprop_tensor_t fixed_grad_id = backprop_tensor_aggregate(grad_id, inns, out_rank);
+
+    if(e.is_broadcast()) {
+      // If this is just a broadcast, we have the answer
+      return fixed_grad_id;
+    } else {
+      // This einsummable is a compute and then a broadcast,
+      // recurse to the compute part.
+      return build_grad_term_einsummable(
+        e.remove_broadcast(),
+        inn_ids,
+        which_inn,
+        fixed_grad_id);
+    }
   }
 
   if(num_inn == 1) {
@@ -1296,6 +1338,35 @@ graph_t::build_grad_term_einsummable(
 
   throw std::runtime_error(
     "should not reach; something probably not implemented");
+}
+
+graph_t::backprop_tensor_t
+graph_t::backprop_tensor_aggregate(
+  graph_t::backprop_tensor_t const& tensor,
+  vector<int> const& inn,
+  int out_rank)
+{
+  einsummable_t e = einsummable_t::aggregate(
+    tensor.shape(*this),
+    inn, out_rank,
+    tensor.dtype(*this),
+    castable_t::add);
+
+  if(tensor.is_constant()) {
+    vector<uint64_t> out_shape = e.out_shape();
+    scalar_t value = tensor.get_constant();
+    uint64_t nelem_inn = product(e.join_shape);
+    uint64_t nelem_out = product(out_shape);
+    double multiplier(nelem_inn / nelem_out);
+    value *= multiplier;
+    return backprop_tensor_t(fill_t {
+      .value = value,
+      .shape = out_shape
+    });
+  } else {
+    int const& id = tensor.get_id();
+    return backprop_tensor_t(insert_einsummable(e, { id }));
+  }
 }
 
 graph_t::backprop_tensor_t
@@ -2996,6 +3067,51 @@ graph_writer_t::softmax(
     ewbstr,
     scalarop_t::make_div(dtype),
     ex, sum_ex);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::broadcast(
+  graph_writer_t::full_dim_t b_dim,
+  graph_writer_t::tensor_t const& tensor)
+{
+  string str;
+  {
+    int n_bro = b_dim.parts.size();
+
+    vector<char> letters(tensor.modes.size() + n_bro);
+    std::iota(letters.begin(), letters.end(), 'a');
+
+    string inn;
+    for(auto const& m: tensor.modes) {
+      inn.push_back(letters[n_bro + m]);
+    }
+
+    string out(letters.begin(), letters.end());
+
+    str = inn + "->" + out;
+  }
+
+  full_shape_t new_shape(vector_concatenate(
+    {b_dim}, tensor.get_shape().parts));
+
+  einsummable_t e = [&] {
+    auto [inns, out_rank] = einsummable_t::parse_str(str);
+    return einsummable_t(
+      new_shape.full(), inns, out_rank,
+      scalarop_t::make_identity(tensor.get_dtype()));
+  }();
+
+  int id = graph.insert_einsummable(e, { tensor.get_id() });
+
+  return tensor_t(new_shape, id, this);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::broadcast(
+  uint64_t sz,
+  graph_writer_t::tensor_t const& inn)
+{
+  return broadcast(full_dim_t::singleton(sz), inn);
 }
 
 graph_writer_t::tensor_t

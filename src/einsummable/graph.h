@@ -329,22 +329,32 @@ private:
     vector<int> const& inn_ids,
     int which_inn,
     backprop_tensor_t grad_id);
+
+  backprop_tensor_t
+  backprop_tensor_aggregate(
+    backprop_tensor_t const& tensor,
+    vector<int> const& es_inns,
+    int out_rank);
+
   backprop_tensor_t
   build_grad_term_contraction(
     einsummable_t const& e,
     vector<int> const& inn_ids,
     int which_inn,
     backprop_tensor_t grad_id);
+
   backprop_tensor_t
   build_grad_term_ewu(
     einsummable_t const& e,
     int inn,
     backprop_tensor_t grad_id);
+
   backprop_tensor_t
   build_grad_term_select(
     select_t const& select,
     int which_inn,
     backprop_tensor_t grad_id);
+
   backprop_tensor_t
   build_grad_term_complexer(
     backprop_tensor_t grad_id);
@@ -754,6 +764,15 @@ struct graph_writer_t {
   // take the softmax over the last dimension
   tensor_t softmax(
     tensor_t const& inn);
+
+  // convert j->ij
+  tensor_t broadcast(
+    full_dim_t size,
+    tensor_t const& inn);
+  tensor_t broadcast(
+    uint64_t sz,
+    tensor_t const& inn);
+
 private:
   graph_t graph;
 
