@@ -281,6 +281,8 @@ private:
     vector<int> const& inns,
     bool include_inns_outs) const;
 
+  vector<int> reverse_order_nodeset(set<int> const& ids) const;
+
   struct backprop_tensor_t {
     backprop_tensor_t();
     backprop_tensor_t(int id);
@@ -312,7 +314,7 @@ private:
 
   struct backprop_state_t {
     // get the gradient of this id
-    backprop_tensor_t operator[](int id);
+    void insert(int id);
 
     // Add the initial ones at out_id
     void start(int out_id);

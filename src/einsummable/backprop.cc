@@ -4,6 +4,11 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
   // Get nodes which values affect output of the graph
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
+  vector<int> ordered_nodeset = reverse_order_nodeset(nodeset);
+  if(ordered_nodeset[0] != out) {
+    throw std::runtime_error("invalid reverse_order_nodeset result");
+  }
+
   backprop_state_t state {
     .grads = {},
     .self = *this,
@@ -12,10 +17,15 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
 
   state.start(out);
 
+  for(int i = 1; i != ordered_nodeset.size(); ++i) {
+    int const& id = ordered_nodeset[i];
+    state.insert(id);
+  }
+
   vector<int> grads;
   grads.reserve(weights.size());
   for(auto const& weight : weights) {
-    backprop_tensor_t grad = state[weight];
+    backprop_tensor_t grad = state.grads.at(weight);
     if(grad.is_constant()) {
       grads.push_back(insert_fill(grad.get_fill()));
     } else {
@@ -24,10 +34,13 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
   }
 
   for(int i = 0; i != grads.size(); ++i) {
-    dtype_t w_dtype = nodes[weights[i]].op.out_dtype();
-    dtype_t g_dtype = nodes[grads[i]].op.out_dtype();
-    if(w_dtype != g_dtype) {
+    int const& w = weights[i];
+    int const& g = grads[i];
+    if(out_dtype(w) != out_dtype(g)) {
       throw std::runtime_error("incorrect dtype of grad");
+    }
+    if(out_shape(w) != out_shape(g)) {
+      throw std::runtime_error("incorrect shape of grad");
     }
   }
 
@@ -180,11 +193,10 @@ graph_t::backprop_state_t::get_out_edges(int id) const
   return ret;
 }
 
-graph_t::backprop_tensor_t
-graph_t::backprop_state_t::operator[](int id)
+void graph_t::backprop_state_t::insert(int id)
 {
   if(grads.count(id) > 0 ) {
-    return grads.at(id);
+    throw std::runtime_error("this grad has already been inserted");
   }
   if(nodeset.count(id) == 0) {
     throw std::runtime_error("This id is not in the nodeset");
@@ -198,7 +210,7 @@ graph_t::backprop_state_t::operator[](int id)
   terms.reserve(out_edges.size());
   for(auto const& [out, which_inn] : out_edges) {
     // building grad term for out with respect to this id
-    backprop_tensor_t out_grad = (*this)[out];
+    backprop_tensor_t const& out_grad = grads.at(out);
     backprop_tensor_t term = self.build_grad_term(out, which_inn, out_grad);
     if(term.dtype(self) != dtype) {
       throw std::runtime_error("invalid term dtype during backprop");
@@ -218,8 +230,6 @@ graph_t::backprop_state_t::operator[](int id)
   }
 
   grads.insert({id, ret});
-
-  return ret;
 }
 
 graph_t::backprop_tensor_t
@@ -1123,6 +1133,117 @@ int graph_t::insert_einsummable_form(
 
   if(e.has_aggregation()) {
     ret = insert_formation(ret, false);
+  }
+
+  return ret;
+}
+
+set<int> graph_t::compute_nodeset(
+  vector<int> const& upps,
+  vector<int> const& dwns,
+  bool include_upps_dwns) const
+{
+  set<int> upp_dwn;
+  for(auto const& upp: upps) {
+    for(auto const& inn: nodes[upp].get_inns_set()) {
+      upp_dwn.insert(inn);
+    }
+  }
+  {
+    set<int> pending = upp_dwn;
+    while(pending.size() > 0) {
+      set<int> next_up;
+      for(auto const& upp: pending) {
+        for(auto const& inn: nodes[upp].get_inns_set()) {
+          upp_dwn.insert(inn);
+          next_up.insert(inn);
+        }
+      }
+      pending = std::move(next_up);
+    }
+  }
+
+  set<int> dwn_upp;
+  for(auto const& dwn: dwns) {
+    for(auto const& out: nodes[dwn].outs) {
+      dwn_upp.insert(out);
+    }
+  }
+  {
+    set<int> pending = dwn_upp;
+    while(pending.size() > 0) {
+      set<int> next_up;
+      for(auto const& dwn: pending) {
+        for(auto const& out: nodes[dwn].outs) {
+          dwn_upp.insert(out);
+          next_up.insert(out);
+        }
+      }
+      pending = std::move(next_up);
+    }
+  }
+
+  set<int> ret;
+  for(auto const& id: upp_dwn) {
+    if(dwn_upp.count(id) > 0) {
+      ret.insert(id);
+    }
+  }
+
+  if(include_upps_dwns) {
+    for(auto const& upp: upps) {
+      ret.insert(upp);
+    }
+    for(auto const& dwn: dwns) {
+      ret.insert(dwn);
+    }
+  }
+
+  return ret;
+}
+
+vector<int>
+graph_t::reverse_order_nodeset(set<int> const& nodeset) const
+{
+  vector<int> ret;
+  ret.reserve(nodeset.size());
+
+  map<int, int> counts;
+  vector<int> pending;
+  for(int const& id: nodeset) {
+    auto const& node = nodes[id];
+    int& cnt = counts[id];
+    for(int const& out_id: node.outs) {
+      if(nodeset.count(out_id) > 0) {
+        cnt++;
+      }
+    }
+    if(cnt == 0) {
+      pending.push_back(id);
+    }
+  }
+
+  while(pending.size() > 0) {
+    int id = pending.back();
+    pending.pop_back();
+
+    ret.push_back(id);
+
+    auto const& node = nodes[id];
+    for(int const& inn_id: node.get_inns_set()) {
+      auto iter = counts.find(inn_id);
+      if(iter != counts.end()) {
+        int& cnt = iter->second;
+        cnt--;
+        if(cnt == 0) {
+          pending.push_back(inn_id);
+        }
+      }
+    }
+  }
+
+  if(ret.size() != nodeset.size()) {
+    throw std::runtime_error("invalid size for reverse order return");
   }
 
   return ret;
