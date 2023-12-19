@@ -518,6 +518,9 @@ graph_t::build_grad_term_contraction(
 //   If both are constants:
 //     v( = deri_op_v * grad_v)
 //     constant of shape inn
+//
+// Note: for ensummable \x0,x1->x0*x1 and "ij,i->ij", the vjp requires a
+//       a summation over j so not all of these are elementwise
 graph_t::backprop_tensor_t
 graph_t::build_grad_term_ew(
   einsummable_t const& e,
@@ -579,7 +582,9 @@ graph_t::build_grad_term_ew(
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
     vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
       inn_shapes[which_inn], new_inns, { out_shape });
-    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    einsummable_t new_e(
+      new_join_shape, new_inns, new_out_rank,
+      new_join, castable_t::add);
     int term_id = insert_einsummable(new_e, { grad.get_id() });
     return backprop_tensor_t(term_id);
   } else if(constant_grad) {
@@ -607,6 +612,8 @@ graph_t::build_grad_term_ew(
       });
     }
 
+    map<int,int> remap;
+    int _cnt = 0;
     vector<string> actual_inn_strs;
     vector<int> new_inn_ids;
     vector<vector<uint64_t>> new_inn_shapes;
@@ -615,8 +622,12 @@ graph_t::build_grad_term_ew(
         actual_inn_strs.push_back(inn_strs[i]);
         new_inn_ids.push_back(inn_ids[i]);
         new_inn_shapes.push_back(inn_shapes[i]);
+        remap.insert({i,_cnt++});
       }
     }
+
+    new_join.remap_inputs(remap);
+
     string new_str = actual_inn_strs[0];
     for(int i = 1; i != actual_inn_strs.size(); ++i) {
       new_str += "," + actual_inn_strs[i];
@@ -626,15 +637,20 @@ graph_t::build_grad_term_ew(
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
     vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
       inn_shapes[which_inn], new_inns, new_inn_shapes);
-    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    einsummable_t new_e(
+      new_join_shape, new_inns, new_out_rank,
+      new_join, castable_t::add);
     int term_id = insert_einsummable(new_e, new_inn_ids);
     return backprop_tensor_t(term_id);
   } else {
+    // Note: it's important that the identity op come first
+    //       since we don't know what holes deri_op uses, just
+    //       that a hole is used..
     scalarop_t new_join = scalarop_t::combine(
       scalarop_t::make_mul(out_dtype),
       vector<scalarop_t> {
+        scalarop_t::make_identity(out_dtype),
         deri_op,
-        scalarop_t::make_identity(out_dtype)
       }
     );
 
@@ -642,20 +658,31 @@ graph_t::build_grad_term_ew(
       scalarop_t::make_convert_dtype(out_dtype, inn_dtype),
       vector<scalarop_t>{ new_join });
 
+    map<int,int> remap;
+    int _cnt = 0;
     vector<string> actual_inn_strs;
     vector<int> new_inn_ids;
     vector<vector<uint64_t>> new_inn_shapes;
-    for(int i = 0; i != inn_strs.size(); ++i) {
-      if(new_join.is_used(i)) {
-        actual_inn_strs.push_back(inn_strs[i]);
-        new_inn_ids.push_back(inn_ids[i]);
-        new_inn_shapes.push_back(inn_shapes[i]);
-      }
-    }
-    if(new_join.is_used(inn_strs.size())) {
+    if(new_join.is_used(0)) {
       actual_inn_strs.push_back(out_str);
       new_inn_ids.push_back(grad.get_id());
       new_inn_shapes.push_back(out_shape);
+      remap.insert({0,_cnt++});
+    }
+    for(int i = 0; i != inn_strs.size(); ++i) {
+      int which_hole = i + 1;
+      if(new_join.is_used(which_hole)) {
+        actual_inn_strs.push_back(inn_strs[i]);
+        new_inn_ids.push_back(inn_ids[i]);
+        new_inn_shapes.push_back(inn_shapes[i]);
+        remap.insert({which_hole,_cnt++});
+      }
+    }
+
+    new_join.remap_inputs(remap);
+
+    if(actual_inn_strs.size() != new_join.num_inputs()) {
+      throw std::runtime_error("invalid join op!");
     }
 
     string new_str = actual_inn_strs[0];
@@ -667,7 +694,8 @@ graph_t::build_grad_term_ew(
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
     vector<uint64_t> new_join_shape = einsummable_t::construct_join_shape(
       inn_shapes[which_inn], new_inns, new_inn_shapes);
-    einsummable_t new_e(new_join_shape, new_inns, new_out_rank, new_join);
+    einsummable_t new_e(new_join_shape, new_inns, new_out_rank,
+      new_join, castable_t::add);
     int term_id = insert_einsummable(new_e, new_inn_ids);
     return backprop_tensor_t(term_id);
   }
@@ -986,6 +1014,10 @@ graph_t::build_grad_term_reduction_mulmaxmin(
       scalarop_t::make_mul(dtype),
       { base, scalarop_t::make_constant(value) });
 
+    if(join.num_inputs() != 2) {
+      throw std::runtime_error("expecting that all inputs are used");
+    }
+
     string new_str = old_out_str + "," + old_inn_str + "->" + old_inn_str;
 
     auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
@@ -1001,6 +1033,10 @@ graph_t::build_grad_term_reduction_mulmaxmin(
   scalarop_t join = scalarop_t::combine(
     scalarop_t::make_mul(dtype),
     { base, scalarop_t::make_arg(0, dtype) });
+
+  if(join.num_inputs() != 3) {
+    throw std::runtime_error("expecting that all inputs are used. ");
+  }
 
   string new_str = old_out_str + "," + old_inn_str + "," + old_out_str + "->" + old_inn_str;
 

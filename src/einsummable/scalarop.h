@@ -275,6 +275,7 @@ struct scalarop_t {
   bool is_min() const;
   bool is_add() const;
 
+  // TODO: These methods should be const
   optional<cutensor_scalarop_t::arg_t> set_up_arg(node_t node);
   optional<cutensor_scalarop_t> compile_cutensor_scalarop();
 

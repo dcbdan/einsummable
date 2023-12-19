@@ -1178,6 +1178,7 @@ optional<dtype_t> scalarop_t::inn_dtype(int arg) const {
 
 void scalarop_t::remap_inputs(map<int, int> const& remap) {
   node.remap_holes(remap);
+  arg_types = node.hole_types();
 }
 
 set<int> scalarop_t::which_inputs() const {
@@ -1229,7 +1230,7 @@ bool scalarop_t::is_max() const {
 
 
 
-optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node){
+optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
   // TODO: review this
   if(node.op.is_hole()){
     if(node.dtype==dtype_t::c64){
@@ -1288,7 +1289,7 @@ optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node){
 
 
 
-optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop(){
+optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop() {
   if(num_inputs()==1){
     auto potential_arg = set_up_arg(node);
     if(!potential_arg){
