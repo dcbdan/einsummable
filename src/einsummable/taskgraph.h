@@ -384,6 +384,10 @@ placement_t halve_last_dim(placement_t const& p);
 void halve_last_dim_inplace(partition_t& p);
 void halve_last_dim_inplace(placement_t& p);
 
+partition_t convert_squeezer_partition(
+  vector<uint64_t> new_shape,
+  partition_t const& part);
+
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);

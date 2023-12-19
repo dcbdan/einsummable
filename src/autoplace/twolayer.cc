@@ -129,6 +129,44 @@ void twolayer_insert_join_deps(
     do {
       join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
     } while(cr.increment());
+  } else if(node.op.is_squeezer()) {
+    auto const& squeezer = node.op.get_squeezer();
+
+    int const& inn = node.inns[0];
+    partition_t const& inn_partition = get_refinement_partition(inn);
+
+    if(dtype_is_real(squeezer.dtype)) {
+      vector<int> inn_idxs(inn_partition.partdims.size());
+      std::iota(inn_idxs.begin(), inn_idxs.end(), 0);
+
+      partition_t join_partition_fixed = convert_squeezer_partition(
+        squeezer.inn_shape, join_partition);
+
+      copyregion_join_inn_t cr(
+        join_partition_fixed,
+        inn_partition,
+        inn_idxs);
+
+      do {
+        join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
+      } while(cr.increment());
+    } else {
+      // When squeezer dtype is complex, the last dimension may get squeezed like so:
+      //   inn           shape:                 3,4,5,1
+      //   inn_partition shape wrt real:        3,4,5,2
+      //   join partition shape wrt complex     3,4,5
+      // In this case, It'd be necc to convert the join partition to
+      // 3,4,5,2 where the last dimension has a no partition
+
+      // Another example where dtype is complex
+      //   inn  shape: 3,4,5
+      //   join shape: 3,4,5,1
+      //
+      //   inn partition  shape wrt real: 3,4,10
+      //   join_partition shape wrt real: 3,4,5,2
+      //      ^ note: the last dim is singleton
+      throw std::runtime_error("do not apply squeezer to complex valued tensors");
+    }
   } else if(node.op.is_einsummable()) {
     auto const& einsummable = node.op.get_einsummable();
     for(int which_inn = 0; which_inn != einsummable.inns.size(); ++which_inn) {
@@ -252,6 +290,9 @@ partition_t twolayer_construct_refinement_partition(
         // real -> complex
         usage_partitions.push_back(double_last_dim(out_part));
       }
+    } else if(out_node.op.is_squeezer()) {
+      auto const& squeezer = out_node.op.get_squeezer();
+      insert_usage(convert_squeezer_partition(squeezer.inn_shape, out_part));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect

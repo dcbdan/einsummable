@@ -73,7 +73,7 @@ template <> struct std::hash<tg_region_t> {
 bool operator==(tg_region_t const& lhs, tg_region_t const& rhs);
 bool operator!=(tg_region_t const& lhs, tg_region_t const& rhs);
 
-partition_t _squeezer_partition(
+partition_t convert_squeezer_partition(
   vector<uint64_t> new_shape,
   partition_t const& part)
 {
@@ -95,7 +95,7 @@ partition_t _squeezer_partition(
     }
   }
   if(iter != core_pds.end()) {
-    throw std::runtime_error("invalid squeezer in _squeezer_partition");
+    throw std::runtime_error("invalid squeezer in convert_squeezer_partition");
   }
   return partition_t(ret_pds);
 }
@@ -803,7 +803,7 @@ taskgraph_make_state_t::form_relation(int gid)
     auto const& part = pl.partition;
 
     placement_t unsqueeze_pl(
-      _squeezer_partition(squeezer.inn_shape, part),
+      convert_squeezer_partition(squeezer.inn_shape, part),
       pl.locations);
     return form_from_refinement(inn_gid, unsqueeze_pl);
   }
@@ -947,7 +947,7 @@ construct_refinement_placement(
       auto const& inn_shape = squeezer.inn_shape;
       insert_usage(multiple_placement_t::from_single_placement(
         placement_t(
-          _squeezer_partition(inn_shape, out_pl.partition),
+          convert_squeezer_partition(inn_shape, out_pl.partition),
           out_pl.locations)));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times

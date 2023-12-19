@@ -422,6 +422,13 @@ int graph_t::insert_squeezer(vector<uint64_t> const& out_shape, int inn) {
     .out_shape = out_shape
   };
 
+  // TODO: This restriction may be too strict. Complex squeezers are not allowed
+  //       because it complicates partitioning rules with respect to the last dimension.
+  if(dtype_is_complex(squeezer.dtype)) {
+   throw std::runtime_error(
+      "graph_t::insert_squeezer: do not apply squeezer to complex valued tensors");
+  }
+
   auto get_core = [](vector<uint64_t> const& ds) {
     vector<uint64_t> ret;
     ret.reserve(ds.size());
