@@ -405,6 +405,14 @@ private:
   // u1 = u1(x1, x2, ... , xm) , ... , un = un(x1, x2, ... , xm)
   // df/dxi = sum(df/duj * duj/dxi) where j = 1..n and i= 1..m
   backprop_tensor_t insert_adds(vector<backprop_tensor_t> const& items);
+
+  // Insert an einsummable and then if there is a reduction, a formation node too.
+  //
+  // This is used because everywhere a backprop term is added, we want the aggs
+  // to be formed.
+  int insert_einsummable_form(
+    einsummable_t e,
+    vector<int> inns);
 };
 
 // graph_constructor_t is for building a graph
