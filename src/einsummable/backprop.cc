@@ -464,9 +464,6 @@ graph_t::build_grad_term_contraction(
     einsummable_t new_e(new_join_shape, new_inns, new_out_rank, join, e.castable);
 
     int ret_id = insert_einsummable_form(new_e, {new_inn_id});
-    if(new_e.has_aggregation()) {
-      ret_id = insert_formation(ret_id);
-    }
     return backprop_tensor_t(ret_id);
   }
 
@@ -496,9 +493,7 @@ graph_t::build_grad_term_contraction(
     new_o_shape, new_inns, { new_l_shape, new_r_shape });
   einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
 
-  int join_id = insert_einsummable_form(new_e, {new_l_id, new_r_id});
-  int term_id = insert_formation(join_id);
-  return backprop_tensor_t(term_id);
+  return backprop_tensor_t(insert_einsummable_form(new_e, {new_l_id, new_r_id}));
 }
 
 // example: (yhat - y)**2 => 2(yhat - y) * node_grad

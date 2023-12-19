@@ -48,6 +48,8 @@ int main(int argc, char** argv) {
 
   graph_t& graph = builder.graph;
 
+  int num_nodes_before = graph.nodes.size();
+
   {
     string filename = "llama_exp03_before.gv";
     std::ofstream f(filename);
@@ -56,11 +58,24 @@ int main(int argc, char** argv) {
   }
 
   graph.backprop(scores, weight_ids);
+  int num_nodes_after = graph.nodes.size();
+
+  DOUT("num nodes: from " << num_nodes_before << " to " << num_nodes_after);
+
+  map<int, string> colors;
+  for(int i = num_nodes_before; i != num_nodes_after; ++i) {
+    auto const& node = graph.nodes[i];
+    if(node.op.is_einsummable() && node.op.get_einsummable().is_contraction()) {
+      colors.insert({i, "darkorchid1"});
+    } else {
+      colors.insert({i, "azure"});
+    }
+  }
 
   {
     string filename = "llama_exp03_after.gv";
     std::ofstream f(filename);
-    graph.print_graphviz(f);
+    graph.print_graphviz(f, colors);
     DOUT("printed " << filename);
   }
 }
