@@ -51,6 +51,14 @@ map<int, dbuffer_t> reference_compute_graph(
           throw std::runtime_error("complexer fail: to complex");
         }
       }
+    } else if(node.op.is_squeezer()) {
+      auto const& s = node.op.get_squeezer();
+      auto const& expected_dtype = s.dtype;
+      auto const& t = tensors[node.inns[0]];
+      auto expected_size = dtype_size(s.dtype) * product(s.inn_shape);
+      _assert_correct_dtype("squeezer", expected_dtype, t);
+      _assert_correct_size("squeezer", expected_size, t);
+      tensors[id] = t;
     } else if(node.op.is_input()) {
       auto const& t = inputs.at(id);
       auto const& ii = node.op.get_input();
