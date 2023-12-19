@@ -600,10 +600,6 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 }
 
 node_t node_t::derivative(int arg) const {
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("no derivatives with respect to complex");
-  }
-
   if(op.is_constant()) {
     return node_t {
       .op = op_t::make_constant(scalar_t::zero(op.get_constant().dtype)),
@@ -614,14 +610,17 @@ node_t node_t::derivative(int arg) const {
 
   if(op.is_hole()) {
     if(arg == op.get_which_input()) {
+      scalar_t one = dtype_is_complex(dtype)    ?
+        scalar_t(std::complex<float>(1.0, 0.0)) :
+        scalar_t::one(dtype)                    ;
       return node_t {
-        .op = op_t::make_constant(scalar_t::one(op.get_hole().dtype)),
+        .op = op_t::make_constant(one),
         .dtype = dtype,
         .children = {}
       };
     } else {
       return node_t {
-        .op = op_t::make_constant(scalar_t::zero(op.get_hole().dtype)),
+        .op = op_t::make_constant(scalar_t::zero(dtype)),
         .dtype = dtype,
         .children = {}
       };
@@ -661,6 +660,10 @@ node_t node_t::derivative(int arg) const {
     string term_rhs = "*[" + s_lhs      + "," + s_deri_rhs + "]";
 
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
+  }
+
+  if(dtype == dtype_t::c64) {
+    throw std::runtime_error("only a*b and a+b derivatives for complex");
   }
 
   if(op.is_exp()) {
