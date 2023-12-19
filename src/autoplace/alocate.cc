@@ -222,7 +222,7 @@ vector<uint64_t> _alocate01_rw_t::cost_agg_plan(
           int const& join_bid = unit.deps[0];
           int const& join_loc = join_locs[join_bid];
           if(join_loc != l) {
-            ret[l] += unit.size;
+            ret[l] += flops_per_byte_moved*unit.size;
           }
         }
       }
