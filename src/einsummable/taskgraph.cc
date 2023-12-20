@@ -587,14 +587,16 @@ vector<tuple<int,int>> _get_sum_breaks(
 vtensor_t<int>
 taskgraph_make_state_t::form_select(int gid) {
   graph_t::node_t const& node = graph.nodes[gid];
-  placement_t const& pl = placements[gid];
+
+  placement_t const& pl_wrt_join_dtype = placements[gid];
 
   if(!node.op.is_select()) {
     throw std::runtime_error("form_select must have select node");
   }
 
   auto select = node.op.get_select();
-  if(dtype_is_complex(select.dtype)) {
+  bool join_is_complex = dtype_is_complex(select.dtype);
+  if(join_is_complex) {
     select.dtype = complex_to_real(select.dtype);
 
     select.out_shape.back() *= 2;
@@ -607,7 +609,7 @@ taskgraph_make_state_t::form_select(int gid) {
     }
   }
 
-  auto shape = pl.block_shape();
+  auto shape = pl_wrt_join_dtype.block_shape();
   vtensor_t<int> ret(shape);
   vector<int> index(shape.size(), 0);
 
@@ -628,8 +630,13 @@ taskgraph_make_state_t::form_select(int gid) {
 
   using hrect_t = vector<tuple<uint64_t, uint64_t>>;
   do {
-    int const& loc = pl.locations.at(index);
-    hrect_t rel_out_hrect = pl.partition.get_hrect(index);
+    int const& loc = pl_wrt_join_dtype.locations.at(index);
+    hrect_t rel_out_hrect = pl_wrt_join_dtype.partition.get_hrect(index);
+    if(join_is_complex) {
+      auto& [b,e] = rel_out_hrect.back();
+      b *= 2;
+      e *= 2;
+    }
 
     vector<tuple<hrect_t, int>> rel_inn_hrects = select.collect(rel_out_hrect);
 
@@ -802,10 +809,19 @@ taskgraph_make_state_t::form_relation(int gid)
     auto const& pl = placements.at(gid);
     auto const& part = pl.partition;
 
-    placement_t unsqueeze_pl(
-      convert_squeezer_partition(squeezer.inn_shape, part),
-      pl.locations);
-    return form_from_refinement(inn_gid, unsqueeze_pl);
+    if(dtype_is_complex(squeezer.dtype)) {
+      throw std::runtime_error("form_relation: cannot have complex squeezer");
+    }
+
+    partition_t inn_part = convert_squeezer_partition(squeezer.inn_shape, part);
+    placement_t inn_pl(
+      inn_part,
+      vtensor_t<int>(inn_part.block_shape(), pl.locations.get()));
+
+    vtensor_t<int> ret = form_from_refinement(inn_gid, inn_pl);
+    ret.reshape(part.block_shape());
+
+    return ret;
   }
   if(node.op.is_select()) {
     return form_select(gid);
@@ -945,10 +961,14 @@ construct_refinement_placement(
     } else if(out_node.op.is_squeezer()) {
       auto const& squeezer = out_node.op.get_squeezer();
       auto const& inn_shape = squeezer.inn_shape;
+      partition_t fix_partition =
+        convert_squeezer_partition(inn_shape, out_pl.partition);
       insert_usage(multiple_placement_t::from_single_placement(
         placement_t(
-          convert_squeezer_partition(inn_shape, out_pl.partition),
-          out_pl.locations)));
+          fix_partition,
+          vtensor_t<int>(
+            fix_partition.block_shape(),
+            out_pl.locations.get()))));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage placements to collect
@@ -966,11 +986,11 @@ construct_refinement_placement(
       // and therefore there may be multiple usage placements to collect
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
-          auto const& select = out_node.op.get_select();
-          auto const& inn_hrect = select.wrt_output_inn_hrect(which_input);
           insert_usage(
-            multiple_placement_t::from_single_placement(
-              out_pl.subset(inn_hrect)));
+            multiple_placement_t::make_select_input(
+              out_pl,
+              out_node.op.get_select(),
+              which_input));
         }
       }
     } else {
@@ -1456,6 +1476,16 @@ void halve_last_dim_inplace(multiple_tensor_t& p) {
   halve_last_dim_inplace(p.partition);
 }
 
+multiple_placement_t::multiple_placement_t(
+  partition_t const& pa,
+  vtensor_t<set<int>> const& ls)
+  : partition(pa), locations(ls)
+{
+  if(!vector_equal(partition.block_shape(), locations.get_shape())) {
+    throw std::runtime_error("multiple_placement_t block shapes do not agree");
+  }
+}
+
 multiple_placement_t multiple_placement_t::from_single_placement(placement_t const& p)
 {
   vector<set<int>> locs;
@@ -1464,10 +1494,9 @@ multiple_placement_t multiple_placement_t::from_single_placement(placement_t con
     locs.push_back({loc});
   }
 
-  return multiple_placement_t {
-    .partition = p.partition,
-    .locations = vtensor_t<set<int>>(p.locations.get_shape(), locs)
-  };
+  return multiple_placement_t(
+    p.partition,
+    vtensor_t<set<int>>(p.locations.get_shape(), locs));
 }
 
 // Here T must have member T::partition of type partition_t
@@ -1527,10 +1556,9 @@ multiple_placement_t::make_refinement(
     } while(increment_idxs(p_shape, p_index));
   }
 
-  return multiple_placement_t {
-    .partition = std::move(partition),
-    .locations = std::move(locations)
-  };
+  return multiple_placement_t(
+    std::move(partition),
+    std::move(locations));
 }
 
 multiple_placement_t
@@ -1571,10 +1599,9 @@ multiple_placement_t::make_refinement(
     } while(increment_idxs(p_shape, p_index));
   }
 
-  return multiple_placement_t {
-    .partition = std::move(partition),
-    .locations = std::move(locations)
-  };
+  return multiple_placement_t(
+    std::move(partition),
+    std::move(locations));
 }
 
 multiple_placement_t multiple_placement_t::make_einsummable_input(
@@ -1598,10 +1625,69 @@ multiple_placement_t multiple_placement_t::make_einsummable_input(
     locations.at(inn_index).insert(join_placement.locations.at(join_index));
   } while(increment_idxs(join_shape, join_index));
 
-  return multiple_placement_t {
-    .partition = std::move(partition),
-    .locations = std::move(locations)
-  };
+  return multiple_placement_t(
+    std::move(partition),
+    std::move(locations));
+}
+
+multiple_placement_t multiple_placement_t::make_select_input(
+  placement_t const& join_pl,
+  select_t const& select,
+  int which_input)
+{
+  placement_t subset_pl = join_pl.subset(
+    select.wrt_output_inn_hrect(which_input));
+  partition_t const& subset_part = subset_pl.partition;
+
+  auto const& shape = select.inn_shape(which_input);
+  int rank = shape.size();
+
+  hrect_t hrect = select.wrt_input_inn_hrect(which_input);
+
+  vector<partdim_t> pds;
+  vector<tuple<int,int>> region;
+  pds.reserve(rank);
+  region.reserve(rank);
+  for(int i = 0; i != rank; ++i) {
+    auto const& [beg,end] = hrect[i];
+    auto const& sub_pd = subset_part.partdims[i];
+    auto const& dim = shape[i];
+    vector<uint64_t> sizes;
+    auto& [obeg, oend] = region.emplace_back();
+
+    if(beg != 0) {
+      sizes.push_back(beg);
+      obeg = 1;
+    } else {
+      obeg = 0;
+    }
+
+    auto sub_pd_sizes = sub_pd.sizes();
+    vector_concatenate_into(sizes, sub_pd_sizes);
+
+    oend = obeg + sub_pd_sizes.size();
+
+    if(end != dim) {
+      sizes.push_back(dim - end);
+    }
+
+    pds.push_back(partdim_t::from_sizes(sizes));
+  }
+
+  partition_t partition(pds);
+  vtensor_t<set<int>> locations(partition.block_shape());
+
+  vector<int> offsets = vector_mapfst(region);
+  vector<int> inn_index = offsets;
+  do {
+    vector<int> subset_index = vector_sub(inn_index, offsets);
+    int const& loc = subset_pl.locations.at(subset_index);
+    locations.at(inn_index).insert(loc);
+  } while(increment_idxs_region(region, inn_index));
+
+  return multiple_placement_t(
+    std::move(partition),
+    std::move(locations));
 }
 
 multiple_tensor_t::multiple_tensor_t(

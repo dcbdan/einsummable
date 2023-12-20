@@ -10,6 +10,8 @@
 #include "../src/autoplace/apart.h"
 #include "../src/autoplace/alocate.h"
 
+//#include <fstream>
+
 //
 #include "../src/engine/cpu/kernel_executor.h"
 
@@ -254,6 +256,12 @@ struct llama_autoplacer_t {
       max_branching,
       space);
     delete gremlin_parts;
+
+    //{
+    //  std::ofstream f("g_parts.gv");
+    //  graph.print_graphviz(f, parts);
+    //  DOUT("printed g_parts.gv");
+    //}
 
     gremlin_t gremlin_locate("locate");
     uint64_t flops_per_byte_moved = 100;

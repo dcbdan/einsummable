@@ -144,8 +144,10 @@ vector<placement_t> alocate01(
       }
     }
   }
+  auto pls = rw.get_placements();
+  return pls;
 
-  return rw.get_placements();
+  //return rw.get_placements();
 }
 
 _alocate01_rw_t::_alocate01_rw_t(
@@ -154,7 +156,7 @@ _alocate01_rw_t::_alocate01_rw_t(
   graph_t const& graph,
   vector<partition_t> const& parts,
   bool s)
-  : nlocs(nlocs), flops_per_byte_moved(f),
+  : nlocs(nls), flops_per_byte_moved(f),
     set_inputs_everywhere(s),
     _rw(graph, parts)
 {}

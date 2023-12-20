@@ -401,6 +401,10 @@ std::ostream& operator<<(std::ostream& out, touch_t const&);
 /////////////////////////////////////
 
 struct multiple_placement_t {
+  multiple_placement_t(
+    partition_t const& pa,
+    vtensor_t<set<int>> const& ls);
+
   static multiple_placement_t from_single_placement(placement_t const& p);
 
   static multiple_placement_t make_refinement(vector<placement_t> const& ps);
@@ -413,6 +417,10 @@ struct multiple_placement_t {
   static multiple_placement_t make_einsummable_input(
     placement_t const& join_placement,
     einsummable_t const& einsummable,
+    int which_input);
+  static multiple_placement_t make_select_input(
+    placement_t const& join_placement,
+    select_t const& select,
     int which_input);
 
   partition_t partition;

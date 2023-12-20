@@ -45,6 +45,7 @@ struct vtensor_t {
       throw std::runtime_error("tensor input length is incorrect");
     }
   }
+
   T& at(vector<int> idxs) {
     if(shape.size() == 0 || !is_valid_idxs(shape, idxs)) {
       throw std::runtime_error("invalid tensor access");
@@ -84,6 +85,13 @@ struct vtensor_t {
 
   vector<int> const& get_shape() const {
     return shape;
+  }
+
+  void reshape(vector<int> const& new_shape) {
+    if(product(shape) != product(new_shape)) {
+      throw std::runtime_error("invalid reshape arg");
+    }
+    shape = new_shape;
   }
 
   // Example: Matrix with shape {10,20}

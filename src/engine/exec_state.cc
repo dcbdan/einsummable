@@ -13,7 +13,6 @@ exec_state_t::exec_state_t(
     ready_to_run(this),
     this_rank(this_rank)
 {
-  DLINEOUT("this rank is " << this_rank << " | num exec graph nodes " << g.nodes.size());
 #ifdef EXEC_STATE_PRINT
   DLINEOUT("this rank is " << this_rank << " | filecnt " << _filecnt);
   out = std::ofstream(

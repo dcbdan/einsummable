@@ -268,11 +268,19 @@ partition_t twolayer_construct_refinement_partition(
   dtype_t join_dtype = join_node.op.out_dtype();
   bool join_is_complex = dtype_is_complex(join_dtype);
 
+  vector<uint64_t> out_shape_wrt_real = join_node.op.out_shape();
+  if(join_is_complex) {
+    out_shape_wrt_real.back() *= 2;
+  }
+
   vector<partition_t> usage_partitions;
   usage_partitions.reserve(2*join_node.outs.size());
   auto insert_usage = [&](partition_t p) {
     if(join_is_complex) {
       double_last_dim_inplace(p);
+    }
+    if(!vector_equal(p.total_shape(), out_shape_wrt_real)) {
+      throw std::runtime_error("invalid partition given to usage partitions");
     }
     usage_partitions.push_back(p);
   };
@@ -308,9 +316,32 @@ partition_t twolayer_construct_refinement_partition(
       select_t const& select = out_node.op.get_select();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
-          insert_usage(
-            out_part.subset(
-              select.wrt_output_inn_hrect(which_input)));
+          partition_t subset_part = out_part.subset(
+            select.wrt_output_inn_hrect(which_input));
+
+          auto const& shape = select.inn_shape(which_input);
+          int rank = shape.size();
+
+          hrect_t hrect = select.wrt_input_inn_hrect(which_input);
+
+          vector<partdim_t> pds;
+          pds.reserve(rank);
+          for(int i = 0; i != rank; ++i) {
+            auto const& [beg,end] = hrect[i];
+            auto const& sub_pd = subset_part.partdims[i];
+            auto const& dim = shape[i];
+            vector<uint64_t> sizes;
+            if(beg != 0) {
+              sizes.push_back(beg);
+            }
+            vector_concatenate_into(sizes, sub_pd.sizes());
+            if(end != dim) {
+              sizes.push_back(dim - end);
+            }
+            pds.push_back(partdim_t::from_sizes(sizes));
+          }
+
+          insert_usage(partition_t(pds));
         }
       }
     } else {
