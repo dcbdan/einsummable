@@ -8,7 +8,7 @@
 #include "../src/server/cpu/server.h"
 
 #include "../src/autoplace/apart.h"
-#include "../src/autoplace/autolinns.h"
+#include "../src/autoplace/alocate.h"
 
 //
 #include "../src/engine/cpu/kernel_executor.h"
@@ -248,7 +248,7 @@ struct llama_autoplacer_t {
     int multiplier = double_workers ? 2 : 1 ;
 
     gremlin_t* gremlin_parts = new gremlin_t("parts");
-    auto parts = autopartition_for_bytes(
+    auto parts = apart01(
       graph,
       multiplier * world_size * num_threads_per,
       max_branching,
@@ -257,7 +257,7 @@ struct llama_autoplacer_t {
 
     gremlin_t gremlin_locate("locate");
     uint64_t flops_per_byte_moved = 100;
-    auto ret = autolocate_agg_at_a_time_from_inns(
+    auto ret = alocate01(
       graph, parts, world_size, flops_per_byte_moved);
     _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
     return ret;
@@ -353,8 +353,8 @@ void main_rank_zero_experiments(
 
   model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
 
-  // TODO: this may be off by one but I don't think it matters  
-  margs.max_seq_len = seqlen + 2; 
+  // TODO: this may be off by one but I don't think it matters
+  margs.max_seq_len = seqlen + 2;
 
   args.set_default<int>("max_n_layers", -1);
   {
@@ -640,7 +640,7 @@ void main_rank_zero(
 }
 
 int main(int argc, char** argv) {
-  // Sometimes mkl is slow on the first call. So 
+  // Sometimes mkl is slow on the first call. So
   // "wakeup" mkl by doing a matmul
   do_a_matmul();
 

@@ -1,8 +1,0 @@
-git submodule update --init
-cd tblis
-mkdir build
-./configure --prefix=$(pwd)/build
-make -j && make install
-
-./configure --prefix=$(pwd)/build --with-blas=" -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl" | grep "sgemm_"
-

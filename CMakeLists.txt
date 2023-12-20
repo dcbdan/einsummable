@@ -22,7 +22,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 find_package(Protobuf REQUIRED)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src/proto)
 include_directories(${PROJECT_SOURCE_DIR}/thirdparty/half-2.2.0/include)
-include_directories(${PROJECT_SOURCE_DIR}/thirdparty/tblis/build/include)
 include_directories(${Protobuf_INCLUDE_DIRS})
 
 add_subdirectory(src/proto)
@@ -68,7 +67,7 @@ endfunction()
 
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
-#add_llama_application("llama_exp02" "exp02")
+add_llama_application("llama_exp02" "exp02")
 add_llama_application("llama_exp03" "exp03")
 
 if(${CPU_EXECUTION_ENGINE})
@@ -155,7 +154,7 @@ if(${CPU_EXECUTION_ENGINE})
       ucx::ucp ucx::ucs)
   endfunction()
 
-  #add_cpu_llama_application("llama_cpu" "cpu2")
+  add_cpu_llama_application("llama_cpu" "cpu2")
   add_cpu_llama_application("inference_exp" "inference_exp")
 
 endif()
