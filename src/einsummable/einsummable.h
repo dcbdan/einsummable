@@ -126,6 +126,8 @@ struct einsummable_t {
 
   std::size_t hash() const;
 
+  bool is_identity() const;
+
   // A straight elementwise operation can be computed by
   //   for(i = 0, i != product(join_shape); ++i) {
   //     out[i] = join(inn1[i], ..., innN[i]);

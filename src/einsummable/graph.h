@@ -412,7 +412,7 @@ private:
   //
   // This is used because everywhere a backprop term is added, we want the aggs
   // to be formed.
-  int insert_einsummable_form(
+  int insert_einsummable_for_backprop(
     einsummable_t e,
     vector<int> inns);
 };

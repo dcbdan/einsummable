@@ -402,7 +402,7 @@ graph_t::backprop_tensor_aggregate(
     });
   } else {
     int const& id = tensor.get_id();
-    return backprop_tensor_t(insert_einsummable_form(e, { id }));
+    return backprop_tensor_t(insert_einsummable_for_backprop(e, { id }));
   }
 }
 
@@ -463,7 +463,7 @@ graph_t::build_grad_term_contraction(
     scalarop_t join = scalarop_t::make_scale(value);
     einsummable_t new_e(new_join_shape, new_inns, new_out_rank, join, e.castable);
 
-    int ret_id = insert_einsummable_form(new_e, {new_inn_id});
+    int ret_id = insert_einsummable_for_backprop(new_e, {new_inn_id});
     return backprop_tensor_t(ret_id);
   }
 
@@ -493,7 +493,7 @@ graph_t::build_grad_term_contraction(
     new_o_shape, new_inns, { new_l_shape, new_r_shape });
   einsummable_t new_e(new_join_shape, new_inns, new_out_rank, e.join, e.castable);
 
-  return backprop_tensor_t(insert_einsummable_form(new_e, {new_l_id, new_r_id}));
+  return backprop_tensor_t(insert_einsummable_for_backprop(new_e, {new_l_id, new_r_id}));
 }
 
 // example: (yhat - y)**2 => 2(yhat - y) * node_grad
@@ -590,7 +590,7 @@ graph_t::build_grad_term_ew(
     einsummable_t new_e(
       new_join_shape, new_inns, new_out_rank,
       new_join, castable_t::add);
-    int term_id = insert_einsummable_form(new_e, { grad.get_id() });
+    int term_id = insert_einsummable_for_backprop(new_e, { grad.get_id() });
     return backprop_tensor_t(term_id);
   } else if(constant_grad) {
     scalar_t value = grad.get_constant();
@@ -645,7 +645,7 @@ graph_t::build_grad_term_ew(
     einsummable_t new_e(
       new_join_shape, new_inns, new_out_rank,
       new_join, castable_t::add);
-    int term_id = insert_einsummable_form(new_e, new_inn_ids);
+    int term_id = insert_einsummable_for_backprop(new_e, new_inn_ids);
     return backprop_tensor_t(term_id);
   } else {
     // Note: it's important that the identity op come first
@@ -701,7 +701,7 @@ graph_t::build_grad_term_ew(
       inn_shapes[which_inn], new_inns, new_inn_shapes);
     einsummable_t new_e(new_join_shape, new_inns, new_out_rank,
       new_join, castable_t::add);
-    int term_id = insert_einsummable_form(new_e, new_inn_ids);
+    int term_id = insert_einsummable_for_backprop(new_e, new_inn_ids);
     return backprop_tensor_t(term_id);
   }
 }
@@ -969,7 +969,7 @@ graph_t::build_grad_term_reduction_add(
     inn_shape, new_inns, new_out_rank,
     scalarop_t::make_identity(dtype));
 
-  return backprop_tensor_t(insert_einsummable_form(e, { id }));
+  return backprop_tensor_t(insert_einsummable_for_backprop(e, { id }));
 }
 
 graph_t::backprop_tensor_t
@@ -1032,7 +1032,7 @@ graph_t::build_grad_term_reduction_mulmaxmin(
       { out_shape, inn_shape });
 
     einsummable_t e(new_join_shape, new_inns, new_out_rank, join);
-    return backprop_tensor_t(insert_einsummable_form(e, { out_id, inn_id }));
+    return backprop_tensor_t(insert_einsummable_for_backprop(e, { out_id, inn_id }));
   }
 
   scalarop_t join = scalarop_t::combine(
@@ -1053,7 +1053,7 @@ graph_t::build_grad_term_reduction_mulmaxmin(
 
   int grad_id = grad.get_id();
   einsummable_t e(new_join_shape, new_inns, new_out_rank, join);
-  return backprop_tensor_t(insert_einsummable_form(e, { out_id, inn_id, grad_id }));
+  return backprop_tensor_t(insert_einsummable_for_backprop(e, { out_id, inn_id, grad_id }));
 }
 
 graph_t::backprop_tensor_t
@@ -1112,7 +1112,7 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
       next_up.push_back(items.back());
     }
     for(int i = 0; i != n; ++i) {
-      next_up.push_back(insert_einsummable_form(e, {items[2*i], items[2*i+1]}));
+      next_up.push_back(insert_einsummable_for_backprop(e, {items[2*i], items[2*i+1]}));
     }
     items = next_up;
   }
@@ -1120,10 +1120,15 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
   return backprop_tensor_t(items[0]);
 }
 
-int graph_t::insert_einsummable_form(
+int graph_t::insert_einsummable_for_backprop(
   einsummable_t e,
   vector<int> inns)
 {
+  if(e.is_identity()) {
+    // then inns.size() == 1
+    return inns[0];
+  }
+
   int ret = insert_einsummable(e, inns);
 
   if(e.has_aggregation()) {

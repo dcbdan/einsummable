@@ -733,6 +733,13 @@ std::size_t einsummable_t::hash() const {
   return ret;
 }
 
+bool einsummable_t::is_identity() const {
+  return inns.size() == 1              &&
+         out_rank == join_shape.size() &&
+         join.is_identity()            &&
+         vector_equal(inns[0], vector_iota<int>(out_rank));
+}
+
 bool einsummable_t::is_straight_elementwise() const {
   if(has_aggregation()) {
     return false;
