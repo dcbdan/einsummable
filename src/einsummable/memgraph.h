@@ -469,9 +469,12 @@ struct allocator_t {
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate(uint64_t size);
 
-  tuple<uint64_t, vector<int>>
-  allocate(uint64_t size);
+  // tuple<uint64_t, vector<int>>
+  // allocate(uint64_t size);
 
+  optional<tuple<uint64_t, set<int>>> allocate(uint64_t sz);
+
+  optional<tuple<vector<uint64_t>, vector<set<int>>>> allocate_multiple(vector<uint64_t> sizes);
   // This function is specifically for allocating without any dependencies.
   // It will try to allocate a block without any deps and on failure returns none.
   optional<uint64_t>

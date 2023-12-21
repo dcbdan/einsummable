@@ -2089,6 +2089,64 @@ allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
   });
 }
 
+optional<tuple<uint64_t, set<int>>> 
+allocator_t::allocate(uint64_t sz) {
+  auto maybe = allocate_multiple(vector<uint64_t>{ sz });
+  if(maybe) {
+    auto const& [offsets, deps] = maybe.value();
+    uint64_t offset = offsets[0];
+    set<int> dep = deps[0];
+    return optional<tuple<uint64_t, set<int>>>({ offset, dep });
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<tuple<vector<uint64_t>, vector<set<int>>>>
+allocator_t::allocate_multiple(vector<uint64_t> sizes)
+{
+  // sort sizes from largest to smallest so that the largest things
+  // get allocated first
+  std::sort(sizes.begin(), sizes.end(), std::greater<uint64_t>());
+
+  // remove any sizes that are zero; this is unlikely
+  while(sizes.size() > 0 && sizes.back() == 0) {
+    sizes.resize(sizes.size()-1);
+  }
+
+  //Record the status of the blocks before anything, so if failed, just revert.
+  vector<block_t> original_blocks = blocks;
+
+  bool fail = false;
+  vector<tuple<uint64_t, vector<int>>> alloced_info;
+  for(uint64_t const& size: sizes) {
+    auto const& maybe_info = try_to_allocate(size);
+    if (maybe_info) {
+      alloced_info.push_back(maybe_info.value());
+    } else {
+      fail = true;
+      break;
+    }
+  }
+
+  if(fail) {
+    blocks = original_blocks;
+    return std::nullopt;
+  } else {
+    vector<uint64_t> offsets;
+    vector<set<int>> deps_list;
+    for(auto const& infos: alloced_info) {
+      set<int> deps;
+      offsets.push_back(std::get<0>(infos));
+      for(auto const& dep: std::get<1>(infos)) {
+        deps.insert(dep); // TODO: if dep is -1, don't insert
+      }
+      deps_list.push_back(deps);
+    }
+    return optional<tuple<vector<uint64_t>, vector<set<int>>>>({offsets, deps_list});
+  }
+}
+
 optional<uint64_t>
 allocator_t::try_to_allocate_without_deps(uint64_t size) {
   auto const& maybe = try_to_allocate_impl(size, true);
@@ -2167,7 +2225,7 @@ allocator_t::find_lowest_dependency_available(uint64_t size) {
   return return_block;
 }
 
-optional<tuple<uint64_t, vector<int>>>
+optional<tuple<uint64_t, vector<int>> >
 allocator_t::try_to_allocate_impl(uint64_t size_without_rem, bool no_deps)
 {
   using return_t = tuple<uint64_t, vector<int>>;
@@ -2212,6 +2270,9 @@ allocator_t::try_to_allocate_impl(uint64_t size_without_rem, bool no_deps)
     // fix blocks
     block_t last_block_copy = *(end-1);
 
+    // // init the blocks that are in the list before, so that we know how to revert it
+    // vector<block_t> before_blocks(beg, end);
+
     auto iter = blocks.erase(beg, end);
     auto occupied_iter = blocks.insert(iter, block_t {
       .beg = offset,
@@ -2237,15 +2298,15 @@ allocator_t::try_to_allocate(uint64_t size_without_rem)
  return try_to_allocate_impl(size_without_rem, false);
 }
 
-tuple<uint64_t, vector<int>>
-allocator_t::allocate(uint64_t size)
-{
-  auto maybe_succ = try_to_allocate(size);
-  if(maybe_succ) {
-    return maybe_succ.value();
-  }
-  throw std::runtime_error("allocator_t: could not allocate");
-}
+// tuple<uint64_t, vector<int>>
+// allocator_t::allocate(uint64_t size)
+// {
+//   auto maybe_succ = try_to_allocate(size);
+//   if(maybe_succ) {
+//     return maybe_succ.value();
+//   }
+//   throw std::runtime_error("allocator_t: could not allocate");
+// }
 
 void allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size) {
   auto beg = binary_search_find(blocks.begin(), blocks.end(),
