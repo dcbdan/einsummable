@@ -87,11 +87,16 @@ if(${CPU_EXECUTION_ENGINE})
   set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
 
+  set(UCX_PATH "/opt/ucx/")
+
+  set(SP_PATH "/opt/sentencepiece/")
+
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
   set(UCX_DIR "${UCX_PATH}/lib/cmake/ucx")
   include_directories(${UCX_PATH}/include)
+  include_directories(${SP_PATH}/include)
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
   include_directories(${MKL_INCLUDE})
@@ -156,6 +161,16 @@ if(${CPU_EXECUTION_ENGINE})
 
   add_cpu_llama_application("llama_cpu" "cpu2")
   add_cpu_llama_application("inference_exp" "inference_exp")
+
+  add_executable(tokens llama/tokens.cc ${SP_STATIC_LIBS})
+  target_link_libraries(tokens
+    cpu_execution_engine
+    proto
+    ${Protobuf_LIBRARIES}
+    MKL::MKL
+    ucx::ucp ucx::ucs
+    ${SP_PATH}/lib/libsentencepiece.a
+    ${SP_PATH}/lib/libsentencepiece_train.a)
 
 endif()
 

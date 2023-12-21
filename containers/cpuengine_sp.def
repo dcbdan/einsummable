@@ -1,0 +1,21 @@
+Bootstrap: localimage
+From: cpuengine.sif
+
+%post
+  apt-get update
+  apt-get install -y cmake build-essential pkg-config libgoogle-perftools-dev git
+  apt-get autoremove -y
+  cd /opt
+  mkdir x
+  mkdir sentencepiece
+  cd x
+  git clone https://github.com/google/sentencepiece.git
+  cd sentencepiece
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_INSTALL_PREFIX=/opt/sentencepiece
+  make -j
+  make install
+  ldconfig -v
+  cd /opt/
+  rm -rf x
