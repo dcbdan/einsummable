@@ -178,9 +178,23 @@
 int main05() {
   auto settings = allocator_settings_t::default_settings();
   allocator_t alo = allocator_t(1000, settings);
-  vector<uint64_t> sizes = {100, 200, 100, 300, 400, 100};
-  alo.allocate_multiple(sizes);
-  alo.print();
+  vector<uint64_t> sizes = {100, 200, 100, 300};
+  auto result = alo.allocate_multiple(sizes);
+  alo.free(0, 0); //free the block at offset 0 with delete_id=0
+  alo.free(300, 1); //free the block at offset 100 with delete_id=1
+  alo.allocate(500);
+  
+
+  alo.print(); 
+
+
+
+  auto const& [offsets, deps] = result.value();
+  std::cout << "Offset: " << offsets[0] << ", Deps: ";
+    for (auto it = deps[0].begin(); it != deps[0].end(); ++it) {
+      std::cout << *it << " ";
+    }
+  std::cout << std::endl;
 
   return 0;
 }
