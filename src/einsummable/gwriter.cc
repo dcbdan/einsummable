@@ -323,6 +323,35 @@ graph_writer_t::tensor_t::subset(
   return ret;
 }
 
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::squeeze(int which_dim) const
+{
+  vector<uint64_t> shape = get_shape()();
+  int rank = shape.size();
+
+  if(which_dim < 0) {
+    which_dim = rank + which_dim;
+  }
+
+  if(which_dim < 0 || which_dim >= rank) {
+    throw std::runtime_error("cannot squeeze this dimension: invalid which_dim");
+  }
+  if(shape[which_dim] != 1) {
+    throw std::runtime_error("cannot squeez this dimension: size > 1");
+  }
+
+  vector<idx_t> idxs;
+  idxs.reserve(rank);
+  for(int i = 0; i != rank; ++i) {
+    if(i == which_dim) {
+      idxs.emplace_back(idx_t::idx{ 0 });
+    } else {
+      idxs.emplace_back(idx_t::rng{ 0, int64_t(shape[i]) });
+    }
+  }
+  return subset(idxs);
+}
+
 bool
 graph_writer_t::tensor_t::_has_permutation() const {
   for(int i = 0; i != modes.size(); ++i) {
@@ -984,7 +1013,7 @@ graph_writer_t::straight_bew(
   graph_writer_t::tensor_t const& rhs)
 {
   if(lhs.shape != rhs.shape) {
-    throw std::runtime_error("graph writer add : invalid shapes");
+    throw std::runtime_error("graph writer straight bew : invalid shapes");
   }
 
   dtype_t dtype = lhs.get_dtype();

@@ -409,7 +409,7 @@ scalar_t op_t::_eval_add(scalar_t lhs, scalar_t rhs)
 scalar_t op_t::_eval_mul(scalar_t lhs, scalar_t rhs)
 {
   if(lhs.dtype != rhs.dtype) {
-    throw std::runtime_error("_eval_mul");
+    throw std::runtime_error("_eval_mul: dtypes do not match");
   }
   switch(lhs.dtype) {
     case dtype_t::f16:
@@ -1117,6 +1117,21 @@ map<int, dtype_t> node_t::hole_types() const {
   return ret;
 }
 
+bool node_t::type_check() const {
+  for(node_t const& child: children) {
+    if(!child.type_check()) {
+      return false;
+    }
+  }
+  optional<dtype_t> maybe_dtype = op.type_of(
+    vector_from_each_member(children, dtype_t, dtype));
+  if(maybe_dtype) {
+    return maybe_dtype.value() == dtype;
+  } else {
+    return false;
+  }
+}
+
 void node_t::_hole_types(map<int, dtype_t>& ret) const {
   if(op.is_hole()) {
     auto hole = op.get_hole();
@@ -1156,7 +1171,11 @@ scalarop_t::scalarop_t() {}
 
 scalarop_t::scalarop_t(scalar_ns::node_t const& n)
   : node(n.simplify()), arg_types(node.hole_types())
-{}
+{
+  if(!node.type_check()) {
+    throw std::runtime_error("scalarop did not typecheck: " + write_with_ss(*this));
+  }
+}
 
 scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
   return node.eval(inputs);
@@ -1581,6 +1600,14 @@ scalarop_t scalarop_t::make_is_max(dtype_t dtype) {
   string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
   string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
   return parse_with_ss<scalarop_t>("ite_>=["+h0+","+h1+","+one+","+zero+"]");
+}
+// x0 == x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_equal(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_==["+h0+","+h1+","+one+","+zero+"]");
 }
 
 // xn * val

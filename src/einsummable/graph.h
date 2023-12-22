@@ -390,8 +390,16 @@ private:
     backprop_tensor_t grad_id);
 
   backprop_tensor_t
-  build_grad_term_reduction_mulmaxmin(
-    castable_t castable,
+  build_grad_term_reduction_mul(
+    vector<uint64_t> const& join_shape,
+    vector<int> const& inn,
+    int out_rank,
+    int out_id,
+    int inn_id,
+    backprop_tensor_t grad_id);
+
+  backprop_tensor_t
+  build_grad_term_reduction_maxmin(
     vector<uint64_t> const& join_shape,
     vector<int> const& inn,
     int out_rank,

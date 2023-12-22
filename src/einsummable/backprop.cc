@@ -343,13 +343,20 @@ graph_t::build_grad_term_einsummable(
       }
     }
 
-    if(e.castable == castable_t::add) {
+    auto const& castable = e.castable.value();
+    if(castable == castable_t::add) {
       return build_grad_term_reduction_add(
         e.join_shape, e.inns[0], e.out_rank, grad_id);
-    } else {
-      return build_grad_term_reduction_mulmaxmin(
-        e.castable.value(), e.join_shape, e.inns[0], e.out_rank,
+    } else if(castable == castable_t::mul) {
+      return build_grad_term_reduction_mul(
+        e.join_shape, e.inns[0], e.out_rank,
         out_id, inn_ids[0], grad_id);
+    } else if(castable == castable_t::max || castable == castable_t::min) {
+      return build_grad_term_reduction_maxmin(
+        e.join_shape, e.inns[0], e.out_rank,
+        out_id, inn_ids[0], grad_id);
+    } else {
+      throw std::runtime_error("missing castable in reduction backprop");
     }
   } else if(e.is_contraction()) {
     // This is a contraction, so multiply the grad_id with either the
@@ -559,7 +566,7 @@ graph_t::build_grad_term_ew(
       .shape = inn_shapes[which_inn]
     });
   } else if(constant_deri_op) {
-    scalar_t value = deri_op.eval({}).convert(inn_dtype);
+    scalar_t value = deri_op.eval({}).convert(out_dtype);
 
     scalarop_t new_join = scalarop_t::combine(
       scalarop_t::make_mul(out_dtype),
@@ -973,8 +980,7 @@ graph_t::build_grad_term_reduction_add(
 }
 
 graph_t::backprop_tensor_t
-graph_t::build_grad_term_reduction_mulmaxmin(
-  castable_t castable,
+graph_t::build_grad_term_reduction_mul(
   vector<uint64_t> const& join_shape,
   vector<int> const& inn,
   int out_rank,
@@ -994,21 +1000,9 @@ graph_t::build_grad_term_reduction_mulmaxmin(
   auto [old_out_str, old_inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
   string const& old_inn_str = old_inn_strs[0];
 
-  scalarop_t base = [&] {
-    // For ij->i, input X, output Y
-    if(castable == castable_t::mul) {
-      // Wij = Yi / Xij * uij
-      return scalarop_t::make_div(dtype);
-    } else if(castable == castable_t::max) {
-      // Wij = 1{ Yi >= Xij } * uij
-      return scalarop_t::make_is_max(dtype);
-    } else if(castable == castable_t::min) {
-      // Wij = 1{ Yi <= Xij } * uij
-      return scalarop_t::make_is_min(dtype);
-    } else {
-      throw std::runtime_error("invalid castable for build_grad_term_deduction_mulmaxmin");
-    }
-  }();
+  // For ij->i, input X, output Y
+  // Wij = Yi / Xij * ui
+  scalarop_t base = scalarop_t::make_div(dtype);
 
   if(grad.is_constant()) {
     if(grad.is_zeros()) {
@@ -1054,6 +1048,120 @@ graph_t::build_grad_term_reduction_mulmaxmin(
   int grad_id = grad.get_id();
   einsummable_t e(new_join_shape, new_inns, new_out_rank, join);
   return backprop_tensor_t(insert_einsummable_for_backprop(e, { out_id, inn_id, grad_id }));
+}
+
+graph_t::backprop_tensor_t
+graph_t::build_grad_term_reduction_maxmin(
+  vector<uint64_t> const& join_shape,
+  vector<int> const& inn,
+  int out_rank,
+  int out_id,
+  int inn_id,
+  graph_t::backprop_tensor_t grad)
+{
+  // Question: What is the backprop over max([v,v,v]) ?
+  //   a) [1,0,0]
+  //   b) [1/3,1/3,1/3]
+  //   c) [1,1,1]
+  // The issue is that all or any of the elements contribute to the maximum.
+  // For option a, pick any of them
+  // For option b and c, pick all of them
+  // But option b normalizes to prevent increasing the backprop signal
+  //
+  // We choose option b because we can implemented. Option c is nice because
+  // we don't have to add that many more ops... But I suspect that will hurt
+  // us at some point.
+  //
+  // For ij->i, input X, output Y:
+  //   which_max_ij = X_ij == Y_i
+  //   sum_max_i    = Sum_j which_max_ij
+  //   W_ij = (which_max_ij / sum_max_i) * u_i
+  //
+  // (The same holds if we are reducing with respect to minimum.)
+
+  dtype_t dtype = grad.dtype(*this);
+
+  vector<uint64_t> inn_shape = einsummable_t::get_input_from_join_(
+    inn,
+    join_shape);
+
+  if(grad.is_constant() && grad.is_zeros()) {
+    return backprop_tensor_t::zeros(dtype, inn_shape);
+  }
+
+  vector<uint64_t> out_shape(join_shape.begin(), join_shape.begin() + out_rank);
+
+  auto [i_str, _inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
+  string const& ij_str = _inn_strs[0];
+
+  int const& x_id = inn_id;
+  auto const& x_shape = inn_shape;
+  auto const& ij_shape = inn_shape;
+
+  int const& y_id = out_id;
+  auto const& y_shape = out_shape;
+  auto const& i_shape = out_shape;
+
+  auto make_ij_i = [&](scalarop_t const& join) {
+    string str = ij_str + "," + i_str + "->" + ij_str;
+    auto const& [e_inns,e_out_rank] = einsummable_t::parse_str(str);
+    auto e_join_shape = einsummable_t::construct_join_shape(
+      ij_shape,
+      e_inns,
+      { ij_shape, i_shape });
+    return einsummable_t(e_join_shape, e_inns, e_out_rank, join);
+  };
+
+  auto make_ij_i_i = [&](scalarop_t const& join) {
+    string str = ij_str + "," + i_str + "," + i_str + "->" + ij_str;
+    auto const& [e_inns,e_out_rank] = einsummable_t::parse_str(str);
+    auto e_join_shape = einsummable_t::construct_join_shape(
+      ij_shape,
+      e_inns,
+      { ij_shape, i_shape, ij_shape });
+    return einsummable_t(e_join_shape, e_inns, e_out_rank, join);
+  };
+
+  auto make_reduction = [&]() {
+    return einsummable_t::aggregate(ij_shape, inn, out_rank, dtype, castable_t::add);
+  };
+
+  int which_max = insert_einsummable_for_backprop(
+    make_ij_i(scalarop_t::make_is_equal(dtype)),
+    { x_id, y_id });
+
+  int sum_max = insert_einsummable_for_backprop(
+    make_reduction(),
+    { which_max });
+
+  scalarop_t div = scalarop_t::make_div(dtype);
+
+  if(grad.is_constant()) {
+    scalar_t value = grad.get_constant();
+    scalarop_t join = scalarop_t::combine(
+      scalarop_t::make_mul(dtype),
+      { div, scalarop_t::make_constant(value) });
+
+    if(join.num_inputs() != 2) {
+      throw std::runtime_error("expecting that all inputs are used");
+    }
+
+    einsummable_t e = make_ij_i(join);
+    return backprop_tensor_t(
+      insert_einsummable_for_backprop(e, { which_max, sum_max }));
+  }
+
+  scalarop_t join = scalarop_t::combine(
+    scalarop_t::make_mul(dtype),
+    { div, scalarop_t::make_arg(0, dtype) });
+
+  if(join.num_inputs() != 3) {
+    throw std::runtime_error("expecting that all inputs are used. ");
+  }
+
+  einsummable_t e = make_ij_i_i(join);
+  return backprop_tensor_t(
+    insert_einsummable_for_backprop(e, { which_max, sum_max, grad.get_id() }));
 }
 
 graph_t::backprop_tensor_t

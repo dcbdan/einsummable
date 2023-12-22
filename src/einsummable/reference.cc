@@ -67,6 +67,11 @@ map<int, dbuffer_t> reference_compute_graph(
       _assert_correct_dtype("input", expected_dtype, t);
       _assert_correct_size("input", expected_size, t);
       tensors[id] = t;
+    } else if(node.op.is_fill()) {
+      auto const& fill = node.op.get_fill();
+      dbuffer_t d = make_dbuffer(fill.value.dtype, product(fill.shape));
+      d.fill(fill.value);
+      tensors[id] = d;
     } else if(node.op.is_einsummable()) {
       vector<dbuffer_t> inns;
       inns.reserve(node.inns.size());

@@ -188,6 +188,8 @@ struct node_t {
   // get the arg types of all holes; if the same arg hole
   // appears with different dtype, throw an error
   map<int, dtype_t> hole_types() const;
+
+  bool type_check() const;
 private:
   node_t simplify_once() const;
 
@@ -319,6 +321,9 @@ struct scalarop_t {
 
   // x0 >= x1 ? 1.0 : 0.0
   static scalarop_t make_is_max(dtype_t d = default_dtype());
+
+  // x0 == x1 ? 1.0 : 0.0
+  static scalarop_t make_is_equal(dtype_t d = default_dtype());
 
   // xn * val
   static scalarop_t make_scale_which(scalar_t val, int arg);

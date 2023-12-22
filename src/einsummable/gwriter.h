@@ -6,7 +6,7 @@
 struct graph_writer_t {
   struct idx_t {
     struct rng {
-      int64_t beg;
+      int64_t beg; // TODO: do the negative values ever get used?
       int64_t end;
     };
     struct idx {
@@ -131,6 +131,7 @@ struct graph_writer_t {
     tensor_t to_f64() const;
 
     tensor_t subset(vector<idx_t> const& idxs) const;
+    tensor_t squeeze(int which_dim) const;
 
     // after this, the modes are 0,1,...,shape.full_rank()-1
     tensor_t physically_permute() const;
