@@ -385,14 +385,12 @@ struct allocator_t {
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate(uint64_t size);
 
-  // Takes a vector of sizes as input (size of each tensor we want to allocate for)
-  // Return a vector of what try_to_allocate originally would return. (offset and deps of each created alloc node)
-  optional<vector<tuple<uint64_t, vector<int>>>>
-  try_to_allocate_multiple(vector<uint64_t> sizes);
+  // tuple<uint64_t, vector<int>>
+  // allocate(uint64_t size);
 
-  tuple<uint64_t, vector<int>>
-  allocate(uint64_t size);
+  optional<tuple<uint64_t, set<int>>> allocate(uint64_t sz);
 
+  optional<tuple<vector<uint64_t>, vector<set<int>>>> allocate_multiple(vector<uint64_t> sizes);
   // This function is specifically for allocating without any dependencies.
   // It will try to allocate a block without any deps and on failure returns none.
   optional<uint64_t>
@@ -417,11 +415,13 @@ struct allocator_t {
   optional<tuple<uint64_t, uint64_t>>
   get_allocated_region(uint64_t offset) const;
 
+  // Remove all dependencies from available memory
+  void clear_dependencies();
+
 private:
   struct block_t {
     uint64_t beg;
     uint64_t end;
-    bool vacant = true;
 
     // dep is none:
     //   this memory is occupied
@@ -446,7 +446,7 @@ private:
   using iter_t = vector<block_t>::iterator;
 
   optional<tuple<iter_t, iter_t, uint64_t>>
-  find_lowest_dependency_available(uint64_t size, vector<optional<  tuple< tuple<iter_t, iter_t, uint64_t>, uint64_t>  >> maybe_infos);
+  find_lowest_dependency_available(uint64_t size);
 
   optional< tuple<uint64_t, vector<int>> >
   try_to_allocate_impl(uint64_t size_without_rem, bool no_deps);

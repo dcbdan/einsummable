@@ -1011,6 +1011,7 @@ vector<_which_touch_t> get_which_touches_from_to(
   return ret;
 }
 
+
 allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
   : strat(s.strat), alignment_power(s.alignment_power)
 {
@@ -1022,6 +1023,64 @@ allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
     .end = memsize,
     .dep = -1
   });
+}
+
+optional<tuple<uint64_t, set<int>>> 
+allocator_t::allocate(uint64_t sz) {
+  auto maybe = allocate_multiple(vector<uint64_t>{ sz });
+  if(maybe) {
+    auto const& [offsets, deps] = maybe.value();
+    uint64_t offset = offsets[0];
+    set<int> dep = deps[0];
+    return optional<tuple<uint64_t, set<int>>>({ offset, dep });
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<tuple<vector<uint64_t>, vector<set<int>>>>
+allocator_t::allocate_multiple(vector<uint64_t> sizes)
+{
+  // sort sizes from largest to smallest so that the largest things
+  // get allocated first
+  std::sort(sizes.begin(), sizes.end(), std::greater<uint64_t>());
+
+  // remove any sizes that are zero; this is unlikely
+  while(sizes.size() > 0 && sizes.back() == 0) {
+    sizes.resize(sizes.size()-1);
+  }
+
+  //Record the status of the blocks before anything, so if failed, just revert.
+  vector<block_t> original_blocks = blocks;
+
+  bool fail = false;
+  vector<tuple<uint64_t, vector<int>>> alloced_info;
+  for(uint64_t const& size: sizes) {
+    auto const& maybe_info = try_to_allocate(size);
+    if (maybe_info) {
+      alloced_info.push_back(maybe_info.value());
+    } else {
+      fail = true;
+      break;
+    }
+  }
+
+  if(fail) {
+    blocks = original_blocks;
+    return std::nullopt;
+  } else {
+    vector<uint64_t> offsets;
+    vector<set<int>> deps_list;
+    for(auto const& infos: alloced_info) {
+      set<int> deps;
+      offsets.push_back(std::get<0>(infos));
+      for(auto const& dep: std::get<1>(infos)) {
+        deps.insert(dep); // TODO: if dep is -1, don't insert
+      }
+      deps_list.push_back(deps);
+    }
+    return optional<tuple<vector<uint64_t>, vector<set<int>>>>({offsets, deps_list});
+  }
 }
 
 optional<uint64_t>
@@ -1045,33 +1104,22 @@ void allocator_t::block_t::free(int d) {
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
 allocator_t::find_first_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
-  optional<return_t> return_block;
+
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
     if(iter->available()) {
       iter_t ret = iter;
       uint64_t sz  = 0;
       uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
-      for(; iter != blocks.end() && iter->available() && iter->vacant == true; ++iter) {
+      for(; iter != blocks.end() && iter->available(); ++iter) {
         sz += iter->size();
         if(rem != 0 && sz > rem) {
           rem = 0;
           sz -= rem;
         }
         if(rem == 0 && sz >= size) {
-          //set the parameter available to false 
-          for (auto inner_iter = ret; inner_iter != iter+1; ++inner_iter) {
-            iter->vacant = false;
-          }
-          return_block = {ret, iter + 1, sz};
+          return optional<return_t>({ret, iter + 1, sz});
         }
       }
-    }
-  }
-
-  //set the parameter available to false 
-  if (return_block){
-    for (auto iter = std::get<0>(return_block.value()); iter != std::get<1>(return_block.value()); ++iter) {
-      iter->vacant = false;
     }
   }
 
@@ -1079,27 +1127,30 @@ allocator_t::find_first_available(uint64_t size) {
 }
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
-allocator_t::find_lowest_dependency_available(uint64_t size, vector<optional<  tuple< tuple<iter_t, iter_t, uint64_t>, uint64_t>  >> maybe_infos) {
+allocator_t::find_lowest_dependency_available(uint64_t size) {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
   optional<return_t> return_block;
   int min_dep = std::numeric_limits<int>::max();
   for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter) {
     if(iter->available()) {
       iter_t ret = iter;
-      uint64_t sz = 0; 
+      uint64_t sz = 0;
       uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
       int inner_max_dep = -1;
       for(iter_t inner_iter = iter;
-          inner_iter != blocks.end() && inner_iter->available() && inner_iter->vacant == true;
-          ++inner_iter) {
+          inner_iter != blocks.end() && inner_iter->available();
+          ++inner_iter)
+      {
         inner_max_dep = std::max(inner_max_dep,inner_iter->dep.value());
+        if(inner_max_dep >= min_dep) {
+          break;
+        }
         sz += inner_iter->size();
-        //first check if we have any alignment descrepancy in the iter->beg
-        if(rem != 0 && sz > rem) { //if there are any remaining for alignment, and current size of all bock > aligned size
+        if(rem != 0 && sz > rem) {
           rem = 0;
           sz -= rem;
         }
-        if(rem == 0 && sz >= size && inner_max_dep <= min_dep) {
+        if(rem == 0 && sz >= size) {
           min_dep = inner_max_dep;
           return_block = {ret, inner_iter + 1, sz};
           break;
@@ -1107,67 +1158,20 @@ allocator_t::find_lowest_dependency_available(uint64_t size, vector<optional<  t
       }
     }
   }
-  //set the parameter available to false 
-  if (return_block){
-    // We need to split the last block here, so that we won't set the entire free block to vacant=false. We only want to set the portion actually being used (for the last block)
-    // After this, we still want to keep all the blocks as free. (i.e., no deps) but we want to separate them
-    auto const& [beg,end,sz] = return_block.value();
-    auto beg_pos = std::distance(blocks.begin(), beg);
-    // std::cout << std::distance(blocks.begin(), beg) << std::endl;
-    block_t last_block_copy = *(end-1);
-    // std::cout << "last_block_copy.beg: " << last_block_copy.beg << "; last_block_copy.end: " << last_block_copy.end << std::endl;
-    uint64_t offset = beg->beg;
-    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
-    uint64_t new_size = size + (aligned_offset - offset);
-    // std::cout << std::distance(blocks.begin(), beg) << std::endl;
-    // std::cout << "offset: " << offset << "; aligned_offset: " << aligned_offset << "; new_size: " << new_size << std::endl;
-    auto iter = blocks.erase(end-1, end); //delete the last one
-    auto occupied_iter = blocks.insert(iter, block_t {
-      .beg = last_block_copy.beg,
-      .end = offset + new_size,
-      .dep = last_block_copy.dep
-    });
-    // std::cout << "newsize: " << new_size << "; sz: " << sz << std::endl;
-    if(new_size != sz) {
-      // std::cout << "offset + new_size: " << offset + new_size << "; last_block_copy.end: " << last_block_copy.end << std::endl;
-      auto occupied_iter_next = blocks.insert(occupied_iter+1, block_t {
-        .beg = offset + new_size,
-        .end = last_block_copy.end,
-        .dep = last_block_copy.dep
-      });
-      auto occupied_iter_next_pos = std::distance(blocks.begin(), occupied_iter_next);
-      return_block = {(blocks.begin() + beg_pos), (blocks.begin() + occupied_iter_next_pos), new_size};
-      // std::cout << "(blocks.begin() + beg_pos)->beg: " << (blocks.begin() + beg_pos)->beg << "; (blocks.begin() + occupied_iter_next_pos)->beg: " << (blocks.begin() + occupied_iter_next_pos)->beg << std::endl;
-    } else {
-      return_block = {(blocks.begin() + beg_pos), occupied_iter+1, new_size};
-      // std::cout << "(occupied_iter+1)->beg: " << (occupied_iter+1)->beg << "; (occupied_iter+1)->end: " << (occupied_iter+1)->end << std::endl;
-    }
-
-    for (auto jter = std::get<0>(return_block.value()); jter != std::get<1>(return_block.value()); ++jter) {
-      // std::cout << "iter->beg: " << iter->beg << "; iter->end: " << iter->end << std::endl;
-      jter->vacant = false;
-    }
-  }
-    auto it4 = maybe_infos.begin();
-  if (it4 != maybe_infos.end()) {
-    auto const& [beg4, end4, sz4] = std::get<0>((*it4).value());
-    std::cout << "1151: beg->beg: " << beg4->beg << "; end->beg: " << end4->beg << std::endl;
-  }
-  DOUT("before return from find_lowest_dep()");
   return return_block;
 }
 
-optional<tuple<uint64_t, vector<int>>>
+optional<tuple<uint64_t, vector<int>> >
 allocator_t::try_to_allocate_impl(uint64_t size_without_rem, bool no_deps)
 {
   using return_t = tuple<uint64_t, vector<int>>;
 
   optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
   if (no_deps) {
-    maybe_info = find_lowest_dependency_available(size_without_rem, {});
+    maybe_info = find_lowest_dependency_available(size_without_rem);
   } else {
     if(strat == allocator_strat_t::lowest_dependency) {
-      maybe_info = find_lowest_dependency_available(size_without_rem, {});
+      maybe_info = find_lowest_dependency_available(size_without_rem);
     } else if(strat == allocator_strat_t::first) {
       maybe_info = find_first_available(size_without_rem);
     } else {
@@ -1202,6 +1206,9 @@ allocator_t::try_to_allocate_impl(uint64_t size_without_rem, bool no_deps)
     // fix blocks
     block_t last_block_copy = *(end-1);
 
+    // // init the blocks that are in the list before, so that we know how to revert it
+    // vector<block_t> before_blocks(beg, end);
+
     auto iter = blocks.erase(beg, end);
     auto occupied_iter = blocks.insert(iter, block_t {
       .beg = offset,
@@ -1227,131 +1234,6 @@ allocator_t::try_to_allocate(uint64_t size_without_rem)
  return try_to_allocate_impl(size_without_rem, false);
 }
 
-optional<vector<tuple<uint64_t, vector<int>>>> 
-allocator_t::try_to_allocate_multiple(vector<uint64_t> sizes)
-{
-  using return_t = tuple<uint64_t, vector<int>>;
-  bool failed = false;
-
-  optional<tuple<iter_t, iter_t, uint64_t>> maybe_info;
-  vector<optional<  tuple< tuple<iter_t, iter_t, uint64_t>, uint64_t>  >> maybe_infos;
-  maybe_infos.reserve(sizes.size());
-  vector<return_t> return_vec;
-
-  for (uint64_t size_without_rem: sizes) {
-    std::cout << "Allocating for size = " << size_without_rem << std::endl;
-    if(strat == allocator_strat_t::lowest_dependency) {
-      maybe_info = find_lowest_dependency_available(size_without_rem, maybe_infos);
-      auto it4 = maybe_infos.begin();
-      if (it4 != maybe_infos.end()) {
-        auto const& [beg4, end4, sz4] = std::get<0>((*it4).value());
-        std::cout << "1247: beg->beg: " << beg4->beg << "; end->beg: " << end4->beg << std::endl;
-      }
-    } else if(strat == allocator_strat_t::first) {
-      maybe_info = find_first_available(size_without_rem);
-    } else {
-      throw std::runtime_error("should not reach");
-    }
-    
-
-    if(maybe_info) {;
-      // auto it2 = maybe_infos.begin();
-      // if (it2 != maybe_infos.end()) {
-      //   auto const& [beg2, end2, sz2] = std::get<0>((*it2).value());
-      //   std::cout << "1253: beg->beg: " << beg2->beg << "; end->beg: " << end2->beg << std::endl;
-      // }
-      DOUT("Maybe info when added to maybe_infos");
-      auto const& [beg,end,sz] = maybe_info.value();
-      std::tuple<std::tuple<iter_t, iter_t, uint64_t>, uint64_t> inner_tuple = std::make_tuple(maybe_info.value(), size_without_rem);
-      std::cout << "inner tuple beg end sz size: " << (std::get<0>(std::get<0>(inner_tuple)))->beg << "  " << std::get<1>(std::get<0>(inner_tuple))->beg << "  " << std::get<2>(std::get<0>(inner_tuple)) << "  " << std::get<1>(inner_tuple) << std::endl;
-      maybe_infos.push_back(std::make_optional(inner_tuple));
-
-      // auto it3 = maybe_infos.begin();
-      // if (it3 != maybe_infos.end()) {
-      //   auto const& [beg3, end3, sz3] = std::get<0>((*it3).value());
-      //   std::cout << "1260: beg->beg: " << beg3->beg << "; end->beg: " << end3->beg << std::endl;
-      // }
-
-      /*Just for the sake of debugging */
-      // auto it = maybe_infos.end();
-      // if (it != maybe_infos.begin()) {
-      //   --it;
-      //   auto const& [beg1, end1, sz1] = std::get<0>((*it).value());
-      //   std::cout << "1268: beg->beg: " << beg1->beg << "; end->beg: " << end1->beg << std::endl;
-      // }
-       /*Just for the sake of debugging */
-    } else {
-      DOUT("Failed to allocate.");
-      failed = true;
-      break;
-    }
-    print();
-    
-  }
-
-  if (failed == true) {
-    //set available field of the blocks to false
-    for (auto iter = maybe_infos.begin(); iter != maybe_infos.end(); ++iter) {
-      auto const& [beg,end,sz] = std::get<0>((*iter).value());
-      std::cout << "beg: " << beg->beg << "; end: " << end->beg << std::endl;
-      for(auto inner_iter = beg; inner_iter != end; ++inner_iter) {
-        inner_iter->vacant = true;
-      }
-    }
-    return vector<tuple<uint64_t, vector<int>>>();
-  }
-  auto const& [beg,end,sz] = std::get<0>((*(maybe_infos.begin())).value());
-  std::cout << "beg->beg: " << beg->beg << "; end->beg: " << end->beg << std::endl;
-  //if succeeded, then need to actually allocate the blocks. Else just do nothing
-  for (auto outer_iter = maybe_infos.begin(); outer_iter != maybe_infos.end(); ++outer_iter) {
-    DOUT("Done allocating, now try to set deps");
-    auto const& [beg,end,sz] = std::get<0>((*outer_iter).value());
-    auto size_without_rem = std::get<1>((*outer_iter).value());
-    std::cout << "beg: " << beg->beg << "; end: " << end->beg << "; size_without_rem: " << size_without_rem << std::endl;
-
-    // collect the output information
-    uint64_t offset = beg->beg;
-    uint64_t aligned_offset = align_to_power_of_two(beg->beg, alignment_power);
-
-    uint64_t size = size_without_rem + (aligned_offset - offset);
-    std::cout << "aligned_offset: " << aligned_offset << "; size: " << size << std::endl;
-    vector<int> deps;
-    for(auto inner_iter = beg; inner_iter != end; ++inner_iter) {
-      if(!inner_iter->dep) {
-        throw std::runtime_error("invalid find_available return");
-      }
-      int const& d = inner_iter->dep.value();
-      if(d >= 0) {
-        deps.push_back(d);
-      }
-    }
-    std::cout << deps << std::endl;
-    DOUT("before fixing blocks");
-
-    // fix blocks
-    auto iter = blocks.erase(beg, end);
-    auto occupied_iter = blocks.insert(iter, block_t {
-      .beg = offset,
-      .end = offset+size,
-      .dep = optional<int>()
-    });
-
-    return_vec.emplace_back(aligned_offset, deps);
-
-    // print();
-  }
-  return return_vec;
-}
-
-tuple<uint64_t, vector<int>>
-allocator_t::allocate(uint64_t size)
-{
-  auto maybe_succ = try_to_allocate(size);
-  if(maybe_succ) {
-    return maybe_succ.value();
-  }
-  throw std::runtime_error("allocator_t: could not allocate");
-}
 
 void allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size) {
   auto beg = binary_search_find(blocks.begin(), blocks.end(),
@@ -1479,6 +1361,42 @@ allocator_t::get_allocated_region(uint64_t offset) const
   }
 
   return optional<tuple<uint64_t, uint64_t>>({block.beg, block.end});
+}
+
+void allocator_t::clear_dependencies() {
+  vector<block_t> new_blocks;
+  optional<tuple<uint64_t, uint64_t>> next_interval;
+  for(auto const& block: blocks) {
+    if(block.dep) {
+      if(next_interval) {
+        auto& [_, end] = next_interval.value();
+        end = block.end;
+      } else {
+        next_interval = tuple<uint64_t,uint64_t>{block.beg, block.end};
+      }
+    } else {
+      if(next_interval) {
+        auto const& [beg,end] = next_interval.value();
+        new_blocks.push_back(block_t {
+          .beg = beg,
+          .end = end,
+          .dep = -1
+        });
+        next_interval = std::nullopt;
+      }
+      new_blocks.push_back(block);
+    }
+  }
+  if(next_interval) {
+    auto const& [beg,end] = next_interval.value();
+    new_blocks.push_back(block_t {
+      .beg = beg,
+      .end = end,
+      .dep = -1
+    });
+  }
+
+  blocks = new_blocks;
 }
 
 std::ostream& operator<<(std::ostream& out, mem_t const& mem) {
