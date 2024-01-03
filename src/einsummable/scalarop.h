@@ -104,6 +104,15 @@ struct op_t {
     dtype_t dtype;
   };
 
+  // conjugate
+  struct conj {};
+
+  // real component
+  struct real {};
+
+  // complex component
+  struct imag {};
+
   bool is_constant() const;
   bool is_hole()     const;
   bool is_add()      const;
@@ -112,6 +121,9 @@ struct op_t {
   bool is_power()    const;
   bool is_ite()      const;
   bool is_convert()  const;
+  bool is_conj()     const;
+  bool is_real()     const;
+  bool is_imag()     const;
 
   scalar_t get_constant() const;
 
@@ -133,7 +145,8 @@ struct op_t {
 
   std::variant<
     constant, hole, add, mul,
-    exp, power, ite, convert> op;
+    exp, power, ite, convert,
+    conj, real, imag> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
@@ -142,6 +155,9 @@ struct op_t {
   static scalar_t _eval_ite(compare_t compare,
     scalar_t lhs, scalar_t rhs, scalar_t if_true, scalar_t if_false);
   static scalar_t _eval_convert(dtype_t new_dtype, scalar_t inn);
+  static scalar_t _eval_conj(scalar_t inn);
+  static scalar_t _eval_real(scalar_t inn);
+  static scalar_t _eval_imag(scalar_t inn);
 
   static bool _compare(compare_t c, scalar_t lhs, scalar_t rhs);
 
@@ -151,6 +167,9 @@ struct op_t {
   static optional<dtype_t> _type_power(dtype_t inn);
   static optional<dtype_t> _type_ite(dtype_t, dtype_t, dtype_t, dtype_t);
   static optional<dtype_t> _type_convert(dtype_t inn, dtype_t out);
+  static optional<dtype_t> _type_conj(dtype_t inn);
+  static optional<dtype_t> _type_real(dtype_t inn);
+  static optional<dtype_t> _type_imag(dtype_t inn);
 
   optional<dtype_t> type_of(vector<dtype_t> inns) const;
 };
@@ -230,9 +249,11 @@ struct cutensor_scalarop_t {
 };
 
 
-dtype_t& _default_dtype();
 dtype_t const& default_dtype();
 void set_default_dtype(dtype_t);
+
+dtype_t const& default_complex_dtype();
+void set_default_complex_dtype(dtype_t);
 
 struct scalarop_t {
   using op_t       = scalar_ns::op_t;
@@ -354,6 +375,12 @@ struct scalarop_t {
   static scalarop_t make_from_castable(castable_t castable, dtype_t d = default_dtype());
 
   static scalarop_t make_convert_dtype(dtype_t src, dtype_t dst);
+
+  static scalarop_t make_conjugate(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_project_real(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_project_imag(dtype_t d = default_complex_dtype());
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);

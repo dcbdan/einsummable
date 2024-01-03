@@ -296,6 +296,9 @@ bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); 
 bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
 bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
 bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); }
+bool op_t::is_conj()     const { return std::holds_alternative< conj     >(op); }
+bool op_t::is_real()     const { return std::holds_alternative< real     >(op); }
+bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
 
@@ -315,7 +318,7 @@ int op_t::num_inputs() const {
   if(is_constant() || is_hole()) {
     return 0;
   }
-  if(is_power() || is_exp() || is_convert()) {
+  if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
     return 1;
   }
   if(is_add() || is_mul()) {
@@ -354,6 +357,15 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const {
   }
   if(is_convert()){
     return _eval_convert(get_convert(), xs[0]);
+  }
+  if(is_conj()) {
+    return _eval_conj(xs[0]);
+  }
+  if(is_real()) {
+    return _eval_real(xs[0]);
+  }
+  if(is_imag()) {
+    return _eval_imag(xs[0]);
   }
   throw std::runtime_error("should not reach");
 }
@@ -480,6 +492,30 @@ scalar_t op_t::_eval_convert(dtype_t dtype, scalar_t inn)
   return scalar_t::convert(inn, dtype);
 }
 
+scalar_t op_t::_eval_conj(scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(std::conj(inn.c64()));
+}
+
+scalar_t op_t::_eval_real(scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(inn.c64().real());
+}
+
+scalar_t op_t::_eval_imag(scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(inn.c64().imag());
+}
+
 optional<dtype_t> op_t::_type_add(dtype_t lhs, dtype_t rhs) {
   if(lhs == rhs) {
     return lhs;
@@ -534,6 +570,30 @@ optional<dtype_t> op_t::_type_convert(dtype_t inn, dtype_t out) {
   return out;
 }
 
+optional<dtype_t> op_t::_type_conj(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return inn;
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<dtype_t> op_t::_type_real(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return dtype_t::f32;
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<dtype_t> op_t::_type_imag(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return dtype_t::f32;
+  } else {
+    return std::nullopt;
+  }
+}
+
 optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   if(is_constant()) {
     if(inns.size() != 0) { return std::nullopt; }
@@ -558,6 +618,12 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
     return _type_ite(inns[0], inns[1], inns[2], inns[3]);
   } else if(is_convert()) {
     return _type_convert(inns[0], get_convert());
+  } else if(is_conj()) {
+    return _type_conj(inns[0]);
+  } else if(is_real()) {
+    return _type_real(inns[0]);
+  } else if(is_imag()) {
+    return _type_imag(inns[0]);
   } else {
     throw std::runtime_error("type_of should not reach");
   }
@@ -866,6 +932,18 @@ node_t node_t::simplify_once() const {
     }
   }
 
+  // Case: Conjugate
+  if(op.is_conj()) {
+    node_t& inn = new_children[0];
+    if(inn.op.is_conj()) {
+      // Conjugate of conjugate is a no op
+      return inn.children[0];
+    }
+  }
+
+  // TODO?: conj(x) + x = 2real(x)
+  //        conj(x) - x = 2imag(x)
+
   return node_t {
     .op = op,
     .dtype = dtype,
@@ -1154,7 +1232,7 @@ void node_t::_hole_types(map<int, dtype_t>& ret) const {
 
 } // scalar_ns
 
-dtype_t& _default_dtype() {
+static dtype_t& _default_dtype() {
   static dtype_t d = dtype_t::f32;
   return d;
 }
@@ -1165,6 +1243,22 @@ dtype_t const& default_dtype() {
 
 void set_default_dtype(dtype_t new_dtype) {
   _default_dtype() = new_dtype;
+}
+
+static dtype_t& _default_complex_dtype() {
+  static dtype_t d = dtype_t::c64;
+  return d;
+}
+
+dtype_t const& default_complex_dtype() {
+  return _default_complex_dtype();
+}
+
+void set_default_complex_dtype(dtype_t new_dtype) {
+  if(!dtype_is_complex(new_dtype)) {
+    throw std::runtime_error("cannot set default complex dtype to real dtype");
+  }
+  _default_complex_dtype() = new_dtype;
 }
 
 scalarop_t::scalarop_t() {}
@@ -1715,6 +1809,21 @@ scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
   return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_conjugate(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("conj["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_project_real(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("real["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_project_imag(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("imag["+h0+"]");
+}
+
 // These + ops could be implemented with scalarop
 scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
   if(dtype != rhs.dtype) {
@@ -1960,6 +2069,12 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "ite_" << op.get_ite_compare();
   } else if(op.is_convert()) {
     out << "to_" << op.get_convert();
+  } else if(op.is_conj()) {
+    out << "conj";
+  } else if(op.is_real()) {
+    out << "real";
+  } else if(op.is_imag()) {
+    out << "imag";
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -1970,11 +2085,17 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
 std::istream& operator>>(std::istream& inn, op_t& op) {
   char c = inn.peek();
   if(c == 'c') {
-    istream_expect(inn, "constant{");
-    scalar_t v;
-    inn >> v;
-    istream_expect(inn, "}");
-    op.op = scalar_ns::op_t::constant{ .value = v };
+    int which = istream_expect_or(inn, {"constant{", "conj"});
+    if(which == 0) {
+      scalar_t v;
+      inn >> v;
+      istream_expect(inn, "}");
+      op.op = scalar_ns::op_t::constant{ .value = v };
+    } else if(which == 1) {
+      op.op = scalar_ns::op_t::conj{};
+    } else {
+      throw std::runtime_error("should not reach: ite or imag");
+    }
   } else if(c == 'h') {
     istream_expect(inn, "hole|");
     dtype_t dtype;
@@ -1999,15 +2120,24 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
     op.op = scalar_ns::op_t::power{ .to_the = i };
     istream_expect(inn, "}");
   } else if(c == 'i') {
-    istream_expect(inn, "ite_");
-    compare_t c;
-    inn >> c;
-    op.op = scalar_ns::op_t::ite{ .compare = c };
+    int which = istream_expect_or(inn, {"ite_", "imag"});
+    if(which == 0) {
+      compare_t c;
+      inn >> c;
+      op.op = scalar_ns::op_t::ite{ .compare = c };
+    } else if(which == 1) {
+      op.op = scalar_ns::op_t::imag{};
+    } else {
+      throw std::runtime_error("should not reach: ite or imag");
+    }
   } else if(c == 't') {
     istream_expect(inn, "to_");
     dtype_t d;
     inn >> d;
     op.op = scalar_ns::op_t::convert{ .dtype = d };
+  } else if(c == 'r') {
+    istream_expect(inn, "real");
+    op.op = scalar_ns::op_t::real{};
   } else {
     throw std::runtime_error("should not happen");
   }
