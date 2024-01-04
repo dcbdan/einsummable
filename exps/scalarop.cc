@@ -105,6 +105,12 @@ void main01() {
     std::cout << op << std::endl;
     std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
   }
+  {
+    std::cout << "CPLEX" << std::endl;
+    scalarop_t op = scalarop_t::make_complex();
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+  }
 }
 
 void main02() {

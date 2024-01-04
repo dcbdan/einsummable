@@ -13,6 +13,9 @@ uint64_t dtype_size(dtype_t);
 
 bool dtype_is_real(dtype_t);
 bool dtype_is_complex(dtype_t);
+
+dtype_t dtype_real_component(dtype_t);
+
 // Assumption: could be the case that there is something
 //             other than real and complex (in the future)
 
@@ -113,6 +116,9 @@ struct op_t {
   // complex component
   struct imag {};
 
+  // create a complex from two real inputs
+  struct cplex {};
+
   bool is_constant() const;
   bool is_hole()     const;
   bool is_add()      const;
@@ -124,6 +130,7 @@ struct op_t {
   bool is_conj()     const;
   bool is_real()     const;
   bool is_imag()     const;
+  bool is_cplex()    const;
 
   scalar_t get_constant() const;
 
@@ -146,7 +153,7 @@ struct op_t {
   std::variant<
     constant, hole, add, mul,
     exp, power, ite, convert,
-    conj, real, imag> op;
+    conj, real, imag, cplex> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
@@ -158,6 +165,7 @@ struct op_t {
   static scalar_t _eval_conj(scalar_t inn);
   static scalar_t _eval_real(scalar_t inn);
   static scalar_t _eval_imag(scalar_t inn);
+  static scalar_t _eval_cplex(scalar_t lhs, scalar_t rhs);
 
   static bool _compare(compare_t c, scalar_t lhs, scalar_t rhs);
 
@@ -170,6 +178,7 @@ struct op_t {
   static optional<dtype_t> _type_conj(dtype_t inn);
   static optional<dtype_t> _type_real(dtype_t inn);
   static optional<dtype_t> _type_imag(dtype_t inn);
+  static optional<dtype_t> _type_cplex(dtype_t lhs, dtype_t rhs);
 
   optional<dtype_t> type_of(vector<dtype_t> inns) const;
 };
@@ -184,6 +193,7 @@ struct node_t {
   scalar_t eval(vector<scalar_t> const& inputs) const;
 
   node_t derivative(int arg) const;
+  node_t wirtinger_derivative(int arg, bool conjugate) const;
 
   node_t simplify() const;
 
@@ -267,6 +277,8 @@ struct scalarop_t {
 
   // not valid if dtype is complex
   scalarop_t derivative(int arg) const;
+
+  scalarop_t wirtinger_derivative(int arg, bool conjugate) const;
 
   scalarop_t simplify() const;
 
@@ -381,6 +393,8 @@ struct scalarop_t {
   static scalarop_t make_project_real(dtype_t d = default_complex_dtype());
 
   static scalarop_t make_project_imag(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_complex(dtype_t d = default_complex_dtype());
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);

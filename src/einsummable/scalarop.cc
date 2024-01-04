@@ -58,6 +58,13 @@ bool dtype_is_complex(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+dtype_t dtype_real_component(dtype_t dtype) {
+  if(dtype == dtype_t::c64) {
+    return dtype_t::f32;
+  }
+  throw std::runtime_error("can't get real component dtype");
+}
+
 dtype_t dtype_random(bool include_complex) {
   int dd = runif(include_complex ? 4 : 3);
   if(dd == 0) {
@@ -299,6 +306,7 @@ bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); 
 bool op_t::is_conj()     const { return std::holds_alternative< conj     >(op); }
 bool op_t::is_real()     const { return std::holds_alternative< real     >(op); }
 bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); }
+bool op_t::is_cplex()    const { return std::holds_alternative< cplex    >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
 
@@ -321,7 +329,7 @@ int op_t::num_inputs() const {
   if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
     return 1;
   }
-  if(is_add() || is_mul()) {
+  if(is_add() || is_mul() || is_cplex()) {
     return 2;
   }
   if(is_ite()) {
@@ -366,6 +374,9 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const {
   }
   if(is_imag()) {
     return _eval_imag(xs[0]);
+  }
+  if(is_cplex()) {
+    return _eval_cplex(xs[0], xs[1]);
   }
   throw std::runtime_error("should not reach");
 }
@@ -516,6 +527,17 @@ scalar_t op_t::_eval_imag(scalar_t inn)
   return scalar_t(inn.c64().imag());
 }
 
+scalar_t op_t::_eval_cplex(scalar_t lhs, scalar_t rhs)
+{
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("must have same input dtypes");
+  }
+  if(lhs.dtype != dtype_t::f32) {
+    throw std::runtime_error("must have f32");
+  }
+  return scalar_t(std::complex<float>(lhs.f32(), rhs.f32()));
+}
+
 optional<dtype_t> op_t::_type_add(dtype_t lhs, dtype_t rhs) {
   if(lhs == rhs) {
     return lhs;
@@ -594,6 +616,18 @@ optional<dtype_t> op_t::_type_imag(dtype_t inn) {
   }
 }
 
+optional<dtype_t> op_t::_type_cplex(dtype_t lhs, dtype_t rhs) {
+  if(lhs != rhs) {
+    return std::nullopt;
+  }
+
+  if(lhs == dtype_t::f32) {
+    return dtype_t::c64;
+  } else {
+    return std::nullopt;
+  }
+}
+
 optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   if(is_constant()) {
     if(inns.size() != 0) { return std::nullopt; }
@@ -624,6 +658,8 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
     return _type_real(inns[0]);
   } else if(is_imag()) {
     return _type_imag(inns[0]);
+  } else if(is_cplex()) {
+    return _type_cplex(inns[0], inns[1]);
   } else {
     throw std::runtime_error("type_of should not reach");
   }
@@ -804,6 +840,10 @@ node_t node_t::derivative(int arg) const {
   }
 
   throw std::runtime_error("should not reach");
+}
+
+node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
+  throw std::runtime_error("not implemented");
 }
 
 node_t node_t::simplify() const {
@@ -1277,6 +1317,10 @@ scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
 
 scalarop_t scalarop_t::derivative(int arg) const {
   return scalarop_t(node.derivative(arg));
+}
+
+scalarop_t scalarop_t::wirtinger_derivative(int arg, bool conjugate) const {
+  return scalarop_t(node.wirtinger_derivative(arg, conjugate));
 }
 
 scalarop_t scalarop_t::simplify() const {
@@ -1824,6 +1868,13 @@ scalarop_t scalarop_t::make_project_imag(dtype_t inn) {
   return parse_with_ss<scalarop_t>("imag["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_complex(dtype_t out) {
+  dtype_t inn = dtype_real_component(out);
+  string h0 = op_t::h_str(0, inn);
+  string h1 = op_t::h_str(1, inn);
+  return parse_with_ss<scalarop_t>("complex["+h0+","+h1+"]");
+}
+
 // These + ops could be implemented with scalarop
 scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
   if(dtype != rhs.dtype) {
@@ -2075,6 +2126,8 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "real";
   } else if(op.is_imag()) {
     out << "imag";
+  } else if(op.is_cplex()) {
+    out << "complex";
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -2085,7 +2138,7 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
 std::istream& operator>>(std::istream& inn, op_t& op) {
   char c = inn.peek();
   if(c == 'c') {
-    int which = istream_expect_or(inn, {"constant{", "conj"});
+    int which = istream_expect_or(inn, {"constant{", "conj", "complex"});
     if(which == 0) {
       scalar_t v;
       inn >> v;
@@ -2093,6 +2146,8 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
       op.op = scalar_ns::op_t::constant{ .value = v };
     } else if(which == 1) {
       op.op = scalar_ns::op_t::conj{};
+    } else if(which == 2) {
+      op.op = scalar_ns::op_t::cplex{};
     } else {
       throw std::runtime_error("should not reach: ite or imag");
     }

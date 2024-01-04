@@ -1,6 +1,11 @@
 #include "graph.h"
 
 vector<int> graph_t::backprop(int out, vector<int> weights) {
+  if(dtype_is_complex(out_dtype(out))) {
+    throw std::runtime_error(
+      "cannot do backprop wrt complex loss; using wirtinger simplificaiton");
+  }
+
   // Get nodes which values affect output of the graph
   set<int> nodeset = compute_nodeset({out}, weights, true);
 
