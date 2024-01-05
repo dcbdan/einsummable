@@ -357,10 +357,50 @@ def complex_test4():
   y.sum().backward()
   print(x.grad) # [1,0])
 def complex_test5():
-  x = nn.Parameter(torch.rand(1, dtype = torch.complex64))
+  print("x.view_as_real().sum()")
+  x = torch.rand(1, dtype = torch.complex64)
+  print("x:   ", x)
+  x = nn.Parameter(x)
   y = torch.view_as_real(x)
   y.sum().backward()
-  print(x.grad) # (1 + 1j)
+  print("xg:  ", x.grad) # (1 + 1j)
+def complex_test6():
+  print("")
+  print("x.view_as_complex().view_as_real().sum()")
+  x = torch.rand(2, dtype = torch.float32)
+  print("x:   ", x)
+  x = nn.Parameter(x)
+  y = torch.view_as_complex(x)
+  y = torch.view_as_real(y)
+  y.sum().backward()
+  print("xg:  ", x.grad)
+def complex_test7():
+  print("")
+  print("(x.view_as_complex()*y).view_as_real().sum()")
+  x = torch.rand(2, dtype = torch.float32)
+  y = torch.view_as_complex(torch.tensor([5,3], dtype=torch.float32))
+  print("x:   ", x)
+  print("y:   ", y)
+  x = nn.Parameter(x)
+
+  xc = torch.view_as_complex(x)
+  xc.retain_grad()
+
+  xcy = xc*y
+  xcy.retain_grad()
+
+  z = torch.view_as_real(xcy)
+  z.retain_grad()
+
+  zs = z.sum()
+  zs.retain_grad()
+  zs.backward()
+
+  print("g zs :",zs.grad)
+  print("g z  :",z.grad)
+  print("g xcy:",xcy.grad)
+  print("g xc :",xc.grad)
+  print("g x  :",x.grad)
 
 #reduction_test()
 #reduction_exp2()
@@ -369,7 +409,10 @@ def complex_test5():
 #softmax_exp()
 #attention_test()
 #complex_test()
-complex_test2()
-complex_test3()
+#complex_test2()
+#complex_test3()
 #complex_test4()
 #complex_test5()
+complex_test7()
+
+

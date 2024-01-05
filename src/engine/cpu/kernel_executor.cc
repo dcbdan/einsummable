@@ -529,6 +529,26 @@ inline float16_t _exp(float16_t const& v) {
   return half_float::exp(v);
 }
 
+template <typename T>
+inline T _conj(T const& v) {
+  return std::conj(v);
+}
+
+template <typename T>
+inline T _real(std::complex<T> const& v) {
+  return std::real(v);
+}
+
+template <typename T>
+inline T _imag(std::complex<T> const& v) {
+  return std::imag(v);
+}
+
+template <typename T>
+inline std::complex<T> _complex(T const& x, T const& y) {
+  return std::complex<T>(x,y);
+}
+
 #define _unary_ew_loop(name, TO, T, op) \
   void name( \
     uint8_t const* d, \

@@ -250,9 +250,9 @@ void reduction_test2() {
 
 void complex_test() {
   vector<float> x_{0.10576850175857544,0.49335700273513794};
-  vector<float> y_{0.8755072951316833,0.7137557864189148};
+  vector<float> y_{5.0,3.0};//{0.8755072951316833,0.7137557864189148};
 
-  DOUT(y_);
+  DOUT("y: " << y_);
 
   dbuffer_t _x  = make_dbuffer_from_vector(x_);
   dbuffer_t _y  = make_dbuffer_from_vector(y_).view_f32_as_c64();
@@ -262,10 +262,12 @@ void complex_test() {
   auto y = writer.input({1,1}, dtype_t::c64);
 
   // Case 1:
+  DOUT("(x.to_complex() * y).to_real()");
   auto z = writer.mul(x.to_complex(), y).to_real();
   // correct: (y_r+y_c, y_r-y_c)
 
   // Case 2:
+  // DOUT("(x.to_complex() * z).to_real()");
   //auto z = writer.mul(x.to_complex(), y);
   //correct: grad x = y.to_real()
 
@@ -284,7 +286,7 @@ void complex_test() {
   }
 
   data = reference_compute_graph(writer.get_graph(), data);
-  DOUT(data.at(gx.get_id()));
+  DOUT("grad x: " << data.at(gx.get_id()));
 }
 
 void complex_test2() {
@@ -320,6 +322,7 @@ void complex_test3() {
   auto x = writer.input({1,1}, dtype_t::c64);
   auto z = x.to_real();
 
+  DOUT("x.to_real()");
   map<int, dbuffer_t> data;
   data.insert({x.get_id(), _x});
 
@@ -334,9 +337,13 @@ void complex_test3() {
   }
 
   data = reference_compute_graph(writer.get_graph(), data);
-  DOUT(data.at(gx.get_id()));
+  DOUT("x:  " << x_);
+  DOUT("gx: " << data.at(gx.get_id()));
   // 1 + i1
 }
+
+
+
 int main() {
   set_default_dtype(dtype_t::f32);
 
@@ -345,6 +352,7 @@ int main() {
 
   complex_test();
   //complex_test2();
+  //DOUT("")
   //complex_test3();
 
   //softmax_test();

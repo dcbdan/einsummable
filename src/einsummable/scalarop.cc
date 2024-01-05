@@ -505,7 +505,7 @@ scalar_t op_t::_eval_convert(dtype_t dtype, scalar_t inn)
 
 scalar_t op_t::_eval_conj(scalar_t inn)
 {
-  if(inn.dtype == dtype_t::c64) {
+  if(inn.dtype != dtype_t::c64) {
     throw std::runtime_error("must have c64");
   }
   return scalar_t(std::conj(inn.c64()));
@@ -513,7 +513,7 @@ scalar_t op_t::_eval_conj(scalar_t inn)
 
 scalar_t op_t::_eval_real(scalar_t inn)
 {
-  if(inn.dtype == dtype_t::c64) {
+  if(inn.dtype != dtype_t::c64) {
     throw std::runtime_error("must have c64");
   }
   return scalar_t(inn.c64().real());
@@ -521,7 +521,7 @@ scalar_t op_t::_eval_real(scalar_t inn)
 
 scalar_t op_t::_eval_imag(scalar_t inn)
 {
-  if(inn.dtype == dtype_t::c64) {
+  if(inn.dtype != dtype_t::c64) {
     throw std::runtime_error("must have c64");
   }
   return scalar_t(inn.c64().imag());
@@ -703,33 +703,20 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 
 node_t node_t::derivative(int arg) const {
   if(op.is_constant()) {
-    return node_t {
-      .op = op_t::make_constant(scalar_t::zero(op.get_constant().dtype)),
-      .dtype = dtype,
-      .children = {}
-    };
-  }
-
-  if(op.is_hole()) {
+    return make_constant(scalar_t::zero(dtype));
+  } else if(op.is_hole()) {
     if(arg == op.get_which_input()) {
+      if(dtype_is_complex(dtype) && dtype != dtype_t::c64) {
+        throw std::runtime_error("impl more complex dtypes");
+      }
       scalar_t one = dtype_is_complex(dtype)    ?
         scalar_t(std::complex<float>(1.0, 0.0)) :
         scalar_t::one(dtype)                    ;
-      return node_t {
-        .op = op_t::make_constant(one),
-        .dtype = dtype,
-        .children = {}
-      };
+      return make_constant(one);
     } else {
-      return node_t {
-        .op = op_t::make_constant(scalar_t::zero(dtype)),
-        .dtype = dtype,
-        .children = {}
-      };
+      return make_constant(scalar_t::zero(dtype));
     }
-  }
-
-  if(op.is_add()) {
+  } else if(op.is_add()) {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
@@ -741,9 +728,7 @@ node_t node_t::derivative(int arg) const {
       .dtype = dtype,
       .children = {deri_lhs, deri_rhs}
     };
-  }
-
-  if(op.is_mul()) {
+  } else if(op.is_mul()) {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
@@ -762,13 +747,7 @@ node_t node_t::derivative(int arg) const {
     string term_rhs = "*[" + s_lhs      + "," + s_deri_rhs + "]";
 
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
-  }
-
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("only a*b and a+b derivatives for complex");
-  }
-
-  if(op.is_exp()) {
+  } else if(op.is_exp()) {
     // e^{f(x)} => e^{f(x)} * f'(x)
     node_t const& inn = children[0];
 
@@ -779,9 +758,7 @@ node_t node_t::derivative(int arg) const {
     string s_deri_inn = write_with_ss(deri_inn);
 
     return parse_with_ss<node_t>("*[" + s_inn + "," + s_deri_inn + "]");
-  }
-
-  if(op.is_power()) {
+  } else if(op.is_power()) {
     // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
     //           A     B               C
 
@@ -810,9 +787,7 @@ node_t node_t::derivative(int arg) const {
     string ABC = "*[" + A + "," + BC + "]";
 
     return parse_with_ss<node_t>(ABC);
-  }
-
-  if(op.is_ite()) {
+  } else if(op.is_ite()) {
     // compare(x0, x1) ? x2  : x3  has a derivative of
     // compare(x0, x1) ? x2' : x3'
     string s0 = write_with_ss(children[0]);
@@ -826,9 +801,7 @@ node_t node_t::derivative(int arg) const {
       "[" + s0 + "," + s1 + "," + deri_s2 + "," + deri_s3 + "]";
 
     return parse_with_ss<node_t>(ret);
-  }
-
-  if(op.is_convert()) {
+  } else if(op.is_convert()) {
     // convert(f(x)) => convert(f'(x))
     node_t const& inn = children[0];
     node_t deri_inn = inn.derivative(arg);
@@ -837,13 +810,140 @@ node_t node_t::derivative(int arg) const {
       .dtype = dtype,
       .children = vector<node_t>{ deri_inn }
     };
+  } else if(op.is_conj()) {
+    throw std::runtime_error("conjugation is not holomorphic");
+  } else if(op.is_real()) {
+    throw std::runtime_error("real projection is not holomorphic");
+  } else if(op.is_imag()) {
+    throw std::runtime_error("complex projection is not holomorphic");
+  } else if(op.is_cplex()) {
+    throw std::runtime_error("complex(x,y) is not holomorphic");
+  } else {
+    throw std::runtime_error("missing derivative case");
   }
-
-  throw std::runtime_error("should not reach");
 }
 
 node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
-  throw std::runtime_error("not implemented");
+  // Consider s(x) = h(g(x)). The chain rule gives
+  //   ds/d(z*) = dh/dg * dg/d(z*) + dh/d(g*) * (dg/dz)*
+  //   ds/dz    = dh/dg * dg/dz    + dh/d(g*) * (dg/d(z*))*
+  // When h is holomorphic, dh/d(g*) will be zero, so
+  //   ds/d(z*) = dh/dg * dg/d(z*)
+  //   ds/dz    = dh/dg * dg/dz
+  // When h maps to real, dh/d(g*) = (dh/dg)*
+  // When h maps real to real, (dh/dg) = (dh/dg)*
+  //   ds/d(z*) = dh/dg * (dg/d(z*) + (dg/dz)*)
+  //   ds/dz    = dh/dg * (dg/dz    + (dg/d(z*))*
+
+  // dh/dg    = 1/2
+  // dh/d(g*) = 1/2
+  // ds/d(z*) = 1/2 * dg/d(z*) + 1/2 * (dg/dz)*
+  // ds/dz    = 1/2 * dg/dz    + 1/2 * (dg/d(z*))*
+  auto compute_real = [&](int which_child) {
+    if(dtype != dtype_t::c64) {
+      throw std::runtime_error("can't get constant: wirt deriv");
+    }
+    string dgdz  = write_with_ss(children[which_child].wirtinger_derivative(arg, false));
+    string dgdzs = write_with_ss(children[which_child].wirtinger_derivative(arg, true));
+    string half = write_with_ss(make_constant(scalar_t(std::complex<float>(0.5, 0.0))));
+    string ret = "+[" +
+                  (conjugate ? dgdzs : dgdz)  + "," +
+        "conj[" + (conjugate ? dgdz  : dgdzs) + "]" +
+      "]";
+    return parse_with_ss<node_t>("*[" + half + "," + ret + "]");
+  };
+
+  auto compute_imag = [&](int which_child) {
+    // dh/d(g*) =  i/2
+    // dh/dg    = -i/2
+    // ds/d(z*) = -i/2 * dg/d(z*) + i/2 * (dg/dz)*
+    // ds/dz    = -i/2 * dg/dz    + i/2 * (dg/d(z*))*
+    string nhalfi = write_with_ss(make_constant(scalar_t(std::complex<float>(0.0, -0.5))));
+    string  halfi = write_with_ss(make_constant(scalar_t(std::complex<float>(0.0,  0.5))));
+    string dgdz  = write_with_ss(children[which_child].wirtinger_derivative(arg, false));
+    string dgdzs = write_with_ss(children[which_child].wirtinger_derivative(arg, true));
+    string lhs = "*[" + nhalfi + ","      + (conjugate ? dgdzs : dgdz) + "]";
+    string rhs = "*[" +  halfi + ",conj[" + (conjugate ? dgdz : dgdzs) + "]]";
+    return parse_with_ss<node_t>("+[" + lhs + "," + rhs + "]");
+  };
+
+  if(op.is_constant()) {
+    return make_constant(scalar_t::zero(dtype));
+  } else if(op.is_hole()) {
+    if(conjugate) {
+      return make_constant(scalar_t::zero(dtype));
+    } else {
+      scalar_t one = dtype_is_complex(dtype)    ?
+        scalar_t(std::complex<float>(1.0, 0.0)) :
+        scalar_t::one(dtype)                    ;
+      return make_constant(one);
+    }
+  } else if(op.is_add()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // is holomorphic and dh/dg = 1
+    return children[arg].wirtinger_derivative(arg, conjugate);
+  } else if(op.is_mul()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // is holomorphic and dh/dg = the other arg
+    string dh_dg = arg == 0 ?
+      write_with_ss(children[1]) : write_with_ss(children[0]);
+    string dg_dzz = write_with_ss(
+      children[arg].wirtinger_derivative(arg, conjugate));
+    return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_exp()) {
+    // is holomorphic and dh/dg = e^g(x)
+    if(arg != 0) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    string dh_dg = "exp["+write_with_ss(children[0])+"]";
+    string dg_dzz = write_with_ss(
+      children[0].wirtinger_derivative(arg, conjugate));
+    return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_power()) {
+    if(arg != 0) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // TODO
+    // This may be holomorphic; it may require logarithm
+    throw std::runtime_error("wirtinger deriv for power not implemented");
+  } else if(op.is_ite()) {
+    // TODO
+    throw std::runtime_error("not implemented");
+  } else if(op.is_convert()) {
+    // TODO
+    throw std::runtime_error("not implemented");
+  } else if(op.is_conj()) {
+    // dh/dg    = 0
+    // dh/d(g*) = 1
+    // ds/d(z*) = (dg/dz)*
+    // ds/dz    = (dg/d(z*))*
+    if(conjugate) {
+      string dgdz = write_with_ss(children[0].wirtinger_derivative(arg, false));
+      return parse_with_ss<node_t>("conj[" + dgdz + "]");
+    } else {
+      string dgdzs = write_with_ss(children[0].wirtinger_derivative(arg, true));
+      return parse_with_ss<node_t>("conj[" + dgdzs + "]");
+    }
+  } else if(op.is_real()) {
+    return compute_real(0);
+  } else if(op.is_imag()) {
+    return compute_imag(0);
+  } else if(op.is_cplex()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    if(arg == 0) {
+      return compute_real(0);
+    } else {
+      return compute_imag(1);
+    }
+  } else {
+    throw std::runtime_error("missing wirtinger derivative case");
+  }
 }
 
 node_t node_t::simplify() const {
@@ -933,6 +1033,8 @@ node_t node_t::simplify_once() const {
     if(rhs.op.is_constant() && rhs.op.get_constant() == one) {
       return lhs;
     }
+
+    // TODO: Check for 0.5*(x+x)
 
     // TODO: convert for x*x -> x^2 ?
   }
@@ -1088,6 +1190,19 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
         return "double(" + inn + ")";
       }
       throw std::runtime_error("should not reach");
+  } else if(op.is_conj()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_conj(" + inn + ")";
+  } else if(op.is_real()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_real(" + inn + ")";
+  } else if(op.is_imag()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_imag(" + inn + ")";
+  } else if(op.is_cplex()) {
+    auto lhs = children[0].to_cppstr(w);
+    auto rhs = children[1].to_cppstr(w);
+    return "_complex(" + lhs + "," + rhs + ")";
   } else {
     throw std::runtime_error("to_cppstr: should not reach");
   }

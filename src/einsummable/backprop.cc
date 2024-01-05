@@ -429,8 +429,13 @@ graph_t::build_grad_term_contraction(
     throw std::runtime_error("contraction has two inputs..");
   }
 
+  dtype_t dtype = e.out_dtype();
+  if(dtype_is_complex(dtype)) {
+    // TODO
+    throw std::runtime_error("grad_term_contraction with complex dtype: not implemented");
+  }
+
   if(grad.is_zeros()) {
-    dtype_t dtype = e.out_dtype();
     vector<uint64_t> shape =
       which_inn == 0 ?
       e.inn_shape(0) :
@@ -545,15 +550,66 @@ graph_t::build_grad_term_ew(
   int which_inn,
   backprop_tensor_t grad)
 {
+  dtype_t out_dtype = e.out_dtype();
+  dtype_t inn_dtype = e.inn_dtype(which_inn);
+
+  // TODO: implement wirtinger derivatives properly using the grad update rule
+  //   v* * (ds/d(z*)) + v * (ds/dz)*
+  //
+  // For now, detect just x*y otherwise throw an error
+  if(dtype_is_complex(inn_dtype) || dtype_is_complex(out_dtype)) {
+    if(e.join == scalarop_t::make_mul(out_dtype)) {
+      // ds/d(z*) is zero since multiplication is holomorphic and
+      // ds/dz is the other arg so return v * (other_arg)*
+      dtype_t const& dtype = out_dtype;
+      scalarop_t new_join = scalarop_t::combine(
+        scalarop_t::make_mul(dtype),
+        {
+          scalarop_t::make_identity(dtype),
+          scalarop_t::make_conjugate(dtype)
+        });
+      if(which_inn != 0 && which_inn != 1) {
+        throw std::runtime_error("only two args: ew complex mul special case");
+      }
+      int other_id = which_inn == 0 ? inn_ids[1] : inn_ids[0];
+
+      int v_id;
+      if(grad.is_constant()) {
+        v_id = insert_fill(grad.get_fill());
+      } else {
+        v_id = grad.get_id();
+      }
+
+      auto [out_str, inn_strs] = e.str_terms();
+      string const& new_out_str = inn_strs[which_inn];
+      string const& new_lhs_str = out_str;
+      string const& new_rhs_str = inn_strs[which_inn == 0 ? 1 : 0];
+      string new_str = new_lhs_str + "," + new_rhs_str + "->" + new_out_str;
+
+      vector<uint64_t> new_out_shape = e.inn_shape(which_inn);
+      vector<uint64_t> new_lhs_shape = e.out_shape();
+      vector<uint64_t> new_rhs_shape = e.inn_shape(which_inn == 0 ? 1 : 0);
+
+      auto [new_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+      auto new_join_shape = einsummable_t::construct_join_shape(
+        new_out_shape, new_inns,
+        {new_lhs_shape, new_rhs_shape});
+      einsummable_t new_e(
+        new_join_shape, new_inns, new_out_rank, new_join, castable_t::add);
+
+      int term_id = insert_einsummable_for_backprop(new_e, { v_id, other_id });
+      return backprop_tensor_t(term_id);
+    } else {
+      throw std::runtime_error("grad_term_ew: not supporting complex ew except x*y");
+    }
+  }
+
   scalarop_t deri_op = e.join.derivative(which_inn);
 
   bool constant_deri_op = deri_op.is_constant();
   bool constant_grad = grad.is_constant();
 
   // Note: remember we need to return a tensor of inn_dtype
-
-  dtype_t out_dtype = e.out_dtype();
-  dtype_t inn_dtype = e.inn_dtype(which_inn);
 
   auto [out_str, inn_strs] = e.str_terms();
   vector<vector<uint64_t>> inn_shapes = e.inn_shapes();
