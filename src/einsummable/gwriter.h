@@ -279,6 +279,9 @@ struct graph_writer_t {
     tensor_t const& lhs,
     tensor_t const& rhs);
 
+  tensor_t exp(
+    tensor_t const& inn);
+
   // take the softmax over the last dimension
   tensor_t softmax(
     tensor_t const& inn);

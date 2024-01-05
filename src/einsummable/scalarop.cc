@@ -749,15 +749,17 @@ node_t node_t::derivative(int arg) const {
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
   } else if(op.is_exp()) {
     // e^{f(x)} => e^{f(x)} * f'(x)
+    //             --------   -----
+    //             this       deri_inn
     node_t const& inn = children[0];
 
     node_t deri_inn = inn.derivative(arg);
 
-    string s_inn      = write_with_ss(inn);
-
     string s_deri_inn = write_with_ss(deri_inn);
 
-    return parse_with_ss<node_t>("*[" + s_inn + "," + s_deri_inn + "]");
+    string s_this = write_with_ss(*this);
+
+    return parse_with_ss<node_t>("*[" + s_this + "," + s_deri_inn + "]");
   } else if(op.is_power()) {
     // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
     //           A     B               C

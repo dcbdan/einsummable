@@ -897,6 +897,15 @@ graph_writer_t::matmul(
 }
 
 graph_writer_t::tensor_t
+graph_writer_t::exp(
+  graph_writer_t::tensor_t const& inn)
+{
+  return ew(
+    scalarop_t::make_exp(inn.get_dtype()),
+    inn);
+}
+
+graph_writer_t::tensor_t
 graph_writer_t::softmax(
   graph_writer_t::tensor_t const& inn)
 {

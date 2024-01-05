@@ -122,7 +122,7 @@ class Attention(nn.Module):
         scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
         if mask is not None:
             scores = scores + mask  # (bs, n_local_heads, slen, cache_len + slen)
-        #scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+        scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, values)  # (bs, n_local_heads, slen, head_dim)
         output = output.transpose(
             1, 2
@@ -210,7 +210,7 @@ def print_as_vector(name, t):
   fix = lambda s: str(float(s))
   print("vector<float> " + name + "_{" + ",".join(map(fix, t.reshape(-1))) + "};")
 
-def rms_norm_test(x,weight,grad):
+def rms_norm_test(x,weight):
   norm = RMSNorm(weight)
   y = norm.forward(x)
   sy = y.sum()
@@ -243,15 +243,15 @@ def attention_test():
   print("grad_wo", wo.grad.sum())
 
 def softmax_test():
-  x = nn.Parameter(-0.5 + torch.rand(5,5))
-  y = nn.Parameter(       torch.rand(5))
+  x = nn.Parameter(-0.5 + torch.rand(2,2))
+  y = nn.Parameter(       torch.rand(2,2))
   z = F.softmax(x, dim=-1) * y;
   sz = z.sum()
   sz.backward()
   print_as_vector("x", x)
   print_as_vector("y", y)
-  #print(x.grad)
-  #print(y.grad)
+  print(x.grad)
+  print(y.grad)
   print("gx", x.grad.sum())
   print("gy", y.grad.sum())
 
@@ -402,17 +402,49 @@ def complex_test7():
   print("g xc :",xc.grad)
   print("g x  :",x.grad)
 
+def softmax_test2():
+  x = torch.tensor([0.9,0.3,-0.3,0.1]).reshape((2,2))
+  y = torch.tensor([0.1,0.2,0.3,0.4]).reshape((2,2))
+
+  x = nn.Parameter(x)
+  y = nn.Parameter(y)
+
+  z = F.softmax(x, dim=-1) * y;
+
+  sz = z.sum()
+
+  sz.backward()
+
+  print("gx", x.grad)
+  print("gy", y.grad)
+
+def softmax_test3():
+  print("softmax_test3")
+  x = torch.tensor([0.9,0.3,-0.3,0.1]).reshape((2,2))
+  y = torch.tensor([0.1,0.2,0.3,0.4]).reshape((2,2))
+
+  x = nn.Parameter(x)
+  y = nn.Parameter(y)
+
+  z = torch.exp(x) * y;
+
+  sz = z.sum()
+
+  sz.backward()
+
+  print("gx", x.grad)
+  print("gy", y.grad)
+
 #reduction_test()
 #reduction_exp2()
 #max_exp()
-#softmax_test()
+#softmax_test2()
 #softmax_exp()
-#attention_test()
+attention_test()
 #complex_test()
 #complex_test2()
 #complex_test3()
 #complex_test4()
 #complex_test5()
-complex_test7()
-
+#complex_test7()
 
