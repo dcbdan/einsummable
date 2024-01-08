@@ -562,6 +562,37 @@ T parse_with_ss(string const& s)
   return out;
 }
 
+// Parse [], [T], [T,...,T] with parse_with_ss for each element
+template <typename T>
+vector<T> parse_vector(string const& s, char sep = ',', char open = '[', char close = ']')
+{
+  vector<T> ret;
+
+  if(s.size() < 2) {
+    throw std::runtime_error("failed to parse vector: len < 2");
+  }
+  if(*s.begin() != open or *(s.end() - 1) != close) {
+    throw std::runtime_error("parse vector: needs brackets");
+  }
+
+  auto xx = s.begin() + 1;
+  auto end = s.end() - 1;
+  while(xx != end) {
+    auto yy = std::find(xx, end, sep);
+    if(xx == yy) {
+      throw std::runtime_error("parse_vector: empty substring");
+    }
+    ret.push_back(parse_with_ss<T>(std::string(xx,yy)));
+    if(yy == end) {
+      xx = end;
+    } else {
+      xx = yy + 1;
+    }
+  }
+
+  return ret;
+}
+
 template <typename T>
 string write_with_ss(T const& val)
 {

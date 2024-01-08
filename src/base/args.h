@@ -58,7 +58,14 @@ struct args_t {
           throw std::runtime_error("could not parse bool value");
         }
       } else {
-        return parse_with_ss<T>(iter_argstrs->second);
+        if constexpr (
+          std::is_same<T, vector<int     >>::value ||
+          std::is_same<T, vector<uint64_t>>::value)
+        {
+          return parse_vector<typename T::value_type>(iter_argstrs->second);
+        } else {
+          return parse_with_ss<T>(iter_argstrs->second);
+        }
       }
     }
   }
@@ -80,6 +87,10 @@ struct args_t {
       return _get_value_or_none(d_string, key);
     } else if constexpr (std::is_same<T, bool>::value) {
       return _get_value_or_none(d_bool, key);
+    } else if constexpr (std::is_same<T, vector<int>>::value) {
+      return _get_value_or_none(d_vint, key);
+    } else if constexpr (std::is_same<T, vector<uint64_t>>::value) {
+      return _get_value_or_none(d_vuint64_t, key);
     } else {
       throw std::runtime_error("get_default: unsupported default type");
     }
@@ -101,6 +112,10 @@ struct args_t {
       d_string.insert_or_assign(key, value);
     } else if constexpr (std::is_same<T, bool>::value) {
       d_bool.insert_or_assign(key, value);
+    } else if constexpr (std::is_same<T, vector<int>>::value) {
+      d_vint.insert_or_assign(key, value);
+    } else if constexpr (std::is_same<T, vector<uint64_t>>::value) {
+      d_vuint64_t.insert_or_assign(key, value);
     } else {
       throw std::runtime_error("set_default: unsupported default type");
     }
@@ -120,6 +135,9 @@ private:
   map<string, double   > d_double;
   map<string, string   > d_string;
   map<string, bool     > d_bool;
+
+  map<string, vector<int>      > d_vint;
+  map<string, vector<uint64_t> > d_vuint64_t;
 };
 
 
