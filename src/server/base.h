@@ -42,7 +42,12 @@ struct server_base_t {
   // ranks are listening {{{
   void insert_gid_without_data(int gid, relation_t const& relation);
 
+protected:
+  // This is protected because it will invalidate gid_map.
   virtual void execute(taskgraph_t const& taskgraph) = 0;
+public:
+  // Execute this taskgraph and rewrite the new gid_map... Must be careful
+  void execute(taskgraph_t const& taskgraph, map<int, relation_t> const& new_gid_map);
 
   // create a taskgraph and execute the graph.
   void execute_graph(
@@ -66,6 +71,10 @@ struct server_base_t {
   void insert_tensor(
     int gid,
     placement_t const& placement,
+    dbuffer_t src_tensor);
+  void insert_tensor(
+    int gid,
+    vector<uint64_t> const& shape,
     dbuffer_t src_tensor);
 
   virtual void insert_relation(

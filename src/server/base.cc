@@ -43,7 +43,7 @@ void server_base_t::execute_graph(
       num_bytes += node.op.get_move().size;
     }
   }
-  DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
+  //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
   //{
   //  std::ofstream f("tg.gv");
@@ -67,6 +67,14 @@ void server_base_t::execute_graph(
   for(auto const& [gid, tids]: out_g_to_t) {
     gid_map.insert({gid, make_relation(gid, tids)});
   }
+}
+
+void server_base_t::execute(
+  taskgraph_t const& taskgraph,
+  map<int, relation_t> const& new_gid_map)
+{
+  execute(taskgraph);
+  gid_map = new_gid_map;
 }
 
 dbuffer_t server_base_t::get_tensor_from_gid(int gid)
@@ -107,6 +115,17 @@ void server_base_t::insert_tensor(
   };
 
   insert_tensor(gid, relation, src_tensor);
+}
+
+void server_base_t::insert_tensor(
+  int gid,
+  vector<uint64_t> const& shape,
+  dbuffer_t src_tensor)
+{
+  insert_tensor(
+    gid,
+    placement_t(partition_t::singleton(shape)),
+    src_tensor);
 }
 
 void server_base_t::remap(
@@ -385,12 +404,12 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
   auto [mem_sizes, full_data_locs, which_storage] =
     recv_make_mg_info();
 
-  gremlin_t* gremlin = new gremlin_t("making memgraph");
+  //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
       taskgraph, which_storage, mem_sizes,
       full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
-  delete gremlin;
+  //delete gremlin;
 
   //{
   //std::ofstream f("mg.gv");

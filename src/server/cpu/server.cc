@@ -21,10 +21,6 @@ void cpu_mg_server_t::execute_memgraph(
 
   int this_rank = comm.get_this_rank();
 
-  if(this_rank == 0) {
-    DLINEOUT("execute_memgraph enter on cpu server");
-  }
-
   exec_graph_t graph =
     exec_graph_t::make_cpu_exec_graph(
       memgraph,
@@ -52,14 +48,14 @@ void cpu_mg_server_t::execute_memgraph(
 
   if(for_remap) {
     if(this_rank == 0) {
-      gremlin_t gremlin("execute_memgraph remap or move inputs loop time");
+      //gremlin_t gremlin("execute_memgraph remap or move inputs loop time");
       state.event_loop();
     } else {
       state.event_loop();
     }
   } else {
     if(this_rank == 0) {
-      gremlin_t gremlin("execute_memgraph event loop time");
+      //gremlin_t gremlin("execute_memgraph event loop time");
       state.event_loop();
     } else {
       state.event_loop();

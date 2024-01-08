@@ -677,6 +677,10 @@ _binary_ew_loop(b27,c27,d27,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t
 _binary_ew_loop(b28,c28,d28,float,float,float,(x0[i0]+((*((float*)(d+0)))*x1[i1])))
 _binary_ew_loop(b29,c29,d29,double,double,double,(x0[i0]+((*((double*)(d+0)))*x1[i1])))
 _binary_ew_loop(b30,c30,d30,double,double,double,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
+_binary_ew_loop(b31,c31,d31,float,float,float,(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8))))))
+_binary_ew_loop(b32,c32,d32,double,double,double,(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8))))))
+_binary_ew_loop(b33,c33,d33,float,float,float,((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i])))))
+_binary_ew_loop(b34,c34,d34,double,double,double,((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i])))))
 
 optional<
   tuple<vector<uint8_t>,
@@ -779,7 +783,11 @@ lookup_binary_straight_ew_kernel(
     { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", b27 },
     { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", b28 },
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", b29 },
-    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b30 }
+    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b30 },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8)))))", b31 },
+    { "f64,f64->f64|(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8)))))", b32 },
+    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", b33 },
+    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", b34 }
   };
 
   auto iter = kernels.find(key);
@@ -840,7 +848,11 @@ lookup_binary_212_ew_kernel(
     { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", { c27, d27} },
     { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", { c28, d28} },
     { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", { c29, d29} },
-    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c30, d30} }
+    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c30, d30} },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8)))))", {c31, d31} },
+    { "f64,f64->f64|(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8)))))", {c32, d32} },
+    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", {c33, d33} },
+    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", {c34, d34} }
   };
 
   auto iter = kernels.find(key);

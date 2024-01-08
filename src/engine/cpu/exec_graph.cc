@@ -69,7 +69,9 @@ exec_graph_t::make_cpu_exec_graph(
         einsummable_t e = apply.get_einsummable().merge_adjacent_dims();
         auto maybe_worksize = cpu_executor.build(e);
         if(!maybe_worksize) {
-          throw std::runtime_error("could not compile the kernel");
+          DOUT(std::get<0>(e.join.to_cpp_bytes()));
+          DOUT(e.join.to_cppstr([](int i) { return "x" + write_with_ss(i); }));
+          throw std::runtime_error("could not compile the kernel: " + write_with_ss(e));
         }
 
         // build the op
