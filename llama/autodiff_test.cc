@@ -402,12 +402,90 @@ void softmax_test3() {
   DOUT("gy " << gy_id << ": " << data.at(gy_id));
 }
 
+void forward_test1()
+{
+  uint64_t dn  = 4;
+  uint64_t dp  = 2;
+  uint64_t dd  = 2;
+  uint64_t dw1 = 2;
+  uint64_t dw2 = 2;
+
+vector<float> x_{0.2633971571922302,0.2270956039428711,0.500491738319397,0.24498778581619263,0.6035093665122986,0.778448760509491,0.7928462028503418,0.05222243070602417};
+vector<float> y_{0.36576616764068604,0.7166582345962524,0.5282002091407776,0.6736341118812561,0.1187816858291626,0.6779669523239136,0.1932758092880249,0.17560386657714844};
+vector<float> w0_{0.05514711141586304,0.9867408871650696,0.37867271900177,0.45346295833587646};
+vector<float> w1_{0.8223041892051697,0.3970258831977844,0.11585962772369385,0.5765251517295837};
+vector<float> w2_{0.9273481965065002,0.6494401693344116,0.06650429964065552,0.23578673601150513};
+
+  dbuffer_t _x = make_dbuffer_from_vector(x_);
+  dbuffer_t _y = make_dbuffer_from_vector(y_);
+  dbuffer_t _w0 = make_dbuffer_from_vector(w0_);
+  dbuffer_t _w1 = make_dbuffer_from_vector(w1_);
+  dbuffer_t _w2 = make_dbuffer_from_vector(w2_);
+
+  graph_writer_t writer;
+  auto x = writer.input({dn,dp});
+  auto y = writer.input({dn,dd});
+  auto w0 = writer.input({dp,dw1});
+  auto w1 = writer.input({dw1,dw2});
+  auto w2 = writer.input({dw2,dd});
+
+  scalarop_t relu = scalarop_t::make_relu();
+
+  auto z = writer.ew(relu, writer.matmul(x, w0));
+  z = writer.ew(relu, writer.matmul(z, w1));
+  z = writer.matmul(z, w2);
+
+  string ds = write_with_ss(dtype_t::f32);
+  scalarop_t squared_difference =
+    scalarop_t::from_string(
+      "power{2}[+[hole|"+ds+"@0,*[hole|"+ds+"@1,constant{"+ds+"|-1}]]]");
+  auto loss = writer.ew("ij,ij->ij", squared_difference, z, y);
+  loss = loss.scale(scalar_t(1/(float(1.0)*dn*dd)));
+
+  map<int, string> colors;
+  for(int i = 0; i != writer.get_graph().nodes.size(); ++i) {
+    colors.insert({i, "azure"});
+  }
+
+  auto grads = writer.backprop(loss, {w0,w1,w2});
+  auto gw0 = grads[0];
+  auto gw1 = grads[1];
+  auto gw2 = grads[2];
+  gw0.save_inplace();
+  gw1.save_inplace();
+  gw2.save_inplace();
+
+  auto const& graph = writer.get_graph();
+
+  {
+    std::ofstream f("g.gv");
+    writer.get_graph().print_graphviz(f, colors);
+    DOUT("printed g.gv");
+  }
+
+  map<int, dbuffer_t> data;
+  data.insert({x.get_id(), _x});
+  data.insert({y.get_id(), _y});
+  data.insert({w0.get_id(), _w0});
+  data.insert({w1.get_id(), _w1});
+  data.insert({w2.get_id(), _w2});
+
+  data = reference_compute_graph(graph, data);
+
+  int gw0_id = gw0.get_id();
+  int gw1_id = gw1.get_id();
+  int gw2_id = gw2.get_id();
+
+  DOUT("gw0 " << gw0_id << ": " << data.at(gw0_id));
+  DOUT("gw1 " << gw1_id << ": " << data.at(gw1_id));
+  DOUT("gw2 " << gw2_id << ": " << data.at(gw2_id));
+}
 
 int main() {
   set_default_dtype(dtype_t::f32);
 
   //rms_norm_test();
-  attention_test();
+  //attention_test();
 
   //complex_test();
   //complex_test2();
@@ -417,4 +495,6 @@ int main() {
   //softmax_test();
   //reduction_test();
   //reduction_test2();
+
+  forward_test1();
 }

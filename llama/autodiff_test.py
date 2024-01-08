@@ -435,12 +435,37 @@ def softmax_test3():
   print("gx", x.grad)
   print("gy", y.grad)
 
+def forward_test1(dn, dp, dd, dw1, dw2):
+  x = torch.rand(dn,dp)
+  y = torch.rand(dn,dd)
+  w0 = nn.Parameter(torch.rand(dp,dw1))
+  w1 = nn.Parameter(torch.rand(dw1,dw2))
+  w2 = nn.Parameter(torch.rand(dw2,dd))
+
+  print_as_vector("x", x);
+  print_as_vector("y", y);
+  print_as_vector("w0", w0)
+  print_as_vector("w1", w1)
+  print_as_vector("w2", w2)
+
+  x = F.relu(torch.matmul(x, w0))
+  x = F.relu(torch.matmul(x, w1))
+  x = torch.matmul(x, w2)
+
+  loss = torch.sum(torch.square(x-y))
+  loss = loss / (dn*dd)
+
+  loss.backward()
+  print("gw0", w0.grad)
+  print("gw1", w1.grad)
+  print("gw2", w2.grad)
+
 #reduction_test()
 #reduction_exp2()
 #max_exp()
 #softmax_test2()
 #softmax_exp()
-attention_test()
+#attention_test()
 #complex_test()
 #complex_test2()
 #complex_test3()
@@ -448,3 +473,4 @@ attention_test()
 #complex_test5()
 #complex_test7()
 
+forward_test1(4, 2, 2, 2, 2)

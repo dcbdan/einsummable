@@ -66,8 +66,8 @@ make_graph(uint64_t dn, uint64_t dp, uint64_t dd, vector<uint64_t> dws)
   tensor sqdiff  = gwriter.straight_bew(squared_difference, yhat, y);
 
   // scale sqdiff so that the learning rate doesn't have to change
-  // for different values of dn and dp
-  tensor loss = sqdiff.scale(scalar_t(1/(float(1.0)*dn*dp)));
+  // for different values of dn and dd
+  tensor loss = sqdiff.scale(scalar_t(1/(float(1.0)*dn*dd)));
 
   info_t ret {
     .x_id = x.get_id(),
