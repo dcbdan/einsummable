@@ -356,7 +356,7 @@ int main(int argc, char** argv) {
   for(int const& gid: info.w_ids) {
     auto shape = graph.out_shape(gid);
     dbuffer_t data = make_dbuffer(dtype_t::f32, product(shape));
-    data.random("-0.00001", "0.00001");
+    data.random("-0.1", "0.1");
     server.insert_tensor(gid, trainer.get_input_relation(gid), data);
   }
 
@@ -373,9 +373,12 @@ int main(int argc, char** argv) {
     trainer();
     double loss = server.get_tensor_from_gid(info.loss_id).sum_to_f64();
     loss_so_far += loss;
-    if(iter % 100 == 0) {
-      DOUT("avg loss at iter " << iter << ": " << (loss_so_far / 100.0));
+    if(iter % 500 == 0) {
+      DOUT("avg loss at iter " << iter << ": " << (loss_so_far / 500.0));
       loss_so_far = 0.0;
+      //for(int const& id: info.w_ids) {
+      // DOUT("weight: " << server.get_tensor_from_gid(id));
+      //}
     }
   }
 }
