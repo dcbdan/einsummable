@@ -50,15 +50,31 @@ void dbuffer_t::iota(int start) {
   if(dtype == dtype_t::f16) {
     auto ptr = f16();
     std::iota(ptr, ptr + nelem(), start*1.0);
+    for (int i = 0; i < nelem(); ++i) {
+        std::cout << f16()[i] << " ";
+    }
+    std::cout << "\n";
   } else if(dtype == dtype_t::f32) {
     auto ptr = f32();
     std::iota(ptr, ptr + nelem(), start*1.0);
+    for (int i = 0; i < nelem(); ++i) {
+        std::cout << f32()[i] << " ";
+    }
+    std::cout << "\n";
   } else if(dtype == dtype_t::f64) {
     auto ptr = f64();
     std::iota(ptr, ptr + nelem(), start*1.0);
+    for (int i = 0; i < nelem(); ++i) {
+        std::cout << f64()[i] << " ";
+    }
+    std::cout << "\n";
   } else if(dtype == dtype_t::c64) {
     auto ptr = c64();
     std::iota(ptr, ptr + nelem(), start*1.0);
+    for (int i = 0; i < nelem(); ++i) {
+        std::cout << c64()[i] << " ";
+    }
+    std::cout << "\n";
   } else {
     throw std::runtime_error("should not reach fill");
   }

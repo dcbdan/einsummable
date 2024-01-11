@@ -758,3 +758,42 @@ typed_reference_compute_taskgraph_from_graph_info(
     typed_task_ids(graph, save_gid_to_tids));
 }
 
+
+dbuffer_t reference_partialize(
+  taskgraph_t::partialize_t const& partialize,
+  map<int, dbuffer_t> inn_data)
+{
+  // Extract information from the partialize object
+  dtype_t const& dtype = partialize.dtype;
+  uint64_t nelem = product(partialize.write_shape);
+
+  // Create an output buffer (dbuffer_t) based on the specified data type and size
+  dbuffer_t out = make_dbuffer(dtype, nelem);
+
+  // Iterate over the touches_from_agg_unit in the partialize object
+  for(auto const& touches_from_agg_unit: partialize.as_touches_from()) {
+    auto iter = touches_from_agg_unit.begin();
+    auto end  = touches_from_agg_unit.end();
+
+    {
+      // This is the first touch contributing to the aggregation,
+      // which must always be a copy so that the output data is
+      // initialized.
+      auto [inn_id, touch] = *iter++;
+      touch.castable = std::nullopt;
+      dbuffer_t const& inn = inn_data.at(inn_id);
+      reference_touch(touch, out, inn);
+    }
+
+    // Iterate over the remaining touches in touches_from_agg_unit
+    for(; iter != end; ++iter) {
+      auto const& [inn_id, touch] = *iter;
+      dbuffer_t const& inn = inn_data.at(inn_id);
+      // Call a function reference_touch to perform some operations on the buffers
+      reference_touch(touch, out, inn);
+    }
+  }
+  // Return the resulting output buffer
+  return out;
+}
+

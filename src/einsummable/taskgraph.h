@@ -129,23 +129,6 @@ struct taskgraph_t {
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
   int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
-private:
-  struct input_t {
-    int loc;
-    uint64_t size;
-  };
-  struct apply_t {
-    int loc;
-    vector<int> inns;
-    einsummable_t einsummable;
-  };
-  struct move_t {
-    int src;
-    int dst;
-    int inn;
-    uint64_t size;
-  };
-
   // Some words are neccessary to describe what a partialize is.
   // A partialize operation produces a single tid.
   // Partialize represent a generalization of "multiple" partial reduces.
@@ -271,6 +254,25 @@ private:
     vector<uint64_t> write_shape;
     vector<partial_unit_t> units;
   };
+
+private:
+  struct input_t {
+    int loc;
+    uint64_t size;
+  };
+  struct apply_t {
+    int loc;
+    vector<int> inns;
+    einsummable_t einsummable;
+  };
+  struct move_t {
+    int src;
+    int dst;
+    int inn;
+    uint64_t size;
+  };
+
+  
 
   friend
   bool operator==(

@@ -1,5 +1,5 @@
 #include "base.h"
-#include <fstream>
+
 #include "../engine/repartition.h"
 
 void server_base_t::execute_graph(
@@ -382,11 +382,11 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
       full_data_locs, alloc_settings, true, true);
   memgraph_t const& inputs_everywhere_mg = inputs_everywhere_mg_.value();
 
-  {
-   std::ofstream f("mg.gv");
-   memgraph.print_graphviz(f);
-   DOUT("printed mg.gv");
-  }
+  //{
+  //  std::ofstream f("mg.gv");
+  //  memgraph.print_graphviz(f);
+  //  DOUT("printed mg.gv");
+  //}
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
@@ -459,4 +459,3 @@ std::istream& operator>>(std::istream& inn, server_mg_base_t::cmd_t& c) {
   c = server_mg_base_t::cmd_t(istream_expect_or(inn, server_mg_base_t::cmd_strs()));
   return inn;
 }
-

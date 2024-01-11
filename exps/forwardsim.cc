@@ -279,7 +279,7 @@ void main02() {
 void main05() {
   // Do markov chain monte carlo to search the space..
 
-  int nlocs = 4;
+  int nlocs = 2;
 
   cluster_t cluster = make_cluster(nlocs, 30, 1);
 
@@ -340,14 +340,14 @@ void main05() {
     id_t rhs = writer.input({nj,nk}, dtype_t::c64);
     id_t out = writer.matmul(lhs, rhs);
 
-    out = out.to_real();
-    out = out.to_complex();
-    out = out.to_real();
-    out = writer.add(out, out);
-    out = out.to_complex();
-    out = out.to_real();
-    out = out.to_complex();
-    out = writer.add(out, out);
+    // out = out.to_real();
+    // out = out.to_complex();
+    // out = out.to_real();
+    // out = writer.add(out, out);
+    // out = out.to_complex();
+    // out = out.to_real();
+    // out = out.to_complex();
+    // out = writer.add(out, out);
 
     using _all = graph_writer_t::idx_t::all;
     using _idx = graph_writer_t::idx_t::idx;
@@ -368,7 +368,7 @@ void main05() {
   double base = simulate(cluster, graph, graph.make_singleton_placement());
 
   using mcmc_t = forwardsim_mcmc_t;
-  //mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
+  // mcmc_t mcmc = mcmc_t::init_with_single_loc(cluster, graph, 100000.1, eqs);
   mcmc_t mcmc = mcmc_t::init_balanced(cluster, graph, 100000.1, eqs);
 
   for(int i = 0; i != 20000; ++i) {
@@ -383,9 +383,9 @@ void main05() {
 
   {
     auto const& [_0, _1, taskgraph] = taskgraph_t::make(graph, mcmc.best_placements);
-    std::ofstream f("tg.gv");
+    std::ofstream f("tg_2loc.gv");
     taskgraph.print_graphviz(f);
-    DOUT("Printed to tg.gv");
+    DOUT("Printed to tg_2loc.gv");
   }
 }
 

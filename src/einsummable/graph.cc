@@ -226,6 +226,25 @@ touch_t subset_t::as_touch() const {
   };
 }
 
+touch_t subset_t::as_touch(vector<touchdim_t> tds) const{
+  tds.reserve(selection.size());
+  for(auto const& [d_inn, d_out, offset]: selection) {
+    tds.push_back(touchdim_t {
+      .d_inn      = d_inn,
+      .d_out      = d_out,
+      .offset_inn = offset,
+      .offset_out = 0,
+      .size       = d_out
+    });
+  }
+  return touch_t {
+    .selection = tds,
+    .castable  = std::nullopt,
+    .dtype     = dtype
+  };
+}
+
+
 int graph_constructor_t::insert_input(
   placement_t placement, dtype_t dtype)
 {

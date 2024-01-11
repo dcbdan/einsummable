@@ -786,27 +786,27 @@ bool memgraph_t::op_t::is_local_to(int loc) const {
   }
 }
 
-bool memgraph_t::op_t::is_local_to_gpu(int node, int num_gpu_per_node) const {
+bool memgraph_t::op_t::is_local_to_gpu(int loc, int num_gpu_per_node) const {
   if(is_inputmem()) {
-    return node == std::floor(get_inputmem().loc / num_gpu_per_node);
+    return loc == get_inputmem().loc % num_gpu_per_node;
   } else if(is_inputsto()) {
-    return node == std::floor(get_inputsto().loc / num_gpu_per_node);
+    return loc == get_inputsto().loc % num_gpu_per_node;
   } else if(is_apply()) {
-    return node == std::floor(get_apply().loc / num_gpu_per_node);
+    return loc == get_apply().loc % num_gpu_per_node;
   } else if(is_move()) {
     auto const& move = get_move();
     return loc == move.get_src_loc() % num_gpu_per_node
       || loc == move.get_dst_loc() % num_gpu_per_node;
   } else if(is_evict()) {
-    return std::floor(node == get_evict().src.loc / num_gpu_per_node);
+    return loc == get_evict().src.loc % num_gpu_per_node;
   } else if(is_load()) {
-    return std::floor(node == get_load().dst.loc / num_gpu_per_node);
+    return loc == get_load().dst.loc % num_gpu_per_node;
   } else if(is_partialize()) {
-    return std::floor(node == get_partialize().loc / num_gpu_per_node);
+    return loc == get_partialize().loc % num_gpu_per_node;
   } else if(is_alloc()) {
-    return std::floor(node == get_alloc().loc / num_gpu_per_node);
+    return loc == get_alloc().loc % num_gpu_per_node;
   } else if(is_del()) {
-    return std::floor(node == get_del().loc / num_gpu_per_node);
+    return loc == get_del().loc % num_gpu_per_node;
   } else {
     throw std::runtime_error("is_local_to should not reach");
   }
@@ -2375,5 +2375,4 @@ bool operator<(_which_touch_t const& lhs, _which_touch_t const& rhs)
 {
   return three_tuple_lt(lhs, rhs);
 }
-
 

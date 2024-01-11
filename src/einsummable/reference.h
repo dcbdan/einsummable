@@ -84,3 +84,8 @@ typed_reference_compute_taskgraph_from_graph_info(
   graph_t const& graph,
   map<int, vtensor_t<int>> const& save_gid_to_tids);
 
+
+dbuffer_t reference_partialize(
+  taskgraph_t::partialize_t const& partialize,
+  map<int, dbuffer_t> inn_data);
+

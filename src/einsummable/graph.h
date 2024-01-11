@@ -56,6 +56,7 @@ struct subset_t {
   vector<tuple<uint64_t, uint64_t>> get_hrect() const;
 
   touch_t as_touch() const;
+  touch_t as_touch(vector<touchdim_t> tds) const;
 
   template <typename T>
   vector<T> squeeze_vec(vector<T> const& inn) const {
