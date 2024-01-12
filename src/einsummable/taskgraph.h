@@ -134,6 +134,8 @@ struct taskgraph_t {
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
   int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
+  
+
 private:
   struct input_t {
     int loc;
@@ -256,6 +258,7 @@ private:
 
     static partialize_t make_from_touches(
       int loc, vector<tuple<int, touch_t>> const&);
+    
 
     // For each unit with n inputs, try to split that unit into
     // n sub-units.
@@ -275,11 +278,12 @@ private:
     // (this should usally be of length 1, but you never know)
     vector<vector<uint64_t>> inn_shapes_of(int id) const;
 
-    int loc;
-    dtype_t dtype;
-    vector<uint64_t> write_shape;
-    vector<partial_unit_t> units;
-  };
+
+      int loc;
+      dtype_t dtype;
+      vector<uint64_t> write_shape;
+      vector<partial_unit_t> units;
+    };
 
 
   friend
@@ -352,6 +356,7 @@ public:
     partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
 
+
     op_t remap(std::function<int(int)> to_new_tid) const;
 
     vector<vector<tuple<int, touch_t>>> get_touches() const {
@@ -367,6 +372,22 @@ public:
     bool is_save;
   };
   vector<node_t> nodes;
+
+  // remove unncessary touch in partialize
+  // Simplify partialize_t
+  // logic
+  // For two touch, (1)for one dim which ending index of one touch == starting index of another touch 
+  // AND (2)if starting and ending index of other dim are same for inputs and are same for outputs(input and output index does not have to be same) 
+  struct adj_simplify_partialize_t{
+      // hold info that is needed to simply partialize
+      int inn;
+      touch_t first_touch;
+      touch_t second_touch;
+      touch_t simplify_touch;
+  };
+
+  static partialize_t adj_simplify_partialize(partialize_t const& partialize_);
+  static partialize_t construct_partialize_from_map(std::map<int, std::vector<touch_t>> inn_touch_map);
 
 private:
   int insert(op_t op, bool is_save);
@@ -397,6 +418,8 @@ bool operator!=(
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
+
+
 
 /////////////////////////////////////
 
@@ -433,4 +456,8 @@ multiple_placement_t construct_refinement_placement(
   graph_t const& graph,
   int gid,
   std::function<placement_t const&(int)> get_placement);
+
+
+
+
 

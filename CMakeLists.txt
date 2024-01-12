@@ -87,6 +87,7 @@ if(${CPU_EXECUTION_ENGINE})
 
   set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
+  SET(UCX_PATH "/opt/ucx")
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
@@ -144,6 +145,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("eventloop"             "exps" "eventloop")
   add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  add_cpu_application("test_partialize"           "exps" "test_partialize")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
