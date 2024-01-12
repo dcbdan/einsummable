@@ -31,13 +31,29 @@ enum class parts_space_t {
 // * Repartitions: The cost of all touches; the cost of a touch is the
 //     cost to move the input and output to a new location
 // * Non einsummable and non repartitions: no cost
+//
+// Note:
+// 1. all formation nodes will have the same partition as it's input
+// 2. all aggs must be followed by a formation
 vector<partition_t> apart01(
   graph_t const& graph,
   int n_compute,
   int max_branching = 2,
+  uint64_t discount_input_factor = 1,
   parts_space_t search_space = parts_space_t::contraction);
 
+// Note: all formation nodes have the same partition as it's input
 uint64_t apart01_cost(
   graph_t const& graph,
   vector<partition_t> const& partitions);
 
+// This does not put restrictions on formation nodes.
+//
+// Step 1: Go through in reverse order and pick the best partition from the same
+//         space as apart01, subject to fixed placements and equal placement constraints
+// Step 2:
+vector<partition_t> apart02(
+  graph_t const& graph,
+  int n_compute,
+  map<int, partition_t> const& fixed_pls,
+  vector<tuple<int,int>> const& equal_pls);

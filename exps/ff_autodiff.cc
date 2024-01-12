@@ -88,6 +88,11 @@ make_graph(uint64_t dn, uint64_t dp, uint64_t dd, vector<uint64_t> dws)
 //               the user before the first iteration
 // weight_ids:   the tensors that get updated via update(weight, grad)
 struct trainer_t {
+  using f_autoplace_t =
+    std::function<vector<placement_t>(
+      graph_t const&,
+      map<int, placement_t> const&,
+      vector<tuple<int,int>> const&)>;
   trainer_t(
     server_base_t* server,
     graph_t const& init_graph,
@@ -96,7 +101,8 @@ struct trainer_t {
     vector<int> const& data_ids,
     vector<int> const& constant_ids,
     vector<int> const& weight_ids,
-    scalarop_t update /* weight elem , grad elem -> new eight elem */)
+    scalarop_t update,  // weight elem , grad elem -> new eight elem
+    f_autoplace_t autoplace)
     : server(server)
   {
     graph_t graph = init_graph;
@@ -131,11 +137,17 @@ struct trainer_t {
       DOUT("printed g.gv");
     }
 
-    // TODO: here we should come up with good placements, somehow
     vector<placement_t> placements;
-    placements.reserve(graph.nodes.size());
-    for(auto const& node: graph.nodes) {
-      placements.emplace_back(partition_t::singleton(node.op.shape()));
+    {
+      map<int, placement_t> fixed_pls;
+      for(int const& id: inspect_ids) {
+        vector<uint64_t> shape = graph.nodes[id].op.shape();
+        fixed_pls.insert({id, placement_t(partition_t::singleton(shape))});
+      }
+
+      vector<tuple<int,int>> equal_pls = vector_zip(weight_ids, updated_weights);
+
+      placements = autoplace(graph, fixed_pls, equal_pls);
     }
 
     auto [inn_tids, out_tids, taskgraph_] = taskgraph_t::make(graph, placements);
@@ -339,6 +351,21 @@ int main(int argc, char** argv) {
     }
   );
 
+  auto f_autoplace = [](
+    graph_t const& graph,
+    map<int, placement_t> const& fixed_pls,
+    vector<tuple<int,int>> const& equal_pls)
+  {
+    // TODO: actually solve it here
+
+    vector<placement_t> ret;
+    ret.reserve(graph.nodes.size());
+    for(auto const& node: graph.nodes) {
+      ret.emplace_back(partition_t::singleton(node.op.shape()));
+    }
+    return ret;
+  };
+
   trainer_t trainer(
     &server,
     graph,
@@ -347,7 +374,8 @@ int main(int argc, char** argv) {
     {info.x_id, info.y_id}, // data
     {},                     // constants
     info.w_ids,             // weights
-    grad_update);
+    grad_update,
+    f_autoplace);
   // Here, we'll vary x at every iteration but
   // y will be held constant
 

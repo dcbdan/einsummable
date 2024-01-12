@@ -58,6 +58,7 @@ add_base_application("scalarop"         "exps" "scalarop")
 #add_base_application("mm"               "exps" "mm")
 #add_base_application("engine"           "exps" "engine")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
+add_base_application("autoplace"        "exps" "autoplace")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
