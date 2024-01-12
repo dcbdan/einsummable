@@ -1,0 +1,8 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    echo "Installing required packages..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y build-essential cmake protobuf-compiler
