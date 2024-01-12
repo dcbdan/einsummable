@@ -11,7 +11,7 @@ int main(){
     // int a1 = tg.insert_input(0, dtype, {50});
     // int a2 = tg.insert_input(0, dtype, {50});
     // // int b  = tg.insert_input(0, dtype, {100});
-    
+
     // int x = tg.new_partial(0, dtype, {100});
     // tg.add_to_partial(x, a1,
     //   touch_t {
@@ -27,7 +27,7 @@ int main(){
     //     .dtype = dtype
     //   },
     //   false);
-    
+
     // // verify using reference_partialize
     // dbuffer_t dataBufferA = make_dbuffer(dtype, 100);
     // dataBufferA.iota(0);
@@ -42,8 +42,8 @@ int main(){
     // dbuffer_t out = reference_partialize(part,inn_data);
     // DOUT("reference_partialize: " << out);
 
-    
-    
+
+
 
 
     // case2: one inputs that can not be simplified
@@ -71,7 +71,7 @@ int main(){
         .dtype = dtype
       },
       false);
-  
+
 
 
     // // // case3: one inputs that can be simplified
@@ -108,12 +108,16 @@ int main(){
             for(auto const& [inn, touch]: p.as_touches_from_flat()) {
                 DOUT("partialize: " << id << ", with inn " << inn << ": " << touch);
             }
-
-            auto simplified_part = taskgraph_t::adj_simplify_partialize(p);
-            for(auto const& [inn, touch]: simplified_part.as_touches_from_flat()) {
+        }
+    }
+    tg.simplify_partializes();
+    for(int id = 0; id != tg.nodes.size(); ++id) {
+        auto const& node = tg.nodes[id];
+        if(node.op.is_partialize()) {
+            auto const& p = node.op.get_partialize();
+            for(auto const& [inn, touch]: p.as_touches_from_flat()) {
                 DOUT("simplified partialize: " << id << ", with inn " << inn << ": " << touch);
             }
         }
-
     }
 }

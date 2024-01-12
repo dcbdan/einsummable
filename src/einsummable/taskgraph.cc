@@ -2591,6 +2591,19 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
   return ret;
 }
 
+void taskgraph_t::simplify_partializes() {
+  for(auto& node: nodes) {
+    auto& op = node.op;
+    if(op.is_partialize()) {
+      partialize_t& p = op.get_partialize();
+      optional<partialize_t> maybe_new_p = partialize_t::adj_simplify_partialize(p);
+      if(maybe_new_p) {
+        p = maybe_new_p.value();
+      }
+    }
+  }
+}
+
 int taskgraph_t::insert(op_t op, bool is_save) {
   int ret = nodes.size();
 
@@ -2874,6 +2887,183 @@ taskgraph_t::partialize_t::make_from_touches(
   return ret;
 }
 
+taskgraph_t::partialize_t
+taskgraph_t::partialize_t::make_from_touches(
+  int loc,
+  map<int, vector<touch_t>> const& inn_touch_map)
+{
+  vector<tuple<int, touch_t>> ret;
+  for(auto const& [inn, ts]: inn_touch_map) {
+    for(auto const& t: ts) {
+      ret.emplace_back(inn, t);
+    }
+  }
+  return make_from_touches(loc, ret);
+}
+
+// remove unncessary touch in partialize
+// Simplify partialize_t logic
+// For two touch, (1) for one dim which ending index of one touch ==
+// starting index of another touch
+// AND (2) if starting and ending index of other dim are same for inputs
+// and are same for outputs(input and output index does not have to be same
+struct adj_simplify_partialize_t{
+    // hold info that is needed to simply partialize
+    int inn;
+    int first_touch;
+    int second_touch;
+    touch_t simplify_touch;
+};
+
+static touch_t merge_two_touchdim(
+  touch_t const& i_touch_,
+  touch_t const& j_touch_,
+  int merge_dim)
+{
+  vector<touchdim_t> const& i_touch = i_touch_.selection;
+  vector<touchdim_t> const& j_touch = j_touch_.selection;
+
+  bool condition_ij =
+    i_touch[merge_dim].offset_inn + i_touch[merge_dim].size == j_touch[merge_dim].offset_inn &&
+    i_touch[merge_dim].offset_out + i_touch[merge_dim].size == j_touch[merge_dim].offset_out;
+  bool condition_ji =
+    j_touch[merge_dim].offset_inn + j_touch[merge_dim].size == i_touch[merge_dim].offset_inn &&
+    j_touch[merge_dim].offset_out + j_touch[merge_dim].size == i_touch[merge_dim].offset_out;
+
+  if(condition_ij && condition_ji) {
+    throw std::runtime_error("both conditions true; does not make sense");
+  }
+
+  touch_t ret = i_touch_;
+  if(condition_ij || condition_ji) {
+    touchdim_t new_touchdim = touchdim_t {
+      .d_inn = i_touch[merge_dim].d_out,
+      .d_out = i_touch[merge_dim].d_out,
+      .offset_inn = condition_ij ?
+        i_touch[merge_dim].offset_inn :
+        j_touch[merge_dim].offset_inn,
+      .offset_out =
+        condition_ij ?
+        i_touch[merge_dim].offset_out :
+        j_touch[merge_dim].offset_out,
+      .size = i_touch[merge_dim].size + j_touch[merge_dim].size,
+    };
+
+    ret.selection[merge_dim] = new_touchdim;
+    return ret;
+  }
+
+  throw std::runtime_error("Don't know how to simplify two touches; both conditions false");
+}
+
+static
+optional<int>
+find_adj_touch_simplify(
+  vector<touchdim_t> const& i_sel,
+  vector<touchdim_t> const& j_sel)
+{
+  bool only_one_diff = false;
+  int merge_dim = -1;
+  for(int k = 0; k < i_sel.size(); k++){
+    touchdim_t const& itd = i_sel[k];
+    touchdim_t const& jtd = j_sel[k];
+    if(itd != jtd) {
+      if(only_one_diff == true) {
+        return std::nullopt;
+      }
+      if(
+        (itd.offset_inn + itd.size == jtd.offset_inn &&
+         itd.offset_out + itd.size == jtd.offset_out)     ||
+        (jtd.offset_inn + jtd.size == itd.offset_inn &&
+         jtd.offset_out + jtd.size == itd.offset_out))
+      {
+        only_one_diff = true;
+        merge_dim = k;
+      }
+    }
+  }
+
+  if(merge_dim < 0) {
+    return std::nullopt;
+  }
+
+  return merge_dim;
+}
+
+static
+optional<int>
+find_adj_touch_simplify(
+  touch_t const& i_touch,
+  touch_t const& j_touch)
+{
+  return find_adj_touch_simplify(i_touch.selection, j_touch.selection);
+}
+
+// find the simplified version of the current version
+static optional<adj_simplify_partialize_t>
+find_adj_simplify_partialize(
+  map<int, vector<touch_t>> const& inn_touch_map)
+{
+  for(auto const& [inn, touches]: inn_touch_map) {
+    if(touches.size() == 0) {
+      throw std::runtime_error("should not have an empty list of touches");
+    }
+    for(int i = 0; i != touches.size(); ++i) {
+      touch_t const& i_touch = touches[i];
+      for(int j = 0; j != touches.size(); ++j) {
+        touch_t const& j_touch = touches[j];
+        optional<int> maybe_merge_dim = find_adj_touch_simplify(i_touch, j_touch);
+        if(maybe_merge_dim) {
+          touch_t simplify_touch = merge_two_touchdim(
+            i_touch, j_touch, maybe_merge_dim.value());
+          return adj_simplify_partialize_t {
+            .inn = inn,
+            .first_touch = i,
+            .second_touch = j,
+            .simplify_touch = simplify_touch
+          };
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+// Modify the partialize (represented as an inn_touch_map) as prescribed by info
+static void adj_simplify_partialize_(
+  adj_simplify_partialize_t const& info,
+  map<int, vector<touch_t>>& inn_touch_map)
+{
+  // From inn_touch_map[inn],
+  //     (1) remove the touches at i and j
+  // and (2) add new_touch
+  auto const& [inn, i, j, new_touch] = info;
+  vector<touch_t>& touches = inn_touch_map[info.inn];
+  touches[i] = new_touch;
+  touches.erase(touches.begin() + j);
+}
+
+optional<taskgraph_t::partialize_t>
+taskgraph_t::partialize_t::adj_simplify_partialize(partialize_t const& partialize)
+{
+  map<int, vector<touch_t>> inn_touch_map;
+  for(auto const& [inn, touch]: partialize.as_touches_from_flat()) {
+    inn_touch_map[inn].push_back(touch);
+  }
+
+  auto maybe = find_adj_simplify_partialize(inn_touch_map);
+  if(!maybe.has_value()) {
+    return std::nullopt;
+  }
+
+  while(maybe.has_value()) {
+    adj_simplify_partialize_(maybe.value(), inn_touch_map);
+    maybe = find_adj_simplify_partialize(inn_touch_map);
+  }
+
+  return make_from_touches(partialize.loc, inn_touch_map);
+}
+
 void taskgraph_t::partialize_t::make_parallel()
 {
   vector<partial_unit_t> ret;
@@ -3019,162 +3209,6 @@ taskgraph_t::partialize_t::inn_shapes_of(int inn_id) const {
   }
   return ret;
 }
-
-touch_t merge_two_touch_dim(std::vector<touchdim_t> i_touch, std::vector<touchdim_t> j_touch, int merge_dim, touch_t i_touch_meta, touch_t j_touch_meta){
-  if(i_touch[merge_dim].offset_inn + i_touch[merge_dim].size == j_touch[merge_dim].offset_inn && i_touch[merge_dim].offset_out + i_touch[merge_dim].size == j_touch[merge_dim].offset_out){
-    touchdim_t new_touchdim = touchdim_t {
-      .d_inn = i_touch[merge_dim].d_out,
-      .d_out = i_touch[merge_dim].d_out,
-      .offset_inn = i_touch[merge_dim].offset_inn,
-      .offset_out = i_touch[merge_dim].offset_out,
-      .size = i_touch[merge_dim].size + j_touch[merge_dim].size,
-    };
-    i_touch.erase(i_touch.begin() + merge_dim);
-    i_touch.push_back(new_touchdim);
-    return touch_t {
-      .selection = i_touch,
-      .castable = i_touch_meta.castable,
-      .dtype = i_touch_meta.dtype
-    };
-  }
-  else if (j_touch[merge_dim].offset_inn + j_touch[merge_dim].size == i_touch[merge_dim].offset_inn && j_touch[merge_dim].offset_out + j_touch[merge_dim].size == i_touch[merge_dim].offset_out){
-    touchdim_t new_touchdim = touchdim_t {
-      .d_inn = i_touch[merge_dim].d_out,
-      .d_out = i_touch[merge_dim].d_out,
-      .offset_inn = j_touch[merge_dim].offset_inn,
-      .offset_out = j_touch[merge_dim].offset_out,
-      .size = i_touch[merge_dim].size + j_touch[merge_dim].size,
-    };
-    i_touch.erase(i_touch.begin() + merge_dim);
-    i_touch.push_back(new_touchdim);
-    return touch_t {
-      .selection = i_touch,
-      .castable = i_touch_meta.castable,
-      .dtype = i_touch_meta.dtype
-    };
-  }
-  else{
-    throw std::runtime_error("Don't know how to simplify two touches.");
-  }
-}
-
-bool check_two_touchdim_t_same(touchdim_t a, touchdim_t b){
-  return a.d_inn == b.d_inn && a.d_out == b.d_out && a.offset_inn == b.offset_inn && a.offset_out == b.offset_out && a.size == b.size;
-}
-
-bool check_two_touch_t_same(touch_t const& touch_a, touch_t const& touch_b){
-  vector<touchdim_t> const& a = touch_a.selection;
-  vector<touchdim_t> const& b = touch_b.selection;
-  for(int k = 0; k < a.size(); k++){
-    if(check_two_touchdim_t_same(a[k], b[k]) == false){
-      return false;
-    }
-  }
-  
-  return true;
-}
-
-int check_two_touch_could_simplify(vector<touchdim_t> i_touch, vector<touchdim_t> j_touch){
-  bool only_one_diff = false;
-  int merge_dim = -1;
-  for(int k = 0; k < i_touch.size(); k++){
-    if(check_two_touchdim_t_same(i_touch[k], j_touch[k]) == false){
-      if(only_one_diff == true) return -1;
-      if ( i_touch[k].offset_inn + i_touch[k].size == j_touch[k].offset_inn && i_touch[k].offset_out + i_touch[k].size == j_touch[k].offset_out
-          ||j_touch[k].offset_inn + j_touch[k].size == i_touch[k].offset_inn && j_touch[k].offset_out + j_touch[k].size == i_touch[k].offset_out){
-            only_one_diff = true;
-            merge_dim = k;
-          }
-    }
-    
-  }
-  return merge_dim;
-}
-
-// find the simplified version of the current version
-optional<taskgraph_t::adj_simplify_partialize_t> find_adj_simplify_partialize(std::map<int, std::vector<touch_t>> inn_touch_map){
-  auto it = inn_touch_map.begin();
-  while(it != inn_touch_map.end()){
-    auto part_list = it->second;
-    bool only_one_diff = false;
-    if(part_list.size() > 1){
-      // if there are more than one touch for the current input, check every pair of touch
-      for(int i = 0; i < part_list.size(); ++i){
-        vector<touchdim_t> i_touch = part_list[i].selection;
-        for (int j = i+1; j < part_list.size(); ++j){
-          vector<touchdim_t> j_touch = part_list[j].selection;
-          int merge_dim = check_two_touch_could_simplify(i_touch, j_touch);
-          if(merge_dim != -1){
-            touch_t simplify_touch = merge_two_touch_dim(i_touch, j_touch, merge_dim, part_list[i], part_list[j]);
-            return taskgraph_t::adj_simplify_partialize_t{
-              .inn = it->first,
-              .first_touch = part_list[i],
-              .second_touch = part_list[j],
-              .simplify_touch = simplify_touch
-            };
-          }
-        }
-      }
-    }
-    it++;
-  }
-  return std::nullopt;
-}
-
-
-taskgraph_t::partialize_t taskgraph_t::construct_partialize_from_map(std::map<int, std::vector<touch_t>> inn_touch_map){
-  std::vector<tuple<int, touch_t>> touch_tuples;
-  for (const auto& entry : inn_touch_map) {
-    int key = entry.first;
-    const std::vector<touch_t>& touch_vector = entry.second;
-
-    // Iterate through touch_t elements in the vector and construct tuples
-    for (const auto& touch : touch_vector) {
-      touch_tuples.push_back(std::make_tuple(key, touch));
-    }
-  }
-
-
-
-  return taskgraph_t::partialize_t::make_from_touches(0, touch_tuples);
-}
-
-
-
-
-// given a partialize and it's simplification, creates a new partialize that does the simplifcation.
-void adj_simplify_partialize_(
-  taskgraph_t::adj_simplify_partialize_t const& info,
-  std::map<int, std::vector<touch_t>>& inn_touch_map){
-    int key = info.inn;
-    
-    inn_touch_map[key].erase(std::remove_if(inn_touch_map[key].begin(), inn_touch_map[key].end(),
-                    [&](touch_t const& elem) { return check_two_touch_t_same(elem, info.first_touch);}));
-    
-    inn_touch_map[key].erase(std::remove_if(inn_touch_map[key].begin(), inn_touch_map[key].end(),
-                    [&](touch_t const& elem) { return check_two_touch_t_same(elem, info.second_touch); }));
-
-    inn_touch_map[key].push_back(info.simplify_touch);
-    
-}
-
-
-taskgraph_t::partialize_t taskgraph_t::adj_simplify_partialize(partialize_t const& partialize_) {
-  partialize_t partialize = partialize_;
-  std::map<int, std::vector<touch_t>> inn_touch_map;
-  for(auto const& [inn, touch]: partialize.as_touches_from_flat()) {
-    inn_touch_map[inn].push_back(touch);
-  }
-
-  auto maybe = find_adj_simplify_partialize(inn_touch_map);
-  while(maybe.has_value()) {
-    adj_simplify_partialize_(maybe.value(),inn_touch_map);
-    maybe = find_adj_simplify_partialize(inn_touch_map);
-  }
-  auto ret = taskgraph_t::construct_partialize_from_map(inn_touch_map);
-  return ret;
-}
-
 
 void taskgraph_t::print() const {
   std::cout << "taskgraph[num nodes = " << nodes.size() << "]" << std::endl;
