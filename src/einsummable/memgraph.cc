@@ -1591,180 +1591,12 @@ order_taskgraph(taskgraph_t const& taskgraph)
           ret.emplace_back(w);
         }
       }
-    }
+    }  
   }
 
   return ret;
 }
 
-// void memgraph_make_state_t2::add_to_memgraph(
-//   std::variant<_which_node_t, _which_touch_t> const& which_op)
-// {
-//   int id;
-//   if(std::holds_alternative<_which_node_t>(which_op)) {
-//     id = std::get<_which_node_t>(which_op).task_id;
-//   } else {
-//     id = std::get<_which_touch_t>(which_op).task_id;
-//   }
-
-//   auto const& node = taskgraph.nodes[id];
-
-//   // loop through all inns so we make sure all inns are
-//   // ready for this node before starts
-//   for (int const& inn: node.op.inputs()){
-//     auto const& inn_node = taskgraph.nodes[inn];
-//     if(inn_node.op.is_input() && !input_has_been_initialized(inn)) {
-//       initialize_input(inn);
-//     }
-//   }
-
-//   set<int> used_task_tensors;
-//   set<int> deps;
-//   optional<op_t> op;
-
-//   optional<int> touch_output_memid;
-
-//   // All all tids passed into get_tensors_in_memory will be added here.
-//   // Get tensors in memory has two parts: it'll allocate
-//   // brand new output tensors or it will load or find existing
-//   // tensors. It is probably sufficient to only add the latter group
-//   // of tids to used_tids, but that'd require more bookkeeping and being
-//   // more conservative with used_tids in this case should lead to the same
-//   // result.
-//   vector<int> used_tids;
-
-//   // TODO: this method should support tensor donation
-
-//   if(node.op.is_apply()) {
-//     auto const& [loc, inns, es] = node.op.get_apply();
-
-//     vector<int>& out_then_inns = used_tids;
-//     out_then_inns = vector<int>(inns.size() + 1);
-//     out_then_inns[0] = id;
-//     std::copy(inns.begin(), inns.end(), out_then_inns.begin()+1);
-
-//     used_tids = out_then_inns;
-
-//     auto [vector_deps, mems] = vector_unzip(
-//       get_tensors_in_memory(out_then_inns));
-//     deps = set<int>(vector_deps.begin(), vector_deps.end());
-
-//     for(auto const& task_inn: inns) {
-//       used_task_tensors.insert(task_inn);
-//     }
-
-//     op = op_t(apply_t {
-//       .loc = loc,
-//       .mems = mems,
-//       .op = es,
-//       .group = -1
-//     });
-//   } else if(node.op.is_move()) {
-//     auto const& [src,dst,task_inn,size] = node.op.get_move();
-
-//     used_tids = {task_inn, id};
-//     auto info = get_tensors_in_memory(used_tids);
-//     auto const& [src_mem_id, src_mem] = info[0];
-//     auto const& [dst_mem_id, dst_mem] = info[1];
-
-//     deps.insert(src_mem_id);
-//     deps.insert(dst_mem_id);
-
-//     used_task_tensors.insert(task_inn);
-
-//     op = op_t(move_t {
-//       .src = {src, src_mem.offset},
-//       .dst = {dst, dst_mem.offset},
-//       .size = size
-//     });
-//   } else if(node.op.is_partialize()) {
-//     auto const& partialize = node.op.get_partialize();
-
-//     auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
-//     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
-
-//     used_tids = {task_inn, id};
-//     auto info = get_tensors_in_memory(used_tids);
-//     auto const& [inn_mem_id, inn_mem] = info[0];
-//     auto const& [out_mem_id, out_mem] = info[1];
-
-//     touch_output_memid = out_mem_id;
-
-//     deps.insert(inn_mem_id);
-//     deps.insert(out_mem_id);
-
-//     used_task_tensors.insert(task_inn);
-
-//     op = op_t(apply_t {
-//       .loc = partialize.loc,
-//       .mems = { out_mem, inn_mem },
-//       .op = touch,
-//       .group = get_group_at(id, unit_id)
-//     });
-//   } else {
-//     throw std::runtime_error("should not reach");
-//   }
-
-//   int new_memid = memgraph.insert(op.value(), deps);
-
-//   // notify tensors_on_memory that these tensors were used
-//   for(auto const& used_tid: used_tids) {
-//     tensors_on_memory[used_tid].insert(new_memid);
-//   }
-
-//   if(std::holds_alternative<_which_node_t>(which_op)) {
-//     task_node_to_mem_node.insert({
-//       std::get<_which_node_t>(which_op),
-//       new_memid
-//     });
-
-//     // For apply and move nodes, insert the newly created
-//     // memid into the tensor mapping
-//     task_tensor_to_mem_node_update_on_memory(id, new_memid);
-//   } else {
-//     // This is a touch in a partialize node.
-
-//     task_touch_to_mem_node.insert({
-//       std::get<_which_touch_t>(which_op),
-//       new_memid
-//     });
-
-//     int num_touches_in_partialize =
-//       node.op.get_partialize().get_num_touches();
-
-//     auto& in_progress = partializes_in_progress[id];
-//     in_progress.push_back(new_memid);
-
-//     bool is_last_touch = (in_progress.size() == num_touches_in_partialize);
-
-//     if(is_last_touch) {
-//       // This partialize is complete
-//       if(num_touches_in_partialize == 1) {
-//         // then insert the newly created memid into the tensor mapping
-//         task_tensor_to_mem_node_update_on_memory(id, new_memid);
-//       } else {
-//         // create a partialize node that depends on everything in in_progress
-//         // and insert that into the tensor mapping
-//         auto new_memloc = memgraph.nodes[new_memid].op.get_output_memloc();
-//         partialize_t new_partialize = partialize_t::from_memloc(new_memloc);
-//         int partialize_memid = memgraph.insert(
-//           op_t(new_partialize),
-//           set<int>(in_progress.begin(), in_progress.end()));
-//         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
-//       }
-//       partializes_in_progress.erase(id);
-//     } else {
-//       // This partialize is still in progress. Insert the allocated
-//       // output memid.
-//       task_tensor_to_mem_node_update_on_memory(id, touch_output_memid.value());
-//     }
-//   }
-
-//   // Now try to delete some tensors
-//   for(auto const& used_task_id: used_task_tensors) {
-//     register_usage(used_task_id);
-//   }
-// }
 
 /**
  * * bool allocate_op(int oid, bool force=false)
@@ -2111,14 +1943,6 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
 void memgraph_make_state_t2::process(
   vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops)
 {
-  // if there is no storage, don't bother setting anything up (kept)
-  // if(!use_storage) {
-  //   for(auto which_op: all_ops) {
-  //     add_to_memgraph(which_op);
-  //   }
-  //   return;
-  // }
-
   // Since storage may be used, setup a structure containing info on
   // when something will be used next.
   {
@@ -2583,6 +2407,29 @@ optional<int> memgraph_make_state_t2::allocate_without_evict(
   }
 }
 
+optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
+  int loc, vector<uint64_t> sizes)
+{
+  vector<int> memid_list(sizes.size());
+  auto maybe = allocators[loc].allocate_multiple(sizes);
+  if(maybe) {
+    auto const& [offsets, vector_deps] = maybe.value();
+    for (int i = 0; i < offsets.size(); ++i) {
+      alloc_t alloc {
+        .loc = loc,
+        .offset = offsets.at(i),
+        .size = sizes.at(i)
+      };
+      set<int> deps(vector_deps.at(i).begin(), vector_deps.at(i).end());
+      int new_memid = memgraph.insert(op_t(alloc), deps);
+      memid_list.emplace_back(new_memid);
+    }
+    return memid_list;
+  } else {
+    return std::nullopt;
+  }
+}
+
 void memgraph_make_state_t2::evict_tensor(int victim_tid)
 {
   int node_mid = task_tensor_to_mem_node.at(victim_tid);
@@ -2646,6 +2493,33 @@ void memgraph_make_state_t2::load_tensor_with_evict(
 
   int alloc_mid = allocate_with_evict(loc, size, cannot_evict);
   _load_tensor_helper(tid, alloc_mid);
+}
+
+
+bool memgraph_make_state_t2::load_multiple_without_evict(int out_tid, vector<int> inns_tid)
+{
+  vector<uint64_t> sizes_to_alloc(inns_tid.size()+1);
+
+  //inns then out in sizes_to_alloc and alloc_mids
+  for (int& tid: inns_tid) {
+    auto const& node = taskgraph.nodes[tid];
+    sizes_to_alloc.emplace_back(node.op.out_size());
+  }
+  auto const& node = taskgraph.nodes[out_tid];
+  int loc = node.op.out_loc();
+  sizes_to_alloc.emplace_back(node.op.out_size());
+
+  auto maybe_alloc_mids = allocate_multiple_without_evict(loc, sizes_to_alloc);
+  if(maybe_alloc_mids) {
+    vector<int> const& alloc_mids = maybe_alloc_mids.value();
+    //load all inns, but don't load out_mid because out_mid has never existed before this
+    for (int idx=0; idx < sizes_to_alloc.size()-1; ++idx) {
+      _load_tensor_helper(inns_tid.at(idx), alloc_mids.at(idx));
+    }
+    return true;
+  } else {
+    return false;
+  }
 }
 
 bool memgraph_make_state_t2::load_tensor_without_evict(int tid)

@@ -730,6 +730,9 @@ struct memgraph_make_state_t2 {
 
   optional<int> allocate_without_evict(int loc, uint64_t size);
 
+  optional<vector<int>> allocate_multiple_without_evict(
+  int loc, vector<uint64_t> sizes);
+
   // push this tensor onto memory
   void evict_tensor(int tid);
 
@@ -739,6 +742,8 @@ struct memgraph_make_state_t2 {
 
   // if this cannot allocate memory, will return false
   bool load_tensor_without_evict(int tid);
+
+  bool load_multiple_without_evict(int out_tid, vector<int> inns_tid);
 
   void _load_tensor_helper(int tid, int alloc_mid);
 
