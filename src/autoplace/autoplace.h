@@ -33,3 +33,23 @@ vector<placement_t> autoplace02(
   autoplace_config_t const& config,
   map<int, placement_t> const& fixed_pls,
   vector<tuple<int,int>> const& equal_pls);
+
+struct equal_holder_t {
+  equal_holder_t() {}
+
+  equal_holder_t(vector<tuple<int, int>> const& eqs);
+
+  bool has(int i) const;
+
+  set<int> const& operator[](int i) const;
+
+  void insert(int i, int j);
+
+private:
+  vector<set<int>> sets;
+  map<int, int> lookup;
+
+  friend std::ostream& operator<<(std::ostream& out, equal_holder_t const& e);
+};
+
+

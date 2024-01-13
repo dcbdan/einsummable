@@ -33,6 +33,13 @@ struct relationwise_t {
   uint64_t get_refi_bytes(rid_t const& rid) const;
   uint64_t get_join_out_bytes(jid_t const& jid) const;
 
+  int& get_loc(jid_t const& jid) {
+    return ginfos[jid.gid].locations[jid.bid];
+  }
+  int const& get_loc(jid_t const& jid) const {
+    return ginfos[jid.gid].locations[jid.bid];
+  }
+
   refinement_t const& get_refi(rid_t const& rid) const {
     return ginfos[rid.gid].refis.value()[rid.bid];
   }

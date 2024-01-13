@@ -23,3 +23,10 @@ vector<placement_t> alocate01(
   int nlocs,
   uint64_t flops_per_byte_moved);
 
+vector<placement_t> alocate02(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved,
+  map<int, vtensor_t<int>> const& fixed_pls,
+  vector<tuple<int,int>> const& equal_pls);
