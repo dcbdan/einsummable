@@ -844,8 +844,6 @@ _get_refi_partition02(
   int gid,
   F get_partition)
 {
-  optional<partition_t> refi_partition;
-
   auto const& node = graph.nodes[gid];
   if(node.outs.size() > 0) {
     return twolayer_construct_refinement_partition(
@@ -869,7 +867,7 @@ vector<partition_t> apart02(
       equal_parts.insert({id0, id1});
       equal_parts.insert({id1, id0});
     }
-    if(equal_parts_.size() != equal_parts.size() * 2) {
+    if(equal_parts_.size()*2 != equal_parts.size()) {
       throw std::runtime_error("not fully supported: equal_parts");
     }
 
@@ -897,7 +895,7 @@ vector<partition_t> apart02(
     std::function<partition_t const&(int)> get_refi_part =
       [&](int id) -> partition_t const&
     {
-      return parts.at(id);
+      return parts_.at(id);
     };
 
     for(int id: graph.get_reverse_order()) {
@@ -908,7 +906,7 @@ vector<partition_t> apart02(
         auto refi_part = _get_refi_partition02(graph, id, get_refi_part);
         costs[id] = coster(id, iter_fixed->second, refi_part);
 
-        break;
+        continue;
       }
       auto iter_eq = equal_parts.find(id);
       if(iter_eq != equal_parts.end()) {
@@ -917,7 +915,7 @@ vector<partition_t> apart02(
         if(iter != parts_.end()) {
           parts_.insert({id, iter->second});
           costs[id] = costs[other];
-          break;
+          continue;
         }
       }
 

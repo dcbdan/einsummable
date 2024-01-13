@@ -55,5 +55,5 @@ uint64_t apart01_cost(
 vector<partition_t> apart02(
   graph_t const& graph,
   int n_compute,
-  map<int, partition_t> const& fixed_pls,
-  vector<tuple<int,int>> const& equal_pls);
+  map<int, partition_t> const& fixed_parts,
+  vector<tuple<int,int>> const& equal_parts);
