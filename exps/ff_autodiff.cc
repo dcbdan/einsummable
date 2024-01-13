@@ -4,6 +4,8 @@
 #include "../src/einsummable/gwriter.h"
 #include "../src/server/cpu/server.h"
 
+#include "../src/autoplace/autoplace.h"
+
 #include <fstream>
 
 void usage() {
@@ -152,6 +154,12 @@ struct trainer_t {
 
     auto [inn_tids, out_tids, taskgraph_] = taskgraph_t::make(graph, placements);
     taskgraph = std::move(taskgraph_);
+
+    {
+      std::ofstream out("tg.gv");
+      taskgraph.print_graphviz(out);
+      DOUT("printed tg.gv");
+    }
 
     // Make sure that inn_ids == weights ++ data_ids ++ constant_ids
     {
@@ -318,8 +326,15 @@ int main(int argc, char** argv) {
   int num_channels = 4;
   int num_channels_per_move = 1;
 
+  DOUT("n_locs " << world_size << " | num_threads_per_loc " << num_threads);
+
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
   cpu_mg_server_t server(communicator, mem_size, num_threads);
+
+  if(!is_rank_zero) {
+    server.listen();
+    return 0;
+  }
 
   // ^ initialize the server
   /////////////////
@@ -351,19 +366,19 @@ int main(int argc, char** argv) {
     }
   );
 
-  auto f_autoplace = [](
+  int num_config_threads_per_machine = num_threads;
+  if(num_config_threads_per_machine == 12) {
+    num_config_threads_per_machine = 8;
+  }
+  DOUT("NUM CONFIG THREADS " << num_config_threads_per_machine);
+  autoplace_config_t config = autoplace_config_t::make_default02(
+    world_size, num_config_threads_per_machine);
+  auto f_autoplace = [&config](
     graph_t const& graph,
     map<int, placement_t> const& fixed_pls,
     vector<tuple<int,int>> const& equal_pls)
   {
-    // TODO: actually solve it here
-
-    vector<placement_t> ret;
-    ret.reserve(graph.nodes.size());
-    for(auto const& node: graph.nodes) {
-      ret.emplace_back(partition_t::singleton(node.op.shape()));
-    }
-    return ret;
+    return autoplace02(graph, config, fixed_pls, equal_pls);
   };
 
   trainer_t trainer(
@@ -401,7 +416,7 @@ int main(int argc, char** argv) {
     trainer();
     double loss = server.get_tensor_from_gid(info.loss_id).sum_to_f64();
     loss_so_far += loss;
-    if(iter % 500 == 0) {
+    if(iter % 100 == 0) {
       DOUT("avg loss at iter " << iter << ": " << (loss_so_far / 500.0));
       loss_so_far = 0.0;
       //for(int const& id: info.w_ids) {
@@ -409,6 +424,8 @@ int main(int argc, char** argv) {
       //}
     }
   }
+
+  server.shutdown();
 }
 
 

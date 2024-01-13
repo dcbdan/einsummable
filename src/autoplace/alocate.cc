@@ -297,6 +297,7 @@ _alocate02_rw_t::_alocate02_rw_t(
   graph_t const& graph,
   vector<partition_t> const& parts)
   : nlocs(nls), flops_per_byte_moved(f),
+    cost(nlocs),
     _rw(graph, parts)
 {}
 

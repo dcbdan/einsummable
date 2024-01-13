@@ -9,16 +9,44 @@ vector<placement_t> autoplace01(
 {
   vector<partition_t> parts = apart01(
     graph,
-    config.n_compute,
-    config.max_branching,
-    config.discount_input_factor,
-    config.search_space);
+    config.n_compute(),
+    config.max_branching(),
+    config.discount_input_factor(),
+    config.search_space());
 
   return alocate01(
     graph,
     parts,
-    config.n_compute,
-    config.flops_per_byte_moved);
+    config.n_locs(),
+    config.flops_per_byte_moved());
+}
+
+vector<placement_t> autoplace02(
+  graph_t const& graph,
+  autoplace_config_t const& config,
+  map<int, placement_t> const& fixed_pls,
+  vector<tuple<int,int>> const& equal_pls)
+{
+  map<int, partition_t> fixed_parts;
+  map<int, vtensor_t<int>> fixed_locs;
+  for(auto const& [id, pl]: fixed_pls) {
+    fixed_parts.insert({id, pl.partition});
+    fixed_locs.insert({id, pl.locations});
+  }
+
+  vector<partition_t> parts = apart02(
+    graph,
+    config.n_compute(),
+    fixed_parts,
+    equal_pls);
+
+  auto ret = alocate02(
+    graph, parts,
+    config.n_locs(), config.flops_per_byte_moved(),
+    fixed_locs,
+    equal_pls);
+
+  return ret;
 }
 
 equal_holder_t::equal_holder_t(vector<tuple<int, int>> const& eqs)
