@@ -74,6 +74,38 @@ model_args_t model_args_t::llama_65B(uint64_t batch_size) {
   };
 }
 
+// y = matmul(x,weight) (ij,jk->ik)
+static
+tuple<tensor_t, tensor_t> lora_init(
+  graph_writer_t* w,
+  int rank,
+  full_dim_t dj,
+  full_dim_t dk)
+{
+  full_dim_t dr = full_dim_t::singleton(rank);
+  tensor_t lw0 = w->input(full_shape_t({dj,dr}));
+  tensor_t lw1 = w->input(full_shape_t({dr,dk}));
+  return {lw0, lw1};
+}
+
+static tensor_t lora_matmul(
+  graph_writer_t* w,
+  tensor_t x,
+  tensor_t weight,
+  optional<tuple<tensor_t, tensor_t>> lora)
+{
+  tensor_t y = w->matmul(x, weight);
+
+  if(!bool(lora)) {
+    return y;
+  }
+
+  auto [lw0, lw1] = lora.value();
+  tensor_t z = w->matmul(w->matmul(x, lw0), lw1);
+
+  return w->add(y, z);
+}
+
 rms_norm_t::rms_norm_t(
   graph_writer_t* w,
   string name,
@@ -169,7 +201,8 @@ attention_t::attention_t(
   graph_writer_t* w,
   string name,
   model_args_t args,
-  uint64_t start_pos)
+  uint64_t start_pos,
+  optional<int> lora_rank)
   : writer(w), args(args), name(name),
     batch_size(args.batch_size),
     n_heads(args.n_heads),
@@ -185,6 +218,13 @@ attention_t::attention_t(
   wk = writer->input(kqv_shape);
   wv = writer->input(kqv_shape);
   wo = writer->input(kqv_shape);
+
+  if(lora_rank) {
+    lora_wq = lora_init(writer, lora_rank.value(), args.full_dim(), args.full_dim());
+    lora_wk = lora_init(writer, lora_rank.value(), args.full_dim(), args.full_dim());
+    lora_wv = lora_init(writer, lora_rank.value(), args.full_dim(), args.full_dim());
+    lora_wo = lora_init(writer, lora_rank.value(), args.full_dim(), args.full_dim());
+  }
 
   if(start_pos != 0) {
     vector<uint64_t> prev_shape({
@@ -220,12 +260,34 @@ tensor_t attention_t::_apply_rotary_embedding(
 }
 
 map<string, tensor_t> attention_t::weight_map() const {
-  return map<string, tensor_t> {
+  map<string, tensor_t> ret {
     {name + "wq.weight", wq },
     {name + "wk.weight", wk },
     {name + "wv.weight", wv },
     {name + "wo.weight", wo }
   };
+  if(lora_wq) {
+    auto& [lr0, lr1] = lora_wq.value();
+    ret.insert({name + "lora0.wq.weight", lr0});
+    ret.insert({name + "lora1.wq.weight", lr1});
+  }
+  if(lora_wk) {
+    auto& [lr0, lr1] = lora_wk.value();
+    ret.insert({name + "lora0.wk.weight", lr0});
+    ret.insert({name + "lora1.wk.weight", lr1});
+  }
+  if(lora_wv) {
+    auto& [lr0, lr1] = lora_wv.value();
+    ret.insert({name + "lora0.wv.weight", lr0});
+    ret.insert({name + "lora1.wv.weight", lr1});
+  }
+  if(lora_wo) {
+    auto& [lr0, lr1] = lora_wo.value();
+    ret.insert({name + "lora0.wo.weight", lr0});
+    ret.insert({name + "lora1.wo.weight", lr1});
+  }
+
+  return ret;
 }
 
 tensor_t attention_t::forward(
@@ -241,9 +303,9 @@ tensor_t attention_t::forward(
     throw std::runtime_error("invalid shape x to attention forward");
   }
 
-  tensor_t xq = writer->matmul(x, wq.transpose(0,1));
-  tensor_t xk = writer->matmul(x, wk.transpose(0,1));
-  tensor_t xv = writer->matmul(x, wv.transpose(0,1));
+  tensor_t xq = lora_matmul(writer, x, wq.transpose(0,1), lora_wq);
+  tensor_t xk = lora_matmul(writer, x, wk.transpose(0,1), lora_wk);
+  tensor_t xv = lora_matmul(writer, x, wv.transpose(0,1), lora_wv);
 
   vector<uint64_t> full_xshape = {
     batch_size, seqlen, n_heads, head_dim
@@ -302,7 +364,7 @@ tensor_t attention_t::forward(
   });
   output = output.view(output_shape);
 
-  return writer->matmul(output, wo.transpose(0,1));
+  return lora_matmul(writer, output, wo.transpose(0,1), lora_wo);
 }
 
 void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
@@ -381,10 +443,11 @@ transformer_block_t::transformer_block_t(
   graph_writer_t* w,
   int layer_id,
   model_args_t args,
-  uint64_t start_pos)
+  uint64_t start_pos,
+  optional<int> lora_rank)
   : writer(w), layer_id(layer_id), args(args)
 {
-  attention = attention_t(writer, "attention.", args, start_pos);
+  attention = attention_t(writer, "attention.", args, start_pos, lora_rank);
 
   uint64_t hidden_dim = 4 * args.dim;
   hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
@@ -438,13 +501,14 @@ tensor_t transformer_block_t::forward(
 transformer_t::transformer_t(
   graph_writer_t* w,
   model_args_t args,
-  uint64_t start_pos)
+  uint64_t start_pos,
+  optional<int> lora_rank)
   : writer(w), args(args),
     expected_batch_size(args.batch_size), start_pos(start_pos)
 {
   for (int layer_id = 0; layer_id != args.n_layers; ++layer_id) {
     layers.emplace_back(
-      writer, layer_id, args, start_pos);
+      writer, layer_id, args, start_pos, lora_rank);
   }
 
   full_freqs_cis = writer->input(

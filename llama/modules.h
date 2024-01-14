@@ -69,7 +69,8 @@ struct attention_t {
     graph_writer_t* w,
     string name, //should be "attention."
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank);
 
   tensor_t apply_rotary_embedding(tensor_t x, tensor_t freqs_cis);
 
@@ -104,6 +105,11 @@ struct attention_t {
   tensor_t wv;
   tensor_t wo;
 
+  optional<tuple<tensor_t, tensor_t>> lora_wq;
+  optional<tuple<tensor_t, tensor_t>> lora_wk;
+  optional<tuple<tensor_t, tensor_t>> lora_wv;
+  optional<tuple<tensor_t, tensor_t>> lora_wo;
+
   optional<tuple<tensor_t, tensor_t>> prev_kv;
 
   // This gets set after in the forward pass
@@ -117,7 +123,8 @@ struct feedforward_t {
     graph_writer_t* w,
     string name, //should pass in "feed_forward."
     full_dim_t dim,
-    uint64_t hidden_dim);
+    uint64_t hidden_dim,
+    optional<int> lora_rank);
 
   map<string, tensor_t> weight_map() const;
 
@@ -137,7 +144,8 @@ struct transformer_block_t {
     graph_writer_t* w,
     int layer_id,
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank);
 
   tensor_t forward(
     tensor_t x,
@@ -166,7 +174,8 @@ struct transformer_t {
   transformer_t(
     graph_writer_t* w,
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank = std::nullopt);
 
   tensor_t forward(tensor_t x);
 
