@@ -49,92 +49,36 @@ void twolayer_insert_join_deps(
 
   if(node.op.is_input()) {
     // input joins don't have deps, so nothing to do
-  } else if(node.op.is_concat()) {
+  } else if(node.op.is_fill()) {
+    // fill joins don't have deps, so nothing to do
+  } else if(node.op.is_select()) {
+    select_t const& select = node.op.get_select();
     auto join_block_shape = join_partition.block_shape();
     vector<int> join_index(join_block_shape.size(), 0);
     do {
-      int join_bid = idxs_to_index(join_block_shape, join_index);
-      join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
-
-      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
       hrect_t join_hrect = join_partition.get_hrect(join_index);
-
-      auto const& concat = node.op.get_concat();
-      int n_inns = concat.num_inns();
-      for(int which_inn = 0; which_inn != n_inns; ++which_inn) {
-        hrect_t inn_hrect = concat.get_hrect(which_inn);
-        if(interval_intersect(join_hrect[concat.dim], inn_hrect[concat.dim])) {
-          // get the copy_hrect with respect to the input relation
-          hrect_t copy_hrect = hrect_center(
-            inn_hrect,
-            hrect_intersect(join_hrect, inn_hrect));
-
-          // If this concat is complex, then the refinement_partitition
-          // is still real. So the corresponding copy_rect is actually doubled
-          if(join_is_complex) {
-            auto& [b,e] = copy_hrect.back();
-            b *= 2;
-            e *= 2;
-          }
-
-          int const& inn = node.inns[which_inn];
-          partition_t const& inn_partition = get_refinement_partition(inn);
-
-          auto inn_region = inn_partition.get_region(copy_hrect);
-          auto inn_shape = inn_partition.block_shape();
-          auto inn_index = vector_mapfst(inn_region);
-          do {
-            int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-            rid_t dep_rid { inn, inn_refi_bid };
-            join_info.deps.insert(dep_rid);
-          } while(increment_idxs_region(inn_region, inn_index));
-        }
-      }
-    } while(increment_idxs(join_block_shape, join_index));
-  } else if(node.op.is_subset()) {
-    auto join_block_shape = join_partition.block_shape();
-    vector<int> join_index(join_block_shape.size(), 0);
-    do {
       int join_bid = idxs_to_index(join_block_shape, join_index);
       join_t& join_info = join_infos[idxs_to_index(join_block_shape, join_index)];
-      auto const& subset_ = node.op.get_subset();
-      vector<int> unsqueezed_join_index = subset_.unsqueeze_vec(join_index, 0);
 
-      int const& inn = node.inns[0];
-      partition_t const& inn_partition = get_refinement_partition(inn);
+      for(auto [inn_hrect, which_inn]: select.collect(join_hrect)) {
+        // If the inn_hrect is complex, convert it wrt to reals
+        if(join_is_complex) {
+          auto& [b,e] = inn_hrect.back();
+          b *= 2;
+          e *= 2;
+        }
+        int const& inn = node.inns[which_inn];
+        partition_t const& inn_partition = get_refinement_partition(inn);
 
-      auto [subset, out_partition] = unsqueeze_subset_partition(
-        subset_, join_partition);
-
-      using hrect_t = vector<tuple<uint64_t, uint64_t>>;
-
-      hrect_t inn_hrect = subset.get_hrect();
-
-      // get the copy_hrect (with respect to the inn_hrect)
-      hrect_t copy_hrect = out_partition.get_hrect(unsqueezed_join_index);
-      for(int i = 0; i != inn_hrect.size(); ++i) {
-        auto&       [jb,je] = copy_hrect[i];
-        auto const& [ib,_ ] = inn_hrect[i];
-        jb += ib;
-        je += ib;
+        auto inn_region = inn_partition.get_region(inn_hrect);
+        auto inn_shape = inn_partition.block_shape();
+        auto inn_index = vector_mapfst(inn_region);
+        do {
+          int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
+          rid_t dep_rid { inn, inn_refi_bid };
+          join_info.deps.insert(dep_rid);
+        } while(increment_idxs_region(inn_region, inn_index));
       }
-
-      // If this subset is complex, then the refinement_partitition
-      // is still real. So the corresponding copy_rect is actually doubled
-      if(join_is_complex) {
-        auto& [b,e] = copy_hrect.back();
-        b *= 2;
-        e *= 2;
-      }
-
-      auto inn_region = inn_partition.get_region(copy_hrect);
-      auto inn_shape = inn_partition.block_shape();
-      auto inn_index = vector_mapfst(inn_region);
-      do {
-        int inn_refi_bid = idxs_to_index(inn_shape, inn_index);
-        rid_t dep_rid { inn, inn_refi_bid };
-        join_info.deps.insert(dep_rid);
-      } while(increment_idxs_region(inn_region, inn_index));
     } while(increment_idxs(join_block_shape, join_index));
   } else if(node.op.is_formation()) {
     int const& inn = node.inns[0];
@@ -185,6 +129,44 @@ void twolayer_insert_join_deps(
     do {
       join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
     } while(cr.increment());
+  } else if(node.op.is_squeezer()) {
+    auto const& squeezer = node.op.get_squeezer();
+
+    int const& inn = node.inns[0];
+    partition_t const& inn_partition = get_refinement_partition(inn);
+
+    if(dtype_is_real(squeezer.dtype)) {
+      vector<int> inn_idxs(inn_partition.partdims.size());
+      std::iota(inn_idxs.begin(), inn_idxs.end(), 0);
+
+      partition_t join_partition_fixed = convert_squeezer_partition(
+        squeezer.inn_shape, join_partition);
+
+      copyregion_join_inn_t cr(
+        join_partition_fixed,
+        inn_partition,
+        inn_idxs);
+
+      do {
+        join_infos[cr.idx_join()].deps.insert(rid_t{ inn, cr.idx_inn() });
+      } while(cr.increment());
+    } else {
+      // When squeezer dtype is complex, the last dimension may get squeezed like so:
+      //   inn           shape:                 3,4,5,1
+      //   inn_partition shape wrt real:        3,4,5,2
+      //   join partition shape wrt complex     3,4,5
+      // In this case, It'd be necc to convert the join partition to
+      // 3,4,5,2 where the last dimension has a no partition
+
+      // Another example where dtype is complex
+      //   inn  shape: 3,4,5
+      //   join shape: 3,4,5,1
+      //
+      //   inn partition  shape wrt real: 3,4,10
+      //   join_partition shape wrt real: 3,4,5,2
+      //      ^ note: the last dim is singleton
+      throw std::runtime_error("do not apply squeezer to complex valued tensors");
+    }
   } else if(node.op.is_einsummable()) {
     auto const& einsummable = node.op.get_einsummable();
     for(int which_inn = 0; which_inn != einsummable.inns.size(); ++which_inn) {
@@ -238,6 +220,13 @@ void twolayer_insert_refi_outs_from_join_deps(
   }
 }
 
+inline partdim_t _fast_unions(vector<vector<uint64_t>> const& _ps) {
+  vector<uint64_t> spans = vector_sorted_merges(_ps);
+  vector_remove_duplicates(spans);
+
+  return partdim_t { .spans = spans };
+}
+
 // Note: Almost a copy of union_partition_holders in src/taskgraph.cc
 partition_t union_partitions(vector<partition_t> const& ps)
 {
@@ -253,12 +242,12 @@ partition_t union_partitions(vector<partition_t> const& ps)
   int rank = ps[0].block_shape().size();
   partdims.reserve(rank);
   for(int i = 0; i != rank; ++i) {
-    vector<partdim_t> xs;
+    vector<vector<uint64_t>> xs;
     xs.reserve(ps.size());
     for(auto const& p: ps) {
-      xs.push_back(p.partdims[i]);
+      xs.push_back(p.partdims[i].spans);
     }
-    partdims.push_back(partdim_t::unions(xs));
+    partdims.push_back(_fast_unions(xs));
   }
   return partition_t(partdims);
 }
@@ -279,11 +268,19 @@ partition_t twolayer_construct_refinement_partition(
   dtype_t join_dtype = join_node.op.out_dtype();
   bool join_is_complex = dtype_is_complex(join_dtype);
 
+  vector<uint64_t> out_shape_wrt_real = join_node.op.out_shape();
+  if(join_is_complex) {
+    out_shape_wrt_real.back() *= 2;
+  }
+
   vector<partition_t> usage_partitions;
   usage_partitions.reserve(2*join_node.outs.size());
   auto insert_usage = [&](partition_t p) {
     if(join_is_complex) {
       double_last_dim_inplace(p);
+    }
+    if(!vector_equal(p.total_shape(), out_shape_wrt_real)) {
+      throw std::runtime_error("invalid partition given to usage partitions");
     }
     usage_partitions.push_back(p);
   };
@@ -301,6 +298,9 @@ partition_t twolayer_construct_refinement_partition(
         // real -> complex
         usage_partitions.push_back(double_last_dim(out_part));
       }
+    } else if(out_node.op.is_squeezer()) {
+      auto const& squeezer = out_node.op.get_squeezer();
+      insert_usage(convert_squeezer_partition(squeezer.inn_shape, out_part));
     } else if(out_node.op.is_einsummable()) {
       // Note that an einsummable node can use an input multiple times
       // and therefore there may be multiple usage partitions to collect
@@ -312,18 +312,38 @@ partition_t twolayer_construct_refinement_partition(
             which_input)));
         }
       }
-    } else if(out_node.op.is_concat()) {
-      auto const& concat = out_node.op.get_concat();
+    } else if(out_node.op.is_select()) {
+      select_t const& select = out_node.op.get_select();
       for(int which_input = 0; which_input != out_node.inns.size(); ++which_input) {
         if(out_node.inns[which_input] == join_gid) {
-          insert_usage(concat_get_input_partition(
-            out_part, concat, which_input));
+          partition_t subset_part = out_part.subset(
+            select.wrt_output_inn_hrect(which_input));
+
+          auto const& shape = select.inn_shape(which_input);
+          int rank = shape.size();
+
+          hrect_t hrect = select.wrt_input_inn_hrect(which_input);
+
+          vector<partdim_t> pds;
+          pds.reserve(rank);
+          for(int i = 0; i != rank; ++i) {
+            auto const& [beg,end] = hrect[i];
+            auto const& sub_pd = subset_part.partdims[i];
+            auto const& dim = shape[i];
+            vector<uint64_t> sizes;
+            if(beg != 0) {
+              sizes.push_back(beg);
+            }
+            vector_concatenate_into(sizes, sub_pd.sizes());
+            if(end != dim) {
+              sizes.push_back(dim - end);
+            }
+            pds.push_back(partdim_t::from_sizes(sizes));
+          }
+
+          insert_usage(partition_t(pds));
         }
       }
-    } else if(out_node.op.is_subset()) {
-      insert_usage(make_subset_input_partition(
-        out_node.op.get_subset(),
-        out_part));
     } else {
       throw std::runtime_error("setup refinement part: should not reach");
     }

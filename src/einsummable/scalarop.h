@@ -13,6 +13,9 @@ uint64_t dtype_size(dtype_t);
 
 bool dtype_is_real(dtype_t);
 bool dtype_is_complex(dtype_t);
+
+dtype_t dtype_real_component(dtype_t);
+
 // Assumption: could be the case that there is something
 //             other than real and complex (in the future)
 
@@ -59,6 +62,9 @@ struct scalar_t {
   //  Also, sometimes you want 1 + 1i and sometimes
   //  you want 1 + 0i...
 
+  scalar_t& operator+=(scalar_t const& rhs);
+  scalar_t& operator*=(double value);
+
   dtype_t dtype;
   uint8_t data[8];
 
@@ -101,6 +107,18 @@ struct op_t {
     dtype_t dtype;
   };
 
+  // conjugate
+  struct conj {};
+
+  // real component
+  struct real {};
+
+  // complex component
+  struct imag {};
+
+  // create a complex from two real inputs
+  struct cplex {};
+
   bool is_constant() const;
   bool is_hole()     const;
   bool is_add()      const;
@@ -109,6 +127,10 @@ struct op_t {
   bool is_power()    const;
   bool is_ite()      const;
   bool is_convert()  const;
+  bool is_conj()     const;
+  bool is_real()     const;
+  bool is_imag()     const;
+  bool is_cplex()    const;
 
   scalar_t get_constant() const;
 
@@ -130,7 +152,8 @@ struct op_t {
 
   std::variant<
     constant, hole, add, mul,
-    exp, power, ite, convert> op;
+    exp, power, ite, convert,
+    conj, real, imag, cplex> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
@@ -139,6 +162,10 @@ struct op_t {
   static scalar_t _eval_ite(compare_t compare,
     scalar_t lhs, scalar_t rhs, scalar_t if_true, scalar_t if_false);
   static scalar_t _eval_convert(dtype_t new_dtype, scalar_t inn);
+  static scalar_t _eval_conj(scalar_t inn);
+  static scalar_t _eval_real(scalar_t inn);
+  static scalar_t _eval_imag(scalar_t inn);
+  static scalar_t _eval_cplex(scalar_t lhs, scalar_t rhs);
 
   static bool _compare(compare_t c, scalar_t lhs, scalar_t rhs);
 
@@ -148,6 +175,10 @@ struct op_t {
   static optional<dtype_t> _type_power(dtype_t inn);
   static optional<dtype_t> _type_ite(dtype_t, dtype_t, dtype_t, dtype_t);
   static optional<dtype_t> _type_convert(dtype_t inn, dtype_t out);
+  static optional<dtype_t> _type_conj(dtype_t inn);
+  static optional<dtype_t> _type_real(dtype_t inn);
+  static optional<dtype_t> _type_imag(dtype_t inn);
+  static optional<dtype_t> _type_cplex(dtype_t lhs, dtype_t rhs);
 
   optional<dtype_t> type_of(vector<dtype_t> inns) const;
 };
@@ -162,6 +193,7 @@ struct node_t {
   scalar_t eval(vector<scalar_t> const& inputs) const;
 
   node_t derivative(int arg) const;
+  node_t wirtinger_derivative(int arg, bool conjugate) const;
 
   node_t simplify() const;
 
@@ -185,6 +217,8 @@ struct node_t {
   // get the arg types of all holes; if the same arg hole
   // appears with different dtype, throw an error
   map<int, dtype_t> hole_types() const;
+
+  bool type_check() const;
 private:
   node_t simplify_once() const;
 
@@ -197,9 +231,39 @@ private:
 
 } // scalar_ns
 
-dtype_t& _default_dtype();
+struct cutensor_scalarop_t {
+  // list out cutensor elementwise ops that
+  // may be discovered
+  enum cop_t { add, mul, min, max, exp, pow, identity, relu};
+
+  struct arg_t {
+    scalar_t scale;
+    cop_t op;
+  };
+  struct unary_t {
+    arg_t arg;
+  };
+  struct binary_t {
+    cop_t op;
+    arg_t lhs;
+    arg_t rhs;
+  };
+  struct ternary_t {
+    cop_t op_01_2;
+    cop_t op_0_1;
+    arg_t a0;
+    arg_t a1;
+    arg_t a2;
+  };
+  std::variant<unary_t, binary_t, ternary_t> op;
+};
+
+
 dtype_t const& default_dtype();
 void set_default_dtype(dtype_t);
+
+dtype_t const& default_complex_dtype();
+void set_default_complex_dtype(dtype_t);
 
 struct scalarop_t {
   using op_t       = scalar_ns::op_t;
@@ -214,11 +278,15 @@ struct scalarop_t {
   // not valid if dtype is complex
   scalarop_t derivative(int arg) const;
 
+  scalarop_t wirtinger_derivative(int arg, bool conjugate) const;
+
   scalarop_t simplify() const;
 
   dtype_t out_dtype() const { return node.dtype; }
 
   optional<dtype_t> inn_dtype(int arg) const;
+
+  bool is_used(int arg) const { return bool(inn_dtype(arg)); }
 
   void remap_inputs(map<int, int> const& remap);
 
@@ -241,6 +309,10 @@ struct scalarop_t {
   bool is_max() const;
   bool is_min() const;
   bool is_add() const;
+
+  // TODO: These methods should be const
+  optional<cutensor_scalarop_t::arg_t> set_up_arg(node_t node);
+  optional<cutensor_scalarop_t> compile_cutensor_scalarop();
 
   bool is_constant_of(scalar_t val) const;
 
@@ -277,6 +349,15 @@ struct scalarop_t {
   // max(x0, x1);
   static scalarop_t make_max(dtype_t d = default_dtype());
 
+  // x0 <= x1 ? 1.0 : 0.0
+  static scalarop_t make_is_min(dtype_t d = default_dtype());
+
+  // x0 >= x1 ? 1.0 : 0.0
+  static scalarop_t make_is_max(dtype_t d = default_dtype());
+
+  // x0 == x1 ? 1.0 : 0.0
+  static scalarop_t make_is_equal(dtype_t d = default_dtype());
+
   // xn * val
   static scalarop_t make_scale_which(scalar_t val, int arg);
 
@@ -297,6 +378,8 @@ struct scalarop_t {
 
   static scalarop_t make_relu(dtype_t d = default_dtype());
 
+  static scalarop_t make_mask(compare_t compare, dtype_t d = default_dtype());
+
   static scalarop_t make_silu(dtype_t d = default_dtype());
 
   static scalarop_t make_relu_deriv(dtype_t d = default_dtype());
@@ -304,6 +387,14 @@ struct scalarop_t {
   static scalarop_t make_from_castable(castable_t castable, dtype_t d = default_dtype());
 
   static scalarop_t make_convert_dtype(dtype_t src, dtype_t dst);
+
+  static scalarop_t make_conjugate(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_project_real(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_project_imag(dtype_t d = default_complex_dtype());
+
+  static scalarop_t make_complex(dtype_t d = default_complex_dtype());
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
@@ -317,6 +408,8 @@ std::istream& operator>>(std::istream& inn, dtype_t& c);
 
 std::ostream& operator<<(std::ostream& out, scalar_t const& c);
 std::istream& operator>>(std::istream& inn, scalar_t& c);
+
+scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs);
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs);
 bool operator!=(scalar_t const& lhs, scalar_t const& rhs);

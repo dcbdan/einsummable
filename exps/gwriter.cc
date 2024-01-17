@@ -228,6 +228,6 @@ void main09_subset() {
 }
 
 int main() {
-  main09_subset();
+  main07();
 }
 

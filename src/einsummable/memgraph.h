@@ -1,15 +1,20 @@
 #pragma once
 #include "../base/setup.h"
 
+#include "einsummable.h"
 #include "taskgraph.h"
+#include <variant>
 
 struct memloc_t;
 
 struct mem_t {
-  uint64_t offset;
+  uint64_t offset;  // |________||xxxxxxxx|
   uint64_t size;
 
   memloc_t as_memloc(int loc) const;
+
+  static mem_t from_proto(es_proto::Mem const& m);
+  void to_proto(es_proto::Mem& m) const;
 };
 
 // This does not use std::variant so that it can be sent over the wire.
@@ -39,11 +44,14 @@ struct memloc_t {
   memsto_t as_memsto() const { return memsto_t(as_mem()); }
 
   mem_t as_mem() const;
+
+  static memloc_t from_proto(es_proto::MemLoc const& m);
+  void to_proto(es_proto::MemLoc& m) const;
 };
 
 struct stoloc_t {
-  int loc; // this storage location
-  int id;  // with this id
+  int loc;    // this storage location
+  int id;     // with this id
 
   memsto_t as_memsto() const { return memsto_t(id); }
 };
@@ -69,6 +77,7 @@ struct memstoloc_t {
 
 std::ostream& operator<<(std::ostream&, mem_t const&);
 std::ostream& operator<<(std::ostream&, memloc_t const&);
+std::ostream& operator<<(std::ostream&, stoloc_t const&);
 
 struct memgraph_make_state_t;
 
@@ -79,13 +88,22 @@ struct allocator_settings_t {
   uint8_t alignment_power; // 2^alignment_power
 
   static allocator_settings_t default_settings();
+
+  static allocator_settings_t gpu_alignment_settings();
 };
 
+// TODO: refactor memgraph so that a every compute loc has one storage loc
+//       and every storage loc has one compute loc. maybe?
 struct memgraph_t {
+  memgraph_t():
+    memgraph_t(1, 1, vector<int>(1, 0))
+  {}
+
   memgraph_t(
     int num_compute_locs,
     int num_storage_locs,
-    vector<int> const& storage_locs);
+    vector<int> const& storage_locs,
+    bool prune_edges = false);
 
   memgraph_t(
     memgraph_t const& other);
@@ -116,6 +134,21 @@ struct memgraph_t {
   tuple<
     map<int, memstoloc_t>,
     map<int, memstoloc_t>,
+    optional<memgraph_t>,
+    memgraph_t>
+  make_(
+    taskgraph_t const& graph,
+    vector<int> which_storage = {},
+    vector<uint64_t> mem_sizes = {},
+    map<int, memstoloc_t> init_input_tid_to_data = {},
+    allocator_settings_t settings = allocator_settings_t::default_settings(),
+    bool use_storage = true,
+    bool split_off_inputs = false);
+
+  static
+  tuple<
+    map<int, memstoloc_t>,
+    map<int, memstoloc_t>,
     memgraph_t>
   make(
     taskgraph_t const& graph,
@@ -139,22 +172,25 @@ struct memgraph_t {
   }
 
   string to_wire() const;
+  void to_proto(es_proto::MemGraph& mg) const;
+
+  static memgraph_t from_proto(es_proto::MemGraph const& mg);
   static memgraph_t from_wire(string const& str);
 
-  int const num_compute_locs;
-  int const num_storage_locs;
+  int num_compute_locs;
+  int num_storage_locs;
 
   // Example: Four gpu node, with ram as the storage, then
   //          storage_locs = {0,0,0,0} and compute locs are 0,1,2,3.
-  vector<int> const storage_locs;
+  vector<int> storage_locs;
 
-  // TODO TODO TODO
-  // This method is very dirty. A single sto_loc may map into
-  // multiple locations, yet this function returns the first location!
-  // This is fine whenever there is a one-to-one mapping.
-  //
-  // As a larger design point, storage locs may need to be changed...
-  int get_loc_from_storage_loc(int sto_loc) const;
+  // A single sto_loc may map into multiple locations,
+  // so this function returns all of them.
+  vector<int> get_locs_from_storage_loc(int sto_loc) const;
+
+  // Given a node and a device, return whether or not
+  // that node "occurs" at that device.
+  bool is_local_to(int id, int loc) const;
 
 public:
   struct inputmem_t {
@@ -168,10 +204,20 @@ public:
   };
 
   struct inputsto_t {
-    int loc;
     int storage_loc;
     int storage_id;
+    uint64_t size;
     stoloc_t as_stoloc() const { return stoloc_t { storage_loc, storage_id }; }
+  };
+
+  struct constant_t {
+    int loc;
+    uint64_t offset;
+    fill_t fill;
+
+    uint64_t get_size() const { return dtype_size(fill.value.dtype) * product(fill.shape); }
+    memloc_t as_memloc() const { return memloc_t{offset, get_size(), loc}; }
+    mem_t as_mem() const { return as_memloc().as_mem(); }
   };
 
   // An apply needs these memories to do the computation
@@ -280,7 +326,7 @@ public:
   struct op_t {
   private:
     using _op_t = std::variant<
-      inputmem_t, inputsto_t,
+      inputmem_t, inputsto_t, constant_t,
       apply_t, move_t,
       evict_t, load_t, partialize_t,
       alloc_t, del_t>;
@@ -289,6 +335,7 @@ public:
 
     op_t(inputmem_t   x): op_t(_op_t(x)) {}
     op_t(inputsto_t   x): op_t(_op_t(x)) {}
+    op_t(constant_t   x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
     op_t(evict_t      x): op_t(_op_t(x)) {}
@@ -299,6 +346,7 @@ public:
 
     bool is_inputmem()   const { return std::holds_alternative<inputmem_t>(op);   }
     bool is_inputsto()   const { return std::holds_alternative<inputsto_t>(op);   }
+    bool is_constant()   const { return std::holds_alternative<constant_t>(op);   }
     bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
     bool is_move()       const { return std::holds_alternative<move_t>(op);       }
     bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
@@ -309,6 +357,7 @@ public:
 
     inputmem_t   const& get_inputmem()   const { return std::get<inputmem_t>(op);   }
     inputsto_t   const& get_inputsto()   const { return std::get<inputsto_t>(op);   }
+    constant_t   const& get_constant()   const { return std::get<constant_t>(op);   }
     apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
     move_t       const& get_move()       const { return std::get<move_t>(op);       }
     evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
@@ -317,8 +366,59 @@ public:
     alloc_t      const& get_alloc()      const { return std::get<alloc_t>(op);      }
     del_t        const& get_del()        const { return std::get<del_t>(op);        }
 
-    // get all the memlocs touched by
-    // this operation
+    // check and get einsummable
+    bool is_einsummable() const { return is_apply() && std::holds_alternative<einsummable_t>(get_apply().op); }
+    bool is_touch()       const { return is_apply() && std::holds_alternative<touch_t>(get_apply().op); }
+    einsummable_t get_einsummable() const {
+      if (!is_einsummable()) throw std::runtime_error("trying to get einsummable for an non-einsummable op");
+      return std::get<einsummable_t>(get_apply().op);
+    }
+    touch_t get_touch() const {
+      if (!is_touch()) throw std::runtime_error("trying to get touch for an non-touch op");
+      return std::get<touch_t>(get_apply().op);
+    }
+    bool is_contraction() const { return is_einsummable() && get_einsummable().is_contraction(); }
+
+    void print_type() {
+      if (is_inputmem() || is_inputsto())      std::cout << "input";
+      if (is_constant())   std::cout << "constant";
+      if (is_move())       std::cout << "move";
+      if (is_evict())      std::cout << "evict";
+      if (is_load())       std::cout << "load";
+      if (is_partialize()) std::cout << "partialize";
+      if (is_del())        std::cout << "del";
+      if (is_alloc())      std::cout << "alloc";
+
+      if (is_einsummable()) {
+        if (is_contraction()) std::cout << "contraction";
+        else                  std::cout << "other einsum";
+      }
+      if (is_touch())       std::cout << "touch";
+    }
+
+    int get_loc() const{
+      if (is_inputmem())   return get_inputmem().loc;
+      if (is_constant())   return get_constant().loc;
+      if (is_apply())      return get_apply_loc();
+      if (is_move())       return get_move().get_dst_loc();
+      if (is_evict())      return get_evict().src.loc;
+      if (is_load())       return get_load().dst.loc;
+      if (is_partialize()) return get_partialize().loc;
+      if (is_alloc())      return get_alloc().loc;
+      if (is_del())        return get_del().loc;
+
+      if (is_inputsto()) {
+        throw std::runtime_error("input sto can have multiple locs");
+      };
+
+      throw std::runtime_error("trying to get loc for an unknown op");
+    }
+
+    int get_apply_loc() const {
+      if (!is_apply()) throw std::runtime_error("trying to get apply loc for a non-apply op");
+      return get_apply().loc; }
+
+    // get all the memlocs touched by this operation
     vector<memloc_t> get_memlocs() const;
 
     memstoloc_t get_output_memstoloc() const;
@@ -329,6 +429,8 @@ public:
     stoloc_t    get_stoloc() const;
 
     bool is_local_to(int loc) const;
+    string get_name() const;
+
   private:
     _op_t op;
 
@@ -336,6 +438,7 @@ public:
 
     void check_inputmem()   const;
     void check_inputsto()   const;
+    void check_constant()   const;
     void check_apply()      const;
     void check_move()       const;
     void check_evict()      const;
@@ -359,7 +462,7 @@ public:
 private:
   friend class memgraph_make_state_t;
 
-  // int insert(op_t op, set<int> const& deps);
+  int insert(op_t op, set<int> const& deps);
 
   // Get whether or not there is a directed path from
   // bot to top
@@ -369,6 +472,7 @@ private:
   // Note also that all_deps[i] has length i--that is,
   // 0,1,2,3,4,.. is a valid order of the graph.
   vector<vector<char>> all_deps;
+  bool prune_edges;
 };
 
 // allocator_t contains a vector of blocks that either
@@ -672,6 +776,7 @@ struct memgraph_make_state_t2 {
   using op_t         = memgraph_t::op_t;
   using inputmem_t   = memgraph_t::inputmem_t;
   using inputsto_t   = memgraph_t::inputsto_t;
+  using constant_t   = memgraph_t::constant_t;
   using apply_t      = memgraph_t::apply_t;
   using move_t       = memgraph_t::move_t;
   using partialize_t = memgraph_t::partialize_t;
@@ -750,7 +855,7 @@ struct memgraph_make_state_t2 {
   // TODO: where should tensor donation occur?
 
   // this tensor was used, see if you can free the memory
-  bool register_usage(int task_id);
+  void register_usage(int task_id);
 
   // A bunch of helper methods to modify
   //   task_tensor_to_mem_node,

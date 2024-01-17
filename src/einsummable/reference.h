@@ -40,13 +40,9 @@ void reference_einsummable_inplace(
   dbuffer_t out,
   vector<dbuffer_t> const& inputs);
 
-dbuffer_t reference_concat(
-  concat_t const& concat,
+dbuffer_t reference_select(
+  select_t const& select,
   vector<dbuffer_t> const& inputs);
-
-dbuffer_t reference_subset(
-  subset_t const& subset,
-  dbuffer_t const& input);
 
 void reference_touch(
   touch_t const& touch,

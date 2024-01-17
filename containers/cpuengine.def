@@ -1,0 +1,30 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+  echo "Installing required packages..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y build-essential cmake protobuf-compiler gawk
+  cd /opt
+  bash mkl_install.sh -a -s --eula accept --components intel.oneapi.lin.mkl.devel
+  rm mkl_install.sh
+
+  apt-get install -y automake autoconf libtool zip
+  cd /opt
+  mkdir ucx
+  unzip ucx-1.14.1.zip
+  cd ucx-1.14.1/
+  ./autogen.sh
+  ./contrib/configure-release --enable-mt --prefix=/opt/ucx
+  make -j
+  make install
+  cd /opt
+  rm ucx-1.14.1.zip
+  rm -rf ucx-1.14.1
+  apt-get remove -y automake autoconf libtool zip gawk
+
+%files
+  ./l_BaseKit_p_2023.1.0.46401_offline.sh /opt/mkl_install.sh
+  ./ucx-1.14.1.zip /opt/ucx-1.14.1.zip
+

@@ -45,6 +45,68 @@ void partition_t::to_proto(es_proto::Partition& p) const {
   }
 }
 
+bool partitions_region(
+  vector<vector<tuple<uint64_t, uint64_t>>> const& hrects,
+  vector<uint64_t> const& shape)
+{
+  int rank = shape.size();
+
+  // Cut the shape hrect into a refined set of blocks
+  // based on the partial units
+  partition_t refinement = [&] {
+    vector<partdim_t> partdims;
+    partdims.reserve(rank);
+    {
+      vector<vector<uint64_t>> spans(rank);
+      for(int i = 0; i != rank; ++i) {
+        spans[i].push_back(shape[i]);
+      }
+      for(auto const& hrect: hrects) {
+        for(int i = 0; i != rank; ++i) {
+          auto const& [beg,end] = hrect[i];
+          auto& ss = spans[i];
+          if(beg != 0) {
+            ss.push_back(beg);
+          }
+          ss.push_back(end);
+        }
+      }
+      for(vector<uint64_t>& ss: spans) {
+        std::sort(ss.begin(), ss.end());
+        vector_remove_duplicates(ss);
+        partdims.push_back(partdim_t::from_spans(ss));
+      }
+    }
+    return partition_t(partdims);
+  }();
+
+  // for each touch, increment the relevant write regions
+  auto refinement_shape = refinement.block_shape();
+  vtensor_t<int> counts(refinement_shape);
+
+  for(auto const& hrect: hrects) {
+    vector<tuple<int,int>> region = refinement.get_exact_region(hrect);
+    vector<int> index = vector_mapfst(region);
+    do {
+      counts.at(index) += 1;
+    } while(increment_idxs_region(region, index));
+  }
+
+  // Check that the entire write shape is partitioned.
+  //
+  // If the out regions are not disjoint, then
+  //   some num_touch will be bigger than one.
+  // If some of the shape is not written to,
+  //   then some nume_touch will be zero.
+
+  for(auto const& num_touch: counts.get()) {
+    if(num_touch != 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool operator==(partition_t const& lhs, partition_t const& rhs) {
   return vector_equal(lhs.partdims, rhs.partdims);
 }

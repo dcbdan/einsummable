@@ -168,6 +168,7 @@ int main(int argc, char** argv) {
     }
 
     buffer_t buffer = make_buffer(memgraph.mem_sizes()[mpi.this_rank]);
+    storage_t storage_manager("tensors.dat");
 
     for(auto const& [inn,mem]: inn_to_mem) {
       if(taskgraph.out_loc(inn) == mpi.this_rank) {
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
 
     mpi.barrier();
     gremlin_t gremlin("cpuexec_mm time (memgraph)", mpi.this_rank != 0);
-    execute_memgraph(memgraph, execute_settings, kernel_manager, &mpi, buffer);
+    execute_memgraph(memgraph, execute_settings, kernel_manager, &mpi, buffer, storage_manager);
     mpi.barrier();
   }
 }

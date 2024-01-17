@@ -17,6 +17,8 @@
 #include <random>
 #include <queue>
 #include <chrono>
+#include <mutex>
+#include <condition_variable>
 
 #include "half.hpp"
 
@@ -72,6 +74,8 @@ using std::optional;
 using std::string;
 
 using float16_t = half_float::half;
+
+using hrect_t = vector<tuple<uint64_t, uint64_t>>;
 
 template <typename T>
 T product(vector<T> const& xs)
@@ -208,6 +212,15 @@ auto vector_max_transform(vector<X> const& xs, F f) -> decltype(f(xs[0])) {
   vector_max_transform(xs, std::mem_fn(&std::remove_reference<decltype(xs[0])>::type::f))
 
 template <typename T>
+T vector_sum(vector<T> const& xs) {
+  T ret = 0;
+  for(auto const& x: xs) {
+    ret += x;
+  }
+  return ret;
+}
+
+template <typename T>
 [[nodiscard]] vector<T> vector_add(vector<T> const& lhs, vector<T> const& rhs) {
   vector<T> ret;
   ret.reserve(lhs.size());
@@ -341,9 +354,11 @@ template <typename T>
 }
 
 // Take a bunch of sorted lists and merge em into a single sorted list
+// This is nlogn, but for n < 100, it's pretty fast cuz std::sort is fast.
+// For lorge n, use a nlogk algorthm where k = xs.size(). An implementation
+// tested wasnt faster until n > 5000.
 template <typename T>
 vector<T> vector_sorted_merges(vector<vector<T>> const& xs) {
-  // TODO: make this more efficient
   vector<T> ret;
   for(auto const& x: xs) {
     vector_concatenate_into(ret, x);
@@ -440,10 +455,16 @@ void set_erase_if_inplace(
   }
 }
 
+template <typename T>
+vector<T> vector_iota(int n) {
+  vector<T> ret(n);
+  std::iota(ret.begin(), ret.end(), T(0));
+  return ret;
+}
+
 template <typename RandomIter>
 vector<std::size_t> argsort(RandomIter beg, RandomIter end) {
-  vector<std::size_t> ret(end-beg);
-  std::iota(ret.begin(), ret.end(), 0);
+  vector<std::size_t> ret = vector_iota<std::size_t>(end-beg);
   std::sort(ret.begin(), ret.end(), [&](int const& lhs, int const& rhs) {
     return *(beg + lhs) < *(beg + rhs);
   });
@@ -460,6 +481,24 @@ set<T> set_minus(set<T> const& all_these, set<T> const& except_these)
     }
   }
   return ret;
+}
+
+template <typename T>
+bool set_has_empty_intersection(set<T> const& lhs, set<T> const& rhs)
+{
+  for(auto const& v: lhs) {
+    if(rhs.count(v) > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T>
+void set_union_inplace(set<T>& ret, set<T> const& these) {
+  for(auto const& x: these) {
+    ret.insert(x);
+  }
 }
 
 template <typename Iter, typename F>
@@ -523,6 +562,37 @@ T parse_with_ss(string const& s)
   return out;
 }
 
+// Parse [], [T], [T,...,T] with parse_with_ss for each element
+template <typename T>
+vector<T> parse_vector(string const& s, char sep = ',', char open = '[', char close = ']')
+{
+  vector<T> ret;
+
+  if(s.size() < 2) {
+    throw std::runtime_error("failed to parse vector: len < 2");
+  }
+  if(*s.begin() != open or *(s.end() - 1) != close) {
+    throw std::runtime_error("parse vector: needs brackets");
+  }
+
+  auto xx = s.begin() + 1;
+  auto end = s.end() - 1;
+  while(xx != end) {
+    auto yy = std::find(xx, end, sep);
+    if(xx == yy) {
+      throw std::runtime_error("parse_vector: empty substring");
+    }
+    ret.push_back(parse_with_ss<T>(std::string(xx,yy)));
+    if(yy == end) {
+      xx = end;
+    } else {
+      xx = yy + 1;
+    }
+  }
+
+  return ret;
+}
+
 template <typename T>
 string write_with_ss(T const& val)
 {
@@ -561,8 +631,10 @@ using priority_queue_least = std::priority_queue<T, vector<T>, std::greater<T>>;
 bool in_range(int val, int beg, int end);
 
 #define clock_now std::chrono::high_resolution_clock::now
+#define steady_now std::chrono::steady_clock::now
 
 using timestamp_t = decltype(clock_now());
+using steady_timestamp_t = decltype(steady_now());
 
 struct raii_print_time_elapsed_t {
   raii_print_time_elapsed_t(string msg, bool hide=false):
@@ -899,8 +971,7 @@ vector<T> backward_permute(
   vector<int> const& out_perm,
   vector<T> const& out_shape)
 {
-  vector<int> modes(out_perm.size());
-  std::iota(modes.begin(), modes.end(), 0);
+  vector<int> modes = vector_iota<int>(out_perm.size());
 
   return forward_permute(
     as_out_perm(out_perm, modes),
@@ -942,4 +1013,7 @@ void istream_expect(std::istream& inn, string const& xs);
 // find the longest parse of the options; throw an error if no parse
 int istream_expect_or(std::istream& inn, vector<string> const& options);
 
+struct unit_t {};
 
+void* increment_void_ptr(void* ptr, uint64_t size);
+void const* increment_void_ptr(void const* ptr, uint64_t size);

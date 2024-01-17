@@ -62,13 +62,27 @@ struct einsummable_t {
     uint64_t di, uint64_t dj, uint64_t dk,
     dtype_t dtype = default_dtype());
 
+  static einsummable_t aggregate(
+    vector<uint64_t> const& inn_shape,
+    vector<int> const& inn,
+    int out_rank,
+    dtype_t dtype = default_dtype(),
+    castable_t castable = castable_t::add);
+
   static einsummable_t with_new_shape(
     einsummable_t const& e, vector<uint64_t> const& new_join_shape);
 
   static tuple<vector<vector<int>>, int>
   parse_str(string einsummable_str);
 
+  static tuple<string , vector<string>>
+  make_str_terms(vector<vector<int>> const& inns, vector<int> const& out);
+
+  static tuple<string, vector<string>>
+  make_str_terms(vector<vector<int>> const& inns, int out_rank);
+
   static string make_str(vector<vector<int>> const& inns, int out_rank);
+  static string make_str(vector<vector<int>> const& inns, vector<int> const& out_rank);
 
   static string normalize_str(string const& str);
 
@@ -76,7 +90,15 @@ struct einsummable_t {
     vector<vector<int>> const& inns,
     int out_rank);
 
+  // will return None if has_broadcast
+  // (except for ijk->ijkl sort of broadcast; this function
+  //  will think the join shape is rank 3 instead of rank 4)
   static optional<vector<uint64_t>> construct_join_shape(
+    vector<vector<int>> const& inns,
+    vector<vector<uint64_t>> const& inn_shapes);
+
+  static vector<uint64_t> construct_join_shape(
+    vector<uint64_t> const& out_shape,
     vector<vector<int>> const& inns,
     vector<vector<uint64_t>> const& inn_shapes);
 
@@ -94,11 +116,17 @@ struct einsummable_t {
 
   vector<vector<uint64_t>> inn_shapes() const;
 
+  vector<uint64_t> inn_shape(int which_inn) const;
+
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
   string str() const;
 
+  tuple<string, vector<string>> str_terms() const;
+
   std::size_t hash() const;
+
+  bool is_identity() const;
 
   // A straight elementwise operation can be computed by
   //   for(i = 0, i != product(join_shape); ++i) {
@@ -118,6 +146,33 @@ struct einsummable_t {
 
   bool is_contraction() const;
 
+  // is broadcast means this op is just doing a broadcast on a single
+  // input and nothing else
+  bool is_broadcast() const;
+
+  // is_broadcast includes permutation style broadcasts like
+  // ijk->kjil. straight broadcast must include all broadcast
+  // dims followed by the input without any permutation:
+  //   so 123->0123 is a straight broadcast but
+  //      012->0123 is not
+  bool is_straight_broadcast() const;
+
+  // Example:
+  //   ijkm->ijkl
+  //   0124->0123
+  //
+  //   ijk: normal modes
+  //   m:   agg mode
+  //   l:   broadcast mode
+  set<int> get_agg_modes() const;
+  set<int> get_normal_modes() const;
+  set<int> get_broadcast_modes() const;
+
+  // has broadcast is true if there are any broadcast modes
+  bool has_broadcast() const;
+
+  einsummable_t remove_broadcast() const;
+
   template <typename T>
   vector<T> get_input_from_join(vector<T> const& join_ts, int which_inn) const
   {
@@ -135,18 +190,28 @@ struct einsummable_t {
   }
 
   template <typename T>
+  static vector<T> get_input_from_join_(
+    vector<int> const& inn,
+    vector<T> const& join_ts)
+  {
+    vector<T> ret;
+    ret.reserve(inn.size());
+    for(auto const& j: inn) {
+      ret.push_back(join_ts.at(j));
+    }
+    return ret;
+  }
+
+  template <typename T>
   static vector<vector<T>> get_inputs_from_join_(
     vector<vector<int>> const& inns,
     vector<T> const& join_ts)
   {
-    vector<vector<T>> ret(inns.size());
-    for(int i = 0; i != inns.size(); ++i) {
-      ret[i].reserve(inns.size());
-      for(auto const& j: inns[i]) {
-        ret[i].push_back(join_ts[j]);
-      }
+    vector<vector<T>> ret;
+    ret.reserve(inns.size());
+    for(auto const& inn: inns) {
+      ret.emplace_back(get_input_from_join_(inn, join_ts));
     }
-
     return ret;
   }
 
@@ -163,6 +228,7 @@ struct einsummable_t {
   template <typename T, typename F>
   static optional<vector<T>>
   construct_join_shape_(
+    optional<vector<T>> const& maybe_out,
     vector<vector<int>> const& inns,
     vector<vector<T>> const& inn_shapes,
     T const& unassigned,
@@ -173,6 +239,10 @@ struct einsummable_t {
     }
 
     vector<T> join_shape;
+    if(maybe_out) {
+      join_shape = maybe_out.value();
+    }
+
     for(int which_inn = 0; which_inn != inns.size(); ++which_inn) {
       auto const& shape = inn_shapes[which_inn];
       auto const& is = inns[which_inn];
@@ -204,6 +274,18 @@ struct einsummable_t {
     }
 
     return join_shape;
+  }
+
+  template <typename T, typename F>
+  static optional<vector<T>>
+  construct_join_shape_(
+    vector<vector<int>> const& inns,
+    vector<vector<T>> const& inn_shapes,
+    T const& unassigned,
+    F equals)
+  {
+    optional<vector<T>> none = std::nullopt;
+    return construct_join_shape_(none, inns, inn_shapes, unassigned, equals);
   }
 };
 

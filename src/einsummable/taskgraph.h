@@ -32,6 +32,11 @@ struct taskgraph_t {
     vector<uint64_t> shape,
     bool is_save = false);
 
+  int insert_constant(
+    int loc,
+    fill_t const& fill,
+    bool is_save = false);
+
   int insert_einsummable(
     int loc,
     einsummable_t e,
@@ -109,6 +114,9 @@ struct taskgraph_t {
   //  because things can get added to partialize ops)
   vector<int> get_order() const;
 
+  tuple<vector<int>, vector<int>> get_input_core_order() const;
+  set<int> get_input_everywhere_ids() const;
+
   // If a taskgraph node has zero outputs, it better be a save.
   // Return whether or not this holds for all nodes
   bool all_zero_outs_is_save() const;
@@ -141,6 +149,10 @@ private:
     int dst;
     int inn;
     uint64_t size;
+  };
+  struct constant_t {
+    int loc;
+    fill_t fill;
   };
 
   // Some words are neccessary to describe what a partialize is.
@@ -186,6 +198,12 @@ private:
   // and a partialize is a list of partialize units.
   // It must be the case that each partial_unit is representing
   // a disjoint portion of the output.
+  //
+  // Since all units are writing to different output memories, they can
+  // all be done in parallel. However, all writes within a unit cannot
+  // be done at the same time because they are all writing into the
+  // same output memory. A unit can be split into many units by
+  // partitioning the unit's output region.
   //
   // Another tidbit: every input that has the same shape as the output may
   // be "consumed"--that is, if a consumable input is the first input ready, the
@@ -239,6 +257,10 @@ private:
     static partialize_t make_from_touches(
       int loc, vector<tuple<int, touch_t>> const&);
 
+    // For each unit with n inputs, try to split that unit into
+    // n sub-units.
+    void make_parallel();
+
     // determine if the entire write shape has been touched
     // by exactly one unit
     bool valid() const;
@@ -259,6 +281,7 @@ private:
     vector<partial_unit_t> units;
   };
 
+
   friend
   bool operator==(
     partialize_t::out_regiondim_t const& lhs,
@@ -271,18 +294,21 @@ private:
 public:
   struct op_t {
   private:
-    using _op_t = std::variant<input_t, apply_t, move_t, partialize_t>;
+    using _op_t = std::variant<input_t, apply_t, move_t, constant_t, partialize_t>;
   public:
     op_t(_op_t op): op(op) {}
 
     op_t(input_t      x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(constant_t   x): op_t(_op_t(x)) {}
     op_t(partialize_t x): op_t(_op_t(x)) {}
 
     _op_t op;
 
     int out_loc() const;
+
+    bool is_local_to(int loc) const;
 
     uint64_t out_size() const;
 
@@ -296,6 +322,9 @@ public:
     }
     bool is_move() const {
       return std::holds_alternative<move_t>(op);
+    }
+    bool is_constant() const {
+      return std::holds_alternative<constant_t>(op);
     }
     bool is_partialize() const {
       return std::holds_alternative<partialize_t>(op);
@@ -316,6 +345,9 @@ public:
 
     move_t const& get_move() const { return std::get<move_t>(op); }
     move_t&       get_move()       { return std::get<move_t>(op); }
+
+    constant_t const& get_constant() const { return std::get<constant_t>(op); }
+    constant_t&       get_constant()       { return std::get<constant_t>(op); }
 
     partialize_t&       get_partialize()       { return std::get<partialize_t>(op); }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
@@ -340,30 +372,6 @@ private:
   int insert(op_t op, bool is_save);
 };
 
-partition_t concat_split_partition(
-  partition_t const& partition,
-  concat_t const& concat);
-
-// get the slice of concat_partition at
-// the which_input part of the concat op
-partition_t concat_get_input_partition(
-  partition_t const& concat_partition,
-  concat_t const& concat,
-  int which_input);
-
-placement_t concat_split_placement(
-  placement_t const& placement,
-  concat_t const& concat);
-
-tuple<subset_t, partition_t>
-unsqueeze_subset_partition(
-  subset_t const& subset,
-  partition_t const& partition);
-
-partition_t make_subset_input_partition(
-  subset_t const& subset,
-  partition_t const& out_partition);
-
 partition_t double_last_dim(partition_t const& p);
 placement_t double_last_dim(placement_t const& p);
 
@@ -376,6 +384,10 @@ placement_t halve_last_dim(placement_t const& p);
 void halve_last_dim_inplace(partition_t& p);
 void halve_last_dim_inplace(placement_t& p);
 
+partition_t convert_squeezer_partition(
+  vector<uint64_t> new_shape,
+  partition_t const& part);
+
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,
   taskgraph_t::partialize_t::out_regiondim_t const& rhs);
@@ -385,4 +397,40 @@ bool operator!=(
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
+
+/////////////////////////////////////
+
+struct multiple_placement_t {
+  multiple_placement_t(
+    partition_t const& pa,
+    vtensor_t<set<int>> const& ls);
+
+  static multiple_placement_t from_single_placement(placement_t const& p);
+
+  static multiple_placement_t make_refinement(vector<placement_t> const& ps);
+
+  static multiple_placement_t make_refinement(vector<multiple_placement_t> const& ps);
+
+  // deduce the required multiple placement of an einsummable's
+  // input at which_input given that the einsummable is placed with
+  // with join_placement
+  static multiple_placement_t make_einsummable_input(
+    placement_t const& join_placement,
+    einsummable_t const& einsummable,
+    int which_input);
+  static multiple_placement_t make_select_input(
+    placement_t const& join_placement,
+    select_t const& select,
+    int which_input);
+
+  partition_t partition;
+  vtensor_t<set<int>> const locations;
+  // Note: it is possible to have empty location sets
+  //       (from a subset operation, for example)
+};
+
+multiple_placement_t construct_refinement_placement(
+  graph_t const& graph,
+  int gid,
+  std::function<placement_t const&(int)> get_placement);
 

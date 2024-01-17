@@ -14,6 +14,12 @@ vector<int> partition_t::block_shape() const {
 }
 
 inline
+vector<int> partition_t::from_bid(int const& bid) const {
+  vector<int> shape = block_shape();
+  return index_to_idxs(shape, bid);
+}
+
+inline
 bool partition_t::refines(partition_t const& other) const
 {
   if(other.partdims.size() != partdims.size()) {
@@ -55,6 +61,20 @@ vtensor_t<uint64_t> partition_t::all_block_sizes() const {
   } while(increment_idxs(shape, idx));
 
   return vtensor_t(shape, ret);
+}
+
+inline
+uint64_t partition_t::max_block_size() const {
+  uint64_t ret = 1;
+  for(auto const& pd: partdims) {
+    ret *= pd.max_size();
+  }
+  return ret;
+}
+
+inline
+uint64_t partition_t::block_size_at_bid(int bid) const {
+  return product(tensor_shape_at(from_bid(bid)));
 }
 
 inline

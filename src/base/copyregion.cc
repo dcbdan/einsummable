@@ -52,6 +52,7 @@ union_pair_partitions(partition_t const& aa, partition_t const& bb)
   }
 
   vector<partdim_t> pds;
+  pds.reserve(aa.partdims.size());
   for(int i = 0; i != aa.partdims.size(); ++i) {
     pds.push_back(
       partdim_t::unions({aa.partdims[i], bb.partdims[i]}));

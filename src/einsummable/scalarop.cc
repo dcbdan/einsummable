@@ -58,6 +58,13 @@ bool dtype_is_complex(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
+dtype_t dtype_real_component(dtype_t dtype) {
+  if(dtype == dtype_t::c64) {
+    return dtype_t::f32;
+  }
+  throw std::runtime_error("can't get real component dtype");
+}
+
 dtype_t dtype_random(bool include_complex) {
   int dd = runif(include_complex ? 4 : 3);
   if(dd == 0) {
@@ -296,6 +303,10 @@ bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); 
 bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
 bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
 bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); }
+bool op_t::is_conj()     const { return std::holds_alternative< conj     >(op); }
+bool op_t::is_real()     const { return std::holds_alternative< real     >(op); }
+bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); }
+bool op_t::is_cplex()    const { return std::holds_alternative< cplex    >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
 
@@ -315,10 +326,10 @@ int op_t::num_inputs() const {
   if(is_constant() || is_hole()) {
     return 0;
   }
-  if(is_power() || is_exp() || is_convert()) {
+  if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
     return 1;
   }
-  if(is_add() || is_mul()) {
+  if(is_add() || is_mul() || is_cplex()) {
     return 2;
   }
   if(is_ite()) {
@@ -354,6 +365,18 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const {
   }
   if(is_convert()){
     return _eval_convert(get_convert(), xs[0]);
+  }
+  if(is_conj()) {
+    return _eval_conj(xs[0]);
+  }
+  if(is_real()) {
+    return _eval_real(xs[0]);
+  }
+  if(is_imag()) {
+    return _eval_imag(xs[0]);
+  }
+  if(is_cplex()) {
+    return _eval_cplex(xs[0], xs[1]);
   }
   throw std::runtime_error("should not reach");
 }
@@ -409,7 +432,7 @@ scalar_t op_t::_eval_add(scalar_t lhs, scalar_t rhs)
 scalar_t op_t::_eval_mul(scalar_t lhs, scalar_t rhs)
 {
   if(lhs.dtype != rhs.dtype) {
-    throw std::runtime_error("_eval_mul");
+    throw std::runtime_error("_eval_mul: dtypes do not match");
   }
   switch(lhs.dtype) {
     case dtype_t::f16:
@@ -480,6 +503,41 @@ scalar_t op_t::_eval_convert(dtype_t dtype, scalar_t inn)
   return scalar_t::convert(inn, dtype);
 }
 
+scalar_t op_t::_eval_conj(scalar_t inn)
+{
+  if(inn.dtype != dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(std::conj(inn.c64()));
+}
+
+scalar_t op_t::_eval_real(scalar_t inn)
+{
+  if(inn.dtype != dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(inn.c64().real());
+}
+
+scalar_t op_t::_eval_imag(scalar_t inn)
+{
+  if(inn.dtype != dtype_t::c64) {
+    throw std::runtime_error("must have c64");
+  }
+  return scalar_t(inn.c64().imag());
+}
+
+scalar_t op_t::_eval_cplex(scalar_t lhs, scalar_t rhs)
+{
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("must have same input dtypes");
+  }
+  if(lhs.dtype != dtype_t::f32) {
+    throw std::runtime_error("must have f32");
+  }
+  return scalar_t(std::complex<float>(lhs.f32(), rhs.f32()));
+}
+
 optional<dtype_t> op_t::_type_add(dtype_t lhs, dtype_t rhs) {
   if(lhs == rhs) {
     return lhs;
@@ -534,6 +592,42 @@ optional<dtype_t> op_t::_type_convert(dtype_t inn, dtype_t out) {
   return out;
 }
 
+optional<dtype_t> op_t::_type_conj(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return inn;
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<dtype_t> op_t::_type_real(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return dtype_t::f32;
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<dtype_t> op_t::_type_imag(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return dtype_t::f32;
+  } else {
+    return std::nullopt;
+  }
+}
+
+optional<dtype_t> op_t::_type_cplex(dtype_t lhs, dtype_t rhs) {
+  if(lhs != rhs) {
+    return std::nullopt;
+  }
+
+  if(lhs == dtype_t::f32) {
+    return dtype_t::c64;
+  } else {
+    return std::nullopt;
+  }
+}
+
 optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   if(is_constant()) {
     if(inns.size() != 0) { return std::nullopt; }
@@ -558,6 +652,14 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
     return _type_ite(inns[0], inns[1], inns[2], inns[3]);
   } else if(is_convert()) {
     return _type_convert(inns[0], get_convert());
+  } else if(is_conj()) {
+    return _type_conj(inns[0]);
+  } else if(is_real()) {
+    return _type_real(inns[0]);
+  } else if(is_imag()) {
+    return _type_imag(inns[0]);
+  } else if(is_cplex()) {
+    return _type_cplex(inns[0], inns[1]);
   } else {
     throw std::runtime_error("type_of should not reach");
   }
@@ -600,35 +702,21 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 }
 
 node_t node_t::derivative(int arg) const {
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("no derivatives with respect to complex");
-  }
-
   if(op.is_constant()) {
-    return node_t {
-      .op = op_t::make_constant(scalar_t::zero(op.get_constant().dtype)),
-      .dtype = dtype,
-      .children = {}
-    };
-  }
-
-  if(op.is_hole()) {
+    return make_constant(scalar_t::zero(dtype));
+  } else if(op.is_hole()) {
     if(arg == op.get_which_input()) {
-      return node_t {
-        .op = op_t::make_constant(scalar_t::one(op.get_hole().dtype)),
-        .dtype = dtype,
-        .children = {}
-      };
+      if(dtype_is_complex(dtype) && dtype != dtype_t::c64) {
+        throw std::runtime_error("impl more complex dtypes");
+      }
+      scalar_t one = dtype_is_complex(dtype)    ?
+        scalar_t(std::complex<float>(1.0, 0.0)) :
+        scalar_t::one(dtype)                    ;
+      return make_constant(one);
     } else {
-      return node_t {
-        .op = op_t::make_constant(scalar_t::zero(op.get_hole().dtype)),
-        .dtype = dtype,
-        .children = {}
-      };
+      return make_constant(scalar_t::zero(dtype));
     }
-  }
-
-  if(op.is_add()) {
+  } else if(op.is_add()) {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
@@ -640,9 +728,7 @@ node_t node_t::derivative(int arg) const {
       .dtype = dtype,
       .children = {deri_lhs, deri_rhs}
     };
-  }
-
-  if(op.is_mul()) {
+  } else if(op.is_mul()) {
     node_t const& lhs = children[0];
     node_t const& rhs = children[1];
 
@@ -661,22 +747,20 @@ node_t node_t::derivative(int arg) const {
     string term_rhs = "*[" + s_lhs      + "," + s_deri_rhs + "]";
 
     return parse_with_ss<node_t>("+[" + term_lhs + "," + term_rhs + "]");
-  }
-
-  if(op.is_exp()) {
+  } else if(op.is_exp()) {
     // e^{f(x)} => e^{f(x)} * f'(x)
+    //             --------   -----
+    //             this       deri_inn
     node_t const& inn = children[0];
 
     node_t deri_inn = inn.derivative(arg);
 
-    string s_inn      = write_with_ss(inn);
-
     string s_deri_inn = write_with_ss(deri_inn);
 
-    return parse_with_ss<node_t>("*[" + s_inn + "," + s_deri_inn + "]");
-  }
+    string s_this = write_with_ss(*this);
 
-  if(op.is_power()) {
+    return parse_with_ss<node_t>("*[" + s_this + "," + s_deri_inn + "]");
+  } else if(op.is_power()) {
     // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
     //           A     B               C
 
@@ -705,9 +789,7 @@ node_t node_t::derivative(int arg) const {
     string ABC = "*[" + A + "," + BC + "]";
 
     return parse_with_ss<node_t>(ABC);
-  }
-
-  if(op.is_ite()) {
+  } else if(op.is_ite()) {
     // compare(x0, x1) ? x2  : x3  has a derivative of
     // compare(x0, x1) ? x2' : x3'
     string s0 = write_with_ss(children[0]);
@@ -721,9 +803,149 @@ node_t node_t::derivative(int arg) const {
       "[" + s0 + "," + s1 + "," + deri_s2 + "," + deri_s3 + "]";
 
     return parse_with_ss<node_t>(ret);
+  } else if(op.is_convert()) {
+    // convert(f(x)) => convert(f'(x))
+    node_t const& inn = children[0];
+    node_t deri_inn = inn.derivative(arg);
+    return node_t {
+      .op = op,
+      .dtype = dtype,
+      .children = vector<node_t>{ deri_inn }
+    };
+  } else if(op.is_conj()) {
+    throw std::runtime_error("conjugation is not holomorphic");
+  } else if(op.is_real()) {
+    throw std::runtime_error("real projection is not holomorphic");
+  } else if(op.is_imag()) {
+    throw std::runtime_error("complex projection is not holomorphic");
+  } else if(op.is_cplex()) {
+    throw std::runtime_error("complex(x,y) is not holomorphic");
+  } else {
+    throw std::runtime_error("missing derivative case");
   }
+}
 
-  throw std::runtime_error("should not reach");
+node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
+  // Consider s(x) = h(g(x)). The chain rule gives
+  //   ds/d(z*) = dh/dg * dg/d(z*) + dh/d(g*) * (dg/dz)*
+  //   ds/dz    = dh/dg * dg/dz    + dh/d(g*) * (dg/d(z*))*
+  // When h is holomorphic, dh/d(g*) will be zero, so
+  //   ds/d(z*) = dh/dg * dg/d(z*)
+  //   ds/dz    = dh/dg * dg/dz
+  // When h maps to real, dh/d(g*) = (dh/dg)*
+  // When h maps real to real, (dh/dg) = (dh/dg)*
+  //   ds/d(z*) = dh/dg * (dg/d(z*) + (dg/dz)*)
+  //   ds/dz    = dh/dg * (dg/dz    + (dg/d(z*))*
+
+  // dh/dg    = 1/2
+  // dh/d(g*) = 1/2
+  // ds/d(z*) = 1/2 * dg/d(z*) + 1/2 * (dg/dz)*
+  // ds/dz    = 1/2 * dg/dz    + 1/2 * (dg/d(z*))*
+  auto compute_real = [&](int which_child) {
+    if(dtype != dtype_t::c64) {
+      throw std::runtime_error("can't get constant: wirt deriv");
+    }
+    string dgdz  = write_with_ss(children[which_child].wirtinger_derivative(arg, false));
+    string dgdzs = write_with_ss(children[which_child].wirtinger_derivative(arg, true));
+    string half = write_with_ss(make_constant(scalar_t(std::complex<float>(0.5, 0.0))));
+    string ret = "+[" +
+                  (conjugate ? dgdzs : dgdz)  + "," +
+        "conj[" + (conjugate ? dgdz  : dgdzs) + "]" +
+      "]";
+    return parse_with_ss<node_t>("*[" + half + "," + ret + "]");
+  };
+
+  auto compute_imag = [&](int which_child) {
+    // dh/d(g*) =  i/2
+    // dh/dg    = -i/2
+    // ds/d(z*) = -i/2 * dg/d(z*) + i/2 * (dg/dz)*
+    // ds/dz    = -i/2 * dg/dz    + i/2 * (dg/d(z*))*
+    string nhalfi = write_with_ss(make_constant(scalar_t(std::complex<float>(0.0, -0.5))));
+    string  halfi = write_with_ss(make_constant(scalar_t(std::complex<float>(0.0,  0.5))));
+    string dgdz  = write_with_ss(children[which_child].wirtinger_derivative(arg, false));
+    string dgdzs = write_with_ss(children[which_child].wirtinger_derivative(arg, true));
+    string lhs = "*[" + nhalfi + ","      + (conjugate ? dgdzs : dgdz) + "]";
+    string rhs = "*[" +  halfi + ",conj[" + (conjugate ? dgdz : dgdzs) + "]]";
+    return parse_with_ss<node_t>("+[" + lhs + "," + rhs + "]");
+  };
+
+  if(op.is_constant()) {
+    return make_constant(scalar_t::zero(dtype));
+  } else if(op.is_hole()) {
+    if(conjugate) {
+      return make_constant(scalar_t::zero(dtype));
+    } else {
+      scalar_t one = dtype_is_complex(dtype)    ?
+        scalar_t(std::complex<float>(1.0, 0.0)) :
+        scalar_t::one(dtype)                    ;
+      return make_constant(one);
+    }
+  } else if(op.is_add()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // is holomorphic and dh/dg = 1
+    return children[arg].wirtinger_derivative(arg, conjugate);
+  } else if(op.is_mul()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // is holomorphic and dh/dg = the other arg
+    string dh_dg = arg == 0 ?
+      write_with_ss(children[1]) : write_with_ss(children[0]);
+    string dg_dzz = write_with_ss(
+      children[arg].wirtinger_derivative(arg, conjugate));
+    return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_exp()) {
+    // is holomorphic and dh/dg = e^g(x)
+    if(arg != 0) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    string dh_dg = "exp["+write_with_ss(children[0])+"]";
+    string dg_dzz = write_with_ss(
+      children[0].wirtinger_derivative(arg, conjugate));
+    return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_power()) {
+    if(arg != 0) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    // TODO
+    // This may be holomorphic; it may require logarithm
+    throw std::runtime_error("wirtinger deriv for power not implemented");
+  } else if(op.is_ite()) {
+    // TODO
+    throw std::runtime_error("not implemented");
+  } else if(op.is_convert()) {
+    // TODO
+    throw std::runtime_error("not implemented");
+  } else if(op.is_conj()) {
+    // dh/dg    = 0
+    // dh/d(g*) = 1
+    // ds/d(z*) = (dg/dz)*
+    // ds/dz    = (dg/d(z*))*
+    if(conjugate) {
+      string dgdz = write_with_ss(children[0].wirtinger_derivative(arg, false));
+      return parse_with_ss<node_t>("conj[" + dgdz + "]");
+    } else {
+      string dgdzs = write_with_ss(children[0].wirtinger_derivative(arg, true));
+      return parse_with_ss<node_t>("conj[" + dgdzs + "]");
+    }
+  } else if(op.is_real()) {
+    return compute_real(0);
+  } else if(op.is_imag()) {
+    return compute_imag(0);
+  } else if(op.is_cplex()) {
+    if(arg != 0 && arg != 1) {
+      return make_constant(scalar_t::zero(dtype));
+    }
+    if(arg == 0) {
+      return compute_real(0);
+    } else {
+      return compute_imag(1);
+    }
+  } else {
+    throw std::runtime_error("missing wirtinger derivative case");
+  }
 }
 
 node_t node_t::simplify() const {
@@ -814,6 +1036,8 @@ node_t node_t::simplify_once() const {
       return lhs;
     }
 
+    // TODO: Check for 0.5*(x+x)
+
     // TODO: convert for x*x -> x^2 ?
   }
 
@@ -851,6 +1075,18 @@ node_t node_t::simplify_once() const {
       return s2;
     }
   }
+
+  // Case: Conjugate
+  if(op.is_conj()) {
+    node_t& inn = new_children[0];
+    if(inn.op.is_conj()) {
+      // Conjugate of conjugate is a no op
+      return inn.children[0];
+    }
+  }
+
+  // TODO?: conj(x) + x = 2real(x)
+  //        conj(x) - x = 2imag(x)
 
   return node_t {
     .op = op,
@@ -956,6 +1192,19 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
         return "double(" + inn + ")";
       }
       throw std::runtime_error("should not reach");
+  } else if(op.is_conj()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_conj(" + inn + ")";
+  } else if(op.is_real()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_real(" + inn + ")";
+  } else if(op.is_imag()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_imag(" + inn + ")";
+  } else if(op.is_cplex()) {
+    auto lhs = children[0].to_cppstr(w);
+    auto rhs = children[1].to_cppstr(w);
+    return "_complex(" + lhs + "," + rhs + ")";
   } else {
     throw std::runtime_error("to_cppstr: should not reach");
   }
@@ -1077,7 +1326,7 @@ void node_t::increment_holes(int incr) {
 void node_t::remap_holes(map<int, int> const& fmap) {
   if(op.is_hole()) {
     int& arg = std::get<op_t::hole>(op.op).arg;
-    arg += fmap.at(arg);
+    arg = fmap.at(arg);
   } else {
     for(auto& child: children) {
       child.remap_holes(fmap);
@@ -1103,6 +1352,21 @@ map<int, dtype_t> node_t::hole_types() const {
   return ret;
 }
 
+bool node_t::type_check() const {
+  for(node_t const& child: children) {
+    if(!child.type_check()) {
+      return false;
+    }
+  }
+  optional<dtype_t> maybe_dtype = op.type_of(
+    vector_from_each_member(children, dtype_t, dtype));
+  if(maybe_dtype) {
+    return maybe_dtype.value() == dtype;
+  } else {
+    return false;
+  }
+}
+
 void node_t::_hole_types(map<int, dtype_t>& ret) const {
   if(op.is_hole()) {
     auto hole = op.get_hole();
@@ -1125,7 +1389,7 @@ void node_t::_hole_types(map<int, dtype_t>& ret) const {
 
 } // scalar_ns
 
-dtype_t& _default_dtype() {
+static dtype_t& _default_dtype() {
   static dtype_t d = dtype_t::f32;
   return d;
 }
@@ -1138,11 +1402,31 @@ void set_default_dtype(dtype_t new_dtype) {
   _default_dtype() = new_dtype;
 }
 
+static dtype_t& _default_complex_dtype() {
+  static dtype_t d = dtype_t::c64;
+  return d;
+}
+
+dtype_t const& default_complex_dtype() {
+  return _default_complex_dtype();
+}
+
+void set_default_complex_dtype(dtype_t new_dtype) {
+  if(!dtype_is_complex(new_dtype)) {
+    throw std::runtime_error("cannot set default complex dtype to real dtype");
+  }
+  _default_complex_dtype() = new_dtype;
+}
+
 scalarop_t::scalarop_t() {}
 
 scalarop_t::scalarop_t(scalar_ns::node_t const& n)
   : node(n.simplify()), arg_types(node.hole_types())
-{}
+{
+  if(!node.type_check()) {
+    throw std::runtime_error("scalarop did not typecheck: " + write_with_ss(*this));
+  }
+}
 
 scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
   return node.eval(inputs);
@@ -1150,6 +1434,10 @@ scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
 
 scalarop_t scalarop_t::derivative(int arg) const {
   return scalarop_t(node.derivative(arg));
+}
+
+scalarop_t scalarop_t::wirtinger_derivative(int arg, bool conjugate) const {
+  return scalarop_t(node.wirtinger_derivative(arg, conjugate));
 }
 
 scalarop_t scalarop_t::simplify() const {
@@ -1167,6 +1455,7 @@ optional<dtype_t> scalarop_t::inn_dtype(int arg) const {
 
 void scalarop_t::remap_inputs(map<int, int> const& remap) {
   node.remap_holes(remap);
+  arg_types = node.hole_types();
 }
 
 set<int> scalarop_t::which_inputs() const {
@@ -1214,6 +1503,196 @@ bool scalarop_t::is_min() const {
 
 bool scalarop_t::is_max() const {
   return *this == make_max(node.dtype);
+}
+
+
+
+optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
+  // TODO: review this
+  if(node.op.is_hole()){
+    if(node.dtype==dtype_t::c64){
+      cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),cutensor_scalarop_t::cop_t::identity};
+      return arg64;
+    }
+    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.dtype),cutensor_scalarop_t::cop_t::identity};
+    return arg;
+  }else if(node.op.num_inputs()==1){ //so unary op
+    cutensor_scalarop_t::cop_t op;
+    if(node.op.is_exp()){
+      op = cutensor_scalarop_t::cop_t::exp;
+    }else if(node.op.is_power()){
+      op = cutensor_scalarop_t::cop_t::pow;
+    }else{
+      return std::nullopt;
+    }
+    if(node.children[0].dtype==dtype_t::c64){
+      cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),op};
+      return arg64;
+    }
+    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.children[0].dtype),op};
+    return arg;
+  }else if(node.op.num_inputs()==2){ //so binary op
+    node = node.simplify();
+
+    vector<node_t> children = node.children;
+    node_t& lhs = children[0];
+    node_t& rhs = children[1];
+
+    scalar_t value = lhs.op.get_constant();
+
+    if(rhs.op.is_hole()){
+      cutensor_scalarop_t::arg_t arg {value,cutensor_scalarop_t::cop_t::identity};
+      return arg;
+    }else if(rhs.op.num_inputs()==1){ //so unary op
+      cutensor_scalarop_t::cop_t op;
+      if(rhs.op.is_exp()){
+        op = cutensor_scalarop_t::cop_t::exp;
+      }else if(rhs.op.is_power()){
+        op = cutensor_scalarop_t::cop_t::pow;
+      }
+      else{
+        return std::nullopt;
+      }
+      cutensor_scalarop_t::arg_t arg {value,op};
+      return arg;
+    }else{
+      return std::nullopt;
+    }
+  }else{
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+
+
+optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop() {
+  if(num_inputs()==1){
+    auto potential_arg = set_up_arg(node);
+    if(!potential_arg){
+      return std::nullopt;
+    }
+    cutensor_scalarop_t::arg_t arg = *potential_arg;
+
+    cutensor_scalarop_t::unary_t unary_op{arg};
+
+    cutensor_scalarop_t unary_scalarop;
+    unary_scalarop.op = unary_op;
+    return unary_scalarop;
+
+  }else if(num_inputs()==2){
+    if(node.op.num_inputs()!=2){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::cop_t op_0_1;
+
+    if(node.op.is_add()){
+      op_0_1 = cutensor_scalarop_t::cop_t::add;
+    }else if(node.op.is_mul()){
+      op_0_1 = cutensor_scalarop_t::cop_t::mul;
+    }else{
+      return std::nullopt;
+    }
+
+    node = node.simplify();
+
+    vector<node_t> node_children = node.children;
+    node_t& h0 = node_children[0];
+    node_t& h1 = node_children[1];
+
+    auto potential_a0 = set_up_arg(h0);
+    auto potential_a1 = set_up_arg(h1);
+
+    if(!potential_a0||!potential_a1){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::arg_t a0 = *potential_a0;
+    cutensor_scalarop_t::arg_t a1 = *potential_a1;
+
+    cutensor_scalarop_t::binary_t bi_op{
+      op_0_1,
+      a0,
+      a1
+    };
+
+    cutensor_scalarop_t binary_scalarop;
+    binary_scalarop.op = bi_op;
+    return binary_scalarop;
+
+  }else if(num_inputs()==3){
+    if(node.op.num_inputs()!=2){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::cop_t op_01_2;
+
+    if(node.op.is_add()){
+      op_01_2 = cutensor_scalarop_t::cop_t::add;
+    }else if(node.op.is_mul()){
+      op_01_2 = cutensor_scalarop_t::cop_t::mul;
+    }else{
+      return std::nullopt;
+    }
+
+    node = node.simplify();
+
+    vector<node_t> children = node.children;
+    node_t& lhs = children[0];
+    node_t& rhs = children[1];
+
+    auto potential_a2= set_up_arg(rhs);
+    if(!potential_a2){
+      return std::nullopt;
+    }
+    cutensor_scalarop_t::arg_t a2 = *potential_a2;
+
+    if(lhs.op.num_inputs()!=2){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::cop_t op_0_1;
+
+    if(lhs.op.is_add()){
+      op_0_1 = cutensor_scalarop_t::cop_t::add;
+    }else if(lhs.op.is_mul()){
+      op_0_1 = cutensor_scalarop_t::cop_t::mul;
+    }else{
+      return std::nullopt;
+    }
+
+    lhs = lhs.simplify();
+
+    vector<node_t> lhs_children = lhs.children;
+    node_t& h0 = lhs_children[0];
+    node_t& h1 = lhs_children[1];
+
+    auto potential_a0 = set_up_arg(h0);
+    auto potential_a1 = set_up_arg(h1);
+
+    if(!potential_a0||!potential_a1){
+      return std::nullopt;
+    }
+
+    cutensor_scalarop_t::arg_t a0 = *potential_a0;
+    cutensor_scalarop_t::arg_t a1 = *potential_a1;
+
+    cutensor_scalarop_t::ternary_t ter_op{
+      op_01_2,
+      op_0_1,
+      a0,
+      a1,
+      a2
+    };
+
+    cutensor_scalarop_t ternary_scalarop;
+    ternary_scalarop.op = ter_op;
+    return ternary_scalarop;
+  }else{
+    return std::nullopt;
+  }
+  return std::nullopt;
 }
 
 bool scalarop_t::is_constant_of(scalar_t val) const {
@@ -1282,9 +1761,6 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
 
   vector<node_t> inn_nodes = vector_from_each_member(inn_ops, node_t, node);
 
-  // TODO TODO give node_t a number of inputs and remove num_inputs code from
-  //           scalarop_t
-
   int n = inn_nodes.size();
   if(n > 1) {
     int offset = inn_nodes[0].num_inputs();
@@ -1297,7 +1773,7 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
   }
 
   combining_op.node.replace_at_holes(inn_nodes);
-  return combining_op;
+  return combining_op.simplify();
 }
 
 scalarop_t scalarop_t::from_string(string const& str) {
@@ -1364,6 +1840,31 @@ scalarop_t scalarop_t::make_max(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("ite_>["+h0+","+h1+","+h0+","+h1+"]");
 }
 
+// x0 <= x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_min(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_<=["+h0+","+h1+","+one+","+zero+"]");
+}
+// x0 >= x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_max(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_>=["+h0+","+h1+","+one+","+zero+"]");
+}
+// x0 == x1 ? 1.0 : 0.0
+scalarop_t scalarop_t::make_is_equal(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string h1 = op_t::h_str(1, dtype);
+  string one  = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  return parse_with_ss<scalarop_t>("ite_==["+h0+","+h1+","+one+","+zero+"]");
+}
+
 // xn * val
 scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
   string hole = op_t::h_str(arg, val.dtype);
@@ -1408,6 +1909,16 @@ scalarop_t scalarop_t::make_relu(dtype_t dtype) {
   string arg0 = op_t::h_str(0, dtype);
   string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
   string ite = "ite_<[" + arg0 + "," + zero + "," + zero + "," + arg0 + "]";
+  return parse_with_ss<scalarop_t>(ite);
+}
+
+scalarop_t scalarop_t::make_mask(compare_t compare, dtype_t dtype) {
+  string arg0 = op_t::h_str(0, dtype);
+  string arg1 = op_t::h_str(1, dtype);
+  string zero = "constant{"+write_with_ss(scalar_t::zero(dtype))+"}";
+  string one = "constant{"+write_with_ss(scalar_t::one(dtype))+"}";
+  string compare_str = write_with_ss(compare);
+  string ite = "ite_"+compare_str+"[" + arg0 + "," + arg1 + "," + one + "," + zero + "]";
   return parse_with_ss<scalarop_t>(ite);
 }
 
@@ -1457,6 +1968,86 @@ scalarop_t scalarop_t::make_convert_dtype(dtype_t src, dtype_t dst) {
   string h0 = op_t::h_str(0, src);
   string dst_s = write_with_ss(dst);
   return parse_with_ss<scalarop_t>("to_" + dst_s + "["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_conjugate(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("conj["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_project_real(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("real["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_project_imag(dtype_t inn) {
+  string h0 = op_t::h_str(0, inn);
+  return parse_with_ss<scalarop_t>("imag["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_complex(dtype_t out) {
+  dtype_t inn = dtype_real_component(out);
+  string h0 = op_t::h_str(0, inn);
+  string h1 = op_t::h_str(1, inn);
+  return parse_with_ss<scalarop_t>("complex["+h0+","+h1+"]");
+}
+
+// These + ops could be implemented with scalarop
+scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
+  if(dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+
+  if(dtype == dtype_t::f16) {
+    f16() += rhs.f16();
+  } else if(dtype == dtype_t::f32) {
+    f32() += rhs.f32();
+  } else if(dtype == dtype_t::f64) {
+    f64() += rhs.f64();
+  } else if(dtype == dtype_t::c64) {
+    c64() += rhs.c64();
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+
+  return *this;
+}
+
+scalar_t& scalar_t::operator*=(double mult) {
+  if(dtype == dtype_t::f16) {
+    f16() = float16_t(double(f16()) * mult);
+  } else if(dtype == dtype_t::f32) {
+    f32() = float(double(f32()) * mult);
+  } else if(dtype == dtype_t::f64) {
+    f64() = f64() * mult;
+  } else if(dtype == dtype_t::c64) {
+    float real = c64().real();
+    float imag = c64().imag();
+    c64() = std::complex<float>(
+      float(double(real) * mult),
+      float(double(imag) * mult));
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+
+  return *this;
+}
+
+scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() + rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() + rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() + rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() + rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
 }
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs) {
@@ -1646,6 +2237,14 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "ite_" << op.get_ite_compare();
   } else if(op.is_convert()) {
     out << "to_" << op.get_convert();
+  } else if(op.is_conj()) {
+    out << "conj";
+  } else if(op.is_real()) {
+    out << "real";
+  } else if(op.is_imag()) {
+    out << "imag";
+  } else if(op.is_cplex()) {
+    out << "complex";
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -1656,11 +2255,19 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
 std::istream& operator>>(std::istream& inn, op_t& op) {
   char c = inn.peek();
   if(c == 'c') {
-    istream_expect(inn, "constant{");
-    scalar_t v;
-    inn >> v;
-    istream_expect(inn, "}");
-    op.op = scalar_ns::op_t::constant{ .value = v };
+    int which = istream_expect_or(inn, {"constant{", "conj", "complex"});
+    if(which == 0) {
+      scalar_t v;
+      inn >> v;
+      istream_expect(inn, "}");
+      op.op = scalar_ns::op_t::constant{ .value = v };
+    } else if(which == 1) {
+      op.op = scalar_ns::op_t::conj{};
+    } else if(which == 2) {
+      op.op = scalar_ns::op_t::cplex{};
+    } else {
+      throw std::runtime_error("should not reach: ite or imag");
+    }
   } else if(c == 'h') {
     istream_expect(inn, "hole|");
     dtype_t dtype;
@@ -1685,15 +2292,24 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
     op.op = scalar_ns::op_t::power{ .to_the = i };
     istream_expect(inn, "}");
   } else if(c == 'i') {
-    istream_expect(inn, "ite_");
-    compare_t c;
-    inn >> c;
-    op.op = scalar_ns::op_t::ite{ .compare = c };
+    int which = istream_expect_or(inn, {"ite_", "imag"});
+    if(which == 0) {
+      compare_t c;
+      inn >> c;
+      op.op = scalar_ns::op_t::ite{ .compare = c };
+    } else if(which == 1) {
+      op.op = scalar_ns::op_t::imag{};
+    } else {
+      throw std::runtime_error("should not reach: ite or imag");
+    }
   } else if(c == 't') {
     istream_expect(inn, "to_");
     dtype_t d;
     inn >> d;
     op.op = scalar_ns::op_t::convert{ .dtype = d };
+  } else if(c == 'r') {
+    istream_expect(inn, "real");
+    op.op = scalar_ns::op_t::real{};
   } else {
     throw std::runtime_error("should not happen");
   }

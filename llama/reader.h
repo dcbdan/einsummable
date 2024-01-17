@@ -4,7 +4,8 @@
 #include "../src/einsummable/dbuffer.h"
 #include "../src/einsummable/relation.h"
 
-#include "../src/execution/cpu/mpi_class.h"
+#include "../src/engine/communicator.h"
+#include "../src/server/cpu/server.h"
 
 #include <fstream>
 
@@ -13,7 +14,8 @@ struct local_tensor_reader_t {
 
   vector<string> all_names();
 
-  buffer_t operator()(string const& tensor_name);
+  buffer_t read(string const& tensor_name);
+  buffer_t operator()(string const& tensor_name, dtype_t dtype);
 
 private:
   std::ifstream file;
@@ -28,21 +30,29 @@ struct tensor_reader_t {
   // this reads files base_filename_ii
   // where ii is 2-digit str of n (n=1 -> 01, n=19 -> 19)
   tensor_reader_t(
+    communicator_t& comm,
+    std::function<void(map<int, buffer_t> const&)> process,
     int this_rank, int world_size,
-    string const& base_filename, int n_total_files);
+    string const& base_filename, int n_total_files,
+    dtype_t dtype = default_dtype());
+
+  static placement_t get_placement(
+    string const& tensor_name,
+    vector<uint64_t> const& shape,
+    int world_size,
+    int n_total_files);
 
   // Should only be called by rank zero {{{
   relation_t operator()(
     string register_cmd,
-    mpi_t* mpi, map<int, buffer_t>& data,
     string const& tensor_name,
     vector<uint64_t> const& shape,
     int starting_tid);
 
-  void shutdown(string register_cmd, mpi_t* mpi);
+  void shutdown(string register_cmd);
   // }}}
 
-  void listen_read(mpi_t* mpi, map<int, buffer_t>& data);
+  void listen_read();
 
   void listen_shutdown();
 
@@ -53,15 +63,17 @@ struct tensor_reader_t {
 private:
   void _shutdown();
 
-  void _read(
-    string const& tensor_name, vector<int> const& whiches,
-    map<int, buffer_t>& data);
+  map<int, buffer_t> _read(
+    string const& tensor_name, vector<int> const& whiches);
 
-  placement_t get_placement(string const& str, vector<uint64_t> const& shape) const;
+  communicator_t& comm;
+  std::function<void(map<int, buffer_t> const&)> process_data;
 
   int world_size;
   int n_total_files;
 
   map<int, local_tensor_reader_t> readers;
+
+  dtype_t dtype;
 };
 

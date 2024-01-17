@@ -85,6 +85,40 @@ void main01() {
     std::cout << op << std::endl;
     std::cout << op.derivative(0) << std::endl;
   }
+  {
+    std::cout << "CONJUGATE" << std::endl;
+    scalarop_t op = scalarop_t::make_conjugate();
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+    scalarop_t identity = scalarop_t::combine(op, {op});
+    std::cout << "identity: " << identity << std::endl;
+  }
+  {
+    std::cout << "PROJECT REAL" << std::endl;
+    scalarop_t op = scalarop_t::make_project_real();
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+  }
+  {
+    std::cout << "PROJECT IMAG" << std::endl;
+    scalarop_t op = scalarop_t::make_project_imag();
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+  }
+  {
+    std::cout << "CPLEX" << std::endl;
+    scalarop_t op = scalarop_t::make_complex();
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+  }
+  {
+    std::cout << "... wirtinger derivs for x*y" << std::endl;
+    scalarop_t op = scalarop_t::make_mul(dtype_t::c64);
+    std::cout << op.wirtinger_derivative(0, true) << std::endl;
+    std::cout << op.wirtinger_derivative(0, false) << std::endl;
+    std::cout << op.wirtinger_derivative(1, true) << std::endl;
+    std::cout << op.wirtinger_derivative(1, false) << std::endl;
+  }
 }
 
 void main02() {

@@ -45,6 +45,7 @@ struct vtensor_t {
       throw std::runtime_error("tensor input length is incorrect");
     }
   }
+
   T& at(vector<int> idxs) {
     if(shape.size() == 0 || !is_valid_idxs(shape, idxs)) {
       throw std::runtime_error("invalid tensor access");
@@ -84,6 +85,37 @@ struct vtensor_t {
 
   vector<int> const& get_shape() const {
     return shape;
+  }
+
+  void reshape(vector<int> const& new_shape) {
+    if(product(shape) != product(new_shape)) {
+      throw std::runtime_error("invalid reshape arg");
+    }
+    shape = new_shape;
+  }
+
+  // Example: Matrix with shape {10,20}
+  //          index_subtensor(i) returns the 20 vector on row i
+  vtensor_t<T> index_subtensor(int idx) const {
+    return index_subtensor(vector<int>{idx});
+  }
+  // Example: Tensor with sahpe {10,20,30,40}
+  //          index_subtensor({i,j}) returns the {30,40} matrix
+  //          at {i,j} position.
+  vtensor_t<T> index_subtensor(vector<int> const& idxs) const {
+    if(idxs.size() >= shape.size()) {
+      throw std::runtime_error("cannot index into a scalar");
+    }
+    vector<tuple<int,int>> region;
+    region.reserve(shape.size());
+    for(auto const& idx: idxs) {
+      region.emplace_back(idx, idx+1);
+    }
+    for(int i = idxs.size(); i != shape.size(); ++i) {
+      region.emplace_back(0, shape[i]);
+    }
+
+    return subset(region);
   }
 
   vtensor_t<T> subset(vector<tuple<int,int>> const& region) const {

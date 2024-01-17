@@ -23,6 +23,7 @@ struct placement_t {
 
   placement_t refine(partition_t const& refined_partition) const;
 
+  placement_t subset(vector<tuple<uint64_t, uint64_t>> const& hrect) const;
   placement_t subset(vector<tuple<int, int>> const& region) const;
 
   // Args must be all ints or this won't compile
