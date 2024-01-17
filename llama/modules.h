@@ -123,8 +123,7 @@ struct feedforward_t {
     graph_writer_t* w,
     string name, //should pass in "feed_forward."
     full_dim_t dim,
-    uint64_t hidden_dim,
-    optional<int> lora_rank);
+    uint64_t hidden_dim);
 
   map<string, tensor_t> weight_map() const;
 
