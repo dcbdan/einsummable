@@ -68,9 +68,9 @@ endfunction()
 
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
-add_llama_application("llama_exp02" "exp02")
-add_llama_application("llama_exp03" "exp03")
-add_llama_application("llama_autodiff_test" "autodiff_test")
+#add_llama_application("llama_exp02" "exp02")
+#add_llama_application("llama_exp03" "exp03")
+#add_llama_application("llama_autodiff_test" "autodiff_test")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
@@ -86,7 +86,6 @@ if(${CPU_EXECUTION_ENGINE})
   #  this helps empirically)
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
 
   if(NOT DEFINED UCX_PATH)
@@ -97,6 +96,9 @@ if(${CPU_EXECUTION_ENGINE})
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
   include_directories(${MKL_INCLUDE})
+
+  message(STATUS ${SENTENCEPIECE_DIR})
+  include_directories(${SENTENCEPIECE_DIR}/include)
 
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
@@ -118,13 +120,15 @@ if(${CPU_EXECUTION_ENGINE})
   )
 
   function(add_cpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc llama/modules.cc)
+  add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
     MKL::MKL
-    ucx::ucp ucx::ucs)
+    ucx::ucp ucx::ucs
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
+    ${Protobuf_LIBRARIES}
+    proto)
   endfunction()
 
   #add_cpu_application("cpuexec"               "exps" "cpuexec")
@@ -143,8 +147,9 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
-  add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
+  #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  add_cpu_application("senexp"                "exps" "senexp")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
@@ -157,8 +162,8 @@ if(${CPU_EXECUTION_ENGINE})
       ucx::ucp ucx::ucs)
   endfunction()
 
-  add_cpu_llama_application("llama_cpu" "cpu2")
-  add_cpu_llama_application("inference_exp" "inference_exp")
+  #add_cpu_llama_application("llama_cpu" "cpu2")
+  #add_cpu_llama_application("inference_exp" "inference_exp")
 
 endif()
 
