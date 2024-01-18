@@ -1,10 +1,10 @@
 #pragma once
-#include "../../base/setup.h"
+#include "../../../base/setup.h"
 
-#include "../../base/buffer.h"
+#include "../../../base/buffer.h"
 
 // for allocator_t
-#include "../../einsummable/memgraph.h"
+#include "../../../einsummable/memgraph.h"
 
 #include <mutex>
 #include <fstream>

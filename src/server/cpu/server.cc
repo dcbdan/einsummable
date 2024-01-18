@@ -7,8 +7,8 @@
 #include "../../engine/channel_manager.h"
 #include "../../engine/notifier.h"
 
-#include "../../engine/cpu/storage_manager.h"
-#include "../../engine/cpu/workspace_manager.h"
+#include "../../engine/cpu/mg/storage_manager.h"
+#include "../../engine/cpu/mg/workspace_manager.h"
 
 void cpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,

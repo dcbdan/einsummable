@@ -1,11 +1,11 @@
-#include "../exec_graph.h"
+#include "../../exec_graph.h"
 
 #include "exec_nodes.h"
 
 #include "workspace_manager.h"
 #include "storage_manager.h"
 
-#include "../../einsummable/dbuffer.h" // TODO: remove
+#include "../../../einsummable/dbuffer.h" // TODO: remove
 
 exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
@@ -26,7 +26,6 @@ exec_graph_t::make_cpu_exec_graph(
   {
     auto const& node = memgraph.nodes[mid];
     auto const& mid_inns = node.inns;
-    auto const& mid_outs = node.outs;
 
     vector<int> inns;
     for(auto const& mid: mid_inns) {

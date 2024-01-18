@@ -103,6 +103,8 @@ if(${CPU_EXECUTION_ENGINE})
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
+  file(GLOB CPMG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/mg/*.cc)
+  file(GLOB CPTG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/tg/*.cc)
   file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
@@ -116,6 +118,8 @@ if(${CPU_EXECUTION_ENGINE})
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
+    ${CPMG_FILES}
+    ${CPTG_FILES}
     ${CS_FILES}
   )
 

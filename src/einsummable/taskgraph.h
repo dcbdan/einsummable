@@ -134,6 +134,10 @@ struct taskgraph_t {
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
   int out_loc(int id) const { return nodes[id].op.out_loc(); }
 
+  bool is_save(int id) const { return nodes[id].is_save; }
+
+  bool is_local_to(int id, int loc) const { return nodes[id].op.is_local_to(loc); }
+
 private:
   struct input_t {
     int loc;

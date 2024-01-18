@@ -1,7 +1,7 @@
 #pragma once
-#include "../../base/setup.h"
+#include "../../../base/setup.h"
 
-#include "../resource_manager.h"
+#include "../../resource_manager.h"
 #include "storage.h"
 
 struct cpu_storage_resource_t {

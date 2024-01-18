@@ -1,4 +1,4 @@
-#include "../exec_graph.h"
+#include "../../exec_graph.h"
 
 struct cpu_einsummable_t : exec_graph_t::op_base_t {
   cpu_einsummable_t(
