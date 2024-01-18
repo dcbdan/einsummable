@@ -123,54 +123,22 @@ private:
   map<int, relation_t> gid_map;
 };
 
-// This is a server_base object that executes all taskgraphs by first
-// converting them into memgraphs.
-struct server_mg_base_t : server_base_t {
-  server_mg_base_t(
-    communicator_t& c,
-    allocator_settings_t s = allocator_settings_t::default_settings())
-    : comm(c), alloc_settings(s),
-      make_parallel_partialize_groups_(false),
-      use_storage_(true),
-      split_off_inputs_(true)
+struct server_dist_base_t : server_base_t {
+  server_dist_base_t(
+    communicator_t& c)
+    : comm(c)
   {}
-
-  void set_parallel_partialize(bool new_val) {
-    this->make_parallel_partialize_groups_ = new_val;
-  }
-
-  void set_use_storage(bool new_val) {
-    this->use_storage_ = new_val;
-  }
-
-  void set_split_off_inputs(bool new_val) {
-    this->split_off_inputs_ = new_val;
-  }
 
   void listen();
 
   void register_listen(string key, std::function<void()> f);
 
-  string get_registered_cmd() const {
-    return write_with_ss(cmd_t::registered_cmd);
-  }
-
-  int get_max_tid();
-
-  // get the max tid locally
-  virtual int local_get_max_tid() const = 0;
-
-  void shutdown() {
-    broadcast_cmd(cmd_t::shutdown);
-  }
-
+  // {{{
+protected:
+  // This is protected because it will invalidate gid_map.
   void execute(taskgraph_t const& taskgraph);
 
-  // this must be called from all locations
-  virtual void execute_memgraph(memgraph_t const& memgraph, bool for_remap) = 0;
-  // the for_remap should be true if the computation is just a remap instead of
-  // a general taskgraph
-
+public:
   dbuffer_t get_tensor(relation_t const& src_relation);
 
   void insert_relation(
@@ -182,62 +150,20 @@ struct server_mg_base_t : server_base_t {
 
   void remap(remap_relations_t const& remap);
 
-  virtual buffer_t local_copy_data(int tid) = 0;
+  int get_max_tid();
 
-  // return a location that exists at this compute-node
-  virtual int local_candidate_location() const = 0;
-
-  bool is_local_location(int loc) {
-    return comm.get_this_rank() == loc_to_compute_node(loc);
-  }
-  virtual int loc_to_compute_node(int loc) const = 0;
-
-  // Note: this remap is with respect to locations
-  map<int, buffer_t> local_copy_source_data(remap_relations_t const& remap);
-
-  void convert_remap_to_compute_node(remap_relations_t& remap);
-
-  // server, client pairs {{{
-  void execute_tg_server(taskgraph_t const& taskgraph);
-  void execute_tg_client();
-
-  void remap_server(remap_relations_t const& remap_relations);
-  void remap_client();
-
-  struct make_mg_info_t {
-    vector<uint64_t> mem_sizes;
-    map<int, memstoloc_t> data_locs;
-    vector<int> which_storage;
-  };
-  virtual make_mg_info_t recv_make_mg_info() = 0;
-  virtual void           send_make_mg_info() = 0;
-
-  virtual void storage_remap_server(
-    vector<vector<std::array<int, 2>>> const& remaps) = 0;
-  virtual void storage_remap_client() = 0;
-
-  virtual void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc) = 0;
-  virtual void rewrite_data_locs_client() = 0;
+  void shutdown();
   // }}}
 
-  static
-  vector<vector<std::array<int, 2>>>
-  create_storage_remaps(
-    int world_size,
-    map<int, memstoloc_t> const& full_data_locs,
-    map<int, memstoloc_t> const& inn_tg_to_loc);
-
-  bool make_parallel_partialize_groups() {
-    return make_parallel_partialize_groups_;
+  string get_registered_cmd() const {
+    return write_with_ss(cmd_t::registered_cmd);
   }
-public:
+
+private:
+  void convert_remap_to_compute_node(remap_relations_t& remap);
+
+protected:
   communicator_t& comm;
-
-  allocator_settings_t alloc_settings;
-
-  bool make_parallel_partialize_groups_;
-  bool use_storage_;
-  bool split_off_inputs_;
 
 private:
   map<string, std::function<void()>> listeners;
@@ -277,8 +203,101 @@ private:
   void broadcast_cmd(cmd_t const& cmd) {
     comm.broadcast_string(write_with_ss(cmd));
   }
+
+protected:
+  virtual void execute_tg_server(taskgraph_t const& taskgraph) = 0;
+  virtual void execute_tg_client() = 0;
+
+  virtual void remap_server(remap_relations_t const& remap_relations) = 0;
+  virtual void remap_client() = 0;
+
+  virtual int local_get_max_tid() const = 0;
+
+  // return a location that exists at this compute-node
+  virtual int local_candidate_location() const = 0;
+
+  bool is_local_location(int loc) {
+    return comm.get_this_rank() == loc_to_compute_node(loc);
+  }
+  virtual int loc_to_compute_node(int loc) const = 0;
+
+  virtual buffer_t local_copy_data(int tid) = 0;
+
+  // Note: this remap is with respect to locations
+  map<int, buffer_t> local_copy_source_data(remap_relations_t const& remap);
 };
 
-std::ostream& operator<<(std::ostream& out, server_mg_base_t::cmd_t const& c);
-std::istream& operator>>(std::istream& inn, server_mg_base_t::cmd_t& c);
+std::ostream& operator<<(std::ostream& out, server_dist_base_t::cmd_t const& c);
+std::istream& operator>>(std::istream& inn, server_dist_base_t::cmd_t& c);
+
+// This is a server_base object that executes all taskgraphs by first
+// converting them into memgraphs.
+struct server_mg_base_t : server_dist_base_t {
+  server_mg_base_t(
+    communicator_t& c,
+    allocator_settings_t s = allocator_settings_t::default_settings())
+    : server_dist_base_t(c), alloc_settings(s),
+      make_parallel_partialize_groups_(false),
+      use_storage_(true),
+      split_off_inputs_(true)
+  {}
+
+  void set_parallel_partialize(bool new_val) {
+    this->make_parallel_partialize_groups_ = new_val;
+  }
+
+  void set_use_storage(bool new_val) {
+    this->use_storage_ = new_val;
+  }
+
+  void set_split_off_inputs(bool new_val) {
+    this->split_off_inputs_ = new_val;
+  }
+
+  // this must be called from all locations
+  virtual void execute_memgraph(memgraph_t const& memgraph, bool for_remap) = 0;
+  // the for_remap should be true if the computation is just a remap instead of
+  // a general taskgraph
+
+  // server, client pairs {{{
+  void execute_tg_server(taskgraph_t const& taskgraph);
+  void execute_tg_client();
+
+  void remap_server(remap_relations_t const& remap_relations);
+  void remap_client();
+
+  struct make_mg_info_t {
+    vector<uint64_t> mem_sizes;
+    map<int, memstoloc_t> data_locs;
+    vector<int> which_storage;
+  };
+  virtual make_mg_info_t recv_make_mg_info() = 0;
+  virtual void           send_make_mg_info() = 0;
+
+  virtual void storage_remap_server(
+    vector<vector<std::array<int, 2>>> const& remaps) = 0;
+  virtual void storage_remap_client() = 0;
+
+  virtual void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc) = 0;
+  virtual void rewrite_data_locs_client() = 0;
+  // }}}
+
+  static
+  vector<vector<std::array<int, 2>>>
+  create_storage_remaps(
+    int world_size,
+    map<int, memstoloc_t> const& full_data_locs,
+    map<int, memstoloc_t> const& inn_tg_to_loc);
+
+  bool make_parallel_partialize_groups() {
+    return make_parallel_partialize_groups_;
+  }
+
+public:
+  allocator_settings_t alloc_settings;
+
+  bool make_parallel_partialize_groups_;
+  bool use_storage_;
+  bool split_off_inputs_;
+};
 
