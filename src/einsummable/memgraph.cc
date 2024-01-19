@@ -1258,7 +1258,7 @@ memgraph_t::make(
 }
 
 memgraph_t
-memgraph_make_state_t::pop_memgraph()
+memgraph_make_state_t2::pop_memgraph()
 {
   if (partializes_in_progress.size() > 0)
   {
@@ -2355,7 +2355,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
 
   // Now we have the used_tids, allocate for each of them.
 
-  for (auto const$ tid: used_tids) {
+  for (auto const& tid: used_tids) {
     auto const& node = taskgraph.nodes[tid];
     if (iter != task_tensor_to_mem_node.end()) { //if tid exist in task_tensor_to_mem_node
       int const& memid = iter->second;
@@ -2369,7 +2369,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
           // if not forced and not exist on memory, then record the tid of current use_tid, then allocate_multiple later.
           // TODO: write a new "load_multiple_without_evict" wrapper function that wraps around allocate_multiple
           tids_to_allocate.emplace_back(tid);
-        }/
+        }
       }
     } else { //if tid is not in task_tensor_to_mem_node (not exist as a node yet) used for out_tid
       if(node.op.is_input()) {
