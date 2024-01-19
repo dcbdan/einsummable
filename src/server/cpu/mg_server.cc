@@ -1,4 +1,4 @@
-#include "server.h"
+#include "mg_server.h"
 
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"

@@ -112,7 +112,7 @@ public:
 
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
 
-  virtual bool make_parallel_partialize_groups() = 0;
+  virtual bool make_parallel_partialize_groups() const = 0;
 
   // This is used for the repartition funciton, which will create a threadpool
   // if none is given
@@ -289,7 +289,7 @@ struct server_mg_base_t : server_dist_base_t {
     map<int, memstoloc_t> const& full_data_locs,
     map<int, memstoloc_t> const& inn_tg_to_loc);
 
-  bool make_parallel_partialize_groups() {
+  bool make_parallel_partialize_groups() const {
     return make_parallel_partialize_groups_;
   }
 

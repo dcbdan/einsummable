@@ -2,7 +2,8 @@
 #include "../src/base/args.h"
 
 #include "../src/einsummable/gwriter.h"
-#include "../src/server/cpu/server.h"
+#include "../src/server/cpu/mg_server.h"
+#include "../src/server/cpu/tg_server.h"
 #include "../src/server/trainer.h"
 
 #include "../src/autoplace/autoplace.h"
@@ -141,7 +142,8 @@ int main(int argc, char** argv) {
   DOUT("n_locs " << world_size << " | num_threads_per_loc " << num_threads);
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
-  cpu_mg_server_t server(communicator, mem_size, num_threads);
+  //cpu_mg_server_t server(communicator, mem_size, num_threads);
+  cpu_tg_server_t server(communicator, mem_size, num_threads);
 
   if(!is_rank_zero) {
     server.listen();
