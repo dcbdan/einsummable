@@ -118,6 +118,8 @@ struct einsummable_t {
 
   vector<uint64_t> inn_shape(int which_inn) const;
 
+  uint64_t inn_size(int which_inn) const;
+
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 
   string str() const;

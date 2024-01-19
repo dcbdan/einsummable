@@ -51,7 +51,7 @@ exec_graph_t::make_cpu_tg_exec_graph(
     if(node.op.is_move()) {
       auto const& [src,dst,inn_tid,size] = node.op.get_move();
       if(src == this_rank) {
-        // this tensor doesn't actually live here so no need to
+        // the resulting tensor doesn't actually live here so no need to
         // add to dinfos
       } else if(dst == this_rank) {
         dinfos.insert({tid, dinfo_t {
@@ -166,8 +166,8 @@ void cpu_tg_einsummable_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  vector<buffer_t> const& buffers =
-    data_manager_t::get_resource(resources[0]).buffers;
+  vector<buffer_t> buffers =
+    data_manager_t::get_resource(resources[0]).extract();
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
 
@@ -186,13 +186,7 @@ void cpu_tg_einsummable_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
-     optional<tuple<void*, uint64_t>> maybe_workspace_;
-     if(maybe_workspace) {
-       maybe_workspace_ = tuple<void*, uint64_t>(
-         maybe_workspace.value()->raw(),
-         maybe_workspace.value()->size);
-     }
-      cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace_);
+      cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
       callback();
     }
   );
@@ -223,7 +217,7 @@ void tg_send_t::launch(resource_ptr_t rsrc, std::function<void()> callback) cons
 
   auto const& wire = send_channel_manager_t::get_resource(resources[1]);
 
-  buffer_t buffer = data_manager_t::get_resource(resources[2]).buffers[0];
+  buffer_t buffer = data_manager_t::get_resource(resources[2]).extract()[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
@@ -253,7 +247,7 @@ void tg_recv_t::launch(resource_ptr_t rsrc, std::function<void()> callback) cons
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  buffer_t buffer = data_manager_t::get_resource(resources[0]).buffers[0];
+  buffer_t buffer = data_manager_t::get_resource(resources[0]).extract()[0];
 
   auto const& wire = recv_channel_manager_t::get_resource(resources[1]);
 
@@ -285,13 +279,26 @@ void tg_touch_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  auto buffers = data_manager_t::get_resource(resources[0]).buffers;
+  auto buffers = data_manager_t::get_resource(resources[0]).extract();
   buffer_t out_buffer = buffers[0];
   buffer_t inn_buffer = buffers[1];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
-  thread_resource.launch([this, callback, out_buffer, inn_buffer] {
-    execute_touch(touch, out_buffer->raw(), inn_buffer->raw());
+
+  bool is_first = false;
+  if(group_id >= 0) {
+    tuple<int, bool> const& info = group_manager_t::get_resource(resources[2]);
+    is_first = std::get<1>(info);
+  }
+
+  touch_t this_touch = touch;
+  if(is_first) {
+    // if this is the first touch, make sure the touch becomes a copy
+    this_touch.castable = std::nullopt;
+  }
+
+  thread_resource.launch([this, callback, this_touch, out_buffer, inn_buffer] {
+    execute_touch(this_touch, out_buffer->raw(), inn_buffer->raw());
     callback();
   });
 }

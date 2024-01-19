@@ -19,41 +19,50 @@ data_manager_t::data_manager_t(
 optional<data_manager_resource_t>
 data_manager_t::try_to_acquire_impl(vector<int> const& tids)
 {
-  data_manager_resource_t ret {
-    .used_tids = tids,
-    .buffers = vector<buffer_t>(tids.size(), nullptr)
-  };
+  data_manager_resource_t ret(tids, vector<buffer_t>(tids.size(), nullptr));
 
-  uint64_t mem_required = 0;
-  vector<int> missing;
+  // Note that tids can be all the same value.. So make sure not
+  // to create duplicates.
+
+  // a map from tid to which are missing
+  map<int, vector<int>> missing;
   for(int which = 0; which != tids.size(); ++which) {
     int const& tid = tids[which];
     auto iter = data.find(tid);
     if(iter == data.end()) {
-      missing.push_back(which);
-      mem_required += get_size(tid);
+      missing[tid].push_back(which);
     } else {
       ret.buffers[which] = iter->second;
     }
+  }
+
+  uint64_t mem_required = 0;
+  for(auto const& [tid, _]: missing) {
+    mem_required += get_size(tid);
   }
 
   if(current_memory_usage + mem_required > max_memory_usage) {
     return std::nullopt;
   }
 
-  for(auto const& which: missing) {
-    int const& tid = tids[which];
+  for(auto const& [tid, whiches]: missing) {
     uint64_t const& size = get_size(tid);
     buffer_t d = make_buffer(size);
     current_memory_usage += size;
     data.insert({tid, d});
-    ret.buffers[which] = d;
+    for(int const& which: whiches) {
+      ret.buffers[which] = d;
+    }
   }
 
   return ret;
 }
 
 void data_manager_t::release_impl(data_manager_resource_t const& resource) {
+  if(!resource.extracted) {
+    return;
+  }
+
   for(auto const& tid: resource.used_tids) {
     auto& [usage_rem, is_save, size] = infos.at(tid);
     usage_rem--;

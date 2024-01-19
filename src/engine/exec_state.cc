@@ -1,5 +1,7 @@
 #include "exec_state.h"
 
+//#define EXEC_STATE_PRINT
+
 #include <fstream>
 int _filecnt = 0;
 
@@ -129,9 +131,6 @@ void exec_state_t::event_loop() {
 
     if(num_remaining == 0) {
       return;
-    }
-    if(this_rank == 0 && num_remaining % 1000 == 0) {
-      DOUT("num_remaining on rank 0: " << num_remaining);
     }
 
     {

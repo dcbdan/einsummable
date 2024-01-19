@@ -703,6 +703,10 @@ vector<uint64_t> einsummable_t::inn_shape(int which_inn) const {
   return ret;
 }
 
+uint64_t einsummable_t::inn_size(int which_inn) const {
+  return product(inn_shape(which_inn)) * dtype_size(inn_dtype(which_inn));
+}
+
 vector<vector<int>>
 einsummable_t::input_idxs(vector<int> const& join_idx) const
 {

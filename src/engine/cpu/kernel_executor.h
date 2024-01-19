@@ -1,6 +1,8 @@
 #pragma once
 #include "../../base/setup.h"
 
+#include "../../base/buffer.h"
+
 #include "../../einsummable/scalarop.h"
 #include "../../einsummable/einsummable.h"
 #include "../../base/timetracker.h"
@@ -104,6 +106,12 @@ public:
     void* out,
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+
+  void operator()(
+    einsummable_t const& e,
+    void* out,
+    vector<void const*> inns,
+    optional<buffer_t> workspace = std::nullopt) const;
 
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,

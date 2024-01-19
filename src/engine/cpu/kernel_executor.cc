@@ -319,6 +319,20 @@ void cpu_kernel_executor_t::operator()(
   call(info, out, inns, maybe_workspace);
 }
 
+void cpu_kernel_executor_t::operator()(
+  einsummable_t const& e,
+  void* out,
+  vector<void const*> inns,
+  optional<buffer_t> maybe_workspace) const
+{
+  if(maybe_workspace) {
+    buffer_t& b = maybe_workspace.value();
+    return this->operator()(e, out, inns, tuple<void*, uint64_t>{ b->raw(), b->size });
+  } else {
+    return this->operator()(e, out, inns, optional<tuple<void*, uint64_t>>());
+  }
+}
+
 void cpu_kernel_executor_t::call(
   cpu_kernel_executor_t::kernel_info_t const& kernel,
   void* out,
