@@ -2315,17 +2315,11 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   set<int> used_task_tensors;
   set<int> deps;
   optional<op_t> op;
-
   optional<int> touch_output_memid;
-
-  // All all tids passed into get_tensors_in_memory will be added here.
-  // Get tensors in memory has two parts: it'll allocate
-  // brand new output tensors or it will load or find existing
-  // tensors. It is probably sufficient to only add the latter group
-  // of tids to used_tids, but that'd require more bookkeeping and being
-  // more conservative with used_tids in this case should lead to the same
-  // result.
   vector<int> used_tids;
+	vector<int> tids_to_allocate(used_tids.size());
+	int outtid_to_allocate;
+
 
   // The following we have difference node type cases, because we need to get the used_tids.
 
@@ -2361,98 +2355,45 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
 
   // Now we have the used_tids, allocate for each of them.
 
-  for (auto const &tid : used_tids)
-  {
-    auto iter = task_tensor_to_mem_node.find(tid);
-    if (iter != task_tensor_to_mem_node.end())
-    {
-      int const &memid = iter->second;
+  for (auto const$ tid: used_tids) {
+    auto const& node = taskgraph.nodes[tid];
+    if (iter != task_tensor_to_mem_node.end()) { //if tid exist in task_tensor_to_mem_node
+      int const& memid = iter->second;
       auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
-      if (maybe_mem.is_memloc())
-      {
-        // ret.emplace_back(memid, maybe_mem.get_memloc().as_mem());
-      }
-      else
-      {
-        if (force == true)
-        {
-          // This tensor is not in memory, so load it without
-          // evicting any of the other task_ids
+      if(maybe_mem.is_stoloc()) {
+        if (force == true) {
           load_tensor_with_evict(tid, used_tids);
-          int const &memid = task_tensor_to_mem_node.at(tid);
-          mem_t const &mem = memgraph.nodes[memid].op.get_output_mem();
-          // ret.emplace_back(memid, mem);
-        }
-        else
-        { // forced=false, we don't force evict
-          bool load_success = load_tensor_without_evict(tid);
-          if (load_success)
-          {
-            // if load without evict succeeded, then add to return list
-            int const &memid = task_tensor_to_mem_node.at(tid);
-            mem_t const &mem = memgraph.nodes[memid].op.get_output_mem();
-            // ret.emplace_back(memid, mem);
-          }
-          else
-          {
-            // if cannot alloc, then need to deallocate all memid in ret, and return false
-            // TODO: Look at the allocator.free() function and determine if it's possible to deallocate without having a delete node.
-          }
-        }
+          int const& memid = task_tensor_to_mem_node.at(tid);
+          uint64_t const& size = memgraph.nodes[memid].op.get_output_mem().size;
+        } else {
+          // if not forced and not exist on memory, then record the tid of current use_tid, then allocate_multiple later.
+          // TODO: write a new "load_multiple_without_evict" wrapper function that wraps around allocate_multiple
+          tids_to_allocate.emplace_back(tid);
+        }/
       }
-    }
-    else
-    {
-      auto const &node = taskgraph.nodes[tid];
-      // This else branch should be allocating memory for _output tensors_
-      // being formed as part of a computation.
-      // Actual taskgraph input tensors are expected to be dealt with separately.
-      if (node.op.is_input())
-      {
+    } else { //if tid is not in task_tensor_to_mem_node (not exist as a node yet) used for out_tid
+      if(node.op.is_input()) {
         throw std::runtime_error(
-            "The input node must already be in task_tensor_to_mem_node!");
+          "The input node must already be in task_tensor_to_mem_node!");
       }
-
-      if (force == true)
-      {
-        // See to it that the memory gets allocated, possibly with evictions.
-        int loc = node.op.out_loc();
-        uint64_t size = node.op.out_size();
-        int alloc_mid = allocate_with_evict(loc, size, used_tids);
-        mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
-        // ret.emplace_back(alloc_mid, alloc_mem);
-
-        // make sure to add the memid into task_tensor_to_mem_node
-        // so we don't keep allocating this output memory!
-        task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
-      }
-      else
-      {
-        // TODO: I don't think we should call load_tensor_without_evict when the tensor is not ever allocated, and we have forced=false.
-        bool load_success = load_tensor_without_evict(tid);
-        if (load_success)
-        {
-          // if load without evict succeeded, then add to return list
-          int const &memid = task_tensor_to_mem_node.at(tid);
-          mem_t const &mem = memgraph.nodes[memid].op.get_output_mem();
-          // ret.emplace_back(memid, mem);
-
+      if (force == true) {
+          // See to it that the memory gets allocated, possibly with evictions.
+          int loc = node.op.out_loc();
+          uint64_t size = node.op.out_size();
+          int alloc_mid = allocate_with_evict(loc, size, used_tids);
+          mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
           // make sure to add the memid into task_tensor_to_mem_node
           // so we don't keep allocating this output memory!
-          task_tensor_to_mem_node_insert_on_memory(tid, memid);
-        }
-        else
-        {
-          return false;
-          // if cannot alloc, then need to deallocate all memid in ret, and return false
-          // TODO: Look at the allocator.free() function and determine if it's possible to deallocate without having a delete node.
-        }
+          task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
+      } else {
+        outtid_to_allocate = tid;
       }
-
-      // ret.emplace_back(alloc_mid, alloc_mem);
     }
   }
-  return true;
+  if (force == true) {
+    return true;
+  }
+  return load_multiple_without_evict(outtid_to_allocate, tids_to_allocate);
 }
 
 bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> const &which_op)
@@ -2486,7 +2427,7 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
 
   optional<int> touch_output_memid;
 
-  // All all tids passed into get_tensors_in_memory will be added here.
+  // All tids passed into get_tensors_in_memory will be added here.
   // Get tensors in memory has two parts: it'll allocate
   // brand new output tensors or it will load or find existing
   // tensors. It is probably sufficient to only add the latter group
@@ -3287,6 +3228,8 @@ bool memgraph_make_state_t2::load_multiple_without_evict(int out_tid, vector<int
     {
       _load_tensor_helper(inns_tid.at(idx), alloc_mids.at(idx));
     }
+    //insert the alloced_mid for the out tensor into task_tensor_to_memnode so we don't allocate twice
+    task_tensor_to_mem_node_insert_on_memory(out_tid, alloc_mids.at(sizes_to_alloc.size()-1));
     return true;
   }
   else
