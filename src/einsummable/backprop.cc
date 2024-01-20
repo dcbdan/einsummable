@@ -280,6 +280,14 @@ graph_t::build_grad_term_einsummable(
   int which_inn,
   backprop_tensor_t grad_id)
 {
+  if(e.join.has_variables()) {
+    // TODO: do variables make a difference in the backprop? Can this
+    //       check just be removed?
+    throw std::runtime_error(
+      "backprop through einsummables with scalar variables in the join"
+      "is not supported");
+  }
+
   int num_inn = inn_ids.size();
 
   if(e.has_broadcast()) {

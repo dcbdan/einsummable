@@ -139,6 +139,12 @@ void main01() {
       scalar_t(float(2.0))
     };
     std::cout << op.eval(args, vars) << std::endl;
+
+    scalarop_t op_1 = op.replace_variables(vars);
+    std::cout << op_1 << std::endl;
+    vars["learning_rate"] = scalar_t(float(0.0));
+    scalarop_t op_2 = op.replace_variables(vars);
+    std::cout << op_2 << std::endl;
   }
 }
 

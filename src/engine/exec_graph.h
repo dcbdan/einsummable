@@ -23,14 +23,16 @@ struct exec_graph_t {
     memgraph_t const& memgraph,
     int this_rank,
     cpu_kernel_executor_t& cpu_executor,
-    int channels_per_move = 1);
+    int channels_per_move = 1,
+    map<string, scalar_t> const& scalar_vars = {});
 
   static tuple<exec_graph_t, map<int, data_manager_t::info_t>>
   make_cpu_tg_exec_graph(
     taskgraph_t const& taskgraph,
     int this_rank,
     cpu_kernel_executor_t& cpu_executor,
-    int num_channels_per_move);
+    int num_channels_per_move,
+    map<string, scalar_t> const& scalar_vars = {});
 #endif
 
 #ifdef GPU_EXEC
@@ -41,7 +43,8 @@ struct exec_graph_t {
     int this_rank,
     vector<kernel_manager_t>& gpu_kms,
     int num_gpus_per_node,
-    vector<void*> gpu_mems);
+    vector<void*> gpu_mems,
+    map<string, scalar_t> const& scalar_vars = {});
 #endif
 
   struct op_base_t {

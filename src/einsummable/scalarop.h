@@ -210,6 +210,8 @@ struct node_t {
 
   node_t simplify() const;
 
+  node_t replace_variables(map<string, scalar_t> const& vars) const;
+
   string to_cppstr(std::function<string(int)> write_hole) const;
 
   string to_cpp_bytes(vector<uint8_t>& bytes) const;
@@ -299,6 +301,9 @@ struct scalarop_t {
 
   scalarop_t simplify() const;
 
+  // Note: it is an error if not all variables are provided
+  scalarop_t replace_variables(map<string, scalar_t> const& vars) const;
+
   dtype_t out_dtype() const { return node.dtype; }
 
   optional<dtype_t> inn_dtype(int arg) const;
@@ -311,7 +316,11 @@ struct scalarop_t {
 
   set<string> which_variables() const;
 
+  bool has_variables() const;
+
   int num_inputs() const;
+
+  int num_variables() const;
 
   bool is_constant() const;
 

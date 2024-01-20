@@ -37,6 +37,9 @@ struct einsummable_t {
   //   a b, b c ->a c
   einsummable_t merge_adjacent_dims() const;
 
+  einsummable_t replace_scalar_variables(
+    map<string, scalar_t> const& vars) const;
+
   string to_wire() const;
   static einsummable_t from_wire(string const& str);
 

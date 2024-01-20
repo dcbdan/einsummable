@@ -1125,6 +1125,33 @@ node_t node_t::simplify_once() const {
   };
 }
 
+node_t node_t::replace_variables(map<string, scalar_t> const& vars) const {
+  if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    auto iter = vars.find(v.name);
+    if(iter == vars.end()) {
+      throw std::runtime_error("missing variable");
+    }
+    scalar_t const& val = iter->second;
+    if(val.dtype != v.dtype) {
+      throw std::runtime_error("variable dtype provided is incorrect");
+    }
+    return make_constant(val);
+  }
+
+  vector<node_t> new_children;
+  new_children.reserve(children.size());
+  for(auto const& child: children) {
+    new_children.push_back(child.replace_variables(vars));
+  }
+
+  return node_t {
+    .op = op,
+    .dtype = dtype,
+    .children = new_children
+  };
+}
+
 optional<node_t> node_t::normalize_order() const {
   auto is_ordered = [](node_t const& lhs, node_t const& rhs) {
     int l = lhs.max_hole();
@@ -1490,6 +1517,10 @@ scalarop_t scalarop_t::simplify() const {
   return scalarop_t(node.simplify());
 }
 
+scalarop_t scalarop_t::replace_variables(map<string, scalar_t> const& vars) const {
+  return scalarop_t(node.replace_variables(vars));
+}
+
 optional<dtype_t> scalarop_t::inn_dtype(int arg) const {
   auto iter = arg_types.find(arg);
   if(iter == arg_types.end()) {
@@ -1516,8 +1547,18 @@ set<string> scalarop_t::which_variables() const {
   return ret;
 }
 
+bool scalarop_t::has_variables() const {
+  // Could be faster but just dispatching to which_variables..
+  return which_variables().size() > 0;
+}
+
 int scalarop_t::num_inputs() const {
   return node.num_inputs();
+}
+
+int scalarop_t::num_variables() const {
+  // Could be faster but just dispatching to which_variables..
+  return which_variables().size();
 }
 
 bool scalarop_t::is_constant() const {

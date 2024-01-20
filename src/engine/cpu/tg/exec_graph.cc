@@ -10,7 +10,8 @@ exec_graph_t::make_cpu_tg_exec_graph(
   taskgraph_t const& taskgraph,
   int this_rank,
   cpu_kernel_executor_t& cpu_executor,
-  int num_channels_per_move)
+  int num_channels_per_move,
+  map<string, scalar_t> const& scalar_vars)
 {
   using dinfo_t = data_manager_t::info_t;
 
@@ -83,7 +84,10 @@ exec_graph_t::make_cpu_tg_exec_graph(
       insert_from_tid(op, tid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
-      einsummable_t e = apply.einsummable.merge_adjacent_dims();
+      einsummable_t e = apply
+        .einsummable
+        .replace_scalar_variables(scalar_vars)
+        .merge_adjacent_dims();
 
       auto maybe_worksize = cpu_executor.build(e);
       if(!maybe_worksize) {

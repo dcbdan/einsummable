@@ -12,7 +12,8 @@ exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
   cpu_kernel_executor_t& cpu_executor,
-  int num_channels_per_move)
+  int num_channels_per_move,
+  map<string, scalar_t> const& scalar_vars)
 {
   // Note: all nodes must have the same num_channels_per_move
 
@@ -65,7 +66,11 @@ exec_graph_t::make_cpu_exec_graph(
         }
 
         // build the kernel
-        einsummable_t e = apply.get_einsummable().merge_adjacent_dims();
+        einsummable_t e = apply
+          .get_einsummable()
+          .replace_scalar_variables(scalar_vars)
+          .merge_adjacent_dims();
+
         auto maybe_worksize = cpu_executor.build(e);
         if(!maybe_worksize) {
           DOUT(std::get<0>(e.join.to_cpp_bytes()));
