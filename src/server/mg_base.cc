@@ -56,7 +56,10 @@ void server_mg_base_t::remap_client()
   rewrite_data_locs_client();
 }
 
-void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
+void server_mg_base_t::execute_tg_server(
+  taskgraph_t const& taskgraph,
+  map<string, scalar_t> const& scalar_vars)
+{
   auto [mem_sizes, full_data_locs, which_storage] =
     recv_make_mg_info();
 
@@ -95,8 +98,9 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
 
   {
     comm.broadcast_string(core_mg.to_wire());
+    comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
     comm.barrier();
-    execute_memgraph(core_mg, false);
+    execute_memgraph(core_mg, false, scalar_vars);
   }
 
   rewrite_data_locs_server(out_tg_to_loc);
@@ -110,8 +114,9 @@ void server_mg_base_t::execute_tg_client() {
   int n_mg = comm.recv_int(0);
   for(int i = 0; i != n_mg; ++i) {
     memgraph_t memgraph = memgraph_t::from_wire(comm.recv_string(0));
+    map<string, scalar_t> scalar_vars = scalar_vars_from_wire(comm.recv_string(0));
     comm.barrier();
-    execute_memgraph(memgraph, false);
+    execute_memgraph(memgraph, false, scalar_vars);
   }
 
   rewrite_data_locs_client();

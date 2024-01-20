@@ -17,7 +17,10 @@ struct gpu_mg_server_t : server_mg_base_t
 
   ~gpu_mg_server_t();
 
-  void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
+  void execute_memgraph(
+    memgraph_t const& memgraph,
+    bool for_remap,
+    map<string, scalar_t> const& scalar_vars);
 
   // server, client pairs {{{
   make_mg_info_t recv_make_mg_info();

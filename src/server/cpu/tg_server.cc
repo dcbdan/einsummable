@@ -11,7 +11,9 @@
 
 #include "../../engine/repartition.h"
 
-void cpu_tg_server_t::_execute_tg(taskgraph_t const& taskgraph)
+void cpu_tg_server_t::_execute_tg(
+  taskgraph_t const& taskgraph,
+  map<string, scalar_t> const& scalar_vars)
 {
   int n_threads = threadpool.num_runners();
   if(n_threads == 1) {
@@ -21,7 +23,7 @@ void cpu_tg_server_t::_execute_tg(taskgraph_t const& taskgraph)
   int this_rank = comm.get_this_rank();
 
   auto [graph, dinfos] = exec_graph_t::make_cpu_tg_exec_graph(
-    taskgraph, this_rank, kernel_executor, num_channels_per_move);
+    taskgraph, this_rank, kernel_executor, num_channels_per_move, scalar_vars);
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
@@ -46,14 +48,19 @@ void cpu_tg_server_t::_execute_tg(taskgraph_t const& taskgraph)
   state.event_loop();
 }
 
-void cpu_tg_server_t::execute_tg_server(taskgraph_t const& taskgraph) {
+void cpu_tg_server_t::execute_tg_server(
+  taskgraph_t const& taskgraph,
+  map<string, scalar_t> const& scalar_vars)
+{
   comm.broadcast_string(taskgraph.to_wire());
-  _execute_tg(taskgraph);
+  comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
+  _execute_tg(taskgraph, scalar_vars);
 }
 
 void cpu_tg_server_t::execute_tg_client() {
   taskgraph_t taskgraph = taskgraph_t::from_wire(comm.recv_string(0));
-  _execute_tg(taskgraph);
+  map<string, scalar_t> scalar_vars = scalar_vars_from_wire(comm.recv_string(0));
+  _execute_tg(taskgraph, scalar_vars);
 }
 
 void cpu_tg_server_t::remap_server(remap_relations_t const& remap_relations) {

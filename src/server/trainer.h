@@ -3,32 +3,9 @@
 
 #include "base.h"
 
-// Storing paramers in double as it is the highest precision
-struct update_info_t {
-  struct vanilla_t {
-    double learning_rate;
-  };
-
-  struct adamw_t {
-    double alpha;
-    double beta1;
-    double beta2;
-    double eps;
-    double lambda; // weight decay
-    double eta;    // schedule
-  };
-
-  bool is_vanilla() const { return std::holds_alternative<vanilla_t>(op); }
-  bool is_adamw()   const { return std::holds_alternative<adamw_t>(op); }
-
-  vanilla_t const& get_vanilla() { return std::get<vanilla_t>(op); }
-  adamw_t   const& get_adamw()   { return std::get<adamw_t>(op); }
-
-  static update_info_t make_vanilla(double learning_rate) {
-    return update_info_t { .op = vanilla_t{ .learning_rate = learning_rate } };
-  }
-
-  std::variant<vanilla_t, adamw_t> op;
+enum class update_type_t {
+  vanilla,
+  adamw
 };
 
 // loss_id:      What to take the backprop against. Need not be saved
@@ -55,11 +32,11 @@ struct trainer_t {
     vector<int> const& constant_ids,
     vector<int> const& weight_ids,
     f_autoplace_t autoplace,
-    update_info_t update_info);
+    update_type_t);
 
   void init();
 
-  void operator()();
+  void operator()(map<string, scalar_t> const& vals);
 
   relation_t const& get_input_relation(int id) {
     return inn_remap.at(id);
@@ -88,9 +65,7 @@ private:
   // Note: updaters may add
 
   struct vanilla_update_t {
-    vanilla_update_t(update_info_t::vanilla_t const& v)
-      : learning_rate(v.learning_rate)
-    {}
+    vanilla_update_t() {}
 
     void init(trainer_t& self) {}
 
@@ -99,7 +74,6 @@ private:
       vector<int> const& weight_ids,
       vector<int> const& grad_ids);
 
-    double learning_rate;
   private:
     einsummable_t make_einsummable(
       dtype_t dtype, vector<uint64_t> const& shape) const;
@@ -107,9 +81,7 @@ private:
 
   // https://arxiv.org/pdf/1711.05101.pdf
   struct adamw_update_t {
-    adamw_update_t(update_info_t::adamw_t const& a)
-      : params(a)
-    {}
+    adamw_update_t() {}
 
     void init(trainer_t& self);
 
@@ -118,15 +90,13 @@ private:
       vector<int> const& weight_ids,
       vector<int> const& grad_ids);
 
-    update_info_t::adamw_t params;
-
+  private:
     vector<int> m_ids;
     vector<int> v_ids;
   };
 
   struct update_t {
-    update_t(update_info_t::vanilla_t const& v);
-    update_t(update_info_t::adamw_t const& a);
+    update_t(update_type_t u);
 
     void init(trainer_t& self);
 
@@ -138,8 +108,6 @@ private:
     using op_t = std::variant<vanilla_update_t, adamw_update_t>;
     op_t op;
   };
-
-  static update_t make_updater(update_info_t info);
 
   server_base_t* server;
 

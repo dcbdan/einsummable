@@ -11,8 +11,8 @@ trainer_t::trainer_t(
   vector<int> const& constant_ids,
   vector<int> const& weight_ids,
   f_autoplace_t autoplace,
-  update_info_t update_info)
-  : server(server), updater(trainer_t::make_updater(update_info))
+  update_type_t update_type)
+  : server(server), updater(update_type)
 {
   graph_t graph = init_graph;
   map<int, string> colors;
@@ -93,7 +93,7 @@ trainer_t::trainer_t(
       update_out,
       relation_t {
         .dtype     = graph.out_dtype(update_out),
-        .placement = placements.at(update_inn),
+        .placement = placements.at(update_out),
         .tids      = out_tids.at(update_out)
       }
     });
@@ -130,14 +130,15 @@ void trainer_t::init() {
   updater.init(*this);
 }
 
-void trainer_t::operator()() {
+void trainer_t::operator()(map<string, scalar_t> const& scalar_vars)
+{
   // prepare: Verify that data ids, constant ids and weight ids are in the server.
   //          and do a remap to give them the correct placement.
   server->remap(inn_remap);
   // Note: this will delete any inspect tensors from the previous iteration
 
   // execute: Run the graph
-  server->execute(taskgraph, after_execution_map);
+  server->execute(taskgraph, after_execution_map, scalar_vars);
 
   // remap: make sure that
   //        1) the updated weights are at the init weights
@@ -146,25 +147,15 @@ void trainer_t::operator()() {
   server->remap_gids(out_remap_gids);
 }
 
-trainer_t::update_t
-trainer_t::make_updater(update_info_t update)
-{
-  if(update.is_vanilla()) {
-    return update_t(update.get_vanilla());
+trainer_t::update_t::update_t(update_type_t u) {
+  if(u == update_type_t::vanilla) {
+    op = vanilla_update_t();
+  } else if(u == update_type_t::adamw) {
+    op = adamw_update_t();
+  } else {
+    throw std::runtime_error("missing update_type impl");
   }
-  if(update.is_adamw()) {
-    return update_t(update.get_adamw());
-  }
-  throw std::runtime_error("update type not accounted for");
 }
-
-trainer_t::update_t::update_t(update_info_t::vanilla_t const& v)
-  : op(vanilla_update_t(v))
-{}
-
-trainer_t::update_t::update_t(update_info_t::adamw_t const& a)
-  : op(adamw_update_t(a))
-{}
 
 void trainer_t::update_t::init(trainer_t& self) {
   return std::visit([&](auto& u) {
@@ -189,12 +180,21 @@ trainer_t::vanilla_update_t::update_weights(
   vector<int> const& weight_ids,
   vector<int> const& grad_ids)
 {
+  optional<dtype_t> maybe_dtype;
+
   vector<tuple<int, int>> ret;
   ret.reserve(weight_ids.size());
   for(auto [weight, grad]: vector_zip(weight_ids, grad_ids)) {
-    einsummable_t e = make_einsummable(
-      graph.out_dtype(weight),
-      graph.out_shape(weight));
+    if(maybe_dtype) {
+      if(graph.out_dtype(weight) != maybe_dtype.value()) {
+        throw std::runtime_error("all weights must have the same dtype");
+      }
+    } else {
+      maybe_dtype = graph.out_dtype(weight);
+    }
+    dtype_t const& dtype = maybe_dtype.value();
+
+    einsummable_t e = make_einsummable(dtype, graph.out_shape(weight));
     int updated_weight = graph.insert_einsummable(e, {weight, grad});
     graph.nodes[updated_weight].op.set_save(true);
     ret.emplace_back(weight, updated_weight);
@@ -208,13 +208,11 @@ trainer_t::vanilla_update_t::make_einsummable(
   dtype_t dtype,
   vector<uint64_t> const& shape) const
 {
-  scalar_t lr = scalar_t(learning_rate).convert(dtype);
-
   scalarop_t grad_update = scalarop_t::combine(
     scalarop_t::make_sub(),
     {
-      scalarop_t::make_identity(dtype_t::f32),
-      scalarop_t::make_scale(lr)
+      scalarop_t::make_identity(dtype),
+      scalarop_t::make_scale("learning_rate", dtype)
     }
   );
 

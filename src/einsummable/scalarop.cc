@@ -1218,7 +1218,8 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
   } else if(op.is_hole()) {
     return w(op.get_which_input());
   } else if(op.is_variable()) {
-    throw std::runtime_error("no cpp str for variables");
+    // not really cpp str, but oh well
+    return op.get_variable().name;
   } else if(op.is_add()) {
     auto lhs = children[0].to_cppstr(w);
     auto rhs = children[1].to_cppstr(w);

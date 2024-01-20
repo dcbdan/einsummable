@@ -306,6 +306,7 @@ struct scalarop_t {
 
   dtype_t out_dtype() const { return node.dtype; }
 
+  // TODO: make it so that arg must be [0,1,...,num_args-1] and return dtype_t
   optional<dtype_t> inn_dtype(int arg) const;
 
   bool is_used(int arg) const { return bool(inn_dtype(arg)); }

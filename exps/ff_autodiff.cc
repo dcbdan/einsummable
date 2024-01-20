@@ -11,7 +11,7 @@
 #include <fstream>
 
 void usage() {
-  std::cout << "Usage: addr_zero is_client world_size memsize (Args)\n"
+  std::cout << "Usage: addr_zero is_client world_size memsize servertype (Args)\n"
                "Args:\n"
                "  niter\n"
                "  dn dp dd {dws}\n"
@@ -80,6 +80,8 @@ make_graph(uint64_t dn, uint64_t dp, uint64_t dd, vector<uint64_t> dws)
     .loss_id = loss.get_id()
   };
 
+  set_default_dtype(dtype_before);
+
   return {gwriter.get_graph(), ret};
 }
 
@@ -122,7 +124,7 @@ struct data_generator_t {
 };
 
 int main(int argc, char** argv) {
-  if(argc < 4) {
+  if(argc < 5) {
     usage();
     return 1;
   }
@@ -135,18 +137,28 @@ int main(int argc, char** argv) {
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
+  int num_threads = 2; //std::max(1, int(std::thread::hardware_concurrency()));
   int num_channels = 4;
   int num_channels_per_move = 1;
 
   DOUT("n_locs " << world_size << " | num_threads_per_loc " << num_threads);
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
-  //cpu_mg_server_t server(communicator, mem_size, num_threads);
-  cpu_tg_server_t server(communicator, mem_size, num_threads);
+
+  std::unique_ptr<server_base_t> server;
+  string which_server = parse_with_ss<string>(argv[5]);
+  if(which_server == "mg") {
+    server = std::unique_ptr<server_base_t>(
+      new cpu_mg_server_t(communicator, mem_size, num_threads));
+  } else if(which_server == "tg") {
+    server = std::unique_ptr<server_base_t>(
+      new cpu_tg_server_t(communicator, mem_size, num_threads));
+  } else {
+    throw std::runtime_error("invalid server arg");
+  }
 
   if(!is_rank_zero) {
-    server.listen();
+    server->listen();
     return 0;
   }
 
@@ -154,7 +166,7 @@ int main(int argc, char** argv) {
   /////////////////
   // > create the graph + info
 
-  args_t args(argc-4, argv+4);
+  args_t args(argc-5, argv+5);
 
   int niter = args.get<int>("niter");
   uint64_t dn = args.get<uint64_t>("dn");
@@ -170,15 +182,6 @@ int main(int argc, char** argv) {
 
   /////////////////
   // > make a trainer object
-  scalar_t lr = scalar_t(learning_rate);
-
-  scalarop_t grad_update = scalarop_t::combine(
-    scalarop_t::make_sub(),
-    {
-      scalarop_t::make_identity(dtype_t::f32),
-      scalarop_t::make_scale(lr)
-    }
-  );
 
   int num_config_threads_per_machine = num_threads;
   if(num_config_threads_per_machine == 12) {
@@ -187,6 +190,7 @@ int main(int argc, char** argv) {
   DOUT("NUM CONFIG THREADS " << num_config_threads_per_machine);
   autoplace_config_t config = autoplace_config_t::make_default02(
     world_size, num_config_threads_per_machine);
+
   auto f_autoplace = [&config](
     graph_t const& graph,
     map<int, placement_t> const& fixed_pls,
@@ -196,15 +200,15 @@ int main(int argc, char** argv) {
   };
 
   trainer_t trainer(
-    &server,
+    server.get(),
     graph,
     info.loss_id,           // loss
     {info.loss_id},         // inspect
     {info.x_id, info.y_id}, // data
     {},                     // constants
     info.w_ids,             // weights
-    grad_update,
-    f_autoplace);
+    f_autoplace,
+    update_type_t::vanilla);
   // Here, we'll vary x at every iteration but
   // y will be held constant
 
@@ -214,32 +218,35 @@ int main(int argc, char** argv) {
     auto shape = graph.out_shape(gid);
     dbuffer_t data = make_dbuffer(dtype_t::f32, product(shape));
     data.random("-0.1", "0.1");
-    server.insert_tensor(gid, trainer.get_input_relation(gid), data);
+    server->insert_tensor(gid, trainer.get_input_relation(gid), data);
   }
 
   /////////////////
   // > iterate
+  map<string, scalar_t> update_vars { {"learning_rate", scalar_t(learning_rate)} };
   data_generator_t gen(dn, dp, dd);
 
   int loss_so_far = 0.0;
 
   for(int iter = 1; iter != niter + 1; ++iter) {
     auto [xbuffer, ybuffer] = gen();
-    server.insert_tensor(info.x_id, trainer.get_input_relation(info.x_id), xbuffer);
-    server.insert_tensor(info.y_id, trainer.get_input_relation(info.y_id), ybuffer);
-    trainer();
-    double loss = server.get_tensor_from_gid(info.loss_id).sum_to_f64();
+    server->insert_tensor(info.x_id, trainer.get_input_relation(info.x_id), xbuffer);
+    server->insert_tensor(info.y_id, trainer.get_input_relation(info.y_id), ybuffer);
+
+    trainer(update_vars);
+
+    double loss = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     loss_so_far += loss;
     if(iter % 100 == 0) {
       DOUT("avg loss at iter " << iter << ": " << (loss_so_far / 500.0));
       loss_so_far = 0.0;
       //for(int const& id: info.w_ids) {
-      // DOUT("weight: " << server.get_tensor_from_gid(id));
+      // DOUT("weight: " << server->get_tensor_from_gid(id));
       //}
     }
   }
 
-  server.shutdown();
+  server->shutdown();
 }
 
 

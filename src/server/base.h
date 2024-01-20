@@ -44,15 +44,21 @@ struct server_base_t {
 
 protected:
   // This is protected because it will invalidate gid_map.
-  virtual void execute(taskgraph_t const& taskgraph) = 0;
+  virtual void execute(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars) = 0;
 public:
   // Execute this taskgraph and rewrite the new gid_map... Must be careful
-  void execute(taskgraph_t const& taskgraph, map<int, relation_t> const& new_gid_map);
+  void execute(
+    taskgraph_t const& taskgraph,
+    map<int, relation_t> const& new_gid_map,
+    map<string, scalar_t> const& scalar_vars = {});
 
   // create a taskgraph and execute the graph.
   void execute_graph(
     graph_t const& graph,
-    vector<placement_t> const& placements);
+    vector<placement_t> const& placements,
+    map<string, scalar_t> const& scalar_vars = {});
 
   // Get a relation broadcast across the cluster and put it
   // onto node zero.
@@ -136,7 +142,9 @@ struct server_dist_base_t : server_base_t {
   // {{{
 protected:
   // This is protected because it will invalidate gid_map.
-  void execute(taskgraph_t const& taskgraph);
+  void execute(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars);
 
 public:
   dbuffer_t get_tensor(relation_t const& src_relation);
@@ -205,7 +213,9 @@ private:
   }
 
 protected:
-  virtual void execute_tg_server(taskgraph_t const& taskgraph) = 0;
+  virtual void execute_tg_server(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& sclar_vars) = 0;
   virtual void execute_tg_client() = 0;
 
   virtual void remap_server(remap_relations_t const& remap_relations) = 0;
@@ -255,12 +265,17 @@ struct server_mg_base_t : server_dist_base_t {
   }
 
   // this must be called from all locations
-  virtual void execute_memgraph(memgraph_t const& memgraph, bool for_remap) = 0;
+  virtual void execute_memgraph(
+    memgraph_t const& memgraph,
+    bool for_remap,
+    map<string, scalar_t> const& scalar_vars = {}) = 0;
   // the for_remap should be true if the computation is just a remap instead of
   // a general taskgraph
 
   // server, client pairs {{{
-  void execute_tg_server(taskgraph_t const& taskgraph);
+  void execute_tg_server(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars);
   void execute_tg_client();
 
   void remap_server(remap_relations_t const& remap_relations);
@@ -300,4 +315,7 @@ public:
   bool use_storage_;
   bool split_off_inputs_;
 };
+
+map<string, scalar_t> scalar_vars_from_wire(string const& s);
+string scalar_vars_to_wire(map<string, scalar_t> const& vars);
 

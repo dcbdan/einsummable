@@ -44,11 +44,13 @@ void server_dist_base_t::register_listen(
   listeners.insert({key, f});
 }
 
-void server_dist_base_t::execute(taskgraph_t const& taskgraph)
+void server_dist_base_t::execute(
+  taskgraph_t const& taskgraph,
+  map<string, scalar_t> const& scalar_vars)
 {
   broadcast_cmd(cmd_t::execute_tg);
 
-  execute_tg_server(taskgraph);
+  execute_tg_server(taskgraph, scalar_vars);
 }
 
 dbuffer_t server_dist_base_t::get_tensor(

@@ -41,7 +41,9 @@ struct cpu_tg_server_t : server_dist_base_t {
   threadpool_t* get_cpu_threadpool() { return &threadpool; }
 
 protected:
-  void execute_tg_server(taskgraph_t const& taskgraph);
+  void execute_tg_server(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars);
   void execute_tg_client();
 
   void remap_server(remap_relations_t const& remap_relations);
@@ -57,7 +59,9 @@ protected:
   buffer_t local_copy_data(int tid);
 
 private:
-  void _execute_tg(taskgraph_t const& taskgraph);
+  void _execute_tg(
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars = {});
 
   void _remap(remap_relations_t const& remap_relations);
 

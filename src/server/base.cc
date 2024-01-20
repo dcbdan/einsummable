@@ -12,7 +12,8 @@ void server_base_t::insert_gid_without_data(int gid, relation_t const& relation)
 
 void server_base_t::execute_graph(
   graph_t const& graph,
-  vector<placement_t> const& placements)
+  vector<placement_t> const& placements,
+  map<string, scalar_t> const& scalar_vars)
 {
   auto make_relation = [&](int gid, vtensor_t<int> const& tids) {
     return relation_t {
@@ -60,7 +61,7 @@ void server_base_t::execute_graph(
 
   remap(r);
 
-  execute(taskgraph);
+  execute(taskgraph, scalar_vars);
 
   gid_map.clear();
   for(auto const& [gid, tids]: out_g_to_t) {
@@ -70,9 +71,10 @@ void server_base_t::execute_graph(
 
 void server_base_t::execute(
   taskgraph_t const& taskgraph,
-  map<int, relation_t> const& new_gid_map)
+  map<int, relation_t> const& new_gid_map,
+  map<string, scalar_t> const& scalar_vars)
 {
-  execute(taskgraph);
+  execute(taskgraph, scalar_vars);
   gid_map = new_gid_map;
 }
 
@@ -151,4 +153,25 @@ void server_base_t::remap_gids(vector<tuple<int,int>> const& remap)
   gid_map = ret;
 }
 
+map<string, scalar_t> scalar_vars_from_wire(string const& s) {
+  std::stringstream inn(s);
+  map<string, scalar_t> ret;
+  while(inn) {
+    string name = istream_consume_alphanumeric_u(inn);
+    istream_expect(inn, "|");
+    scalar_t scalar;
+    inn >> scalar;
+    istream_expect(inn, "|");
+    ret.insert({name, scalar});
+  }
+  return ret;
+}
+
+string scalar_vars_to_wire(map<string, scalar_t> const& vars) {
+  std::stringstream out;
+  for(auto const& [name,var]: vars) {
+    out << name << "|" << var << "|";
+  }
+  return out.str();
+}
 
