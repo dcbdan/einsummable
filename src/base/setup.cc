@@ -1,5 +1,7 @@
 #include "setup.h"
 
+#include <ctype.h>
+
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg)
 {
   if(top % bot != 0) {
@@ -158,6 +160,42 @@ int istream_expect_or(std::istream& inn, vector<string> const& options) {
 
   inn.seekg(reset_pos + decltype(reset_pos)(n));
   return ret;
+}
+
+string istream_consume_alphanumeric(std::istream& inn) {
+  string ret;
+  while(inn) {
+    char c = inn.peek();
+    if(isalnum(c)) {
+      inn.get();
+      ret.push_back(c);
+    } else {
+      break;
+    }
+  }
+  return ret;
+}
+string istream_consume_alphanumeric_u(std::istream& inn) {
+  string ret;
+  while(inn) {
+    char c = inn.peek();
+    if(isalnum(c) || c == '_') {
+      inn.get();
+      ret.push_back(c);
+    } else {
+      break;
+    }
+  }
+  return ret;
+}
+
+bool is_alphanumeric_u(string const& s) {
+  for(auto const& c: s) {
+    if(!(isalnum(c) || c == '_')) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void* increment_void_ptr(void* ptr, uint64_t size)

@@ -285,6 +285,12 @@ op_t op_t::make_hole(int arg, dtype_t dtype) {
   };
 }
 
+op_t op_t::make_variable(string name, dtype_t dtype) {
+  return op_t {
+    .op = variable{ name, dtype }
+  };
+}
+
 op_t op_t::make_ite(compare_t c) {
   return op_t {
     .op = ite{ c }
@@ -297,6 +303,7 @@ string op_t::h_str(int arg, dtype_t dtype) {
 
 bool op_t::is_constant() const { return std::holds_alternative< constant >(op); }
 bool op_t::is_hole()     const { return std::holds_alternative< hole     >(op); }
+bool op_t::is_variable() const { return std::holds_alternative< variable >(op); }
 bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
 bool op_t::is_mul()      const { return std::holds_alternative< mul      >(op); }
 bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); }
@@ -309,6 +316,8 @@ bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); 
 bool op_t::is_cplex()    const { return std::holds_alternative< cplex    >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
+
+op_t::variable op_t::get_variable() const { return std::get<variable>(op); }
 
 int op_t::get_which_input() const { return std::get<hole>(op).arg; }
 
@@ -323,7 +332,7 @@ compare_t op_t::get_ite_compare() const { return std::get<ite>(op).compare; }
 dtype_t op_t::get_convert() const { return std::get<convert>(op).dtype; }
 
 int op_t::num_inputs() const {
-  if(is_constant() || is_hole()) {
+  if(is_constant() || is_hole() || is_variable()) {
     return 0;
   }
   if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
@@ -338,15 +347,16 @@ int op_t::num_inputs() const {
   throw std::runtime_error("should not reach: num_inputs");
 }
 
-scalar_t op_t::eval(vector<scalar_t> const& xs) const {
+scalar_t op_t::eval(vector<scalar_t> const& xs) const
+{
   if(xs.size() != num_inputs()) {
     throw std::runtime_error("invalid op_t::eval");
   }
   if(is_constant()) {
     return get_constant();
   }
-  if(is_hole()) {
-    throw std::runtime_error("cannot eval inputs; no variable state here");
+  if(is_hole() || is_variable()) {
+    throw std::runtime_error("cannot eval inputs or variables; no state here");
   }
   if(is_add()) {
     return _eval_add(xs[0], xs[1]);
@@ -389,7 +399,10 @@ node_t node_t::make_constant(scalar_t value) {
   };
 }
 
-scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
+scalar_t node_t::eval(
+  vector<scalar_t> const& inputs,
+  map<string, scalar_t> const& variables) const
+{
   if(op.is_hole()) {
     int which = op.get_which_input();
     if(which < 0 || which >= inputs.size()) {
@@ -401,11 +414,23 @@ scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
     }
     return ret;
   }
+  if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    auto iter = variables.find(v.name);
+    if(iter == variables.end()) {
+      throw std::runtime_error("variable not in variable map");
+    }
+    scalar_t const& ret = iter->second;
+    if(ret.dtype != v.dtype) {
+      throw std::runtime_error("variable value provided has wrong dtype");
+    }
+    return ret;
+  }
 
   vector<scalar_t> cs;
   cs.reserve(children.size());
   for(auto const& child: children) {
-    cs.push_back(child.eval(inputs));
+    cs.push_back(child.eval(inputs, variables));
   }
 
   return op.eval(cs);
@@ -635,6 +660,8 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   } else if(is_hole()) {
     if(inns.size() != 0) { return std::nullopt; }
     return get_hole_dtype();
+  } else if(is_variable()){
+    return get_variable().dtype;
   } else if(is_add()) {
     if(inns.size() != 2) { return std::nullopt; }
     return _type_add(inns[0], inns[1]);
@@ -702,7 +729,8 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 }
 
 node_t node_t::derivative(int arg) const {
-  if(op.is_constant()) {
+  if(op.is_constant() || op.is_variable()) {
+    // TODO: are we making assumptions on variable?
     return make_constant(scalar_t::zero(dtype));
   } else if(op.is_hole()) {
     if(arg == op.get_which_input()) {
@@ -869,7 +897,8 @@ node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
     return parse_with_ss<node_t>("+[" + lhs + "," + rhs + "]");
   };
 
-  if(op.is_constant()) {
+  if(op.is_constant() || op.is_variable()) {
+    // TODO: are we making assumptionso on variable?
     return make_constant(scalar_t::zero(dtype));
   } else if(op.is_hole()) {
     if(conjugate) {
@@ -965,15 +994,16 @@ node_t node_t::simplify() const {
 }
 
 node_t node_t::simplify_once() const {
-  if(op.is_hole() || op.is_constant()) {
+  if(op.is_hole() || op.is_constant() || op.is_variable()) {
     return *this;
   }
 
-  // Case: Has no inputs (and therefore should be a constant)
+  // Case: Has no inputs and no variables (and therefore should be a constant)
   {
     set<int> holes; which_inputs(holes);
-    if(holes.size() == 0) {
-      scalar_t val = eval({});
+    set<string> variables; which_variables(variables);
+    if(holes.size() == 0 && variables.size() == 0) {
+      scalar_t val = eval({}, {});
       string constant = ("constant{" + write_with_ss(val) + "}");
       return parse_with_ss<node_t>(constant);
     }
@@ -1160,6 +1190,8 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
     return write_with_ss(op.get_constant());
   } else if(op.is_hole()) {
     return w(op.get_which_input());
+  } else if(op.is_variable()) {
+    throw std::runtime_error("no cpp str for variables");
   } else if(op.is_add()) {
     auto lhs = children[0].to_cppstr(w);
     auto rhs = children[1].to_cppstr(w);
@@ -1247,6 +1279,8 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     throw std::runtime_error("should not reach: to_cpp_bytes");
   } else if(op.is_hole()) {
     return "x" + std::to_string(op.get_which_input()) + "[i]";
+  } else if(op.is_variable()) {
+    throw std::runtime_error("no cpp bytes for variable");
   } else if(op.is_add()) {
     auto lhs = children[0].to_cpp_bytes(bytes);
     auto rhs = children[1].to_cpp_bytes(bytes);
@@ -1293,6 +1327,15 @@ void node_t::which_inputs(set<int>& items) const {
   }
   for(auto const& child: children) {
     child.which_inputs(items);
+  }
+}
+
+void node_t::which_variables(set<string>& items) const {
+  if(op.is_variable()) {
+    items.insert(op.get_variable().name);
+  }
+  for(auto const& child: children) {
+    child.which_variables(items);
   }
 }
 
@@ -1428,8 +1471,11 @@ scalarop_t::scalarop_t(scalar_ns::node_t const& n)
   }
 }
 
-scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
-  return node.eval(inputs);
+scalar_t scalarop_t::eval(
+  vector<scalar_t> const& inputs,
+  map<string, scalar_t> const& variables) const
+{
+  return node.eval(inputs, variables);
 }
 
 scalarop_t scalarop_t::derivative(int arg) const {
@@ -1464,6 +1510,12 @@ set<int> scalarop_t::which_inputs() const {
   return ret;
 }
 
+set<string> scalarop_t::which_variables() const {
+  set<string> ret;
+  node.which_variables(ret);
+  return ret;
+}
+
 int scalarop_t::num_inputs() const {
   return node.num_inputs();
 }
@@ -1471,7 +1523,6 @@ int scalarop_t::num_inputs() const {
 bool scalarop_t::is_constant() const {
   return num_inputs() == 0;
 }
-
 
 bool scalarop_t::is_unary() const {
   return num_inputs() == 1;
@@ -1808,6 +1859,13 @@ scalarop_t scalarop_t::make_constant(scalar_t val) {
   return parse_with_ss<scalarop_t>("constant{"+write_with_ss(val)+"}");
 }
 
+scalarop_t scalarop_t::make_variable(string name, dtype_t dtype) {
+  if(!is_alphanumeric_u(name)) {
+    throw std::runtime_error("variable name must be alphanumeric or underscore");
+  }
+  return parse_with_ss<scalarop_t>("variable{"+name+"|"+write_with_ss(dtype)+"}");
+}
+
 // x0 + x1
 scalarop_t scalarop_t::make_add(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
@@ -1871,9 +1929,28 @@ scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
   string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalarop_t>("*[" + hole + "," + constant + "]");
 }
+
+// xn * var
+scalarop_t scalarop_t::make_scale_which(string var, int arg, dtype_t dtype) {
+  if(!is_alphanumeric_u(var)) {
+    throw std::runtime_error("invalid variable name");
+  }
+
+  string hole = op_t::h_str(arg, dtype);
+  string variable = "variable{" + var + "|" + write_with_ss(dtype) +"}";
+  return parse_with_ss<scalarop_t>("*[" + hole + "," + variable + "]");
+}
+
 // x0 * val
 scalarop_t scalarop_t::make_scale(scalar_t val) {
   return make_scale_which(val, 0);
+}
+scalarop_t scalarop_t::make_scale(string var, dtype_t dtype) {
+  if(!is_alphanumeric_u(var)) {
+    throw std::runtime_error("invalid variable name");
+  }
+
+  return make_scale_which(var, 0, dtype);
 }
 
 // x0 - x1
@@ -2225,6 +2302,9 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "constant{" << op.get_constant() << "}";
   } else if(op.is_hole()) {
     out << "hole|" << op.get_hole_dtype() << "@" << op.get_which_input();
+  } else if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    out << "variable{" << v.name << "|" << v.dtype << "}";
   } else if(op.is_add()) {
     out << "+";
   } else if(op.is_mul()) {
@@ -2268,6 +2348,14 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
     } else {
       throw std::runtime_error("should not reach: ite or imag");
     }
+  } else if(c == 'v') {
+    istream_expect(inn, "variable{");
+    string name = istream_consume_alphanumeric_u(inn);
+    istream_expect(inn, "|");
+    dtype_t dtype;
+    inn >> dtype;
+    istream_expect(inn, "}");
+    op.op = scalar_ns::op_t::variable{ .name = name, .dtype = dtype };
   } else if(c == 'h') {
     istream_expect(inn, "hole|");
     dtype_t dtype;
@@ -2344,6 +2432,8 @@ std::istream& operator>>(std::istream& inn, node_t& node) {
       node.dtype = node.op.get_constant().dtype;
     } else if(node.op.is_hole()) {
       node.dtype = node.op.get_hole_dtype();
+    } else if(node.op.is_variable()) {
+      node.dtype = node.op.get_variable().dtype;
     } else {
       throw std::runtime_error("parse node: invalid op with no inputs");
     }

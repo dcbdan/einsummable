@@ -1013,6 +1013,12 @@ void istream_expect(std::istream& inn, string const& xs);
 // find the longest parse of the options; throw an error if no parse
 int istream_expect_or(std::istream& inn, vector<string> const& options);
 
+string istream_consume_alphanumeric(std::istream& inn);
+string istream_consume_alphanumeric_u(std::istream& inn);
+
+bool is_alphanumeric(string const& s);
+bool is_alphanumeric_u(string const& s);
+
 struct unit_t {};
 
 void* increment_void_ptr(void* ptr, uint64_t size);

@@ -77,6 +77,7 @@ namespace scalar_ns {
 struct op_t {
   static op_t make_constant(scalar_t value);
   static op_t make_hole(int arg, dtype_t dtype);
+  static op_t make_variable(string name, dtype_t dtype);
   static op_t make_ite(compare_t);
   static string h_str(int arg, dtype_t dtype);
 
@@ -86,6 +87,11 @@ struct op_t {
 
   struct hole {
     int arg;
+    dtype_t dtype;
+  };
+
+  struct variable {
+    string name;
     dtype_t dtype;
   };
 
@@ -121,6 +127,7 @@ struct op_t {
 
   bool is_constant() const;
   bool is_hole()     const;
+  bool is_variable() const;
   bool is_add()      const;
   bool is_mul()      const;
   bool is_exp()      const;
@@ -133,6 +140,8 @@ struct op_t {
   bool is_cplex()    const;
 
   scalar_t get_constant() const;
+
+  variable get_variable() const;
 
   int get_which_input() const;
 
@@ -148,11 +157,13 @@ struct op_t {
 
   int num_inputs() const;
 
+  // Note: xs are the inputs of this op.
+  //       holes and variables cannot be evaluated.
   scalar_t eval(vector<scalar_t> const& xs) const;
 
   std::variant<
-    constant, hole, add, mul,
-    exp, power, ite, convert,
+    constant, hole, variable,
+    add, mul, exp, power, ite, convert,
     conj, real, imag, cplex> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
@@ -190,7 +201,9 @@ struct node_t {
 
   static node_t make_constant(scalar_t value);
 
-  scalar_t eval(vector<scalar_t> const& inputs) const;
+  scalar_t eval(
+    vector<scalar_t> const& inputs,
+    map<string, scalar_t> const& variables) const;
 
   node_t derivative(int arg) const;
   node_t wirtinger_derivative(int arg, bool conjugate) const;
@@ -202,6 +215,8 @@ struct node_t {
   string to_cpp_bytes(vector<uint8_t>& bytes) const;
 
   void which_inputs(set<int>& items) const;
+
+  void which_variables(set<string>& variables) const;
 
   // if there are no holes, return -1
   int max_hole() const;
@@ -273,7 +288,9 @@ struct scalarop_t {
 
   scalarop_t(node_t const& node);
 
-  scalar_t eval(vector<scalar_t> const& inputs) const;
+  scalar_t eval(
+    vector<scalar_t> const& inputs,
+    map<string, scalar_t> const& variables = {}) const;
 
   // not valid if dtype is complex
   scalarop_t derivative(int arg) const;
@@ -291,6 +308,8 @@ struct scalarop_t {
   void remap_inputs(map<int, int> const& remap);
 
   set<int> which_inputs() const;
+
+  set<string> which_variables() const;
 
   int num_inputs() const;
 
@@ -334,6 +353,8 @@ struct scalarop_t {
 
   static scalarop_t make_constant(scalar_t val);
 
+  static scalarop_t make_variable(string name, dtype_t d = default_dtype());
+
   // x0 + x1
   static scalarop_t make_add(dtype_t d = default_dtype());
 
@@ -358,11 +379,13 @@ struct scalarop_t {
   // x0 == x1 ? 1.0 : 0.0
   static scalarop_t make_is_equal(dtype_t d = default_dtype());
 
-  // xn * val
+  // xn * (val or variable)
   static scalarop_t make_scale_which(scalar_t val, int arg);
+  static scalarop_t make_scale_which(string name, int arg, dtype_t d = default_dtype());
 
-  // x0 * val
+  // x0 * (val or variable)
   static scalarop_t make_scale(scalar_t val);
+  static scalarop_t make_scale(string name, dtype_t d = default_dtype());
 
   // x0 - x1
   static scalarop_t make_sub(dtype_t d = default_dtype());

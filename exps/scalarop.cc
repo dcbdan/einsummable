@@ -119,6 +119,27 @@ void main01() {
     std::cout << op.wirtinger_derivative(1, true) << std::endl;
     std::cout << op.wirtinger_derivative(1, false) << std::endl;
   }
+  {
+    std::cout << "VARIABLES" << std::endl;
+    // f(x,y) = x - y*learning_rate
+    scalarop_t op = scalarop_t::combine(
+      scalarop_t::make_sub(),
+      {
+        scalarop_t::make_identity(),
+        scalarop_t::make_scale("learning_rate")
+      }
+    );
+    std::cout << op << std::endl;
+    std::cout << parse_with_ss<scalarop_t>(write_with_ss(op)) << std::endl;
+
+    map<string, scalar_t> vars;
+    vars.insert({"learning_rate", scalar_t(float(1e-3))});
+    vector<scalar_t> args {
+      scalar_t(float(1.0)),
+      scalar_t(float(2.0))
+    };
+    std::cout << op.eval(args, vars) << std::endl;
+  }
 }
 
 void main02() {
