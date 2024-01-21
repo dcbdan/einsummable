@@ -1499,6 +1499,14 @@ scalarop_t::scalarop_t(scalar_ns::node_t const& n)
   }
 }
 
+scalar_t scalarop_t::eval() const {
+  return eval(vector<scalar_t>{}, {});
+}
+
+scalar_t scalarop_t::eval(scalar_t const& x0) const {
+  return eval({x0}, {});
+}
+
 scalar_t scalarop_t::eval(
   vector<scalar_t> const& inputs,
   map<string, scalar_t> const& variables) const
@@ -2014,6 +2022,11 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_sqrt(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{0.5}["+h0+"]");
+}
+
 scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("power{-0.5}["+h0+"]");
@@ -2022,6 +2035,11 @@ scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
 scalarop_t scalarop_t::make_square(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("power{2.0}["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_power(int n, dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{"+write_with_ss(n)+"}["+h0+"]");
 }
 
 scalarop_t scalarop_t::make_relu(dtype_t dtype) {
@@ -2164,6 +2182,40 @@ scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
     return scalar_t(lhs.f64() + rhs.f64());
   } else if(lhs.dtype == dtype_t::c64) {
     return scalar_t(lhs.c64() + rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+}
+
+scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() - rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() - rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() - rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() - rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+}
+
+scalar_t operator/(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only add with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() / rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() / rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() / rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() / rhs.c64());
   } else {
     throw std::runtime_error("missing dtype for adding");
   }

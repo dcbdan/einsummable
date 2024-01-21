@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  int num_threads = 2; //std::max(1, int(std::thread::hardware_concurrency()));
+  int num_threads = 8;//2; //std::max(1, int(std::thread::hardware_concurrency()));
   int num_channels = 4;
   int num_channels_per_move = 1;
 
@@ -174,9 +174,7 @@ int main(int argc, char** argv) {
   uint64_t dd = args.get<uint64_t>("dd");
   vector<uint64_t> dws = args.get<vector<uint64_t>>("dws");
 
-  float learning_rate = args.get<float>("learning_rate");
-
-  DOUT(niter << " " << dn << " " << dp << " " << dd << " " <<  dws << " " << learning_rate);
+  DOUT(niter << " " << dn << " " << dp << " " << dd << " " <<  dws);
 
   auto [graph, info] = make_graph(dn, dp, dd, dws);
 
@@ -199,6 +197,22 @@ int main(int argc, char** argv) {
     return autoplace02(graph, config, fixed_pls, equal_pls);
   };
 
+  map<string, scalar_t> vars;
+  update_type_t update_type;
+  args.set_default("update", "vanilla");
+  string u = args.get<string>("update");
+  if(u == "vanilla") {
+    update_type = update_type_t::vanilla;
+    float learning_rate = args.get<float>("learning_rate");
+    vars.insert({"learning_rate", scalar_t(learning_rate)});
+  } else if(u == "adamw") {
+    update_type = update_type_t::adamw;
+    vars.insert({"beta1", scalar_t(dtype_t::f32, "0.9")});
+    vars.insert({"beta2", scalar_t(dtype_t::f32, "0.995")});
+    float learning_rate = args.get<float>("learning_rate");
+    vars.insert({"eta", scalar_t(learning_rate)});
+  }
+
   trainer_t trainer(
     server.get(),
     graph,
@@ -208,7 +222,8 @@ int main(int argc, char** argv) {
     {},                     // constants
     info.w_ids,             // weights
     f_autoplace,
-    update_type_t::vanilla);
+    dtype_t::f32,
+    update_type);
   // Here, we'll vary x at every iteration but
   // y will be held constant
 
@@ -221,9 +236,11 @@ int main(int argc, char** argv) {
     server->insert_tensor(gid, trainer.get_input_relation(gid), data);
   }
 
+  // initialize anything else
+  trainer.init();
+
   /////////////////
   // > iterate
-  map<string, scalar_t> update_vars { {"learning_rate", scalar_t(learning_rate)} };
   data_generator_t gen(dn, dp, dd);
 
   int loss_so_far = 0.0;
@@ -233,7 +250,7 @@ int main(int argc, char** argv) {
     server->insert_tensor(info.x_id, trainer.get_input_relation(info.x_id), xbuffer);
     server->insert_tensor(info.y_id, trainer.get_input_relation(info.y_id), ybuffer);
 
-    trainer(update_vars);
+    trainer(vars);
 
     double loss = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     loss_so_far += loss;

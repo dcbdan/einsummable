@@ -91,6 +91,8 @@ exec_graph_t::make_cpu_tg_exec_graph(
 
       auto maybe_worksize = cpu_executor.build(e);
       if(!maybe_worksize) {
+        DOUT(std::get<0>(e.join.to_cpp_bytes()));
+        DOUT(e.join.to_cppstr([](int i) { return "x" + write_with_ss(i); }));
         throw std::runtime_error("could not compile the kernel: " + write_with_ss(e));
       }
 

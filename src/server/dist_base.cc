@@ -16,6 +16,10 @@ void server_dist_base_t::listen() {
       map<int, buffer_t> data = local_copy_source_data(remap);
       convert_remap_to_compute_node(remap);
       repartition(comm, remap, data, get_cpu_threadpool());
+    } else if(cmd == cmd_t::insert_constant) {
+      relation_t relation = relation_t::from_wire(comm.recv_string(0));
+      scalar_t value = parse_with_ss<scalar_t>(comm.recv_string(0));
+      _local_insert_constant_relation(relation, value);
     } else if(cmd == cmd_t::insert_relation) {
       insert_relation_helper(
         remap_relations_t::from_wire(comm.recv_string(0)),
@@ -75,6 +79,47 @@ dbuffer_t server_dist_base_t::get_tensor(
   repartition(comm, remap, data, get_cpu_threadpool());
 
   return dbuffer_t(relation.dtype, data.at(99));
+}
+
+void server_dist_base_t::insert_constant_relation(
+  relation_t const& dst_relation,
+  scalar_t value)
+{
+  broadcast_cmd(cmd_t::insert_constant);
+  comm.broadcast_string(dst_relation.to_wire());
+  comm.broadcast_string(write_with_ss(value));
+  _local_insert_constant_relation(dst_relation, value);
+}
+
+void server_dist_base_t::_local_insert_constant_relation(
+  relation_t const& dst_relation,
+  scalar_t value)
+{
+  if(value.dtype != dst_relation.dtype) {
+    throw std::runtime_error("invalid dtype in local_insert_constant_relation");
+  }
+  map<int, tuple<int, buffer_t>> data;
+  auto const& placement = dst_relation.placement;
+  auto const& partition = placement.partition;
+  auto const& locations = placement.locations.get();
+  auto const& tids = dst_relation.tids.get();
+
+  int nbid = partition.num_parts();
+  auto block_sizes = partition.all_block_sizes().get();
+  for(int bid = 0; bid != nbid; ++bid) {
+    int const& loc = locations[bid];
+    if(is_local_location(loc)) {
+      int const& tid = tids[bid];
+      uint64_t const& nelem = block_sizes[bid];
+
+      dbuffer_t d = make_dbuffer(value.dtype, nelem);
+      d.fill(value);
+      buffer_t buffer = d.data;
+
+      data.insert({tid, tuple<int, buffer_t>{loc, buffer}});
+    }
+  }
+  local_insert_tensors(data);
 }
 
 void server_dist_base_t::insert_relation(

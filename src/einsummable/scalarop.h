@@ -290,6 +290,10 @@ struct scalarop_t {
 
   scalarop_t(node_t const& node);
 
+  scalar_t eval() const;
+
+  scalar_t eval(scalar_t const& x0) const;
+
   scalar_t eval(
     vector<scalar_t> const& inputs,
     map<string, scalar_t> const& variables = {}) const;
@@ -405,9 +409,13 @@ struct scalarop_t {
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
+  static scalarop_t make_sqrt(dtype_t d = default_dtype());
+
   static scalarop_t make_inverse_sqrt(dtype_t d = default_dtype());
 
   static scalarop_t make_square(dtype_t d = default_dtype());
+
+  static scalarop_t make_power(int n, dtype_t d = default_dtype());
 
   static scalarop_t make_relu(dtype_t d = default_dtype());
 
@@ -443,6 +451,8 @@ std::ostream& operator<<(std::ostream& out, scalar_t const& c);
 std::istream& operator>>(std::istream& inn, scalar_t& c);
 
 scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs);
+scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs);
+scalar_t operator/(scalar_t const& lhs, scalar_t const& rhs);
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs);
 bool operator!=(scalar_t const& lhs, scalar_t const& rhs);

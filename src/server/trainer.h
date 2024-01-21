@@ -32,7 +32,8 @@ struct trainer_t {
     vector<int> const& constant_ids,
     vector<int> const& weight_ids,
     f_autoplace_t autoplace,
-    update_type_t);
+    dtype_t weight_dtype,
+    update_type_t u);
 
   void init();
 
@@ -65,9 +66,11 @@ private:
   // Note: updaters may add
 
   struct vanilla_update_t {
-    vanilla_update_t() {}
+    vanilla_update_t(dtype_t d): dtype(d) {}
 
     void init(trainer_t& self) {}
+
+    void modify_vars(map<string, scalar_t>& vars);
 
     vector<tuple<int, int>> update_weights(
       graph_t& graph,
@@ -77,13 +80,17 @@ private:
   private:
     einsummable_t make_einsummable(
       dtype_t dtype, vector<uint64_t> const& shape) const;
+
+    dtype_t dtype;
   };
 
   // https://arxiv.org/pdf/1711.05101.pdf
   struct adamw_update_t {
-    adamw_update_t() {}
+    adamw_update_t(dtype_t d): iter(0), dtype(d) {}
 
     void init(trainer_t& self);
+
+    void modify_vars(map<string, scalar_t>& vars);
 
     vector<tuple<int, int>> update_weights(
       graph_t& graph,
@@ -93,12 +100,20 @@ private:
   private:
     vector<int> m_ids;
     vector<int> v_ids;
+
+    dtype_t dtype;
+    int iter;
+
+    int insert_einsummable_ew(
+      graph_t& graph,
+      scalarop_t join,
+      vector<int> const& inns);
   };
 
   struct update_t {
-    update_t(update_type_t u);
-
     void init(trainer_t& self);
+
+    void modify_vars(map<string, scalar_t>& vars);
 
     vector<tuple<int, int>> update_weights(
       graph_t& graph,
@@ -108,6 +123,8 @@ private:
     using op_t = std::variant<vanilla_update_t, adamw_update_t>;
     op_t op;
   };
+
+  static update_t make_updater(dtype_t d, update_type_t u);
 
   server_base_t* server;
 

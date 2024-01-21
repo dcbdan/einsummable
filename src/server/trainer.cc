@@ -11,8 +11,9 @@ trainer_t::trainer_t(
   vector<int> const& constant_ids,
   vector<int> const& weight_ids,
   f_autoplace_t autoplace,
+  dtype_t weight_dtype,
   update_type_t update_type)
-  : server(server), updater(update_type)
+  : server(server), updater(make_updater(weight_dtype, update_type))
 {
   graph_t graph = init_graph;
   map<int, string> colors;
@@ -34,6 +35,11 @@ trainer_t::trainer_t(
     graph,
     weight_ids,
     grad_ids);
+
+  // save all the things on the out side
+  for(auto const& [_, out_id]: updates) {
+    graph.nodes[out_id].op.set_save(true);
+  }
 
   {
     std::ofstream out("g.gv");
@@ -126,6 +132,17 @@ trainer_t::trainer_t(
   }
 }
 
+trainer_t::update_t trainer_t::make_updater(dtype_t d, update_type_t u)
+{
+  if(u == update_type_t::vanilla) {
+    return update_t { .op = vanilla_update_t(d) };
+  }
+  if(u == update_type_t::adamw) {
+    return update_t { .op = adamw_update_t(d) };
+  }
+  throw std::runtime_error("missing update_type case");
+}
+
 void trainer_t::init() {
   updater.init(*this);
 }
@@ -138,7 +155,9 @@ void trainer_t::operator()(map<string, scalar_t> const& scalar_vars)
   // Note: this will delete any inspect tensors from the previous iteration
 
   // execute: Run the graph
-  server->execute(taskgraph, after_execution_map, scalar_vars);
+  auto vars = scalar_vars;
+  updater.modify_vars(vars);
+  server->execute(taskgraph, after_execution_map, vars);
 
   // remap: make sure that
   //        1) the updated weights are at the init weights
@@ -147,19 +166,15 @@ void trainer_t::operator()(map<string, scalar_t> const& scalar_vars)
   server->remap_gids(out_remap_gids);
 }
 
-trainer_t::update_t::update_t(update_type_t u) {
-  if(u == update_type_t::vanilla) {
-    op = vanilla_update_t();
-  } else if(u == update_type_t::adamw) {
-    op = adamw_update_t();
-  } else {
-    throw std::runtime_error("missing update_type impl");
-  }
-}
-
 void trainer_t::update_t::init(trainer_t& self) {
   return std::visit([&](auto& u) {
     return u.init(self);
+  }, op);
+}
+
+void trainer_t::update_t::modify_vars(map<string, scalar_t>& vars) {
+  return std::visit([&](auto& u) {
+    return u.modify_vars(vars);
   }, op);
 }
 
@@ -180,27 +195,22 @@ trainer_t::vanilla_update_t::update_weights(
   vector<int> const& weight_ids,
   vector<int> const& grad_ids)
 {
-  optional<dtype_t> maybe_dtype;
-
   vector<tuple<int, int>> ret;
   ret.reserve(weight_ids.size());
   for(auto [weight, grad]: vector_zip(weight_ids, grad_ids)) {
-    if(maybe_dtype) {
-      if(graph.out_dtype(weight) != maybe_dtype.value()) {
-        throw std::runtime_error("all weights must have the same dtype");
-      }
-    } else {
-      maybe_dtype = graph.out_dtype(weight);
-    }
-    dtype_t const& dtype = maybe_dtype.value();
-
     einsummable_t e = make_einsummable(dtype, graph.out_shape(weight));
     int updated_weight = graph.insert_einsummable(e, {weight, grad});
-    graph.nodes[updated_weight].op.set_save(true);
     ret.emplace_back(weight, updated_weight);
   }
 
   return ret;
+}
+
+void trainer_t::vanilla_update_t::modify_vars(
+  map<string, scalar_t>& vars)
+{
+  // put a default learning rate if none is already in vars
+  vars.insert({"learning_rate", scalar_t(dtype, "1e-3")});
 }
 
 einsummable_t
@@ -227,7 +237,35 @@ trainer_t::vanilla_update_t::make_einsummable(
 void trainer_t::adamw_update_t::init(trainer_t& self) {
   // TODO: for each id in (m_ids, v_ids),
   //          set the trainer to zero at these locations
-  throw std::runtime_error("adamw not implemented");
+  for(int gid: vector_concatenate(m_ids, v_ids)) {
+    self.server->insert_constant(gid, self.inn_remap.at(gid), scalar_t::zero(dtype));
+  }
+}
+
+void trainer_t::adamw_update_t::modify_vars(
+  map<string, scalar_t>& vars)
+{
+  if(vars.count("beta1") == 0 ||
+     vars.count("beta2") == 0 ||
+     vars.count("eta") == 0)
+  {
+    throw std::runtime_error("missing vars provided");
+  }
+
+  iter++;
+
+  scalar_t one = scalar_t::one(dtype);
+
+  vars.insert_or_assign("beta1_complement", one - vars["beta1"]);
+  vars.insert_or_assign("beta2_complement", one - vars["beta2"]);
+
+  scalarop_t power = scalarop_t::make_power(iter, dtype);
+  scalarop_t div = scalarop_t::make_div(dtype);
+
+  vars.insert_or_assign("beta1tt", one / (one - power.eval(vars["beta1"])));
+  vars.insert_or_assign("beta2tt", one / (one - power.eval(vars["beta2"])));
+
+  vars.insert({"eps", scalar_t(dtype, "1e-8")});
 }
 
 vector<tuple<int, int>>
@@ -236,28 +274,93 @@ trainer_t::adamw_update_t::update_weights(
   vector<int> const& weight_ids,
   vector<int> const& grad_ids)
 {
-  throw std::runtime_error("adamw not implemented");
-//  int n = weight_ids.size();
-//
-//  m_ids.reserve(n);
-//  v_ids.reserve(n);
-//  for(auto const& w_id: weight_ids) {
-//    auto shape = graph.out_shape(w_id);
-//    dtype_t dtype = graph.out_dtype(w_id);
-//    m_ids.push_back(graph.insert_input(shape, dtype));
-//    v_ids.push_back(graph.insert_input(shape, dtype));
-//  }
-//
-//  vector<tuple<int, int>> ret;
-//  ret.reserve(n);
-//  for(int i = 0; i != n; ++i) {
-//    int const& w_id = weight_ids[i];
-//    int const& g_id = grad_ids[i];
-//    int const& m_id = m_ids[i];
-//    int const& v_id = v_ids[i];
-//
-//    int m_new = update_portion(graph, params.beta1, m_id, g_id);
-//    int v_new = update_portion(graph, params.beta2, v_id, g_id);
-//  }
+  int n = weight_ids.size();
+
+  if(n == 0) {
+    return {};
+  }
+
+  scalarop_t grad_update = scalarop_t::combine(
+    scalarop_t::make_sub(dtype),
+    {
+      scalarop_t::make_identity(dtype),
+      scalarop_t::make_scale("eta", dtype)
+    });
+
+  scalarop_t beta1_portion = scalarop_t::combine(
+    scalarop_t::make_add(dtype),
+    {
+      scalarop_t::make_scale("beta1", dtype),
+      scalarop_t::make_scale("beta1_complement", dtype)
+    });
+  scalarop_t scale_square = scalarop_t::combine(
+    scalarop_t::make_scale("beta2_complement"),
+    { scalarop_t::make_square(dtype) });
+  scalarop_t beta2_portion = scalarop_t::combine(
+    scalarop_t::make_add(dtype),
+    {
+      scalarop_t::make_scale("beta2", dtype),
+      scale_square
+    });
+  scalarop_t sqrt_plus_eps = scalarop_t::combine(
+    scalarop_t::make_add(dtype),
+    {
+      scalarop_t::make_sqrt(dtype),
+      scalarop_t::make_variable("eps", dtype)
+    });
+
+  scalarop_t beta1t_scale = scalarop_t::make_scale("beta1tt", dtype);
+  scalarop_t beta2t_scale = scalarop_t::make_scale("beta2tt", dtype);
+
+  m_ids.reserve(n);
+  v_ids.reserve(n);
+  for(auto const& w_id: weight_ids) {
+    auto shape = graph.out_shape(w_id);
+    m_ids.push_back(graph.insert_input(shape, dtype));
+    v_ids.push_back(graph.insert_input(shape, dtype));
+  }
+
+  vector<tuple<int, int>> ret;
+  ret.reserve(n);
+  for(int i = 0; i != n; ++i) {
+    int const& w_id = weight_ids[i];
+    int const& g_id = grad_ids[i];
+    int const& m_id = m_ids[i];
+    int const& v_id = v_ids[i];
+
+    int m_new = insert_einsummable_ew(graph, beta1_portion, {m_id, g_id});
+    int v_new = insert_einsummable_ew(graph, beta2_portion, {v_id, g_id});
+
+    int mm = insert_einsummable_ew(graph, beta1t_scale, { m_new });
+    int vv = insert_einsummable_ew(graph, beta2t_scale, { v_new });
+    vv = insert_einsummable_ew(graph, sqrt_plus_eps, { vv });
+
+    int xx = insert_einsummable_ew(graph, scalarop_t::make_div(dtype), {mm, vv});
+
+    int w_new = insert_einsummable_ew(graph, grad_update, {w_id, xx});
+
+    ret.emplace_back(m_id, m_new);
+    ret.emplace_back(v_id, v_new);
+    ret.emplace_back(w_id, w_new);
+  }
+
+  return ret;
+}
+
+int trainer_t::adamw_update_t::insert_einsummable_ew(
+  graph_t& graph,
+  scalarop_t join,
+  vector<int> const& inns)
+{
+  vector<uint64_t> shape = graph.out_shape(inns[0]);
+  int rank = shape.size();
+
+  einsummable_t e(
+    shape,
+    vector<vector<int>>(inns.size(), vector_iota<int>(rank)),
+    rank,
+    join);
+
+  return graph.insert_einsummable(e, inns);
 }
 

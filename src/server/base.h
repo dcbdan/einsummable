@@ -68,6 +68,11 @@ public:
 
   relation_t const& get_relation(int gid) const;
 
+  void insert_constant(
+    int gid,
+    relation_t const& relation,
+    scalar_t value);
+
   // Get a tensor here and partition it across the cluster
   // into managed data
   void insert_tensor(
@@ -83,6 +88,9 @@ public:
     vector<uint64_t> const& shape,
     dbuffer_t src_tensor);
 
+  virtual void insert_constant_relation(
+    relation_t const& dst_relation,
+    scalar_t value) = 0;
   virtual void insert_relation(
     relation_t const& dst_relation,
     dbuffer_t src_tensor) = 0;
@@ -149,6 +157,9 @@ protected:
 public:
   dbuffer_t get_tensor(relation_t const& src_relation);
 
+  void insert_constant_relation(
+    relation_t const& dst_relation,
+    scalar_t value);
   void insert_relation(
     relation_t const& dst_relation,
     dbuffer_t src_tensor);
@@ -180,6 +191,7 @@ private:
     execute_tg = 0,
     remap,
     get_tensor,
+    insert_constant,
     insert_relation,
     max_tid,
     registered_cmd,
@@ -191,6 +203,7 @@ private:
       "execute_tg",
       "remap",
       "get_tensor",
+      "insert_constant",
       "insert_relation",
       "max_tid",
       "registered_cmd",
@@ -217,6 +230,10 @@ protected:
     taskgraph_t const& taskgraph,
     map<string, scalar_t> const& sclar_vars) = 0;
   virtual void execute_tg_client() = 0;
+
+  void _local_insert_constant_relation(
+    relation_t const& dst_relation,
+    scalar_t value);
 
   virtual void remap_server(remap_relations_t const& remap_relations) = 0;
   virtual void remap_client() = 0;

@@ -88,6 +88,15 @@ relation_t const& server_base_t::get_relation(int gid) const
   return gid_map.at(gid);
 }
 
+void server_base_t::insert_constant(
+  int gid,
+  relation_t const& relation,
+  scalar_t value)
+{
+  insert_constant_relation(relation, value);
+  gid_map.insert({gid, relation});
+}
+
 void server_base_t::insert_tensor(
   int gid,
   relation_t const& dst_relation,
@@ -158,6 +167,13 @@ map<string, scalar_t> scalar_vars_from_wire(string const& s) {
   map<string, scalar_t> ret;
   while(inn) {
     string name = istream_consume_alphanumeric_u(inn);
+    if(name.size() == 0) {
+      inn.get();
+      if(inn) {
+        throw std::runtime_error("parse fail");
+      }
+      break;
+    }
     istream_expect(inn, "|");
     scalar_t scalar;
     inn >> scalar;

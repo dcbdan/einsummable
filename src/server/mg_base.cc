@@ -92,6 +92,7 @@ void server_mg_base_t::execute_tg_server(
   if(inputs_everywhere_mg_) {
     auto const& mg = inputs_everywhere_mg_.value();
     comm.broadcast_string(mg.to_wire());
+    comm.broadcast_string(scalar_vars_to_wire({}));
     comm.barrier();
     execute_memgraph(mg, true);
   }

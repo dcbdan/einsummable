@@ -625,7 +625,7 @@ graph_t::build_grad_term_ew(
 
   if(constant_deri_op && constant_grad) {
     scalar_t grad_constant = grad.get_constant();
-    scalar_t deri_constant = deri_op.eval({});
+    scalar_t deri_constant = deri_op.eval();
 
     scalar_t v = scalarop_t::make_mul(out_dtype).eval({grad_constant, deri_constant});
     v = v.convert(inn_dtype);
@@ -635,7 +635,7 @@ graph_t::build_grad_term_ew(
       .shape = inn_shapes[which_inn]
     });
   } else if(constant_deri_op) {
-    scalar_t value = deri_op.eval({}).convert(out_dtype);
+    scalar_t value = deri_op.eval().convert(out_dtype);
 
     scalarop_t new_join = scalarop_t::combine(
       scalarop_t::make_mul(out_dtype),
@@ -652,7 +652,7 @@ graph_t::build_grad_term_ew(
     if(new_join.is_constant()) {
       // It could be the case that the new_join is simplified to a constant
       // function. (For example, value == 0.0)
-      scalar_t new_value = new_join.eval({});
+      scalar_t new_value = new_join.eval();
       return backprop_tensor_t(fill_t {
         .value = new_value,
         .shape = inn_shapes[which_inn]
@@ -686,7 +686,7 @@ graph_t::build_grad_term_ew(
     if(new_join.is_constant()) {
       // It could be the case that the new_join is simplified to a constant
       // function. (For example, value == 0.0)
-      scalar_t new_value = new_join.eval({});
+      scalar_t new_value = new_join.eval();
       return backprop_tensor_t(fill_t {
         .value = new_value,
         .shape = inn_shapes[which_inn]
