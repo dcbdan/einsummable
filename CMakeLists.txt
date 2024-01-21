@@ -157,7 +157,8 @@ if(${CPU_EXECUTION_ENGINE})
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
-      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
+      llama/dataset_reader.cc llama/piper.cc)
     target_link_libraries(${exec}
       cpu_execution_engine
       proto
@@ -168,6 +169,23 @@ if(${CPU_EXECUTION_ENGINE})
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
+
+  # For some reason sentencepiece + protocolbuffers + this application
+  # isn't cooperating well. Something to do with symbols + protocol
+  # buffers being used in sentence piece and this application. So instead
+  # of using sentence piece directly, train1 launches the tokenizer
+  # executable and reads and writes from it.
+  # And the tokenizer executable calls sentencepiece.
+
+  add_cpu_llama_application("train1" "train1")
+
+  function(add_sp_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
+  endfunction()
+  add_sp_application("llama_tokenizer" "llama" "tokenizer")
 
 endif()
 
@@ -186,7 +204,6 @@ if(${GPU_EXECUTION_ENGINE})
 
   # add ucx dependency
   # define UCX_PATH below
-  SET(UCX_PATH "/opt/ucx")
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
