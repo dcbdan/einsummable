@@ -101,6 +101,8 @@ struct op_t {
 
   struct exp {};
 
+  struct log {};
+
   struct power {
     double to_the;
   };
@@ -131,6 +133,7 @@ struct op_t {
   bool is_add()      const;
   bool is_mul()      const;
   bool is_exp()      const;
+  bool is_log()      const;
   bool is_power()    const;
   bool is_ite()      const;
   bool is_convert()  const;
@@ -163,12 +166,14 @@ struct op_t {
 
   std::variant<
     constant, hole, variable,
-    add, mul, exp, power, ite, convert,
+    add, mul, exp, log, power,
+    ite, convert,
     conj, real, imag, cplex> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_exp(scalar_t inn);
+  static scalar_t _eval_log(scalar_t inn);
   static scalar_t _eval_power(double to_the, scalar_t inn);
   static scalar_t _eval_ite(compare_t compare,
     scalar_t lhs, scalar_t rhs, scalar_t if_true, scalar_t if_false);
@@ -183,6 +188,7 @@ struct op_t {
   static optional<dtype_t> _type_add(dtype_t lhs, dtype_t rhs);
   static optional<dtype_t> _type_mul(dtype_t lhs, dtype_t rhs);
   static optional<dtype_t> _type_exp(dtype_t inn);
+  static optional<dtype_t> _type_log(dtype_t inn);
   static optional<dtype_t> _type_power(dtype_t inn);
   static optional<dtype_t> _type_ite(dtype_t, dtype_t, dtype_t, dtype_t);
   static optional<dtype_t> _type_convert(dtype_t inn, dtype_t out);
@@ -252,6 +258,7 @@ struct cutensor_scalarop_t {
   // list out cutensor elementwise ops that
   // may be discovered
   enum cop_t { add, mul, min, max, exp, pow, identity, relu};
+  // TODO: add log
 
   struct arg_t {
     scalar_t scale;
@@ -409,7 +416,11 @@ struct scalarop_t {
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
+  static scalarop_t make_log(dtype_t d = default_dtype());
+
   static scalarop_t make_sqrt(dtype_t d = default_dtype());
+
+  static scalarop_t make_inverse(dtype_t d = default_dtype());
 
   static scalarop_t make_inverse_sqrt(dtype_t d = default_dtype());
 

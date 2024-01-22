@@ -307,6 +307,7 @@ bool op_t::is_variable() const { return std::holds_alternative< variable >(op); 
 bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
 bool op_t::is_mul()      const { return std::holds_alternative< mul      >(op); }
 bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); }
+bool op_t::is_log()      const { return std::holds_alternative< log      >(op); }
 bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
 bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
 bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); }
@@ -335,7 +336,9 @@ int op_t::num_inputs() const {
   if(is_constant() || is_hole() || is_variable()) {
     return 0;
   }
-  if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
+  if(is_power() || is_exp() || is_log() || is_convert() ||
+     is_conj() || is_real() || is_imag())
+  {
     return 1;
   }
   if(is_add() || is_mul() || is_cplex()) {
@@ -366,6 +369,9 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const
   }
   if(is_exp()) {
     return _eval_exp(xs[0]);
+  }
+  if(is_log()) {
+    return _eval_log(xs[0]);
   }
   if(is_power()) {
     return _eval_power(get_power(), xs[0]);
@@ -475,7 +481,7 @@ scalar_t op_t::_eval_mul(scalar_t lhs, scalar_t rhs)
 scalar_t op_t::_eval_exp(scalar_t inn)
 {
   if(inn.dtype == dtype_t::c64) {
-    throw std::runtime_error("cannot exp complex");
+    throw std::runtime_error("not implemented: exp complex"); // TODO
   }
   if(inn.dtype == dtype_t::f16) {
     return scalar_t(half_float::exp(inn.f16()));
@@ -487,6 +493,23 @@ scalar_t op_t::_eval_exp(scalar_t inn)
     return scalar_t(std::exp(inn.f64()));
   }
   throw std::runtime_error("_eval_exp: should not reach");
+}
+
+scalar_t op_t::_eval_log(scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("not implemented: log complex"); // TODO
+  }
+  if(inn.dtype == dtype_t::f16) {
+    return scalar_t(half_float::log(inn.f16()));
+  }
+  if(inn.dtype == dtype_t::f32) {
+    return scalar_t(std::log(inn.f32()));
+  }
+  if(inn.dtype == dtype_t::f64) {
+    return scalar_t(std::log(inn.f64()));
+  }
+  throw std::runtime_error("_eval_log: should not reach");
 }
 
 scalar_t op_t::_eval_power(double to_the, scalar_t inn)
@@ -503,7 +526,7 @@ scalar_t op_t::_eval_power(double to_the, scalar_t inn)
   if(inn.dtype == dtype_t::f64) {
     return scalar_t(std::pow(inn.f64(), to_the));
   }
-  throw std::runtime_error("_eval_exp: should not reach");
+  throw std::runtime_error("_eval_power: should not reach");
 }
 
 scalar_t op_t::_eval_ite(
@@ -578,6 +601,13 @@ optional<dtype_t> op_t::_type_mul(dtype_t lhs, dtype_t rhs) {
 }
 
 optional<dtype_t> op_t::_type_exp(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return std::nullopt;
+  }
+  return inn;
+}
+
+optional<dtype_t> op_t::_type_log(dtype_t inn) {
   if(inn == dtype_t::c64) {
     return std::nullopt;
   }
@@ -671,6 +701,9 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   } else if(is_exp()) {
     if(inns.size() != 1) { return std::nullopt; }
     return _type_exp(inns[0]);
+  } else if(is_log()) {
+    if(inns.size() != 1) { return std::nullopt; }
+    return _type_log(inns[0]);
   } else if(is_power()) {
     if(inns.size() != 1) { return std::nullopt; }
     return _type_power(inns[0]);
@@ -788,6 +821,18 @@ node_t node_t::derivative(int arg) const {
     string s_this = write_with_ss(*this);
 
     return parse_with_ss<node_t>("*[" + s_this + "," + s_deri_inn + "]");
+  } else if(op.is_log()) {
+    // ln(f(x)) => 1/f(x) * f'(x)
+    node_t const& inn = children[0];
+
+    node_t deri_inn = inn.derivative(arg);
+
+    string s_deri_inn = write_with_ss(deri_inn);
+
+    string s_this = write_with_ss(*this);
+    string s_inv_this = "power{-1.0}[" + s_this + "]";
+
+    return parse_with_ss<node_t>("*[" + s_inv_this + "," + s_deri_inn + "]");
   } else if(op.is_power()) {
     // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
     //           A     B               C
@@ -934,6 +979,8 @@ node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
     string dg_dzz = write_with_ss(
       children[0].wirtinger_derivative(arg, conjugate));
     return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_log()) {
+    throw std::runtime_error("not implemented");
   } else if(op.is_power()) {
     if(arg != 0) {
       return make_constant(scalar_t::zero(dtype));
@@ -1231,6 +1278,9 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
   } else if(op.is_exp()) {
     auto inn = children[0].to_cppstr(w);
     return "_exp(" + inn + ")";
+  } else if(op.is_log()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_log(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cppstr(w);
     return "_pow(" + inn + "," + write_with_ss(op.get_power()) + ")";
@@ -1320,6 +1370,9 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
   } else if(op.is_exp()) {
     auto inn = children[0].to_cpp_bytes(bytes);
     return "_exp(" + inn + ")";
+  } else if(op.is_log()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    return "_log(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cpp_bytes(bytes);
     auto offset = push_into_bytes(bytes, op.get_power());
@@ -1621,6 +1674,8 @@ optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
     cutensor_scalarop_t::cop_t op;
     if(node.op.is_exp()){
       op = cutensor_scalarop_t::cop_t::exp;
+    } else if(node.op.is_log()) {
+      throw std::runtime_error("not implemented set_up_arg log");
     }else if(node.op.is_power()){
       op = cutensor_scalarop_t::cop_t::pow;
     }else{
@@ -2022,9 +2077,19 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_log(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("log["+h0+"]");
+}
+
 scalarop_t scalarop_t::make_sqrt(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("power{0.5}["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_inverse(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{-1.0}["+h0+"]");
 }
 
 scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
@@ -2405,6 +2470,8 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "*";
   } else if(op.is_exp()) {
     out << "exp";
+  } else if(op.is_log()) {
+    out << "log";
   } else if(op.is_power()) {
     out << "power{" << op.get_power() << "}";
   } else if(op.is_ite()) {
@@ -2467,6 +2534,9 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
   } else if(c == 'e') {
     istream_expect(inn, "exp");
     op.op = scalar_ns::op_t::exp{ };
+  } else if(c == 'l') {
+    istream_expect(inn, "log");
+    op.op = scalar_ns::op_t::log { };
   } else if(c == 'p') {
     istream_expect(inn, "power{");
     double i;
