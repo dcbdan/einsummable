@@ -1672,7 +1672,28 @@ bool scalarop_t::is_max() const {
   return *this == make_max(node.dtype);
 }
 
+optional<scalar_t> scalarop_t::get_scale_from_scale() const {
+  if(!node.op.is_mul()) {
+    return std::nullopt;
+  }
 
+  auto const& lhs = node.children[0];
+  if(!lhs.op.is_constant()) {
+    return std::nullopt;
+  }
+
+  auto const& rhs = node.children[1];
+  if(!rhs.op.is_hole()) {
+    return std::nullopt;
+  }
+
+  bool is_arg0 = rhs.op.get_hole().arg == 0;
+  if(!is_arg0) {
+    return std::nullopt;
+  }
+
+  return lhs.op.get_constant();
+}
 
 optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
   // TODO: review this

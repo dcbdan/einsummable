@@ -177,6 +177,22 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
   }
 
   if(estr == "ab->a") {
+    optional<scalar_t> maybe_scale = einsummable.join.get_scale_from_scale();
+    if(maybe_scale && einsummable.castable.value() == castable_t::add) {
+      scalar_t const& value = maybe_scale.value();
+      if(dtype_is_complex(value.dtype)) {
+        return std::nullopt;
+      }
+      kernels.insert({einsummable,
+        sum_then_scale_ab_a_t {
+          .na = einsummable.join_shape[0],
+          .nb = einsummable.join_shape[1],
+          .value = value
+        }
+      });
+      return 0;
+    }
+
     if(!einsummable.join.is_identity()) {
       return std::nullopt;
     }
@@ -313,6 +329,8 @@ string cpu_kernel_executor_t::as_str(einsummable_t const& e) const
     return "permute";
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
     return "red_ab_a";
+  } else if(holds_alternative<sum_then_scale_ab_a_t>(kernel)) {
+    return "sum_scl_ab_a";
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
     return "bro_b_ab";
   } else if(holds_alternative<broadcast_a_ab_t>(kernel)) {
@@ -485,6 +503,11 @@ void cpu_kernel_executor_t::call(
     assert_num_inputs(1);
     auto const& [na,nb,f] = get<reduction_ab_a_t>(kernel);
     f(na,nb,out,inns[0]);
+  } else if(holds_alternative<sum_then_scale_ab_a_t>(kernel)) {
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:red_ab_a");
+    assert_num_inputs(1);
+    auto const& [na,nb,val] = get<sum_then_scale_ab_a_t>(kernel);
+    sum_then_scale_ab_a_kernel(val,na,nb,out,inns[0]);
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_b_ab");
     assert_num_inputs(1);
@@ -1485,3 +1508,53 @@ void broadcast_a_ab_kernel(
     throw std::runtime_error("broadcast_a_ab_kernel: missing dtype implementation");
   }
 }
+
+template <typename T>
+void _sum_then_scale_ab_a_kernel(
+  T const& val,
+  uint64_t n1,
+  uint64_t n2,
+  T* out,
+  T const* inn)
+{
+  double total;
+  for(uint64_t i = 0; i != n1; ++i) {
+    double total = inn[i*n2];
+    for(uint64_t j = 1; j != n2; ++j) {
+      uint64_t ij = i*n2 + j;
+      total += double(inn[ij]);
+    }
+    out[i] = T(double(val)*total);
+  }
+}
+
+void sum_then_scale_ab_a_kernel(
+  scalar_t value,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  void* out,
+  void const* inn)
+{
+  if(value.dtype == dtype_t::f16) {
+    _sum_then_scale_ab_a_kernel(
+      value.f16(),
+      nelem_a, nelem_b,
+      reinterpret_cast<float16_t*>(out),
+      reinterpret_cast<float16_t const*>(inn));
+  } else if(value.dtype == dtype_t::f32) {
+    _sum_then_scale_ab_a_kernel(
+      value.f32(),
+      nelem_a, nelem_b,
+      reinterpret_cast<float*>(out),
+      reinterpret_cast<float const*>(inn));
+  } else if(value.dtype == dtype_t::f64) {
+    _sum_then_scale_ab_a_kernel(
+      value.f64(),
+      nelem_a, nelem_b,
+      reinterpret_cast<double*>(out),
+      reinterpret_cast<double const*>(inn));
+  } else {
+    throw std::runtime_error("sum_then_scale: missing dtype case");
+  }
+}
+

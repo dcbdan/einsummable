@@ -76,6 +76,12 @@ private:
     std::function<void(uint64_t, uint64_t, void*, void const*)> f;
   };
 
+  struct sum_then_scale_ab_a_t {
+    uint64_t na;
+    uint64_t nb;
+    scalar_t value;
+  };
+
   struct broadcast_b_ab_t {
     uint64_t nelem_a;
     uint64_t sz_b;
@@ -137,7 +143,7 @@ public:
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, ternary_straight_ew_t,
     binary_212_ew_t, ternary_2112_ew_t, tensor_permute_t,
-    reduction_ab_a_t, broadcast_b_ab_t, broadcast_a_ab_t,
+    reduction_ab_a_t, sum_then_scale_ab_a_t, broadcast_b_ab_t, broadcast_a_ab_t,
     kernel_t>;
 
   kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;
@@ -276,6 +282,13 @@ void broadcast_b_ab_kernel(
 
 void broadcast_a_ab_kernel(
   dtype_t dtype,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  void* out,
+  void const* inn);
+
+void sum_then_scale_ab_a_kernel(
+  scalar_t value,
   uint64_t nelem_a,
   uint64_t nelem_b,
   void* out,
