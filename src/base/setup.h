@@ -613,6 +613,8 @@ int runif(int n);
 
 int runif(vector<double> probs);
 
+double rnorm();
+
 template <typename T>
 T vector_random_pop(vector<T>& xs) {
   int idx = runif(xs.size());

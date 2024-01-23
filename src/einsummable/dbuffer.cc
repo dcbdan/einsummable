@@ -72,6 +72,26 @@ void dbuffer_t::random(string b, string e) {
   }
 }
 
+void dbuffer_t::rnorm() {
+  uint64_t n = nelem();
+  if(dtype == dtype_t::f64) {
+    double* d = f64();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] = ::rnorm();
+    }
+  } else if(dtype == dtype_t::f32) {
+    float* d = f32();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] = float( ::rnorm() );
+    }
+  } else if(dtype == dtype_t::f16) {
+    float16_t* d = f16();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] = float16_t( ::rnorm() );
+    }
+  }
+}
+
 dbuffer_t dbuffer_t::copy(optional<dtype_t> maybe_dst) {
   dtype_t const& src = dtype;
   dtype_t        dst = maybe_dst ? maybe_dst.value() : src ;

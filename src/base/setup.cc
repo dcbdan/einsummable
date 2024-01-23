@@ -55,6 +55,10 @@ int runif(vector<double> probs) {
   return ret;
 }
 
+double rnorm() {
+  return std::normal_distribution<>()(random_gen());
+}
+
 bool in_range(int val, int beg, int end) {
   return val >= beg && val < end;
 }
