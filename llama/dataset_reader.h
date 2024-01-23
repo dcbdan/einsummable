@@ -16,14 +16,19 @@ struct dataset_reader_t {
 
   vector<int> read(int which);
 
-  // Return the following (X,y) pair:
-  //   (bsz x max_seq_len x vocab_size)
-  //   (bsz x vocab_size)
-  tuple<dbuffer_t, dbuffer_t>
-  make_random_data(
-    dtype_t dtype,
-    uint64_t bsz,
-    uint64_t max_seq_len);
+  // return a seqlen vector and the seqlen
+  tuple<vector<int>, int> random_datum(uint64_t seqlen);
+
+  tuple<vector<vector<int>>, vector<int>>
+  random_data(uint64_t batch_size, uint64_t seqlen);
+
+  // return (tokens.size(), embed size)
+  dbuffer_t make_embedding(
+    dbuffer_t const& embedding_matrix, // (vocab size, embed size)
+    vector<int> const& tokens);
+
+  // (batch size, seq_len, vocab size)
+  dbuffer_t one_hot_encode(dtype_t dtype, vector<int> const& tokens);
 
   int num() const { return offsets.size(); }
   int get_vocab_size() const { return vocab_size; }
