@@ -74,6 +74,7 @@ trainer_t::trainer_t(
     set<int> inn_gids_(update_inns.begin(), update_inns.end());
     set_union_inplace(inn_gids_, set<int>(data_ids.begin(), data_ids.end()));
     set_union_inplace(inn_gids_, set<int>(constant_ids.begin(), constant_ids.end()));
+
     if(inn_gids != inn_gids_) {
       throw std::runtime_error("invalid input gid set in trainer initialization");
     }
@@ -235,10 +236,15 @@ trainer_t::vanilla_update_t::make_einsummable(
 }
 
 void trainer_t::adamw_update_t::init(trainer_t& self) {
-  // TODO: for each id in (m_ids, v_ids),
-  //          set the trainer to zero at these locations
+  // for each id in (m_ids, v_ids),
+  //    set the gid to zero
   for(int gid: vector_concatenate(m_ids, v_ids)) {
-    self.server->insert_constant(gid, self.inn_remap.at(gid), scalar_t::zero(dtype));
+    relation_t const& rel = self.inn_remap.at(gid);
+    placement_t const& pl = rel.placement;
+    self.server->insert_constant(gid, pl, scalar_t::zero(dtype));
+    // ^ Note: let insert_constant create new tids instead of using
+    //         rel.tid--those tids may be used already when init is called.
+    //         Let the remap in trainer_t::operator() fix the tids
   }
 }
 

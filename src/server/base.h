@@ -72,6 +72,10 @@ public:
     int gid,
     relation_t const& relation,
     scalar_t value);
+  void insert_constant(
+    int gid,
+    placement_t const& dst_pl,
+    scalar_t value);
 
   // Get a tensor here and partition it across the cluster
   // into managed data

@@ -138,6 +138,26 @@ void server_base_t::insert_tensor(
     src_tensor);
 }
 
+void server_base_t::insert_constant(
+  int gid,
+  placement_t const& dst_pl,
+  scalar_t value)
+{
+  int t = get_max_tid() + 1;
+
+  vtensor_t<int> tids(dst_pl.block_shape());
+  vector<int>& ts = tids.get();
+  std::iota(ts.begin(), ts.end(), t);
+
+  relation_t dst_relation {
+    .dtype = value.dtype,
+    .placement = dst_pl,
+    .tids = tids
+  };
+
+  insert_constant(gid, dst_relation, value);
+}
+
 void server_base_t::remap(
   map<int, relation_t> const& gid_to_new_relations)
 {
