@@ -158,6 +158,23 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
     }
   }
 
+  if(estr == "ab,a,a->ab") {
+    auto maybe = lookup_ternary_2112_ew_kernel(einsummable.join);
+    if(maybe) {
+      auto const& [data,f] = maybe.value();
+      kernels.insert({einsummable,
+        ternary_2112_ew_t {
+          .na = einsummable.join_shape[0],
+          .nb = einsummable.join_shape[1],
+          .data = data,
+          .f = f
+        }
+      });
+      return 0;
+    } else {
+      return std::nullopt;
+    }
+  }
 
   if(estr == "ab->a") {
     if(!einsummable.join.is_identity()) {
@@ -184,13 +201,26 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
     }
 
     uint64_t dsz = dtype_size(einsummable.out_dtype());
-    uint64_t sz_a = dsz * einsummable.join_shape[0];
-    uint64_t sz_b = dsz * einsummable.join_shape[1];
 
     kernels.insert({einsummable,
       broadcast_b_ab_t {
-        .sz_a = sz_a,
-        .sz_b = sz_b
+        .nelem_a =       einsummable.join_shape[0],
+        .sz_b    = dsz * einsummable.join_shape[1],
+      }
+    });
+    return 0;
+  }
+
+  if(estr == "a->ab") {
+    if(!einsummable.join.is_identity()) {
+      return std::nullopt;
+    }
+
+    kernels.insert({einsummable,
+      broadcast_a_ab_t {
+        .dtype = einsummable.out_dtype(),
+        .nelem_a = einsummable.join_shape[0],
+        .nelem_b = einsummable.join_shape[1],
       }
     });
     return 0;
@@ -277,12 +307,16 @@ string cpu_kernel_executor_t::as_str(einsummable_t const& e) const
     return "straight_tew";
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     return "b212";
+  } else if(holds_alternative<ternary_2112_ew_t>(kernel)) {
+    return "t2112";
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
     return "permute";
   } else if(holds_alternative<reduction_ab_a_t>(kernel)) {
     return "red_ab_a";
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
     return "bro_b_ab";
+  } else if(holds_alternative<broadcast_a_ab_t>(kernel)) {
+    return "bro_a_ab";
   } else if(holds_alternative<kernel_t>(kernel)) {
     return "misc_kernel";
   } else {
@@ -314,6 +348,8 @@ vector<int> cpu_kernel_executor_t::donatables(einsummable_t const& e) const
     } else {
       maybe.push_back(0);
     }
+  } else if(std::holds_alternative<ternary_2112_ew_t>(kernel)) {
+    maybe.push_back(0);
   }
 
   dtype_t out_dtype = e.out_dtype();
@@ -434,6 +470,11 @@ void cpu_kernel_executor_t::call(
     } else {
       f(data.data(), na, nb, out, inns[0], inns[1]);
     }
+  } else if(holds_alternative<ternary_2112_ew_t>(kernel)) {
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:b212");
+    assert_num_inputs(3);
+    auto const& [na,nb,data,f] = get<ternary_2112_ew_t>(kernel);
+    f(data.data(), na, nb, out, inns[0], inns[1], inns[2]);
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:tensor_permute");
     assert_num_inputs(1);
@@ -447,8 +488,13 @@ void cpu_kernel_executor_t::call(
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_b_ab");
     assert_num_inputs(1);
-    auto const& [sz_a,sz_b] = get<broadcast_b_ab_t>(kernel);
-    broadcast_b_ab_kernel(sz_a, sz_b, out, inns[0]);
+    auto const& [nelem_a,sz_b] = get<broadcast_b_ab_t>(kernel);
+    broadcast_b_ab_kernel(nelem_a, sz_b, out, inns[0]);
+  } else if(holds_alternative<broadcast_a_ab_t>(kernel)) {
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_a_ab");
+    assert_num_inputs(1);
+    auto const& [dtype,nelem_a,nelem_b] = get<broadcast_a_ab_t>(kernel);
+    broadcast_a_ab_kernel(dtype, nelem_a, nelem_b, out, inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:misc");
     auto const& f = get<kernel_t>(kernel);
@@ -598,7 +644,6 @@ inline float16_t _log(float16_t const& v) {
   return half_float::log(v);
 }
 
-
 template <typename T>
 inline T _conj(T const& v) {
   return std::conj(v);
@@ -647,10 +692,11 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     TO* out     = reinterpret_cast<TO*>(_out); \
     T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
-    for(uint64_t i = 0; i != n; ++i) { \
-      uint64_t const& i0 = i; \
-      uint64_t const& i1 = i; \
-      out[i] = op; \
+    for(uint64_t _i = 0; _i != n; ++_i) { \
+      uint64_t const& iO = _i; \
+      uint64_t const& i0 = _i; \
+      uint64_t const& i1 = _i; \
+      out[iO] = op; \
     } \
   } \
   void name2( \
@@ -664,11 +710,12 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     TO* out     = reinterpret_cast<TO*>(_out); \
     T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
-    for(uint64_t i = 0; i != n1; ++i) { \
-    for(uint64_t j = 0; j != n2; ++j) { \
-      uint64_t i0 = i*n2 + j; \
-      uint64_t const& i1 = i; \
-      out[i0] = op; \
+    for(uint64_t _i = 0; _i != n1; ++_i) { \
+    for(uint64_t _j = 0; _j != n2; ++_j) { \
+      uint64_t        iO = _i*n2 + _j; \
+      uint64_t const& i0 = iO; \
+      uint64_t const& i1 = _i; \
+      out[iO] = op; \
     }} \
   } \
   void name3( \
@@ -682,16 +729,19 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     TO* out     = reinterpret_cast<TO*>(_out); \
     T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
-    for(uint64_t i = 0; i != n1; ++i) { \
-    for(uint64_t j = 0; j != n2; ++j) { \
-      uint64_t i0 = i*n2 + j; \
-      uint64_t const& i1 = j; \
-      out[i0] = op; \
+    for(uint64_t _i = 0; _i != n1; ++_i) { \
+    for(uint64_t _j = 0; _j != n2; ++_j) { \
+      uint64_t        iO = _i*n2 + _j; \
+      uint64_t const& i0 = iO; \
+      uint64_t const& i1 = _j; \
+      out[iO] = op; \
     }} \
   }
 
-#define _ternary_ew_loop(name, TO, T0, T1, T2, op) \
-  void name( \
+// a,a,a->a
+// ab,a,a->ab
+#define _ternary_ew_loop(name1, name2, TO, T0, T1, T2, op) \
+  void name1( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -704,11 +754,34 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
     T2 const* x2 = reinterpret_cast<T2 const*>(_x2); \
     for(uint64_t i = 0; i != n; ++i) { \
+      uint64_t const& iO = i; \
       uint64_t const& i0 = i; \
       uint64_t const& i1 = i; \
       uint64_t const& i2 = i; \
-      out[i] = op; \
+      out[iO] = op; \
     } \
+  } \
+  void name2( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1, \
+    void const* _x2) \
+  { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
+    T2 const* x2 = reinterpret_cast<T2 const*>(_x2); \
+    for(uint64_t _i = 0; _i != n1; ++_i) { \
+    for(uint64_t _j = 0; _j != n2; ++_j) { \
+      uint64_t        iO = _i*n2 + _j; \
+      uint64_t const& i0 = iO; \
+      uint64_t const& i1 = _i; \
+      uint64_t const& i2 = _i; \
+      out[iO] = op; \
+    }} \
   }
 
 _unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
@@ -738,6 +811,7 @@ _unary_ew_loop(u24,double,double,((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i]
 _unary_ew_loop(u25,double,double,_exp(x0[i]))
 _unary_ew_loop(u26,float,float,((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4))))))
 _unary_ew_loop(u27,float,float,_pow(_log(x0[i]),(*((double*)(d+0)))))
+_unary_ew_loop(u28,float,float,_log(x0[i]))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -770,15 +844,22 @@ _binary_ew_loop(b27,c27,d27,float16_t,float16_t,float16_t,(x0[i0]+((*((float16_t
 _binary_ew_loop(b28,c28,d28,float,float,float,(x0[i0]+((*((float*)(d+0)))*x1[i1])))
 _binary_ew_loop(b29,c29,d29,double,double,double,(x0[i0]+((*((double*)(d+0)))*x1[i1])))
 _binary_ew_loop(b30,c30,d30,double,double,double,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
-_binary_ew_loop(b31,c31,d31,float,float,float,(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8))))))
-_binary_ew_loop(b32,c32,d32,double,double,double,(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8))))))
-_binary_ew_loop(b33,c33,d33,float,float,float,((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i])))))
-_binary_ew_loop(b34,c34,d34,double,double,double,((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i])))))
-_binary_ew_loop(b35,c35,d35,float,float,float,(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i])))
-_binary_ew_loop(b36,c36,d36,float,float,float,(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8)))))))
-_binary_ew_loop(b37,c37,d37,float,float,float,(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4)))))
+_binary_ew_loop(b31,c31,d31,float,float,float,(x0[i0]*((*((float*)(d+0)))>=x1[i1]?(*((float*)(d+4))):(*((float*)(d+8))))))
+_binary_ew_loop(b32,c32,d32,double,double,double,(x0[i0]*((*((double*)(d+0)))>=x1[i1]?(*((double*)(d+4))):(*((double*)(d+8))))))
+_binary_ew_loop(b33,c33,d33,float,float,float,((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i0]+((*((float*)(d+8)))*x1[i1])))))
+_binary_ew_loop(b34,c34,d34,double,double,double,((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i0]+((*((double*)(d+8)))*x1[i1])))))
+_binary_ew_loop(b35,c35,d35,float,float,float,(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*x1[i1])))
+_binary_ew_loop(b36,c36,d36,float,float,float,(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*_pow(x1[i1],(*((double*)(d+8)))))))
+_binary_ew_loop(b37,c37,d37,float,float,float,(x0[i0]==x1[i1]?(*((float*)(d+0))):(*((float*)(d+4)))))
+_binary_ew_loop(b38,c38,d38,float,float,float,(x0[i0]*_exp(x1[i1])))
+_binary_ew_loop(b39,c39,d39,float,float,float,(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4)))))))
+_binary_ew_loop(b40,c40,d40,float,float,float,(x0[i0]*((*((float*)(d+0)))*x1[i1])))
+_binary_ew_loop(b41,c41,d41,float,float,float,(x0[i0]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i1]))),(*((double*)(d+8))))+(x1[i1]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i1]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i1])))))))))
+_binary_ew_loop(b42,c42,d42,float,float,float,(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4)))))))
+_binary_ew_loop(b43,c43,d43,float,float,float,(x0[i0]*((*((float*)(d+0)))*x1[i1])))
 
-_ternary_ew_loop(t0,float,float,float,float,(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4))))))))
+_ternary_ew_loop(tstraight_0,t2112_0,float,float,float,float,(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4))))))))
+_ternary_ew_loop(tstraight_1,t2112_1,float,float,float,float,((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2]))
 
 optional<
   tuple<vector<uint8_t>,
@@ -823,7 +904,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f64->f64|((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i]))", u24 },
     { "f64->f64|_exp(x0[i])", u25 },
     { "f32->f32|((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4)))))", u26 },
-    { "f32->f32|_pow(_log(x0[i]),(*((double*)(d+0))))", u27 }
+    { "f32->f32|_pow(_log(x0[i]),(*((double*)(d+0))))", u27 },
+    { "f32->f32|_log(x0[i])", u28 }
   };
 
   auto iter = kernels.find(key);
@@ -890,7 +972,13 @@ lookup_binary_straight_ew_kernel(
     { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", b34 },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", b35 },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", b36 },
-    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", b37 }
+    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", b37 },
+    { "f32,f32->f32|(x0[i]*_exp(x1[i]))", b38 },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", b39 },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", b40 },
+    { "f32,f32->f32|(x0[i]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i]))),(*((double*)(d+8))))+(x1[i]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i]))))))))", b41 },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", b42 },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", b43 }
   };
 
   auto iter = kernels.find(key);
@@ -920,7 +1008,8 @@ lookup_ternary_straight_ew_kernel(
     void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
 
   static map<string, kernel_t> kernels = {
-    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", t0 }
+    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", tstraight_0 },
+    { "f32,f32,f32->f32|((x0[i]*_pow(x1[i],(*((double*)(d+0)))))*x2[i])", tstraight_1 }
   };
 
   auto iter = kernels.find(key);
@@ -988,7 +1077,13 @@ lookup_binary_212_ew_kernel(
     { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", {c34, d34} },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", {c35,d35} },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", {c36,d36} },
-    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", {c37,d37} }
+    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", {c37,d37} },
+    { "f32,f32->f32|(x0[i]*_exp(x1[i]))", {c38,d38} },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", {c39,d39} },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", {c40,d40} },
+    { "f32,f32->f32|(x0[i]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i]))),(*((double*)(d+8))))+(x1[i]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i]))))))))", {c41,d41} },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", {c42,d42} },
+    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", {c43,d43} }
   };
 
   auto iter = kernels.find(key);
@@ -1001,6 +1096,37 @@ lookup_binary_212_ew_kernel(
   } else {
     return optional<tt>(tt{bytes, std::get<1>(iter->second)});
   }
+}
+
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_2112_ew_kernel(
+  scalarop_t op)
+{
+  // TODO: this shouldn't have to happen as op should always be simplified
+  //       to a unique value. For some reason
+  //       a kernel wasn't normalized in the same way as the key
+  //       requires...
+  op = op.simplify();
+
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  string key = op.type_signature() + "|" + op_str;
+
+  using kernel_t =
+    void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*);
+
+  static map< string, kernel_t > kernels = {
+    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", t2112_0 },
+    { "f32,f32,f32->f32|((x0[i]*_pow(x1[i],(*((double*)(d+0)))))*x2[i])", t2112_1 }
+  };
+
+  auto iter = kernels.find(key);
+  if(iter == kernels.end()) {
+    return std::nullopt;
+  }
+  using tt = tuple<vector<uint8_t>, kernel_t>;
+  return optional<tt>(tt{bytes, iter->second});
 }
 
 #define _real_reduction_ab_a(name, op) \
@@ -1302,16 +1428,60 @@ void permute_kernel(
   }
 }
 
+// b->ab
 void broadcast_b_ab_kernel(
-  uint64_t sz_a,
+  uint64_t nelem_a,
   uint64_t sz_b,
   void* _out,
   void const* inn)
 {
   uint8_t* out = reinterpret_cast<uint8_t*>(_out);
-  for(uint64_t i = 0; i != sz_a; ++i) {
+  for(uint64_t i = 0; i != nelem_a; ++i) {
     std::memcpy(
       reinterpret_cast<void*>(out), inn, sz_b);
     out += sz_b;
+  }
+}
+
+// a->ab
+template <typename T>
+void _broadcast_a_ab_kernel(
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  T* out,
+  T const* inn)
+{
+  for(uint64_t a = 0; a != nelem_a; ++a) {
+    T const& val = inn[a];
+    for(uint64_t b = 0; b != nelem_b; ++b) {
+      *out++ = val;
+    }
+  }
+}
+
+void broadcast_a_ab_kernel(
+  dtype_t dtype,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  void* out,
+  void const* inn)
+{
+  if(dtype == dtype_t::f16) {
+    _broadcast_a_ab_kernel(
+      nelem_a, nelem_b,
+      reinterpret_cast<uint16_t*>(out),
+      reinterpret_cast<uint16_t const*>(inn));
+  } else if(dtype == dtype_t::f32) {
+    _broadcast_a_ab_kernel(
+      nelem_a, nelem_b,
+      reinterpret_cast<uint32_t*>(out),
+      reinterpret_cast<uint32_t const*>(inn));
+  } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+    _broadcast_a_ab_kernel(
+      nelem_a, nelem_b,
+      reinterpret_cast<uint64_t*>(out),
+      reinterpret_cast<uint64_t const*>(inn));
+  } else {
+    throw std::runtime_error("broadcast_a_ab_kernel: missing dtype implementation");
   }
 }

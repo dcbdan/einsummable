@@ -57,6 +57,13 @@ private:
     bool swapargs;
   };
 
+  struct ternary_2112_ew_t {
+    uint64_t na;
+    uint64_t nb;
+    vector<uint8_t> data;
+    void (*f)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*);
+  };
+
   struct tensor_permute_t {
     dtype_t dtype;
     vector<uint64_t> inn_shape;
@@ -70,8 +77,14 @@ private:
   };
 
   struct broadcast_b_ab_t {
-    uint64_t sz_a;
+    uint64_t nelem_a;
     uint64_t sz_b;
+  };
+
+  struct broadcast_a_ab_t {
+    dtype_t dtype;
+    uint64_t nelem_a;
+    uint64_t nelem_b;
   };
 
   // kernel_t is a misc catchall that can just wrap a lambda
@@ -123,8 +136,8 @@ public:
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, ternary_straight_ew_t,
-    binary_212_ew_t, tensor_permute_t,
-    reduction_ab_a_t, broadcast_b_ab_t,
+    binary_212_ew_t, ternary_2112_ew_t, tensor_permute_t,
+    reduction_ab_a_t, broadcast_b_ab_t, broadcast_a_ab_t,
     kernel_t>;
 
   kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;
@@ -175,6 +188,12 @@ optional<tuple<
 lookup_binary_212_ew_kernel(
   scalarop_t binary_op,
   bool is_ab_a);
+
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_2112_ew_kernel(
+  scalarop_t ternary_op);
 
 std::function<void(uint64_t, uint64_t, void*, void const*)>
 build_ab_a_reduction_kernel(
@@ -250,8 +269,15 @@ void permute_kernel(
   void const* inn);
 
 void broadcast_b_ab_kernel(
-  uint64_t sz_a,
+  uint64_t nelem_a,
   uint64_t sz_b,
+  void* out,
+  void const* inn);
+
+void broadcast_a_ab_kernel(
+  dtype_t dtype,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
   void* out,
   void const* inn);
 

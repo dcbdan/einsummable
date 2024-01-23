@@ -1396,6 +1396,19 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
         return "double(" + inn + ")";
       }
       throw std::runtime_error("should not reach");
+  } else if(op.is_conj()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_conj(" + i0 + ")";
+  } else if(op.is_real()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_real(" + i0 + ")";
+  } else if(op.is_imag()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_imag(" + i0 + ")";
+  } else if(op.is_cplex()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    auto i1 = children[1].to_cpp_bytes(bytes);
+    return "_make_complex(" + i0 + "," + i1 + ")";
   } else {
     throw std::runtime_error("to_cpp_bytes: should not reach");
   }

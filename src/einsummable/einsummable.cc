@@ -886,7 +886,9 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   for(int i = 1; i < e.join_shape.size(); ++i) {
     out << "," << e.join_shape[i];
   }
-  out << "] ";
+  out << "]";
+
+  out << e.castable << " ";
 
   out << e.str() << " | ";
 
