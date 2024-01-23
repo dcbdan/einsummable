@@ -113,6 +113,21 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
       } else {
         return std::nullopt;
       }
+    } else if(n == 3) {
+      auto maybe = lookup_ternary_straight_ew_kernel(einsummable.join);
+      if(maybe) {
+        auto const& [data, f] = maybe.value();
+        kernels.insert({einsummable,
+          ternary_straight_ew_t {
+            .n = product(einsummable.join_shape),
+            .data = data,
+            .f = f
+          }
+        });
+        return 0;
+      } else {
+        return std::nullopt;
+      }
     } else {
       return std::nullopt;
     }
@@ -120,8 +135,11 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
 
   auto estr = einsummable.str();
 
-  if(estr == "ab,a->ab" || estr == "ab,b->ab") {
-    bool is_ab_a = estr == "ab,a->ab";
+  if(estr == "ab,a->ab" || estr == "ab,b->ab" ||
+     estr == "a,ab->ab" || estr == "b,ab->ab")
+  {
+    bool is_ab_a   = estr == "ab,a->ab" || estr == "a,ab->ab";
+    bool swap_args = estr == "a,ab->ab" || estr == "b,ab->ab";
     auto maybe = lookup_binary_212_ew_kernel(einsummable.join, is_ab_a);
     if(maybe) {
       auto const& [data,f] = maybe.value();
@@ -130,7 +148,8 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
           .na = einsummable.join_shape[0],
           .nb = einsummable.join_shape[1],
           .data = data,
-          .f = f
+          .f = f,
+          .swapargs = swap_args
         }
       });
       return 0;
@@ -138,6 +157,8 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
       return std::nullopt;
     }
   }
+
+
   if(estr == "ab->a") {
     if(!einsummable.join.is_identity()) {
       return std::nullopt;
@@ -252,6 +273,8 @@ string cpu_kernel_executor_t::as_str(einsummable_t const& e) const
     return "straight_uew";
   } else if(holds_alternative<binary_straight_ew_t>(kernel)) {
     return "straight_bew";
+  } else if(holds_alternative<ternary_straight_ew_t>(kernel)) {
+    return "straight_tew";
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     return "b212";
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
@@ -280,8 +303,17 @@ vector<int> cpu_kernel_executor_t::donatables(einsummable_t const& e) const
   } else if(std::holds_alternative<binary_straight_ew_t>(kernel)) {
     maybe.push_back(0);
     maybe.push_back(1);
-  } else if(std::holds_alternative<binary_212_ew_t>(kernel)) {
+  } else if(std::holds_alternative<ternary_straight_ew_t>(kernel)) {
     maybe.push_back(0);
+    maybe.push_back(1);
+    maybe.push_back(2);
+  } else if(std::holds_alternative<binary_212_ew_t>(kernel)) {
+    bool const& swapargs = std::get<binary_212_ew_t>(kernel).swapargs;
+    if(swapargs) {
+      maybe.push_back(1);
+    } else {
+      maybe.push_back(0);
+    }
   }
 
   dtype_t out_dtype = e.out_dtype();
@@ -388,11 +420,20 @@ void cpu_kernel_executor_t::call(
     assert_num_inputs(2);
     auto const& [n,data,f] = get<binary_straight_ew_t>(kernel);
     f(data.data(), n, out, inns[0], inns[1]);
+  } else if(holds_alternative<ternary_straight_ew_t>(kernel)) {
+    //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:tew");
+    assert_num_inputs(3);
+    auto const& [n,data,f] = get<ternary_straight_ew_t>(kernel);
+    f(data.data(), n, out, inns[0], inns[1], inns[2]);
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:b212");
     assert_num_inputs(2);
-    auto const& [na,nb,data,f] = get<binary_212_ew_t>(kernel);
-    f(data.data(), na, nb, out, inns[0], inns[1]);
+    auto const& [na,nb,data,f,swapargs] = get<binary_212_ew_t>(kernel);
+    if(swapargs) {
+      f(data.data(), na, nb, out, inns[1], inns[0]);
+    } else {
+      f(data.data(), na, nb, out, inns[0], inns[1]);
+    }
   } else if(holds_alternative<tensor_permute_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:tensor_permute");
     assert_num_inputs(1);
@@ -548,6 +589,17 @@ inline float16_t _exp(float16_t const& v) {
 }
 
 template <typename T>
+inline T _log(T const& v) {
+  return std::log(v);
+}
+
+template <>
+inline float16_t _log(float16_t const& v) {
+  return half_float::log(v);
+}
+
+
+template <typename T>
 inline T _conj(T const& v) {
   return std::conj(v);
 }
@@ -638,6 +690,27 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     }} \
   }
 
+#define _ternary_ew_loop(name, TO, T0, T1, T2, op) \
+  void name( \
+    uint8_t const* d, \
+    uint64_t n, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1, \
+    void const* _x2) \
+  { \
+    TO* out     = reinterpret_cast<TO*>(_out); \
+    T0 const* x0 = reinterpret_cast<T0 const*>(_x0); \
+    T1 const* x1 = reinterpret_cast<T1 const*>(_x1); \
+    T2 const* x2 = reinterpret_cast<T2 const*>(_x2); \
+    for(uint64_t i = 0; i != n; ++i) { \
+      uint64_t const& i0 = i; \
+      uint64_t const& i1 = i; \
+      uint64_t const& i2 = i; \
+      out[i] = op; \
+    } \
+  }
+
 _unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
 _unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i]))
 _unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i]))
@@ -664,6 +737,7 @@ _unary_ew_loop(u23,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
 _unary_ew_loop(u24,double,double,((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i])))
 _unary_ew_loop(u25,double,double,_exp(x0[i]))
 _unary_ew_loop(u26,float,float,((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4))))))
+_unary_ew_loop(u27,float,float,_pow(_log(x0[i]),(*((double*)(d+0)))))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -701,7 +775,10 @@ _binary_ew_loop(b32,c32,d32,double,double,double,(x0[i]*((*((double*)(d+0)))>=x1
 _binary_ew_loop(b33,c33,d33,float,float,float,((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i])))))
 _binary_ew_loop(b34,c34,d34,double,double,double,((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i])))))
 _binary_ew_loop(b35,c35,d35,float,float,float,(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i])))
-_binary_ew_loop(b36,c36,d36,float,float,float,(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8)))))));
+_binary_ew_loop(b36,c36,d36,float,float,float,(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8)))))))
+_binary_ew_loop(b37,c37,d37,float,float,float,(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4)))))
+
+_ternary_ew_loop(t0,float,float,float,float,(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4))))))))
 
 optional<
   tuple<vector<uint8_t>,
@@ -745,7 +822,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u23 },
     { "f64->f64|((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i]))", u24 },
     { "f64->f64|_exp(x0[i])", u25 },
-    { "f32->f32|((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4)))))", u26 }
+    { "f32->f32|((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4)))))", u26 },
+    { "f32->f32|_pow(_log(x0[i]),(*((double*)(d+0))))", u27 }
   };
 
   auto iter = kernels.find(key);
@@ -811,7 +889,38 @@ lookup_binary_straight_ew_kernel(
     { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", b33 },
     { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", b34 },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", b35 },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", b36 }
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", b36 },
+    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", b37 }
+  };
+
+  auto iter = kernels.find(key);
+  if(iter == kernels.end()) {
+    return std::nullopt;
+  }
+  using tt = tuple<vector<uint8_t>, kernel_t>;
+  return optional<tt>(tt{bytes, iter->second});
+}
+
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_straight_ew_kernel(
+  scalarop_t op)
+{
+  // TODO: this shouldn't have to happen as op should always be simplified
+  //       to a unique value. For some reason
+  //       a kernel wasn't normalized in the same way as the key
+  //       requires...
+  op = op.simplify();
+
+  auto [op_str, bytes] = op.to_cpp_bytes();
+  string key = op.type_signature() + "|" + op_str;
+
+  using kernel_t =
+    void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
+
+  static map<string, kernel_t> kernels = {
+    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", t0 }
   };
 
   auto iter = kernels.find(key);
@@ -878,7 +987,8 @@ lookup_binary_212_ew_kernel(
     { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", {c33, d33} },
     { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", {c34, d34} },
     { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", {c35,d35} },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", {c36,d36} }
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", {c36,d36} },
+    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", {c37,d37} }
   };
 
   auto iter = kernels.find(key);

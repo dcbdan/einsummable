@@ -43,11 +43,18 @@ private:
     void (*f)(uint8_t const*, uint64_t, void*, void const*, void const*);
   };
 
+  struct ternary_straight_ew_t {
+    uint64_t n;
+    vector<uint8_t> data;
+    void (*f)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
+  };
+
   struct binary_212_ew_t {
     uint64_t na;
     uint64_t nb;
     vector<uint8_t> data;
     void (*f)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*);
+    bool swapargs;
   };
 
   struct tensor_permute_t {
@@ -115,7 +122,8 @@ public:
 
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
-    unary_straight_ew_t, binary_straight_ew_t, binary_212_ew_t, tensor_permute_t,
+    unary_straight_ew_t, binary_straight_ew_t, ternary_straight_ew_t,
+    binary_212_ew_t, tensor_permute_t,
     reduction_ab_a_t, broadcast_b_ab_t,
     kernel_t>;
 
@@ -153,6 +161,12 @@ optional<tuple<
   vector<uint8_t>,
   void(*)(uint8_t const*, uint64_t, void*, void const*, void const*)> >
 lookup_binary_straight_ew_kernel(
+  scalarop_t binary_op);
+
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_straight_ew_kernel(
   scalarop_t binary_op);
 
 optional<tuple<
