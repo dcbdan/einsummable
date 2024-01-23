@@ -265,6 +265,14 @@ void c64_mul_abcd_bd_to_abcd(
   std::complex<float>* out,
   std::complex<float> const* lhs,
   std::complex<float> const* rhs);
+void c64_mulconj_abcd_bd_to_abcd(
+  uint64_t na,
+  uint64_t nb,
+  uint64_t nc,
+  uint64_t nd,
+  std::complex<float>* out,
+  std::complex<float> const* lhs,
+  std::complex<float> const* rhs);
 
 void permute_kernel(
   dtype_t dtype,
@@ -293,5 +301,15 @@ void sum_then_scale_ab_a_kernel(
   uint64_t nelem_b,
   void* out,
   void const* inn);
+
+// ab,ab,a->a
+// *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+void custom01_float_ab_ab_a_to_a(
+  uint64_t na,
+  uint64_t nb,
+  float* out,
+  float const* x0,
+  float const* x1,
+  float const* x2);
 
 timetracker_t& get_cpu_kernel_timetracker();

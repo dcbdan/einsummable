@@ -242,9 +242,16 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
     return 0;
   }
 
-  if(estr == "abcd,bd->abcd")
+  if(estr == "abcd,bd->abcd" && einsummable.join.out_dtype() == dtype_t::c64)
   {
-    if(einsummable.join.is_mul() && dtype_t::c64 == einsummable.out_dtype())
+    scalarop_t mulconj = scalarop_t::combine(
+      scalarop_t::make_mul(dtype_t::c64),
+      {
+        scalarop_t::make_identity(dtype_t::c64),
+        scalarop_t::make_conjugate(dtype_t::c64)
+      });
+
+    if(einsummable.join.is_mul())
     {
       uint64_t na = einsummable.join_shape[0];
       uint64_t nb = einsummable.join_shape[1];
@@ -254,12 +261,48 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
         using T = std::complex<float>;
         return c64_mul_abcd_bd_to_abcd(
           na,nb,nc,nd,
-          (T*)out, (T const*)inns[0], (T const*)inns[1]);
+          reinterpret_cast<T*>(out),
+          reinterpret_cast<T const*>(inns[0]),
+          reinterpret_cast<T const*>(inns[1]));
+      };
+      kernels.insert({einsummable, kernel});
+      return 0;
+    } else if(einsummable.join == mulconj) {
+      uint64_t na = einsummable.join_shape[0];
+      uint64_t nb = einsummable.join_shape[1];
+      uint64_t nc = einsummable.join_shape[2];
+      uint64_t nd = einsummable.join_shape[3];
+      kernel_t kernel = [na,nb,nc,nd](void* out, vector<void const*> inns) {
+        using T = std::complex<float>;
+        return c64_mulconj_abcd_bd_to_abcd(
+          na,nb,nc,nd,
+          reinterpret_cast<T*>(out),
+          reinterpret_cast<T const*>(inns[0]),
+          reinterpret_cast<T const*>(inns[1]));
       };
       kernels.insert({einsummable, kernel});
       return 0;
     } else {
       return std::nullopt;
+    }
+  }
+
+  if(estr == "ab,ab,a->a") {
+    scalarop_t f = parse_with_ss<scalarop_t>(
+      "*[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]");
+    if(f == einsummable.join) {
+      uint64_t na = einsummable.join_shape[0];
+      uint64_t nb = einsummable.join_shape[1];
+      kernel_t kernel = [na,nb](void* out, vector<void const*> inns) {
+        return custom01_float_ab_ab_a_to_a(
+          na,nb,
+          reinterpret_cast<float*>(out),
+          reinterpret_cast<float const*>(inns[0]),
+          reinterpret_cast<float const*>(inns[1]),
+          reinterpret_cast<float const*>(inns[2]));
+      };
+      kernels.insert({einsummable, kernel});
+      return 0;
     }
   }
 
@@ -1423,6 +1466,24 @@ void c64_mul_abcd_bd_to_abcd(
     out[ol] = lhs[ol] * rhs[rr];
   }}}}
 }
+void c64_mulconj_abcd_bd_to_abcd(
+  uint64_t na,
+  uint64_t nb,
+  uint64_t nc,
+  uint64_t nd,
+  std::complex<float>* out,
+  std::complex<float> const* lhs,
+  std::complex<float> const* rhs)
+{
+  for(uint64_t a = 0; a != na; ++a) {
+  for(uint64_t b = 0; b != nb; ++b) {
+  for(uint64_t c = 0; c != nc; ++c) {
+  for(uint64_t d = 0; d != nd; ++d) {
+    uint64_t ol = a*nb*nc*nd + b*nc*nd + c*nd + d;
+    uint64_t rr = b*nd + d;
+    out[ol] = lhs[ol] * _conj(rhs[rr]);
+  }}}}
+}
 
 void permute_kernel(
   dtype_t dtype,
@@ -1557,4 +1618,27 @@ void sum_then_scale_ab_a_kernel(
     throw std::runtime_error("sum_then_scale: missing dtype case");
   }
 }
+
+void custom01_float_ab_ab_a_to_a(
+  uint64_t na,
+  uint64_t nb,
+  float* out,
+  float const* x0,
+  float const* x1,
+  float const* x2)
+{
+  double total;
+  double v2;
+  for(uint64_t a = 0; a != na; ++a) {
+    v2 = -1.0 * _pow(double(x2[a]), -2.0);
+    total = 0.0;
+    float const* xx0 = x0 + a*nb;
+    float const* xx1 = x1 + a*nb;
+    for(uint64_t b = 0; b != nb; ++b) {
+      total += xx0[b]*(xx1[b]*v2);
+    }
+    out[a] = float(total);
+  }
+}
+
 
