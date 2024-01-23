@@ -11,6 +11,10 @@
 struct fill_t {
   scalar_t value;
   vector<uint64_t> shape;
+
+  uint64_t size() const {
+    return dtype_size(value.dtype) * product(shape);
+  }
 };
 
 struct select_t {

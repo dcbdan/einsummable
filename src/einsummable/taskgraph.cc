@@ -919,7 +919,7 @@ taskgraph_make_state_t::communicate(int join_gid, vtensor_t<int> join_result)
 
     return;
   }
-  throw std::runtime_error("should not reach");
+  throw std::runtime_error("should not reach: communicate");
 }
 
 multiple_placement_t
@@ -1439,7 +1439,7 @@ dtype_t taskgraph_make_state_t::complex_to_real(dtype_t dtype) {
   if(dtype == dtype_t::c64) {
     return dtype_t::f32;
   }
-  throw std::runtime_error("should not reach");
+  throw std::runtime_error("should not reach: complex to real");
 }
 
 void double_last_dim_inplace(partition_t& p) {
@@ -2285,6 +2285,8 @@ taskgraph_t::get_input_core_order() const
   auto is_inputable = [](op_t const& op) {
     if(op.is_input()) {
       return true;
+    } else if(op.is_constant()) {
+      return true; // this can go either way
     } else if(op.is_partialize()) {
       auto const& p = op.get_partialize();
       return !p.does_agg();
@@ -2459,7 +2461,7 @@ string taskgraph_t::to_wire() const {
         }
       }
     } else {
-      throw std::runtime_error("should not reach");
+      throw std::runtime_error("should not reach: wirez");
     }
 
     n->set_is_save(node.is_save);
@@ -2620,6 +2622,8 @@ uint64_t taskgraph_t::op_t::out_size() const
 {
   if(is_input()) {
     return get_input().size;
+  } else if(is_constant()) {
+    return get_constant().fill.size();
   } else if(is_apply()) {
     return get_apply().einsummable.out_size();
   } else if(is_move()) {
@@ -2628,13 +2632,15 @@ uint64_t taskgraph_t::op_t::out_size() const
     auto p = get_partialize();
     return product(p.write_shape) * dtype_size(p.dtype);
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach: out_size");
   }
 }
 
 set<int> taskgraph_t::op_t::inputs() const
 {
   if(is_input()) {
+    return {};
+  } else if(is_constant()) {
     return {};
   } else if(is_apply()) {
     auto const& inns = get_apply().inns;
@@ -2650,7 +2656,7 @@ set<int> taskgraph_t::op_t::inputs() const
     }
     return ret;
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach: inputs");
     return {};
   }
 }
@@ -2659,6 +2665,9 @@ taskgraph_t::op_t
 taskgraph_t::op_t::remap(std::function<int(int)> to_new_tid) const
 {
   if(is_input()) {
+    return *this;
+  }
+  if(is_constant()) {
     return *this;
   }
   if(is_apply()) {
@@ -2691,6 +2700,9 @@ int taskgraph_t::op_t::out_loc() const {
   if(is_input()) {
     return get_input().loc;
   }
+  if(is_constant()) {
+    return get_constant().loc;
+  }
   if(is_apply()) {
     return get_apply().loc;
   }
@@ -2706,6 +2718,9 @@ int taskgraph_t::op_t::out_loc() const {
 bool taskgraph_t::op_t::is_local_to(int loc) const {
   if(is_input()) {
     return get_input().loc == loc;
+  }
+  if(is_constant()) {
+    return get_constant().loc == loc;
   }
   if(is_apply()) {
     return get_apply().loc == loc;
@@ -3040,6 +3055,8 @@ void taskgraph_t::print() const {
     if(node.op.is_input()) {
       auto const& [loc, _] = node.op.get_input();
       std::cout << "input | loc[" << loc << "]" << std::endl;
+    } else if(node.op.is_constant()) {
+      std::cout << "constant" << std::endl;
     } else if(node.op.is_apply()) {
       auto const& [loc, _, e] = node.op.get_apply();
       std::cout << "apply | loc[" << loc << "] " << e << std::endl;
@@ -3099,6 +3116,12 @@ void taskgraph_t::print_graphviz(
         color = colors[loc];
       }
       label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc);
+    } else if(op.is_constant()) {
+      auto const& [loc, _] = node.op.get_constant();
+      if(loc < colors.size()) {
+        color = colors[loc];
+      }
+      label = "constant" + write_with_ss(id) + "@loc" + write_with_ss(loc);
     } else if(op.is_apply()) {
       auto const& [loc, _, e] = node.op.get_apply();
       if(loc < colors.size()) {
@@ -3132,7 +3155,7 @@ void taskgraph_t::print_graphviz(
     out << "]" << endl;
 
     // print out the edges
-    if(op.is_input()) {
+    if(op.is_input() || op.is_constant()) {
       // no edges to id
     } else if(op.is_apply()) {
       auto const& inns = op.get_apply().inns;
