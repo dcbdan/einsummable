@@ -13,6 +13,31 @@ exec_graph_t::make_cpu_tg_exec_graph(
   int num_channels_per_move,
   map<string, scalar_t> const& scalar_vars)
 {
+  // TODO: remove this once all the kernels compile
+  {
+    int nfail = 0;
+    cpu_kernel_executor_t k;
+    for(auto const& node: taskgraph.nodes) {
+      if(node.op.is_apply()) {
+        einsummable_t e = node.op.get_apply()
+          .einsummable
+          .replace_scalar_variables(scalar_vars)
+          .merge_adjacent_dims();
+        auto maybe_worksize = k.build(e);
+        if(!maybe_worksize) {
+          DOUT(e);
+          DOUT(std::get<0>(e.join.to_cpp_bytes()));
+          DOUT("");
+          nfail++;
+        }
+      }
+    }
+    if(nfail > 0) {
+      DOUT("num fail: " << nfail);
+      throw std::runtime_error("will not be able to compile all the kernels");
+    }
+  }
+
   using dinfo_t = data_manager_t::info_t;
 
   map<int, dinfo_t> dinfos;
@@ -79,9 +104,17 @@ exec_graph_t::make_cpu_tg_exec_graph(
 
     auto const& node = taskgraph.nodes[tid];
 
-    if(node.op.is_input() || node.op.is_constant()) {
+    if(node.op.is_input()) {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert_from_tid(op, tid);
+    } else if(node.op.is_constant()) {
+      auto const& constant = node.op.get_constant();
+      auto const& fill = constant.fill;
+      cpu_tg_fill_constant_t* op = new cpu_tg_fill_constant_t(
+        tid,
+        fill.value,
+        product(fill.shape));
+      insert_from_tid(op_ptr_t(op), tid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       einsummable_t e = apply
@@ -209,6 +242,38 @@ desc_ptr_t cpu_tg_einsummable_t::resource_description() const
 
   vector<desc_ptr_t> ret;
   ret.emplace_back(data_manager_t::make_desc(tids));
+  ret.emplace_back(threadpool_manager_t::make_desc());
+
+  return resource_manager_t::make_desc(ret);
+}
+
+void cpu_tg_fill_constant_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  vector<buffer_t> buffers =
+    data_manager_t::get_resource(resources[0]).extract();
+  void* out_mem = buffers[0]->raw();
+
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
+  thread_resource.launch(
+    [this, callback, out_mem]
+    {
+      constant_fill(this->nelem, out_mem, this->value);
+      callback();
+    });
+}
+
+desc_ptr_t
+cpu_tg_fill_constant_t::resource_description() const
+{
+  vector<desc_ptr_t> ret;
+
+  ret.emplace_back(data_manager_t::make_desc({tid}));
   ret.emplace_back(threadpool_manager_t::make_desc());
 
   return resource_manager_t::make_desc(ret);

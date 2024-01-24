@@ -30,6 +30,25 @@ struct cpu_tg_einsummable_t : exec_graph_t::op_base_t {
   int get_priority() const { return 200; }
 };
 
+struct cpu_tg_fill_constant_t : exec_graph_t::op_base_t {
+  cpu_tg_fill_constant_t(
+    int tid_,
+    scalar_t value_,
+    uint64_t nelem_)
+    : tid(tid_), value(value_), nelem(nelem_)
+  {}
+
+  int tid;
+  scalar_t value;
+  uint64_t nelem;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+
+  void print(std::ostream& out) const { out << "cpu_tg_fill_constant"; }
+  int get_priority() const { return 200; }
+};
+
 // tg_send_t and rp_recv_t are exec_graph_t::send_t and exec_graph_t::recv_t
 // but with the datamap instead of global buffers
 
