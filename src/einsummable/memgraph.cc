@@ -2199,9 +2199,10 @@ void memgraph_make_state_t2::initialize_input(int inn)
     }
 
     inputsto_t input_sto = {
-        .loc = loc,
-        .storage_loc = memgraph.storage_locs[loc],
-        .storage_id = _sto_id++};
+      .storage_loc = memgraph.storage_locs[loc],
+      .storage_id = _sto_id++,
+      .size = size
+    };
     input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
 
     op_t input_op = op_t(input_sto);
@@ -2213,52 +2214,6 @@ void memgraph_make_state_t2::initialize_input(int inn)
 bool memgraph_make_state_t2::input_has_been_initialized(int inn)
 {
   return input_tid_to_data.find(inn) != input_tid_to_data.end();
-}
-
-vector<std::variant<_which_node_t, _which_touch_t>>
-order_taskgraph(taskgraph_t const &taskgraph)
-{
-  vector<std::variant<_which_node_t, _which_touch_t>> ret;
-  ret.reserve(2 * taskgraph.nodes.size());
-
-  for (auto const &id : taskgraph.get_order())
-  {
-    auto const &node = taskgraph.nodes[id];
-    if (node.op.is_input())
-    {
-      // Input nodes have already been provided
-    }
-    else if (node.op.is_partialize())
-    {
-      // Every partialize touch should be accounted for
-      // from the corresponding input. The idea is
-      // if input A becomes ready, immediately
-      // increment do touch op B += A.
-    }
-    else
-    {
-      // this is an apply or move node, but the
-      // distinction doesn't matter here
-      ret.emplace_back(_which_node_t{.task_id = id});
-    }
-
-    // Now that this id is now available, add touches from
-    // this id to a partialize out
-    for (auto const &out : node.outs)
-    {
-      auto const &out_node = taskgraph.nodes[out];
-      if (out_node.op.is_partialize())
-      {
-        auto which_touches = get_which_touches_from_to(taskgraph, out, id);
-        for (auto const &w : which_touches)
-        {
-          ret.emplace_back(w);
-        }
-      }
-    }
-  }
-
-  return ret;
 }
 
 /**
@@ -2357,6 +2312,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
 
   for (auto const& tid: used_tids) {
     auto const& node = taskgraph.nodes[tid];
+    auto iter = task_tensor_to_mem_node.find(tid);
     if (iter != task_tensor_to_mem_node.end()) { //if tid exist in task_tensor_to_mem_node
       int const& memid = iter->second;
       auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();

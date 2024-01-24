@@ -460,7 +460,7 @@ public:
   int insert(op_t op, set<int> const& deps);
 
 private:
-  friend class memgraph_make_state_t;
+  friend class memgraph_make_state_t2;
 
   // Get whether or not there is a directed path from
   // bot to top
@@ -853,7 +853,9 @@ struct memgraph_make_state_t2 {
   // TODO: where should tensor donation occur?
 
   // this tensor was used, see if you can free the memory
-  void register_usage(int task_id);
+  bool register_usage(int task_id);
+
+  memgraph_t pop_memgraph();
 
   // A bunch of helper methods to modify
   //   task_tensor_to_mem_node,

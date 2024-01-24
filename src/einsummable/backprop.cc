@@ -1129,7 +1129,7 @@ graph_t::build_grad_term_reduction_maxmin(
   // For option b and c, pick all of them
   // But option b normalizes to prevent increasing the backprop signal
   //
-  // We choose option b because we can implemented. Option c is nice because
+  // We choose option b because we can implement it. Option c is nice because
   // we don't have to add that many more ops... But I suspect that will hurt
   // us at some point.
   //
@@ -1152,8 +1152,9 @@ graph_t::build_grad_term_reduction_maxmin(
 
   vector<uint64_t> out_shape(join_shape.begin(), join_shape.begin() + out_rank);
 
-  auto [i_str, _inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
-  string const& ij_str = _inn_strs[0];
+  auto str_terms = einsummable_t::make_str_terms({ inn }, out_rank);
+  string const& i_str = std::get<0>(str_terms);
+  string const& ij_str = std::get<1>(str_terms)[0];
 
   int const& x_id = inn_id;
   auto const& x_shape = inn_shape;
@@ -1179,12 +1180,19 @@ graph_t::build_grad_term_reduction_maxmin(
     auto e_join_shape = einsummable_t::construct_join_shape(
       ij_shape,
       e_inns,
-      { ij_shape, i_shape, ij_shape });
+      { ij_shape, i_shape, i_shape });
     return einsummable_t(e_join_shape, e_inns, e_out_rank, join);
   };
 
   auto make_reduction = [&]() {
-    return einsummable_t::aggregate(ij_shape, inn, out_rank, dtype, castable_t::add);
+    string str = ij_str + "->" + i_str;
+    auto const& [e_inns,e_out_rank] = einsummable_t::parse_str(str);
+    auto e_join_shape = einsummable_t::construct_join_shape(
+        i_shape,
+        e_inns,
+        { ij_shape });
+    auto identity = scalarop_t::make_identity(dtype);
+    return einsummable_t(e_join_shape, e_inns, e_out_rank, identity, castable_t::add);
   };
 
   int which_max = insert_einsummable_for_backprop(
@@ -1417,4 +1425,3 @@ graph_t::reverse_order_nodeset(set<int> const& nodeset) const
 
   return ret;
 }
-
