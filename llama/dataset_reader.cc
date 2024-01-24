@@ -51,9 +51,10 @@ vector<int> dataset_reader_t::read(int which) {
 }
 
 tuple<vector<int>, int>
-dataset_reader_t::random_datum(uint64_t seqlen)
+dataset_reader_t::datum(int which, uint64_t seqlen)
 {
-  vector<int> tokens = random();
+  vector<int> tokens = read(which);
+
   if(tokens.size() >= seqlen + 1) {
     uint64_t start = 0;
     if(tokens.size() > seqlen + 1) {
@@ -75,6 +76,12 @@ dataset_reader_t::random_datum(uint64_t seqlen)
     int label = tokens.back();
     return {ts, label};
   }
+}
+
+tuple<vector<int>, int>
+dataset_reader_t::random_datum(uint64_t seqlen)
+{
+  return datum(runif(num()), seqlen);
 }
 
 tuple<vector<vector<int>>, vector<int>>
@@ -151,6 +158,7 @@ dbuffer_t dataset_reader_t::one_hot_encode(
 {
   uint64_t seqlen = tokens.size();
   dbuffer_t ret = make_dbuffer(dtype, seqlen*vocab_size);
+  ret.zeros();
   scalar_t one = scalar_t::one(dtype);
   for(uint64_t s = 0; s != seqlen; ++s) {
     uint64_t token = tokens[s];
@@ -158,7 +166,7 @@ dbuffer_t dataset_reader_t::one_hot_encode(
       if(token >= vocab_size) {
         throw std::runtime_error("invalid token value");
       }
-      ret.set(s * seqlen + token, one);
+      ret.set(s * vocab_size + token, one);
     }
   }
   return ret;

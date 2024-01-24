@@ -16,6 +16,10 @@ struct dataset_reader_t {
 
   vector<int> read(int which);
 
+  // NOTE: this method still has a random component, because it has
+  //       to select somewhere
+  tuple<vector<int>, int> datum(int which, uint64_t seqlen);
+
   // return a seqlen vector and the seqlen
   tuple<vector<int>, int> random_datum(uint64_t seqlen);
 

@@ -878,6 +878,7 @@ _unary_ew_loop(u25,double,double,_exp(x0[i]))
 _unary_ew_loop(u26,float,float,((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4))))))
 _unary_ew_loop(u27,float,float,_pow(_log(x0[i]),(*((double*)(d+0)))))
 _unary_ew_loop(u28,float,float,_log(x0[i]))
+_unary_ew_loop(u29,float,float,((*((float*)(d+0)))*_pow(_log(x0[i]),(*((double*)(d+4))))))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -971,7 +972,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f64->f64|_exp(x0[i])", u25 },
     { "f32->f32|((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4)))))", u26 },
     { "f32->f32|_pow(_log(x0[i]),(*((double*)(d+0))))", u27 },
-    { "f32->f32|_log(x0[i])", u28 }
+    { "f32->f32|_log(x0[i])", u28 },
+    { "f32->f32|((*((float*)(d+0)))*_pow(_log(x0[i]),(*((double*)(d+4)))))", u29 }
   };
 
   auto iter = kernels.find(key);

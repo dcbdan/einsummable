@@ -15,6 +15,7 @@ struct dbuffer_t {
   void random(string lower = "0.0", string upper = "1.0");
   void random(scalar_t lower, scalar_t upper);
   void rnorm();
+  void scale(scalar_t val);
 
   dbuffer_t copy(optional<dtype_t> to_dtype=std::nullopt);
 

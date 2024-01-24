@@ -89,6 +89,42 @@ void dbuffer_t::rnorm() {
     for(uint64_t i = 0; i != n; ++i) {
       d[i] = float16_t( ::rnorm() );
     }
+  } else {
+    throw std::runtime_error("should not reach: dbuffer_t::rnorm");
+  }
+}
+
+void dbuffer_t::scale(scalar_t val) {
+  if(val.dtype != dtype) {
+    throw std::runtime_error("cannot scale dbuffer: invalid scale value");
+  }
+  uint64_t n = nelem();
+  if(dtype == dtype_t::f64) {
+    double* d = f64();
+    double& v = val.f64();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] *= v;
+    }
+  } else if(dtype == dtype_t::f32) {
+    float* d = f32();
+    float& v = val.f32();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] *= v;
+    }
+  } else if(dtype == dtype_t::f16) {
+    float16_t* d = f16();
+    float16_t& v = val.f16();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] *= v;
+    }
+  } else if(dtype == dtype_t::c64) {
+    std::complex<float>* d = c64();
+    std::complex<float>& v = val.c64();
+    for(uint64_t i = 0; i != n; ++i) {
+      d[i] *= v;
+    }
+  } else {
+    throw std::runtime_error("should not reach: dbuffer_t::scale");
   }
 }
 
