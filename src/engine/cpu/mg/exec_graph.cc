@@ -58,6 +58,16 @@ exec_graph_t::make_cpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert_from_mid(op, mid);
+    } else if(node.op.is_constant()) {
+      auto const& constant = node.op.get_constant();
+      auto const& fill = constant.fill;
+
+      cpu_fill_constant_t* op = new cpu_fill_constant_t(
+        constant.offset,
+        fill.value,
+        product(fill.shape));
+
+      insert_from_mid(op_ptr_t(op), mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -265,6 +275,39 @@ cpu_touch_t::resource_description() const
 
   return resource_manager_t::make_desc(ret);
 }
+
+void cpu_fill_constant_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
+  void* out_mem = increment_void_ptr(global_buffer, offset);
+
+  thread_resource.launch(
+    [this, callback, out_mem]
+    {
+      constant_fill(this->nelem, out_mem, this->value);
+      callback();
+    });
+}
+
+desc_ptr_t
+cpu_fill_constant_t::resource_description() const
+{
+  vector<desc_ptr_t> ret;
+
+  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(threadpool_manager_t::make_desc());
+
+  return resource_manager_t::make_desc(ret);
+}
+
 
 void cpu_touch_t::launch(
   resource_ptr_t rsrc,

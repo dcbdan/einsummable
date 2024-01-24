@@ -22,6 +22,25 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   int get_priority() const { return 200; }
 };
 
+struct cpu_fill_constant_t : exec_graph_t::op_base_t {
+  cpu_fill_constant_t(
+    uint64_t offset_,
+    scalar_t value_,
+    uint64_t nelem_)
+    : offset(offset_), value(value_), nelem(nelem_)
+  {}
+
+  uint64_t offset;
+  scalar_t value;
+  uint64_t nelem;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+
+  void print(std::ostream& out) const { out << "cpu_fill_constant"; }
+  int get_priority() const { return 200; }
+};
+
 struct cpu_touch_t : exec_graph_t::op_base_t {
   cpu_touch_t(
     cpu_kernel_executor_t& a,

@@ -1641,4 +1641,31 @@ void custom01_float_ab_ab_a_to_a(
   }
 }
 
+template <typename T>
+void _constant_fill(uint64_t nelem, T* out, T const& val)
+{
+  std::fill(out, out + nelem, val);
+}
+
+void constant_fill(uint64_t nelem, void* out, scalar_t value)
+{
+  if(value.dtype == dtype_t::f16) {
+    _constant_fill(
+      nelem,
+      reinterpret_cast<uint16_t*>(out),
+      *reinterpret_cast<uint16_t const*>(value.data));
+  } else if(value.dtype == dtype_t::f32) {
+    _constant_fill(
+      nelem,
+      reinterpret_cast<uint32_t*>(out),
+      *reinterpret_cast<uint32_t const*>(value.data));
+  } else if(value.dtype == dtype_t::f64 || value.dtype == dtype_t::c64){
+    _constant_fill(
+      nelem,
+      reinterpret_cast<uint64_t*>(out),
+      *reinterpret_cast<uint64_t const*>(value.data));
+  } else {
+    throw std::runtime_error("missing dtype impl: constant_fill");
+  }
+}
 
