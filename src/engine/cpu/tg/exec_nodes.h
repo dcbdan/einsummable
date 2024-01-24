@@ -58,12 +58,15 @@ struct tg_send_t : exec_graph_t::op_base_t {
     int a, int b, int c)
     : src_tid(a), dst_tid(b), dst(c)
   {
-    dinfos.at(src_tid).usage_rem++;
+    auto& dinfo = dinfos.at(src_tid);
+    dinfo.usage_rem++;
+    size = dinfo.size;
   }
 
   int src_tid;
   int dst_tid;
   int dst;
+  uint64_t size;
 
   void launch(resource_ptr_t rsrc, std::function<void()> callback) const;
 

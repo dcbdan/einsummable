@@ -205,17 +205,10 @@ void cpu_tg_einsummable_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  vector<buffer_t> buffers =
-    data_manager_t::get_resource(resources[0]).extract();
+  auto const& [out_mems, inn_mems] = data_manager_t::get_resource(resources[0]).extract();
+  void* out_mem = out_mems[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
-
-  void* out_mem = buffers[0]->raw();
-  vector<void const*> inn_mems;
-  inn_mems.reserve(buffers.size() - 1);
-  for(int i = 1; i != buffers.size(); ++i) {
-    inn_mems.push_back(buffers[i]->raw());
-  }
 
   optional<buffer_t> maybe_workspace;
   if(workspace_size > 0) {
@@ -235,13 +228,8 @@ void cpu_tg_einsummable_t::launch(
 
 desc_ptr_t cpu_tg_einsummable_t::resource_description() const
 {
-  vector<int> tids;
-  tids.reserve(1 + inns.size());
-  tids.push_back(out);
-  vector_concatenate_into(tids, inns);
-
   vector<desc_ptr_t> ret;
-  ret.emplace_back(data_manager_t::make_desc(tids));
+  ret.emplace_back(data_manager_t::make_desc(out, inns));
   ret.emplace_back(threadpool_manager_t::make_desc());
 
   return resource_manager_t::make_desc(ret);
@@ -254,9 +242,8 @@ void cpu_tg_fill_constant_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  vector<buffer_t> buffers =
-    data_manager_t::get_resource(resources[0]).extract();
-  void* out_mem = buffers[0]->raw();
+  auto const& [out_mems, _] = data_manager_t::get_resource(resources[0]).extract();
+  void* out_mem = out_mems[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
 
@@ -273,7 +260,7 @@ cpu_tg_fill_constant_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
 
-  ret.emplace_back(data_manager_t::make_desc({tid}));
+  ret.emplace_back(data_manager_t::make_desc(tid, {}));
   ret.emplace_back(threadpool_manager_t::make_desc());
 
   return resource_manager_t::make_desc(ret);
@@ -288,14 +275,15 @@ void tg_send_t::launch(resource_ptr_t rsrc, std::function<void()> callback) cons
 
   auto const& wire = send_channel_manager_t::get_resource(resources[1]);
 
-  buffer_t buffer = data_manager_t::get_resource(resources[2]).extract()[0];
+  auto const& [_, mems] = data_manager_t::get_resource(resources[0]).extract();
+  void const* mem = mems[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
-  thread_resource.launch([this, notifier, wire, buffer, callback] {
+  thread_resource.launch([this, notifier, wire, mem, callback] {
     notifier->notify_send_ready(this->dst, this->dst_tid, wire.channel);
 
-    wire.send(buffer->raw(), buffer->size);
+    wire.send(mem, this->size);
 
     callback();
   });
@@ -307,7 +295,7 @@ desc_ptr_t tg_send_t::resource_description() const
    vector<desc_ptr_t> {
      notifier_t::make_desc(unit_t{}),
      send_channel_manager_t::make_desc(dst),
-     data_manager_t::make_desc({ src_tid }),
+     data_manager_t::make_desc({}, { src_tid }),
      threadpool_manager_t::make_desc()
    }
  );
@@ -318,18 +306,15 @@ void tg_recv_t::launch(resource_ptr_t rsrc, std::function<void()> callback) cons
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  buffer_t buffer = data_manager_t::get_resource(resources[0]).extract()[0];
+  auto const& [mems, _] = data_manager_t::get_resource(resources[0]).extract();
+  void* mem = mems[0];
 
   auto const& wire = recv_channel_manager_t::get_resource(resources[1]);
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
 
-  if(buffer->size != size) {
-    throw std::runtime_error("how come buffer has incorrect size?");
-  }
-
-  thread_resource.launch([this, wire, buffer, callback] {
-    wire.recv(buffer->raw(), buffer->size);
+  thread_resource.launch([this, wire, mem, callback] {
+    wire.recv(mem, this->size);
     callback();
   });
 }
@@ -338,7 +323,7 @@ desc_ptr_t tg_recv_t::resource_description() const
 {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
-      data_manager_t::make_desc({ dst_tid }),
+      data_manager_t::make_desc(dst_tid, {}),
       recv_channel_manager_t::make_desc({ dst_tid, src }),
       threadpool_manager_t::make_desc()
     }
@@ -350,9 +335,9 @@ void tg_touch_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
-  auto buffers = data_manager_t::get_resource(resources[0]).extract();
-  buffer_t out_buffer = buffers[0];
-  buffer_t inn_buffer = buffers[1];
+  auto const& [out_mems, inn_mems] = data_manager_t::get_resource(resources[0]).extract();
+  void*       out_mem = out_mems[0];
+  void const* inn_mem = inn_mems[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
 
@@ -368,8 +353,8 @@ void tg_touch_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
     this_touch.castable = std::nullopt;
   }
 
-  thread_resource.launch([this, callback, this_touch, out_buffer, inn_buffer] {
-    execute_touch(this_touch, out_buffer->raw(), inn_buffer->raw());
+  thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
+    execute_touch(this_touch, out_mem, inn_mem);
     callback();
   });
 }
@@ -378,7 +363,7 @@ desc_ptr_t tg_touch_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
 
-  ret.emplace_back(data_manager_t::make_desc({out, inn}));
+  ret.emplace_back(data_manager_t::make_desc(out, {inn}));
   ret.emplace_back(threadpool_manager_t::make_desc());
 
   if(group_id >= 0) {

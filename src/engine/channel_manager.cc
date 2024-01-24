@@ -36,7 +36,7 @@ void send_channel_manager_t::release_impl(send_channel_manager_resource_t const&
 }
 
 void
-send_channel_manager_resource_t::send(void* ptr, uint64_t bytes) const
+send_channel_manager_resource_t::send(void const* ptr, uint64_t bytes) const
 {
   self->comm.send(loc, channel, ptr, bytes);
 }

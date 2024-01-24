@@ -1,5 +1,17 @@
 #include "data_manager.h"
 
+data_manager_desc_t::data_manager_desc_t(
+  vector<int> const& ws,
+  vector<int> const& rs)
+  : write_tids(ws), read_tids(rs)
+{
+  int num_unique = set<int>(ws.begin(), ws.end()).size();
+  if(num_unique != ws.size()) {
+    throw std::runtime_error("data_manager_desc_t: can't have duplicate write tids");
+  }
+}
+
+
 data_manager_t::data_manager_t(
   map<int, buffer_t>& data,
   map<int, info_t> const& infos,
@@ -17,42 +29,48 @@ data_manager_t::data_manager_t(
 }
 
 optional<data_manager_resource_t>
-data_manager_t::try_to_acquire_impl(vector<int> const& tids)
+data_manager_t::try_to_acquire_impl(data_manager_desc_t const& desc)
 {
-  data_manager_resource_t ret(tids, vector<buffer_t>(tids.size(), nullptr));
+  auto const& [out_tids, inn_tids] = desc;
 
-  // Note that tids can be all the same value.. So make sure not
-  // to create duplicates.
+  data_manager_resource_t ret(
+    out_tids, inn_tids,
+    vector<void*>(out_tids.size(), nullptr),
+    vector<void const*>(inn_tids.size(), nullptr));
 
-  // a map from tid to which are missing
-  map<int, vector<int>> missing;
-  for(int which = 0; which != tids.size(); ++which) {
-    int const& tid = tids[which];
-    auto iter = data.find(tid);
-    if(iter == data.end()) {
-      missing[tid].push_back(which);
-    } else {
-      ret.buffers[which] = iter->second;
-    }
+  // All the inn tids should already be here
+  for(int which = 0; which != inn_tids.size(); ++which) {
+    int const& tid = inn_tids[which];
+    ret.inns[which] = data.at(tid)->raw();
   }
 
+  // Assumption: out_tids does not contain any duplicates.
+
+  vector<int> which_missing;
   uint64_t mem_required = 0;
-  for(auto const& [tid, _]: missing) {
-    mem_required += get_size(tid);
+  map<int, vector<int>> missing;
+  for(int which = 0; which != out_tids.size(); ++which) {
+    int const& tid = out_tids[which];
+    auto iter = data.find(tid);
+    if(iter == data.end()) {
+      which_missing.push_back(which);
+      mem_required += get_size(tid);
+    } else {
+      ret.outs[which] = iter->second->raw();
+    }
   }
 
   if(current_memory_usage + mem_required > max_memory_usage) {
     return std::nullopt;
   }
 
-  for(auto const& [tid, whiches]: missing) {
+  for(int const& which: which_missing) {
+    int const& tid = out_tids[which];
     uint64_t const& size = get_size(tid);
     buffer_t d = make_buffer(size);
     current_memory_usage += size;
     data.insert({tid, d});
-    for(int const& which: whiches) {
-      ret.buffers[which] = d;
-    }
+    ret.outs[which] = d->raw();
   }
 
   return ret;
@@ -63,7 +81,10 @@ void data_manager_t::release_impl(data_manager_resource_t const& resource) {
     return;
   }
 
-  for(auto const& tid: resource.used_tids) {
+  vector<int> used_tids =
+    vector_concatenate(resource.out_tids, resource.inn_tids);
+  for(auto const& tid: used_tids)
+  {
     auto& [usage_rem, is_save, size] = infos.at(tid);
     usage_rem--;
     if(!is_save && usage_rem == 0) {

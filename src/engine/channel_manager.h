@@ -7,7 +7,7 @@
 struct send_channel_manager_t;
 
 struct send_channel_manager_resource_t {
-  void send(void* ptr, uint64_t bytes) const;
+  void send(void const* ptr, uint64_t bytes) const;
 
   send_channel_manager_t* self;
   int loc;

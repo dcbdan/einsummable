@@ -6,32 +6,61 @@
 
 struct data_manager_t;
 
+struct data_manager_desc_t {
+  data_manager_desc_t() {}
+
+  data_manager_desc_t(
+    int write_tid,
+    vector<int> const& read_tids)
+    : data_manager_desc_t(vector<int>{write_tid}, read_tids)
+  {}
+
+  data_manager_desc_t(
+    vector<int> const& ws,
+    vector<int> const& rs);
+
+private:
+  vector<int> write_tids;
+  vector<int> read_tids;
+
+  friend class data_manager_t;
+};
+
 struct data_manager_resource_t {
-  vector<buffer_t> extract() const {
+  tuple<vector<void*>, vector<void const*>>
+  extract() const {
     // Ugh. This is hacky, modifying extracted under const.
-    // The idea is that only once the buffers have been extracted
-    // will a usage for each of the tids occur.
+    // The idea is that only once the extraction has occurred
+    // will the corresponding tids have a usage.
     extracted = true;
-    return buffers;
+    return {outs, inns};
   }
+
 private:
   data_manager_resource_t(
-    vector<int> const& a,
-    vector<buffer_t> const& b)
-    : used_tids(a), buffers(b), extracted(false)
+    vector<int> const& out_tids_,
+    vector<int> const& inn_tids_,
+    vector<void*> const& out_mems_,
+    vector<void const*> const& inn_mems_)
+    : out_tids(out_tids_), inn_tids(inn_tids_),
+      outs(out_mems_), inns(inn_mems_),
+      extracted(false)
   {}
 
 private:
   friend class data_manager_t;
 
-  vector<int> used_tids;
-  vector<buffer_t> buffers;
+  vector<int> out_tids;
+  vector<int> inn_tids;
+
+  vector<void*> outs;
+  vector<void const*> inns;
 
   mutable bool extracted;
 };
 
 struct data_manager_t
-  : rm_template_t< vector<int>, data_manager_resource_t >
+  : rm_template_t< data_manager_desc_t, data_manager_resource_t >
 {
   struct info_t {
     int usage_rem;
@@ -45,9 +74,16 @@ struct data_manager_t
     uint64_t max_memory_usage);
 
   optional<data_manager_resource_t>
-  try_to_acquire_impl(vector<int> const& tids);
+  try_to_acquire_impl(data_manager_desc_t const& desc);
 
   void release_impl(data_manager_resource_t const& resource);
+
+  static desc_ptr_t make_desc(int out_tid, vector<int> const& inn_tids) {
+    return rm_template_t::make_desc(data_manager_desc_t(out_tid, inn_tids));
+  }
+  static desc_ptr_t make_desc(vector<int> const& out_tids, vector<int> const& inn_tids) {
+    return rm_template_t::make_desc(data_manager_desc_t(out_tids, inn_tids));
+  }
 
 private:
   map<int, buffer_t>& data;
