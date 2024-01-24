@@ -111,6 +111,7 @@ exec_graph_t::make_cpu_tg_exec_graph(
       auto const& constant = node.op.get_constant();
       auto const& fill = constant.fill;
       cpu_tg_fill_constant_t* op = new cpu_tg_fill_constant_t(
+        dinfos,
         tid,
         fill.value,
         product(fill.shape));

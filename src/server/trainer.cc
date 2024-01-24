@@ -6,15 +6,18 @@ trainer_t::trainer_t(
   server_base_t* server,
   graph_t const& init_graph,
   int loss_id,
-  vector<int> const& inspect_ids,
+  vector<int> const& inspect_ids_,
   vector<int> const& data_ids,
   vector<int> const& constant_ids,
   vector<int> const& weight_ids,
   f_autoplace_t autoplace,
   dtype_t weight_dtype,
-  update_type_t update_type)
+  update_type_t update_type,
+  bool save_gradients)
   : server(server), updater(make_updater(weight_dtype, update_type))
 {
+  vector<int> inspect_ids = inspect_ids_;
+
   graph_t graph = init_graph;
   map<int, string> colors;
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -30,6 +33,13 @@ trainer_t::trainer_t(
   }
 
   vector<int> grad_ids = graph.backprop(loss_id, weight_ids);
+  if(save_gradients) {
+    saved_gradients = grad_ids;
+    for(auto const& gid: grad_ids) {
+      graph.nodes[gid].op.set_save(true);
+      inspect_ids.push_back(gid);
+    }
+  }
 
   vector<tuple<int, int>> updates = updater.update_weights(
     graph,
@@ -80,6 +90,8 @@ trainer_t::trainer_t(
     }
   }
 
+  // TODO: should we make sure that all output gids are accounted for?
+
   for(auto const& [inn_gid, tids]: inn_tids) {
     inn_remap.insert({
       inn_gid,
@@ -116,8 +128,7 @@ trainer_t::trainer_t(
     out_remap_gids.emplace_back(update_out, update_inn);
   }
 
-  // remap info for constant ids and inspect ids are just to make sure things
-  // are not deleted
+  // Make sure all these are not deleted.
   for(int const& id: vector_concatenate(constant_ids, inspect_ids)) {
     relation_t rel {
       .dtype     = graph.out_dtype(id),

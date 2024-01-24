@@ -33,7 +33,8 @@ struct trainer_t {
     vector<int> const& weight_ids,
     f_autoplace_t autoplace,
     dtype_t weight_dtype,
-    update_type_t u);
+    update_type_t u,
+    bool save_gradients = false);
 
   void init();
 
@@ -42,6 +43,8 @@ struct trainer_t {
   relation_t const& get_input_relation(int id) {
     return inn_remap.at(id);
   }
+
+  vector<int> get_saved_gradients() const { return saved_gradients; }
 
 private:
   // Idea: Find the unifying structure of tensors
@@ -138,5 +141,7 @@ private:
 
   map<int, relation_t> out_remap_rels;
   vector<tuple<int, int>> out_remap_gids;
+
+  vector<int> saved_gradients;
 };
 

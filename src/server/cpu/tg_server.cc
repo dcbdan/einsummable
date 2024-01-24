@@ -22,6 +22,32 @@ void cpu_tg_server_t::_execute_tg(
 
   int this_rank = comm.get_this_rank();
 
+  ////////////////////
+  // TODO: Should this check be kept?
+  //   Here is the bug that this prevents: Suppose we have a tid in 7
+  //   in our local datamap but 7 is not an input tid of taskgraph.
+  //   Then when we need tid 7, the datamap manager does not allocate the new data and
+  //   instead gets wtvr tid 7 held.
+  //   Then we reuse that data--if the previous tid 7 data is not big enough, most likely a
+  //   segfault results. And if the data is big enough, we are using invalid data.
+
+  // Verify that the local_data tids is exactly the same as the taskgraph
+  // input tids local to here
+  auto iter = local_data.begin();
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& op = taskgraph.nodes[tid].op;
+    if(op.is_input() && op.is_local_to(this_rank)) {
+      if(iter == local_data.end() || tid != iter->first) {
+        throw std::runtime_error("not equal: local data tids");
+      }
+      iter++;
+    }
+  }
+  if(iter != local_data.end()) {
+    throw std::runtime_error("not equal: local data tids to tg input tids");
+  }
+  ////////////////////
+
   auto [graph, dinfos] = exec_graph_t::make_cpu_tg_exec_graph(
     taskgraph, this_rank, kernel_executor, num_channels_per_move, scalar_vars);
 

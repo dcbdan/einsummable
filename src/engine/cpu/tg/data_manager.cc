@@ -41,7 +41,11 @@ data_manager_t::try_to_acquire_impl(data_manager_desc_t const& desc)
   // All the inn tids should already be here
   for(int which = 0; which != inn_tids.size(); ++which) {
     int const& tid = inn_tids[which];
-    ret.inns[which] = data.at(tid)->raw();
+    auto iter = data.find(tid);
+    if(iter == data.end()) {
+      throw std::runtime_error("read tid " + write_with_ss(tid) + " is not available");
+    }
+    ret.inns[which] = iter->second->raw();
   }
 
   // Assumption: out_tids does not contain any duplicates.
