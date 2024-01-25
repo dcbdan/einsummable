@@ -5,6 +5,7 @@
 
 #include "../src/base/args.h"
 #include "../src/server/cpu/tg_server.h"
+#include "../src/server/cpu/mg_server.h"
 #include "../src/server/trainer.h"
 
 #include "../src/autoplace/autoplace.h"
@@ -21,6 +22,12 @@ void main_rank_zero(
   args_t& pargs,
   autoplace_config_t config)
 {
+  pargs.set_default("seed", int(-1));
+  int seed = pargs.get<int>("seed");
+  if(seed >= 0) {
+    set_seed(pargs.get<int>("seed"));
+  }
+
   auto f_autoplace = [&config](
     graph_t const& graph,
     map<int, placement_t> const& fixed_pls,
@@ -42,8 +49,17 @@ void main_rank_zero(
     }
   }
 
-  pargs.set_default<uint64_t>("batch_size", 1);
-  margs.batch_size = pargs.get<uint64_t>("batch_size");
+  // setting which to >= 0 gets that datum
+  // instead of using random values
+  pargs.set_default("which", vector<int>());
+  vector<int> which_data = pargs.get<vector<int>>("which");
+
+  if(which_data.size() > 0) {
+    margs.batch_size = which_data.size();
+  } else {
+    pargs.set_default<uint64_t>("batch_size", 1);
+    margs.batch_size = pargs.get<uint64_t>("batch_size");
+  }
 
   pargs.set_default<uint64_t>("sequence_length", 4096);
   margs.max_seq_len = pargs.get<uint64_t>("sequence_length");
@@ -57,11 +73,11 @@ void main_rank_zero(
     margs.full_dim()
   }));
 
-  // prediction: batch size, vocab size
-  tensor_t prediction = model.forward(embeddings);
+  // predictions: batch size, vocab size
+  tensor_t predictions = model.forward(embeddings);
   tensor_t labels = writer.input(
     vector<uint64_t>{margs.batch_size, margs.vocab_size},
-    prediction.get_dtype());
+    predictions.get_dtype());
 
   // Compute the loss
   //   l{n} = log [ exp(v{n,y{n}})) / sum_c exp(v{n,c}) ]
@@ -70,8 +86,8 @@ void main_rank_zero(
   //   where c{n} = max_c v{n,c}
   tensor_t loss;
   {
-    dtype_t dtype = prediction.get_dtype();
-    tensor_t v = prediction;
+    dtype_t dtype = predictions.get_dtype();
+    tensor_t v = predictions;
     tensor_t c = writer.reduction("bv->b", castable_t::max, v);
     // v = v - c
     v = writer.ew("bv,b->bv", scalarop_t::make_sub(dtype), v, c);
@@ -118,6 +134,7 @@ void main_rank_zero(
 
       if(name.find("lora0") != string::npos) {
         dbuffer.rnorm();
+        dbuffer.scale(scalar_t(float(1e-2)));
       } else if(name.find("lora1") != string::npos) {
         dbuffer.zeros();
       } else {
@@ -156,6 +173,8 @@ void main_rank_zero(
 
   trainer_constant_ids.push_back(full_freqs_cis.get_id());
 
+  DOUT("number of weight tensors: " << trainer_weight_ids.size());
+
   trainer_t trainer(
     server.get(),
     writer.get_graph(),
@@ -166,18 +185,22 @@ void main_rank_zero(
     trainer_weight_ids,
     f_autoplace,
     dtype_t::f32,
-    update_type_t::adamw);
+    update_type_t::adamw,
+    false // don't make the gradients inspectable
+  );
 
   trainer.init();
 
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
+
   dataset_reader_t data_loader(tokenizer_file, dataset_file);
 
   map<string, scalar_t> vars {
     { "beta1", scalar_t(dtype_t::f32, "0.9") },
     { "beta2", scalar_t(dtype_t::f32, "0.999") },
-    { "eta", scalar_t(pargs.get<float>("learning_rate")) }
+    { "eta", scalar_t(pargs.get<float>("learning_rate")) },
+    { "learning_rate", scalar_t(pargs.get<float>("learning_rate")) },
   };
 
   pargs.set_default<int>("niter", 2);
@@ -186,14 +209,33 @@ void main_rank_zero(
     // Insert the actual (embeddings,label) data
     // Note that embeddings will need to be selected from the embedding matrix
     // and the labels will need to be one-hot encoded
-    auto [data_tokens, label_tokens] = data_loader.random_data(
-      margs.batch_size, margs.max_seq_len);
+
+    auto [data_tokens, label_tokens] = [&] {
+      if(which_data.size() > 0) {
+        vector<vector<int>> data_tokens;
+        vector<int> label_tokens;
+        for(auto const& which_datum: which_data) {
+          auto [datum_tokens, label_token] = data_loader.datum(which_datum, margs.max_seq_len);
+          data_tokens.push_back(datum_tokens);
+          label_tokens.push_back(label_token);
+        }
+        return tuple<vector<vector<int>>, vector<int>>(data_tokens, label_tokens);
+      }
+      return data_loader.random_data(margs.batch_size, margs.max_seq_len);
+    }();
+
     server->insert_tensor(
       embeddings.get_id(),
       embeddings.get_shape().full(),
       data_loader.make_embedding(
         embedding_matrix,
         vector_flatten(data_tokens)));
+
+    DOUT("iter: " << iter);
+    //std::sort(trainer_weight_ids.begin(), trainer_weight_ids.end());
+    //for(int const& id: trainer_weight_ids) {
+    //  DOUT("weight " << id << ": " << server->get_tensor_from_gid(id).sum_to_f64());
+    //}
 
     server->insert_tensor(
       labels.get_id(),
@@ -208,10 +250,12 @@ void main_rank_zero(
 }
 
 int main(int argc, char** argv) {
-  if(argc < 7) {
+  int expected_argc = 9;
+  if(argc < expected_argc) {
     usage();
     return 1;
   }
+
   string addr_zero = parse_with_ss<string>(argv[1]);
   bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
@@ -220,10 +264,13 @@ int main(int argc, char** argv) {
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  string base_data_file(argv[5]);
-  int num_data_files = parse_with_ss<int>(argv[6]);
+  string which_server = parse_with_ss<string>(argv[5]);
+  DLINEOUT("which server " << which_server);
 
-  int num_threads = 8;//2; //std::max(1, int(std::thread::hardware_concurrency()));
+  string base_data_file(argv[6]);
+  int num_data_files = parse_with_ss<int>(argv[7]);
+
+  int num_threads = parse_with_ss<int>(argv[8]);
   int num_channels = 4;
   int num_channels_per_move = 1;
 
@@ -233,8 +280,15 @@ int main(int argc, char** argv) {
   int this_rank = communicator.get_this_rank();
 
   std::unique_ptr<server_base_t> server;
-  server = std::unique_ptr<server_base_t>(
-    new cpu_tg_server_t(communicator, mem_size, num_threads));
+  if(which_server == "mg") {
+    server = std::unique_ptr<server_base_t>(
+      new cpu_mg_server_t(communicator, mem_size, num_threads));
+  } else if(which_server == "tg") {
+    server = std::unique_ptr<server_base_t>(
+      new cpu_tg_server_t(communicator, mem_size, num_threads));
+  } else {
+    throw std::runtime_error("invalid server arg");
+  }
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
     map<int, tuple<int, buffer_t>> data;
@@ -263,9 +317,10 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  args_t args(argc-6, argv+6);
+  args_t args(argc-(expected_argc-1), argv+(expected_argc-1));
 
-  int num_config_threads_per_machine = 8;
+  args.set_default("config_threads", 8);
+  int num_config_threads_per_machine = args.get<int>("config_threads");
   DOUT("num config threads per machine " << num_config_threads_per_machine);
   autoplace_config_t config = autoplace_config_t::make_default02(
     world_size, num_config_threads_per_machine);
