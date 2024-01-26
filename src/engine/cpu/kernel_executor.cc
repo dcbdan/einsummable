@@ -1,8 +1,5 @@
 #include "kernel_executor.h"
 
-#include <mkl_cblas.h>
-#include <mkl.h>
-
 #include "../../base/permute.h"
 
 timetracker_t cpu_kernel_timetracker;
@@ -1286,6 +1283,39 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
   throw std::runtime_error("could not build ab_a reduction kernel");
 }
 
+template <typename T>
+void naive_sgemm(
+  uint64_t const& ni,
+  uint64_t const& nj,
+  uint64_t const& nk,
+  bool const& trans_lhs,
+  bool const& trans_rhs,
+  T* out,
+  T const* lhs,
+  T const* rhs,
+  T const& alpha,
+  T const& beta)
+{
+  // ij or ji
+  uint64_t sli = trans_lhs ? 1 : nj;
+  uint64_t slj = trans_lhs ? ni : 1;
+
+  // jk or kj
+  uint64_t srj = trans_lhs ? 1 : nk;
+  uint64_t srk = trans_lhs ? nj : 1;
+
+  T tmp;
+  for(uint64_t i = 0; i != ni; ++i) {
+  for(uint64_t k = 0; k != nk; ++k) {
+    tmp = 0.0;
+    for(uint64_t j = 0; j != nj; ++j) {
+      tmp += lhs[sli*i + slj*j] * rhs[srj*j + srk*k];
+    }
+    T& oo = out[i*nk + k];
+    oo = alpha*tmp + beta*oo;
+  }}
+}
+
 // trans lhs   trans rhs
 // F           F          ij,jk->ik
 // T           F          ji,jk->ik
@@ -1304,71 +1334,45 @@ void matrix_multiply_update(
   bool is_zero_else_one)
 {
   if(dtype == dtype_t::f16) {
-    using f16_t = MKL_F16;
-    // Use the half library (float16_t) to set one and zero,
-    // then convert it to whatever type mkl sets MKL_F16 to.
-    float16_t one_(1.0);
-    float16_t zero_(0.0);
-    f16_t& one  = reinterpret_cast<f16_t&>(one_);
-    f16_t& zero = reinterpret_cast<f16_t&>(zero_);
-
-    cblas_hgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
-      one,
-      (f16_t const*)lhs,
-      trans_lhs ? ni : nj,
-      (f16_t const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? zero : one,
-      (f16_t*)out,
-      nk);
+    float16_t one(1.0);
+    float16_t zero(0.0);
+    naive_sgemm(
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      reinterpret_cast<float16_t*>(out),
+      reinterpret_cast<float16_t const*>(lhs),
+      reinterpret_cast<float16_t const*>(rhs),
+      one, is_zero_else_one ? zero : one);
   } else if(dtype == dtype_t::f32) {
-    cblas_sgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
-      1.0f,
-      (float const*)lhs,
-      trans_lhs ? ni : nj,
-      (float const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? 0.0f : 1.0f,
-      (float*)out,
-      nk);
+    float one = 1.0;
+    float zero = 0.0;
+    naive_sgemm(
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      reinterpret_cast<float*>(out),
+      reinterpret_cast<float const*>(lhs),
+      reinterpret_cast<float const*>(rhs),
+      one, is_zero_else_one ? zero : one);
   } else if(dtype == dtype_t::f64) {
-    cblas_dgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
-      1.0,
-      (double const*)lhs,
-      trans_lhs ? ni : nj,
-      (double const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? 0.0 : 1.0,
-      (double*)out,
-      nk);
+    double one = 1.0;
+    double zero = 0.0;
+    naive_sgemm(
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      reinterpret_cast<double*>(out),
+      reinterpret_cast<double const*>(lhs),
+      reinterpret_cast<double const*>(rhs),
+      one, is_zero_else_one ? zero : one);
   } else if(dtype == dtype_t::c64) {
     std::complex<float> one(1.0, 0.0);
     std::complex<float> zero(0.0, 0.0);
-    cblas_cgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
-      (void*)&one,
-      lhs,
-      trans_lhs ? ni : nj,
-      rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? (void*)&zero : (void*)&one,
-      out,
-      nk);
+    naive_sgemm(
+      ni,nj,nk,
+      trans_lhs,trans_rhs,
+      reinterpret_cast<std::complex<float>*>(out),
+      reinterpret_cast<std::complex<float> const*>(lhs),
+      reinterpret_cast<std::complex<float> const*>(rhs),
+      one, is_zero_else_one ? zero : one);
   } else {
     throw std::runtime_error("matmul type missing");
   }

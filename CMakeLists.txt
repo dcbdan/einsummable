@@ -73,9 +73,9 @@ endfunction()
 #add_llama_application("llama_autodiff_test" "autodiff_test")
 
 if(${CPU_EXECUTION_ENGINE})
-  if(NOT MKL_THREADING)
-    set(MKL_THREADING sequential)
-  endif()
+  #if(NOT MKL_THREADING)
+  #  set(MKL_THREADING sequential)
+  #endif()
 
   add_compile_definitions(CPU_EXEC)
 
@@ -84,9 +84,9 @@ if(${CPU_EXECUTION_ENGINE})
   # and so on...
   # (MKL is bad at finding the right instruction set and
   #  this helps empirically)
-  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
+  #set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  find_package(MKL REQUIRED)
+  #find_package(MKL REQUIRED)
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
@@ -95,7 +95,7 @@ if(${CPU_EXECUTION_ENGINE})
   include_directories(${UCX_PATH}/include)
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
-  include_directories(${MKL_INCLUDE})
+  #include_directories(${MKL_INCLUDE})
 
   message(STATUS ${SENTENCEPIECE_DIR})
   include_directories(${SENTENCEPIECE_DIR}/include)
@@ -127,7 +127,6 @@ if(${CPU_EXECUTION_ENGINE})
   add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
-    MKL::MKL
     ucx::ucp ucx::ucs
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
@@ -154,6 +153,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
   add_cpu_application("senexp"                "exps" "senexp")
+  add_cpu_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
