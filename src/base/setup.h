@@ -501,6 +501,13 @@ void set_union_inplace(set<T>& ret, set<T> const& these) {
   }
 }
 
+template <typename T>
+void set_union_inplace(set<T>& ret, vector<T> const& these) {
+  for(auto const& x: these) {
+    ret.insert(x);
+  }
+}
+
 template <typename Iter, typename F>
 Iter max_element_transform(
   Iter first,

@@ -144,6 +144,85 @@ trainer_t::trainer_t(
   }
 }
 
+taskgraph_t trainer_t::dry_setup(
+  graph_t const& init_graph,
+  int loss_id,
+  vector<int> const& inspect_ids_,
+  vector<int> const& data_ids,
+  vector<int> const& constant_ids,
+  vector<int> const& weight_ids,
+  f_autoplace_t autoplace,
+  dtype_t weight_dtype,
+  update_type_t update_type,
+  bool save_gradients)
+{
+  // TODO: this is basically copy and paste; remove this code duplication
+
+  update_t updater =
+    make_updater(weight_dtype, update_type);
+
+  vector<int> inspect_ids = inspect_ids_;
+
+  graph_t graph = init_graph;
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    graph.nodes[gid].op.set_save(false);
+  }
+
+  for(int const& inspect_id: inspect_ids) {
+    graph.nodes[inspect_id].op.set_save(true);
+  }
+  for(int const& constant_id: constant_ids) {
+    graph.nodes[constant_id].op.set_save(true);
+  }
+
+  vector<int> grad_ids = graph.backprop(loss_id, weight_ids);
+  if(save_gradients) {
+    for(auto const& gid: grad_ids) {
+      graph.nodes[gid].op.set_save(true);
+      inspect_ids.push_back(gid);
+    }
+  }
+
+  vector<tuple<int, int>> updates = updater.update_weights(
+    graph,
+    weight_ids,
+    grad_ids);
+
+  // save all the things on the out side
+  for(auto const& [_, out_id]: updates) {
+    graph.nodes[out_id].op.set_save(true);
+  }
+
+  map<int, placement_t> fixed_pls;
+  for(int const& id: inspect_ids) {
+    vector<uint64_t> shape = graph.nodes[id].op.shape();
+    fixed_pls.insert({id, placement_t(partition_t::singleton(shape))});
+  }
+
+  vector<placement_t> placements = autoplace(graph, fixed_pls, updates);
+
+  auto [inn_tids, _1, taskgraph] = taskgraph_t::make(graph, placements);
+
+  // Make sure that inn_ids == updates ++ data_ids ++ constant_ids
+  {
+    set<int> inn_gids;
+    for(auto const& [inn_gid, _]: inn_tids) {
+      inn_gids.insert(inn_gid);
+    }
+    vector<int> update_inns = vector_mapfst(updates);
+    set<int> inn_gids_(update_inns.begin(), update_inns.end());
+    set_union_inplace(inn_gids_, data_ids);
+    set_union_inplace(inn_gids_, constant_ids);
+
+    if(inn_gids != inn_gids_) {
+      throw std::runtime_error("invalid input gid set in trainer initialization");
+    }
+  }
+
+  return taskgraph;
+}
+
 trainer_t::update_t trainer_t::make_updater(dtype_t d, update_type_t u)
 {
   if(u == update_type_t::vanilla) {

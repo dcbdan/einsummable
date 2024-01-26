@@ -1,6 +1,7 @@
 #include "exec_state.h"
 
 //#define EXEC_STATE_PRINT
+#define EXEC_STATE_COUNTDOWN
 
 #include <fstream>
 int _filecnt = 0;
@@ -108,6 +109,13 @@ exec_state_t::exec_state_t(
 }
 
 void exec_state_t::event_loop() {
+#ifdef EXEC_STATE_COUNTDOWN
+  int decrement_print_at = 5000;
+  if(num_remaining > decrement_print_at) {
+    DOUT("eventloop num remaining: " << num_remaining);
+  }
+  int print_at = num_remaining - decrement_print_at;
+#endif
   vector<int> processing;
   while(true) {
     while(processing.size() > 0) {
@@ -129,6 +137,12 @@ void exec_state_t::event_loop() {
       num_remaining--;
     }
 
+#ifdef EXEC_STATE_COUNTDOWN
+    if(num_remaining < print_at) {
+      DOUT("eventloop num remaining: " << num_remaining);
+      print_at = num_remaining - decrement_print_at;
+    }
+#endif
     if(num_remaining == 0) {
       return;
     }

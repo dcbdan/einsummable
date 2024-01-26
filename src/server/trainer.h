@@ -36,6 +36,18 @@ struct trainer_t {
     update_type_t u,
     bool save_gradients = false);
 
+  static taskgraph_t dry_setup(
+    graph_t const& init_graph,
+    int loss_id,
+    vector<int> const& inspect_ids,
+    vector<int> const& data_ids,
+    vector<int> const& constant_ids,
+    vector<int> const& weight_ids,
+    f_autoplace_t autoplace,
+    dtype_t weight_dtype,
+    update_type_t u,
+    bool save_gradients = false);
+
   void init();
 
   void operator()(map<string, scalar_t> const& vals);

@@ -178,6 +178,7 @@ if(${CPU_EXECUTION_ENGINE})
   # And the tokenizer executable calls sentencepiece.
 
   add_cpu_llama_application("train1" "train1")
+  add_cpu_llama_application("trainsize" "trainsize")
 
   function(add_sp_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)

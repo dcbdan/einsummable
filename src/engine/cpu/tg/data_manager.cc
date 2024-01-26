@@ -65,6 +65,7 @@ data_manager_t::try_to_acquire_impl(data_manager_desc_t const& desc)
   }
 
   if(current_memory_usage + mem_required > max_memory_usage) {
+    throw std::runtime_error("data_manger: waiting for memory to be free is disallowed"); // TODO remove
     return std::nullopt;
   }
 
