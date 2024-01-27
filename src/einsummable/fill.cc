@@ -1,5 +1,23 @@
 #include "fill.h"
 
+std::variant<fill_t::constant_t, fill_t::lowertri_t>
+fill_t::build_from_lowertri(fill_t::lowertri_t const& l)
+{
+  if(l.start <= 1 - int64_t(l.ncol)) {
+    return constant_t {
+      .value = scalar_t::one(l.dtype),
+      .shape = vector<uint64_t>{l.nrow, l.ncol}
+    };
+  } else if(l.start >= int64_t(l.nrow)) {
+    return constant_t {
+      .value = scalar_t::zero(l.dtype),
+      .shape = vector<uint64_t>{l.nrow, l.ncol}
+    };
+  } else {
+    return l;
+  }
+}
+
 fill_t fill_t::make_constant(scalar_t value, vector<uint64_t> const& shape) {
   return fill_t(constant_t { .value = value, .shape = shape });
 }
@@ -13,12 +31,38 @@ fill_t fill_t::make_square_lowertri(dtype_t d, uint64_t n) {
   });
 }
 
-fill_t fill_t::select(vector<tuple<uint64_t, uint64_t>> const& hrect) const {
+fill_t::lowertri_t
+fill_t::lowertri_t::select(hrect_t const& hrect) const
+{
+  if(hrect.size() != 2) {
+    throw std::runtime_error("invalid lowertri");
+  }
+  auto const& [i_beg, i_end] = hrect[0];
+  auto const& [j_beg, j_end] = hrect[1];
+  if(i_beg >= i_end || i_end > nrow) {
+    throw std::runtime_error("invalid row selection");
+  }
+  if(j_beg >= j_end || j_end > ncol) {
+    throw std::runtime_error("invalid col selection");
+  }
+  return lowertri_t {
+    .dtype = dtype,
+    .nrow = i_end - i_beg,
+    .ncol = j_end - j_beg,
+    .start = start - int64_t(i_beg)
+  };
+}
+
+fill_t fill_t::select(hrect_t const& hrect) const {
+  // Assumption: hrect is a valid region of this fill's shape
   if(is_constant()) {
-    return *this;
+    auto const& [value,_] = get_constant();
+    return fill_t(constant_t {
+      .value = value,
+      .shape = hrect_shape(hrect)
+    });
   } else if(is_lowertri()) {
-    // TODO
-    throw std::runtime_error("fill_t::select for lowertri: not implemented");
+    return fill_t(get_lowertri().select(hrect));
   } else {
     throw std::runtime_error("missing fill case");
   }

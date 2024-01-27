@@ -1649,7 +1649,7 @@ void _constant_fill(uint64_t nelem, T* out, T const& val)
   std::fill(out, out + nelem, val);
 }
 
-void constant_fill(uint64_t nelem, void* out, scalar_t value)
+void constant_fill(scalar_t value, uint64_t nelem, void* out)
 {
   if(value.dtype == dtype_t::f16) {
     _constant_fill(
@@ -1668,6 +1668,89 @@ void constant_fill(uint64_t nelem, void* out, scalar_t value)
       *reinterpret_cast<uint64_t const*>(value.data));
   } else {
     throw std::runtime_error("missing dtype impl: constant_fill");
+  }
+}
+
+template <typename T>
+void _lowertri_fill(
+  T one, T zero,
+  int64_t nrow, int64_t ncol, int64_t start,
+  T* out)
+{
+  if(start >= nrow) {
+    std::fill(out, out + nrow*ncol, zero);
+    return;
+  }
+
+  if(start <= 1 - ncol) {
+    std::fill(out, out + nrow*ncol, one);
+    return;
+  }
+
+  int64_t _start = std::max(int64_t(0), start);
+  int64_t _stop = std::min(nrow, ncol + start - 1);
+
+  for(int64_t i = 0; i != _start; ++i) {
+    T* p = out + i*ncol;
+    std::fill(p, p + ncol, zero);
+  }
+
+  for(int64_t i = _start; i != _stop; ++i) {
+    int64_t nc = i-start+1;
+    T* p = out + i*ncol;
+    std::fill(p,      p + nc,   one);
+    std::fill(p + nc, p + ncol, zero);
+  }
+  for(int64_t i = _stop; i != nrow; ++i) {
+    T* p = out + i*ncol;
+    std::fill(p, p + ncol, one);
+  }
+}
+
+void lowertri_fill(
+  dtype_t dtype,
+  int64_t nrow, int64_t ncol, int64_t start,
+  void* out)
+{
+  if(dtype == dtype_t::f16) {
+    _lowertri_fill(
+      float16_t(1.0),
+      float16_t(0.0),
+      nrow, ncol, start,
+      reinterpret_cast<float16_t*>(out));
+  } else if(dtype == dtype_t::f32) {
+    _lowertri_fill(
+      float(1.0),
+      float(0.0),
+      nrow, ncol, start,
+      reinterpret_cast<float*>(out));
+  } else if(dtype == dtype_t::f64) {
+    _lowertri_fill(
+      double(1.0),
+      double(0.0),
+      nrow, ncol, start,
+      reinterpret_cast<double*>(out));
+  } else if(dtype == dtype_t::c64) {
+    _lowertri_fill(
+      std::complex<float>(1.0,0.0),
+      std::complex<float>(0.0,0.0),
+      nrow, ncol, start,
+      reinterpret_cast<std::complex<float>*>(out));
+  } else {
+    throw std::runtime_error("lowertri_fill: missing dtype");
+  }
+}
+
+void initialize_fill(fill_t const& fill, void* out)
+{
+  if(fill.is_constant()) {
+    auto const& c = fill.get_constant();
+    constant_fill(c.value, product(c.shape), out);
+  } else if(fill.is_lowertri()) {
+    auto const& l = fill.get_lowertri();
+    lowertri_fill(l.dtype, int64_t(l.nrow), int64_t(l.ncol), l.start, out);
+  } else {
+    throw std::runtime_error("initialize_fill: should not reach");
   }
 }
 

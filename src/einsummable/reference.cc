@@ -519,7 +519,7 @@ dbuffer_t reference_fill(fill_t const& fill) {
     ret.zeros();
     for(int64_t i = 0; i != l.nrow; ++i) {
       for(int64_t j = 0; j != l.ncol; ++j) {
-        if(i <= j + l.start) {
+        if(i - l.start >= j) {
           ret.set(i*l.ncol + j, one);
         }
       }
