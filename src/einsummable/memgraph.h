@@ -215,7 +215,7 @@ public:
     uint64_t offset;
     fill_t fill;
 
-    uint64_t get_size() const { return dtype_size(fill.value.dtype) * product(fill.shape); }
+    uint64_t get_size() const { return fill.size(); }
     memloc_t as_memloc() const { return memloc_t{offset, get_size(), loc}; }
     mem_t as_mem() const { return as_memloc().as_mem(); }
   };

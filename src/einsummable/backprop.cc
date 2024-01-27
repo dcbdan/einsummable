@@ -32,7 +32,7 @@ vector<int> graph_t::backprop(int out, vector<int> weights) {
   for(auto const& weight : weights) {
     backprop_tensor_t grad = state.grads.at(weight);
     if(grad.is_constant()) {
-      grads.push_back(insert_fill(grad.get_fill()));
+      grads.push_back(insert_fill(grad.get_constant()));
     } else {
       grads.push_back(grad.get_id());
     }
@@ -60,8 +60,8 @@ graph_t::backprop_tensor_t::backprop_tensor_t(int id)
   : op(id)
 {}
 
-graph_t::backprop_tensor_t::backprop_tensor_t(fill_t const& fill)
-  : op(fill)
+graph_t::backprop_tensor_t::backprop_tensor_t(fill_t::constant_t const& c)
+  : op(c)
 {}
 
 graph_t::backprop_tensor_t
@@ -79,7 +79,7 @@ graph_t::backprop_tensor_t::backprop_tensor_t::ones(
     value = scalar_t(dtype, "1.0");
   }
 
-  return backprop_tensor_t(fill_t {
+  return backprop_tensor_t(constant_t {
     .value = value,
     .shape = shape
   });
@@ -90,7 +90,7 @@ graph_t::backprop_tensor_t::backprop_tensor_t::zeros(
   dtype_t const& dtype,
   vector<uint64_t> const& shape)
 {
-  return backprop_tensor_t(fill_t {
+  return backprop_tensor_t(constant_t {
     .value = scalar_t::zero(dtype),
     .shape = shape
   });
@@ -100,28 +100,24 @@ int const& graph_t::backprop_tensor_t::get_id() const {
   return std::get<int>(op);
 }
 
-fill_t const& graph_t::backprop_tensor_t::get_fill() const {
-  return std::get<fill_t>(op);
-}
-
-scalar_t graph_t::backprop_tensor_t::get_constant() const {
-  return get_fill().value;
+fill_t::constant_t const& graph_t::backprop_tensor_t::get_constant() const {
+  return std::get<constant_t>(op);
 }
 
 bool graph_t::backprop_tensor_t::is_constant() const {
-  return std::holds_alternative<fill_t>(op);
+  return std::holds_alternative<constant_t>(op);
 }
 
 bool graph_t::backprop_tensor_t::is_constant_of(scalar_t v) const {
   if(is_constant()) {
-    return get_fill().value == v;
+    return get_constant().value == v;
   }
   return false;
 }
 
 bool graph_t::backprop_tensor_t::is_zeros() const {
   if(is_constant()) {
-    scalar_t const& v = get_fill().value;
+    scalar_t const& v = get_constant().value;
     return scalar_t::zero(v.dtype) == v;
   }
   return false;
@@ -129,7 +125,7 @@ bool graph_t::backprop_tensor_t::is_zeros() const {
 
 bool graph_t::backprop_tensor_t::is_ones() const {
   if(is_constant()) {
-    auto const& [scalar, _] = get_fill();
+    auto const& [scalar, _] = get_constant();
 
     // scalar_t::one is not valid for complex values, so use this
     // 1.0 value in the context of backprop
@@ -147,7 +143,7 @@ bool graph_t::backprop_tensor_t::is_ones() const {
 
 dtype_t graph_t::backprop_tensor_t::dtype(graph_t& self) const {
   if(is_constant()) {
-    return get_fill().value.dtype;
+    return get_constant().value.dtype;
   } else {
     int const& id = get_id();
     return self.nodes[id].op.out_dtype();
@@ -156,7 +152,7 @@ dtype_t graph_t::backprop_tensor_t::dtype(graph_t& self) const {
 
 vector<uint64_t> graph_t::backprop_tensor_t::shape(graph_t& self) const {
   if(is_constant()) {
-    return get_fill().shape;
+    return get_constant().shape;
   } else {
     int const& id = get_id();
     return self.nodes[id].op.out_shape();
@@ -411,12 +407,12 @@ graph_t::backprop_tensor_aggregate(
 
   if(tensor.is_constant()) {
     vector<uint64_t> out_shape = e.out_shape();
-    scalar_t value = tensor.get_constant();
+    scalar_t value = tensor.get_constant().value;
     uint64_t nelem_inn = product(e.join_shape);
     uint64_t nelem_out = product(out_shape);
     double multiplier(nelem_inn / nelem_out);
     value *= multiplier;
-    return backprop_tensor_t(fill_t {
+    return backprop_tensor_t(constant_t {
       .value = value,
       .shape = out_shape
     });
@@ -462,7 +458,7 @@ graph_t::build_grad_term_contraction(
     //    ij->ik
     //  where join_op = lambda x0: v*x0
 
-    auto const& value = grad.get_fill().value;
+    auto const& value = grad.get_constant().value;
 
     string new_str;
     vector<uint64_t> new_inn_shape, new_out_shape;
@@ -583,7 +579,7 @@ graph_t::build_grad_term_ew(
 
       int v_id;
       if(grad.is_constant()) {
-        v_id = insert_fill(grad.get_fill());
+        v_id = insert_fill(grad.get_constant());
       } else {
         v_id = grad.get_id();
       }
@@ -624,13 +620,13 @@ graph_t::build_grad_term_ew(
   vector<uint64_t> out_shape = e.out_shape();
 
   if(constant_deri_op && constant_grad) {
-    scalar_t grad_constant = grad.get_constant();
+    scalar_t grad_constant = grad.get_constant().value;
     scalar_t deri_constant = deri_op.eval();
 
     scalar_t v = scalarop_t::make_mul(out_dtype).eval({grad_constant, deri_constant});
     v = v.convert(inn_dtype);
 
-    return backprop_tensor_t(fill_t {
+    return backprop_tensor_t(constant_t {
       .value = v,
       .shape = inn_shapes[which_inn]
     });
@@ -653,7 +649,7 @@ graph_t::build_grad_term_ew(
       // It could be the case that the new_join is simplified to a constant
       // function. (For example, value == 0.0)
       scalar_t new_value = new_join.eval();
-      return backprop_tensor_t(fill_t {
+      return backprop_tensor_t(constant_t {
         .value = new_value,
         .shape = inn_shapes[which_inn]
       });
@@ -669,7 +665,7 @@ graph_t::build_grad_term_ew(
     int term_id = insert_einsummable_for_backprop(new_e, { grad.get_id() });
     return backprop_tensor_t(term_id);
   } else if(constant_grad) {
-    scalar_t value = grad.get_constant();
+    scalar_t value = grad.get_constant().value;
 
     scalarop_t new_join = scalarop_t::combine(
       scalarop_t::make_mul(out_dtype),
@@ -687,7 +683,7 @@ graph_t::build_grad_term_ew(
       // It could be the case that the new_join is simplified to a constant
       // function. (For example, value == 0.0)
       scalar_t new_value = new_join.eval();
-      return backprop_tensor_t(fill_t {
+      return backprop_tensor_t(constant_t {
         .value = new_value,
         .shape = inn_shapes[which_inn]
       });
@@ -790,7 +786,7 @@ graph_t::build_grad_term_select(
 {
   // If grad is zeros, then just return zeros from the input shape
   if(grad.is_zeros()) {
-    dtype_t const& dtype = grad.get_constant().dtype;
+    dtype_t const& dtype = grad.get_constant().value.dtype;
     return backprop_tensor_t::zeros(dtype, select.inn_shape(which_inn));
   }
 
@@ -806,8 +802,8 @@ graph_t::build_grad_term_select(
   }
   if(uses_full_input) {
     if(grad.is_constant()) {
-      return backprop_tensor_t(fill_t {
-        .value = grad.get_constant(),
+      return backprop_tensor_t(constant_t {
+        .value = grad.get_constant().value,
         .shape = select.inn_shape(which_inn)
       });
     }
@@ -866,7 +862,7 @@ graph_t::build_grad_term_select(
     optional<scalar_t> maybe_constant_fill = std::nullopt;
     if(block_hrect == inn_grad_hrect) {
       if(grad.is_constant()) {
-        maybe_constant_fill = grad.get_constant();
+        maybe_constant_fill = grad.get_constant().value;
       } else {
         // case 1b
       }
@@ -893,10 +889,9 @@ graph_t::build_grad_term_select(
         block_shape.push_back(size);
       }
 
-      inn_ids.push_back(insert_fill(fill_t {
-        .value = maybe_constant_fill.value(),
-        .shape = block_shape
-      }));
+      inn_ids.push_back(insert_constant(
+        maybe_constant_fill.value(),
+        block_shape));
     } else {
       // Case 1b
       vector<uint64_t> out_start = select.wrt_output_point(
@@ -940,8 +935,7 @@ graph_t::build_grad_term_complexer(
   // if grad is complex, turn it real
   // if grad is real, turn it complex
   if(grad.is_constant()) {
-    vector<uint64_t> shape = grad.get_fill().shape;
-    scalar_t value = grad.get_constant();
+    auto [value, shape] = grad.get_constant();
     dtype_t const& dtype = value.dtype;
     if(dtype_is_real(dtype)) {
       // (v,v,v,v,v,v) -> ( (v,v), (v,v), (v,v) )
@@ -957,7 +951,7 @@ graph_t::build_grad_term_complexer(
       vector<uint64_t> complex_shape = shape;
       complex_shape.back() /= 2;
 
-      return backprop_tensor_t(fill_t {
+      return backprop_tensor_t(constant_t {
         .value = scalar_t(vv),
         .shape = complex_shape
       });
@@ -971,17 +965,14 @@ graph_t::build_grad_term_complexer(
         float v = vu.real();
         vector<uint64_t> real_shape = shape;
         real_shape.back() *= 2;
-        return backprop_tensor_t(fill_t {
+        return backprop_tensor_t(constant_t {
           .value = scalar_t(v),
           .shape = real_shape
         });
       } else {
         // ( (v,u), (v,u), (v,u) ) cannot be represented as a constant
         // float tensor, so form it and convert it real
-        int id = insert_fill(fill_t {
-          .value = value,
-          .shape = shape
-        });
+        int id = insert_constant(value, shape);
         return backprop_tensor_t(insert_to_real(id));
       }
     }
@@ -1002,8 +993,8 @@ graph_t::build_grad_term_squeezer(
   graph_t::backprop_tensor_t grad)
 {
   if(grad.is_constant()) {
-    return backprop_tensor_t(fill_t {
-      .value = grad.get_constant(),
+    return backprop_tensor_t(constant_t {
+      .value = grad.get_constant().value,
       .shape = inn_shape
     });
   }
@@ -1025,9 +1016,9 @@ graph_t::build_grad_term_reduction_add(
     join_shape);
 
   if(grad.is_constant()) {
-    scalar_t value = grad.get_constant();
+    scalar_t value = grad.get_constant().value;
 
-    return backprop_tensor_t(fill_t {
+    return backprop_tensor_t(constant_t {
       .value = value,
       .shape = inn_shape
     });
@@ -1077,7 +1068,7 @@ graph_t::build_grad_term_reduction_mul(
     if(grad.is_zeros()) {
       return backprop_tensor_t::zeros(dtype, inn_shape);
     }
-    scalar_t value = grad.get_constant();
+    scalar_t value = grad.get_constant().value;
     scalarop_t join = scalarop_t::combine(
       scalarop_t::make_mul(dtype),
       { base, scalarop_t::make_constant(value) });
@@ -1213,7 +1204,7 @@ graph_t::build_grad_term_reduction_maxmin(
   scalarop_t div = scalarop_t::make_div(dtype);
 
   if(grad.is_constant()) {
-    scalar_t value = grad.get_constant();
+    scalar_t value = grad.get_constant().value;
     scalarop_t join = scalarop_t::combine(
       scalarop_t::make_mul(dtype),
       { div, scalarop_t::make_constant(value) });
@@ -1262,7 +1253,7 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
   items.reserve(items_.size());
   for(auto const& tensor: items_) {
     if(tensor.is_constant()) {
-      sum += tensor.get_constant();
+      sum += tensor.get_constant().value;
     } else {
       items.push_back(tensor.get_id());
     }
@@ -1270,17 +1261,14 @@ graph_t::insert_adds(vector<backprop_tensor_t> const& items_)
 
   if(items.size() == 0) {
     // In this case, all the terms were constants
-    return backprop_tensor_t(fill_t {
+    return backprop_tensor_t(constant_t {
       .value = sum,
       .shape = shape
     });
   }
 
   if(sum != scalar_t::zero(dtype)) {
-    items.push_back(insert_fill(fill_t {
-      .value = sum,
-      .shape = shape
-    }));
+    items.push_back(insert_constant(sum, shape));
   }
 
   vector<int> is = vector_iota<int>(rank);

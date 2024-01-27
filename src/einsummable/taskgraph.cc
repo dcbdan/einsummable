@@ -767,13 +767,10 @@ taskgraph_make_state_t::compute_fill(int gid)
   vector<int> index(shape.size(), 0);
   do {
     int const& loc = pl.locations.at(index);
-    auto subtensor_shape = pl.partition.tensor_shape_at(index);
+    auto hrect = pl.partition.get_hrect(index);
     ret.at(index) = taskgraph.insert_constant(
       loc,
-      fill_t {
-        .value = full_fill.value,
-        .shape = subtensor_shape
-      }
+      full_fill.select(hrect)
     );
   } while(increment_idxs(shape, index));
 
@@ -2400,10 +2397,7 @@ string taskgraph_t::to_wire() const {
       es_proto::TGConstant* c = n->mutable_constant();
       c->set_loc(constant.loc);
       es_proto::Fill* f = c->mutable_fill();
-      f->set_value(write_with_ss(constant.fill.value));
-      for(auto const& dim: constant.fill.shape) {
-        f->add_shape(dim);
-      }
+      constant.fill.to_proto(*f);
     } else if(node.op.is_apply()) {
       auto const& [loc, inns, einsummable] = node.op.get_apply();
 
@@ -2510,13 +2504,8 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
       auto const& c = n.constant();
       auto const& f = c.fill();
 
-      fill_t fill;
-      fill.value = parse_with_ss<scalar_t>(f.value());
-      auto ds = f.shape();
-      fill.shape = vector<uint64_t>(ds.begin(), ds.end());
-
       ret.nodes.emplace_back(
-        op_t(constant_t { c.loc(), fill }),
+        op_t(constant_t { c.loc(), fill_t::from_proto(f) }),
         is_save);
     } else if(n.has_partialize()) {
       auto const& p = n.partialize();

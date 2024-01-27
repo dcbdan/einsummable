@@ -25,14 +25,12 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
 struct cpu_fill_constant_t : exec_graph_t::op_base_t {
   cpu_fill_constant_t(
     uint64_t offset_,
-    scalar_t value_,
-    uint64_t nelem_)
-    : offset(offset_), value(value_), nelem(nelem_)
+    fill_t const& fill_)
+    : offset(offset_), fill(fill_)
   {}
 
   uint64_t offset;
-  scalar_t value;
-  uint64_t nelem;
+  fill_t fill;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   desc_ptr_t resource_description() const;

@@ -64,8 +64,7 @@ exec_graph_t::make_cpu_exec_graph(
 
       cpu_fill_constant_t* op = new cpu_fill_constant_t(
         constant.offset,
-        fill.value,
-        product(fill.shape));
+        fill);
 
       insert_from_mid(op_ptr_t(op), mid);
     } else if(node.op.is_apply()) {
@@ -292,7 +291,7 @@ void cpu_fill_constant_t::launch(
   thread_resource.launch(
     [this, callback, out_mem]
     {
-      constant_fill(this->nelem, out_mem, this->value);
+      initialize_fill(this->fill, out_mem);
       callback();
     });
 }

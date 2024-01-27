@@ -34,16 +34,14 @@ struct cpu_tg_fill_constant_t : exec_graph_t::op_base_t {
   cpu_tg_fill_constant_t(
     map<int, data_manager_t::info_t>& dinfos,
     int tid_,
-    scalar_t value_,
-    uint64_t nelem_)
-    : tid(tid_), value(value_), nelem(nelem_)
+    fill_t const& fill_)
+    : tid(tid_), fill(fill_)
   {
     dinfos.at(tid).usage_rem++;
   }
 
   int tid;
-  scalar_t value;
-  uint64_t nelem;
+  fill_t fill;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   desc_ptr_t resource_description() const;

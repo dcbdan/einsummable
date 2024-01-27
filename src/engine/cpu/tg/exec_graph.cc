@@ -113,8 +113,7 @@ exec_graph_t::make_cpu_tg_exec_graph(
       cpu_tg_fill_constant_t* op = new cpu_tg_fill_constant_t(
         dinfos,
         tid,
-        fill.value,
-        product(fill.shape));
+        fill);
       insert_from_tid(op_ptr_t(op), tid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
@@ -251,7 +250,7 @@ void cpu_tg_fill_constant_t::launch(
   thread_resource.launch(
     [this, callback, out_mem]
     {
-      constant_fill(this->nelem, out_mem, this->value);
+      initialize_fill(this->fill, out_mem);
       callback();
     });
 }

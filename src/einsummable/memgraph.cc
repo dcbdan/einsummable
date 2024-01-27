@@ -302,10 +302,7 @@ void memgraph_t::to_proto(es_proto::MemGraph& mg) const {
       c->set_loc(constant.loc);
       c->set_offset(constant.offset);
       es_proto::Fill* f = c->mutable_fill();
-      f->set_value(write_with_ss(constant.fill.value));
-      for(auto const& dim: constant.fill.shape) {
-        f->add_shape(dim);
-      }
+      constant.fill.to_proto(*f);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       auto const& [loc, mems, _, group] = apply;
@@ -422,15 +419,10 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg) {
       auto const& c = n.constant();
       auto const& f = c.fill();
 
-      fill_t fill;
-      fill.value = parse_with_ss<scalar_t>(f.value());
-      auto ds = f.shape();
-      fill.shape = vector<uint64_t>(ds.begin(), ds.end());
-
       op = op_t(constant_t {
         .loc = c.loc(),
         .offset = c.offset(),
-        .fill = fill
+        .fill = fill_t::from_proto(f)
       });
     } else if(n.has_apply()) {
       auto const& a = n.apply();

@@ -465,11 +465,7 @@ graph_writer_t::constant(
   full_shape_t shape,
   dtype_t dtype)
 {
-  int id = graph.insert_fill(fill_t {
-    .value = value,
-    .shape = shape.full()
-  });
-
+  int id = graph.insert_constant(value, shape.full());
   return tensor_t(shape, id, this);
 }
 

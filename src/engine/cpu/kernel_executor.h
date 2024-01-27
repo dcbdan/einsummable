@@ -5,6 +5,7 @@
 
 #include "../../einsummable/scalarop.h"
 #include "../../einsummable/einsummable.h"
+#include "../../einsummable/fill.h"
 #include "../../base/timetracker.h"
 
 #include "../touch.h"
@@ -313,5 +314,7 @@ void custom01_float_ab_ab_a_to_a(
   float const* x2);
 
 void constant_fill(uint64_t nelem, void* out, scalar_t value);
+
+void initialize_fill(fill_t const& fill, void* out);
 
 timetracker_t& get_cpu_kernel_timetracker();
