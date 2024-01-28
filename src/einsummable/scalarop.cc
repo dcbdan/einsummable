@@ -1,5 +1,33 @@
 #include "scalarop.h"
 
+scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val)
+{
+  if(n == 0) {
+    throw std::runtime_error("agg power: invalid n value");
+  }
+  if(n == 1) {
+    // no castable is applied when n = 1
+    return val;
+  }
+  if(castable == castable_t::min || castable == castable_t::max) {
+    if(dtype_is_complex(val.dtype)) {
+      throw std::runtime_error("can't max min complex");
+    } else {
+      return val;
+    }
+  }
+  if(castable == castable_t::add) {
+    // TODO: what if n is really big?
+    return scalarop_t::make_scale(
+      scalar_t(val.dtype, write_with_ss(double(n)))).eval(val);
+  }
+  if(castable == castable_t::mul) {
+    // TODO: what if n is really big?
+    return scalarop_t::make_power(int(n), val.dtype).eval(val);
+  }
+  throw std::runtime_error("should not reach: agg power");
+}
+
 compare_t compare_flip(compare_t c) {
   switch(c) {
     case compare_t::lt:
@@ -164,6 +192,25 @@ scalar_t scalar_t::negative_inf(dtype_t dtype) {
       return scalar_t(ninf);
     case dtype_t::c64:
       throw std::runtime_error("no -inf for complex");
+  }
+  throw std::runtime_error("should not reach");
+}
+
+scalar_t scalar_t::inf(dtype_t dtype) {
+  if(!std::numeric_limits<double>::is_iec559) {
+    throw std::runtime_error("uh oh; can't get inf");
+  }
+  double inf = std::numeric_limits<double>::infinity();
+
+  switch(dtype) {
+    case dtype_t::f16:
+      return scalar_t(float16_t(inf));
+    case dtype_t::f32:
+      return scalar_t(float(inf));
+    case dtype_t::f64:
+      return scalar_t(inf);
+    case dtype_t::c64:
+      throw std::runtime_error("no inf for complex");
   }
   throw std::runtime_error("should not reach");
 }

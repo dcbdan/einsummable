@@ -315,13 +315,12 @@ taskgraph_t::make(
   //       In any case, this optimization can be turned off easily enough. I
   //       predict it's better to have than to not. The only time dummy
   //       passthrough partials are really formed is from concat ops (I think).
-  optional<tuple<map<int,int>, taskgraph_t>> maybe_simplified =
-    state.taskgraph.remove_passthrough_partials();
 
-  if(maybe_simplified) {
-    auto const& to_new_tg = std::get<0>(maybe_simplified.value());
-    auto const& new_tg = std::get<1>(maybe_simplified.value());
+  taskgraph_t ret = std::move(state.taskgraph);
 
+  auto correct_inns_and_saves = [&](
+    taskgraph_t const& tg,
+    map<int, int> const& to_new_tg) {
     auto correct = [&](vtensor_t<int>& tids) {
       for(auto& tid: tids.get()) {
         tid = to_new_tg.at(tid);
@@ -334,16 +333,34 @@ taskgraph_t::make(
     for(auto& [_, tids]: saves) {
       correct(tids);
       for(auto const& tid: tids.get()) {
-        if(!new_tg.nodes[tid].is_save) {
+        if(!tg.nodes[tid].is_save) {
           throw std::runtime_error("unsaved node should be saved");
         }
       }
     }
+  };
 
-    return {std::move(inns), std::move(saves), std::move(new_tg)};
-  } else {
-    return {std::move(inns), std::move(saves), std::move(state.taskgraph)};
+  optional<tuple<map<int,int>, taskgraph_t>> maybe_simplified =
+    ret.remove_passthrough_partials();
+
+  if(maybe_simplified) {
+    auto const& to_new_tg = std::get<0>(maybe_simplified.value());
+    auto const& new_tg = std::get<1>(maybe_simplified.value());
+
+    correct_inns_and_saves(new_tg, to_new_tg);
+
+    ret = std::move(new_tg);
+  };
+
+  if(ret.simplify() > 0) {
+    auto const& [to_new_tg, new_tg] = ret.prune();
+
+    correct_inns_and_saves(new_tg, to_new_tg);
+
+    ret = std::move(new_tg);
   }
+
+  return {std::move(inns), std::move(saves), std::move(ret)};
 }
 
 int taskgraph_make_state_t::access(
@@ -2237,6 +2254,30 @@ taskgraph_t::remove_passthrough_partials() const
   return optional<ret_t>(ret_t{remap, new_tg});
 }
 
+tuple<
+  map<int, int>,
+  taskgraph_t >
+taskgraph_t::prune() const
+{
+	throw std::runtime_error("tg prune: not implemented");
+  // set<int> keep_nodes;
+  // for every tid in reverse order:
+  //   if this is a save node:
+  //     keep_nodes.insert(tid)
+  //   else if this is an input node:
+  //     keep_nodes.insert(tid)
+  //
+  //   if this node is in keep_nodes:
+  //     for each input inn:
+  //       keep_nodes.insert(inn)
+  //
+  // map<int, int> xid_to_yid;
+  // for every xid in order:
+  //   if xid in keep nodes:
+  //     yid = insert the node
+  //     xid_to_yid.insert({xid,yid})
+}
+
 vector<int> taskgraph_t::get_order() const {
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
@@ -2593,6 +2634,440 @@ int taskgraph_t::insert(op_t op, bool is_save) {
 
   return ret;
 };
+
+void taskgraph_t::_replace_with_new_node(
+  int tid,
+  taskgraph_t::op_t const& op)
+{
+  auto const& old_node = nodes[tid];
+
+  node_t new_node = node_t(op, old_node.is_save);
+  new_node.outs = old_node.outs;
+
+  if(op.out_size() != old_node.op.out_size()) {
+    throw std::runtime_error("invalid out size provided with op");
+  }
+  if(op.out_loc() != old_node.op.out_loc()) {
+    throw std::runtime_error("invalid out loc provided with op");
+  }
+
+  set<int> old_inputs = old_node.op.inputs();
+  set<int> new_inputs = new_node.op.inputs();
+
+  set<int> erase_these = set_minus(old_inputs, new_inputs);
+  set<int> insert_these = set_minus(new_inputs, old_inputs);
+
+  for(auto const& inn_id: erase_these) {
+    auto cnt = nodes[inn_id].outs.erase(tid);
+    if(cnt != 1) {
+      throw std::runtime_error("how come this edge is not here!");
+    }
+  }
+  for(auto const& inn_id: insert_these) {
+    auto [_, did_insert] = nodes[inn_id].outs.insert(tid);
+    if(!did_insert) {
+      throw std::runtime_error("expected to insert this edge here");
+    }
+  }
+
+  nodes[tid] = new_node;
+  // now old_node is invalidated
+}
+
+void taskgraph_t::_replace_with_fill(int tid, fill_t const& fill)
+{
+  constant_t constant {
+    .loc = out_loc(tid),
+    .fill = fill
+  };
+  _replace_with_new_node(tid, op_t(constant));
+}
+
+bool taskgraph_t::_replace_apply(int tid) {
+  auto const& node = nodes[tid];
+  if(!node.op.is_apply()) {
+    throw std::runtime_error("invalid cal to _replace_apply");
+  }
+
+  auto const& apply = node.op.get_apply();
+
+  vector<scalarop_t> innops;
+  innops.reserve(apply.inns.size());
+  vector<int> which_kept;
+  for(int which = 0; which != apply.inns.size(); ++which) {
+    int const& inn = apply.inns[which];
+    dtype_t inn_dtype = apply.einsummable.inn_dtype(which);
+
+    auto const& inn_node = nodes[inn];
+    if(inn_node.op.is_constant()) {
+      auto const& inn_fill = inn_node.op.get_constant().fill;
+      if(inn_fill.is_constant()) {
+        scalar_t const& value = inn_fill.get_constant().value;
+
+        if(value.dtype == inn_dtype) {
+          innops.push_back(scalarop_t::make_constant(value));
+          continue;
+        } else {
+          // Note that the input node can be any set of bytes as long as the
+          // number of bytes is expected as required by the outgoing edges.
+          // What this means is we can have a constant of dtype1 going into
+          // an einsummable at input i with dtype2 != dtype1.
+          // Example: inn is float 1s, but expected dtype is complex.
+          // TODO: do extra dtype converisons here
+        }
+      }
+    }
+
+    // A constant wasn't inserted into the innops
+    innops.push_back(scalarop_t::make_identity(inn_dtype));
+    which_kept.push_back(which);
+  }
+
+  if(which_kept.size() == apply.inns.size()) {
+    // nothing to do, none of the inputs are constants
+    return false;
+  }
+
+  auto const& einsummable = apply.einsummable;
+
+  scalarop_t new_join = scalarop_t::combine(
+    einsummable.join,
+    innops);
+
+  if(new_join.is_constant() && new_join.has_variables()) {
+    throw std::runtime_error(
+      "not implemented: _replace_apply got constant new_join but with variables");
+    return false;
+  }
+
+  if(new_join.is_constant()) {
+    scalar_t val = new_join.eval();
+    uint64_t num_join = product(einsummable.join_shape);
+    uint64_t num_out  = einsummable.out_nelem();
+    uint64_t num_agg = num_join / num_out;
+    if(num_agg > 1) {
+      // Do the reduction, so val = val+val+...
+      // or                   val = max(val,val,...)
+      val = agg_power(einsummable.castable.value(), num_agg, val);
+    }
+    fill_t fill(fill_t::constant_t {
+      .value = val,
+      .shape = einsummable.out_shape()
+    });
+    _replace_with_fill(tid, fill);
+    return true;
+  }
+
+  for(int i = 0; i != which_kept.size(); ++i) {
+    if(!new_join.is_used(i)) {
+      throw std::runtime_error(
+        "not implemented: _replace_apply found unused arg in new join");
+      return false;
+    }
+  }
+
+  // Create the new einsummable and rewrite the apply op
+  if(einsummable.has_aggregation()) {
+    throw std::runtime_error(
+      "not implemented: _replace_apply "
+      "creating a new op with aggregation and a new join");
+    return false;
+  }
+
+  auto [out_str, inn_strs] = einsummable.str_terms();
+  vector<string> new_inn_strs;
+  vector<vector<uint64_t>> new_inn_shapes;
+  vector<int> new_inns;
+  for(auto const& which: which_kept) {
+    new_inn_strs.push_back(inn_strs[which]);
+    new_inn_shapes.push_back(einsummable.inn_shape(which));
+    new_inns.push_back(apply.inns[which]);
+  }
+  string new_str = new_inn_strs[0];
+  for(int i = 1; i != new_inn_strs.size(); ++i) {
+    new_str += "," + new_inn_strs[i];
+  }
+  new_str + "->" + out_str;
+  auto [new_e_inns, new_out_rank] = einsummable_t::parse_str(new_str);
+  auto new_join_shape = einsummable_t::construct_join_shape(
+    einsummable.out_shape(),
+    new_e_inns,
+    new_inn_shapes);
+
+  einsummable_t new_einsummable(
+    new_join_shape, new_e_inns, new_out_rank, new_join, std::nullopt);
+
+  auto const& old_node = node;
+  auto const& old_apply = apply;
+  apply_t new_apply {
+    .loc = old_apply.loc,
+    .inns = new_inns,
+    .einsummable = new_einsummable
+  };
+
+  _replace_with_new_node(tid, op_t(new_apply));
+  return true;
+}
+
+taskgraph_t::_unit_simplify_t::_unit_simplify_t(
+  taskgraph_t const& tg,
+  dtype_t dtype,
+  partial_unit_t const& unit)
+  : tg(tg), changed(false)
+{
+  if(unit.inputs.size() == 1) {
+    if(bool(get_constant_at(unit.inputs[0]))) {
+      // this is an unchanged constant
+      op = unit.inputs[0];
+    } else {
+      // this is an unchanged non-constant
+      op = unit.inputs;
+    }
+    return;
+  }
+
+  // Here is how we can simplify a unit:
+  //   1. if there is any annihilator, this becomes a constant
+  //   2. all identities can be removed
+
+  vector<input_op_t> new_inputs;
+  auto const& castable = unit.castable.value();
+  for(input_op_t const& input: unit.inputs) {
+    optional<scalar_t> maybe_constant = get_constant_at(input);
+    if(maybe_constant) {
+      scalar_t const& constant = maybe_constant.value();
+      if(is_annihilator(dtype, castable, constant)) {
+        changed = true;
+        op = input;
+        return;
+      } else if(is_identity(dtype, castable, constant)) {
+        changed = true;
+      } else {
+        // TODO: Note that if all the inputs are constant, we could insert a new
+        //       tg constant and use that...
+        // For not, nothing has changed
+        new_inputs.push_back(input);
+      }
+    } else {
+      new_inputs.push_back(input);
+    }
+  }
+
+  if(new_inputs.size() == 0) {
+    // This ended up being a constant after all
+    op = unit.inputs[0];
+    return;
+  }
+
+  // This was not simplified to a constant
+  op = new_inputs;
+}
+
+bool taskgraph_t::_unit_simplify_t::is_changed() const {
+  return changed;
+}
+
+bool taskgraph_t::_unit_simplify_t::is_constant() const {
+  return std::holds_alternative<input_op_t>(op);
+}
+
+scalar_t taskgraph_t::_unit_simplify_t::get_constant() const {
+  return get_constant_at(std::get<input_op_t>(op)).value();
+}
+
+vector<taskgraph_t::partialize_t::input_op_t>
+taskgraph_t::_unit_simplify_t::get_inputs() const {
+  if(std::holds_alternative<vector<input_op_t>>(op)) {
+    return std::get<vector<input_op_t>>(op);
+  } else {
+    return vector<input_op_t>{ std::get<input_op_t>(op) };
+  }
+}
+
+optional<scalar_t>
+taskgraph_t::_unit_simplify_t::get_constant_at(
+  taskgraph_t::partialize_t::input_op_t const& input) const
+{
+  auto const& node = tg.nodes[input.id];
+  if(!node.op.is_constant()) {
+    return std::nullopt;
+  }
+  auto const& fill = node.op.get_constant().fill;
+  if(!fill.is_constant()) {
+    return std::nullopt;
+  }
+  return fill.get_constant().value;
+}
+
+bool
+taskgraph_t::_unit_simplify_t::is_annihilator(
+  dtype_t dtype,
+  castable_t castable,
+  scalar_t val)
+{
+  if(val.dtype != dtype) {
+    return false;
+  }
+  if(
+    dtype_is_complex(dtype) &&
+    (castable == castable_t::max || castable == castable_t::min))
+  {
+    throw std::runtime_error("maxmin castable on complex");
+  }
+  if(dtype_is_complex) {
+    if(castable == castable_t::mul) {
+      return val == scalar_t::zero(dtype);
+    } else {
+      return false;
+    }
+  }
+  if(castable == castable_t::add && !dtype_is_complex(dtype)) {
+    return val == scalar_t::inf(dtype) || val == scalar_t::negative_inf(dtype);
+  }
+  if(castable == castable_t::max) {
+    return val == scalar_t::inf(dtype);
+  }
+  if(castable == castable_t::min) {
+    return val == scalar_t::negative_inf(dtype);
+  }
+  if(castable == castable_t::mul) {
+    return val == scalar_t::zero(dtype);
+  }
+  throw std::runtime_error("missing castable case");
+}
+
+bool
+taskgraph_t::_unit_simplify_t::is_identity(
+  dtype_t dtype,
+  castable_t castable,
+  scalar_t val)
+{
+  if(val.dtype != dtype) {
+    return false;
+  }
+  if(
+    dtype_is_complex(dtype) &&
+    (castable == castable_t::max || castable == castable_t::min))
+  {
+    throw std::runtime_error("maxmin castable on complex");
+  }
+  if(castable == castable_t::add) {
+    return val == scalar_t::zero(dtype);
+  }
+  if(castable == castable_t::max) {
+    return val == scalar_t::negative_inf(dtype);
+  }
+  if(castable == castable_t::min) {
+    return val == scalar_t::inf(dtype);
+  }
+  if(castable == castable_t::mul) {
+    return val == scalar_t::one(dtype);
+  }
+  throw std::runtime_error("missing castable case");
+}
+
+bool taskgraph_t::_replace_partialize(int tid) {
+  auto const& node = nodes[tid];
+  if(!node.op.is_partialize()) {
+    throw std::runtime_error("invalid cal to _replace_partialize");
+  }
+
+  auto const& partialize = node.op.get_partialize();
+
+  vector<_unit_simplify_t> simples;
+  for(auto const& unit: partialize.units) {
+    simples.emplace_back(*this, partialize.dtype, unit);
+  }
+
+  // If they all evaulate to the same constant > return fill
+  if(simples[0].is_constant()) {
+    bool is_all_constant = true;
+    scalar_t val = simples[0].get_constant();
+    for(int i = 1; i != simples.size(); ++i) {
+      auto const& simple = simples[i];
+      if(simple.is_constant() && simple.get_constant() == val) {
+        // ok, good
+      } else {
+        is_all_constant = false;
+        break;
+      }
+    }
+    if(is_all_constant) {
+      _replace_with_fill(tid, fill_t(fill_t::constant_t {
+        .value = val,
+        .shape = partialize.write_shape
+      }));
+      return true;
+    }
+  }
+
+  bool is_any_changed = false;
+  for(auto const& simple: simples) {
+    if(simple.is_changed()) {
+      is_any_changed = true;
+      break;
+    }
+  }
+
+  if(!is_any_changed) {
+    return false;
+  }
+
+  using partial_unit_t = partialize_t::partial_unit_t;
+
+  vector<partial_unit_t> new_units;
+  for(int i = 0; i != partialize.units.size(); ++i) {
+    auto const& unit = partialize.units[i];
+    auto const& simple = simples[i];
+
+    new_units.push_back(partial_unit_t {
+      .castable = unit.castable,
+      .out_region = unit.out_region,
+      .inputs = simple.get_inputs()
+    });
+  }
+
+  partialize_t new_partialize {
+    .loc = partialize.loc,
+    .dtype = partialize.dtype,
+    .write_shape = partialize.write_shape,
+    .units = new_units
+  };
+
+  _replace_with_new_node(tid, op_t(new_partialize));
+  return true;
+}
+
+int taskgraph_t::simplify() {
+  int count = 0;
+  for(int tid = 0; tid != nodes.size(); ++tid) {
+    auto const& node = nodes[tid];
+    if(node.op.is_input()) {
+      // nothing to do
+    } else if(node.op.is_apply()) {
+      if(_replace_apply(tid)) {
+        count += 1;
+      }
+    } else if(node.op.is_move()) {
+      auto const& [_0,_1,inn,_2] = node.op.get_move();
+      auto const& inn_node = nodes[inn];
+      if(inn_node.op.is_constant()) {
+        count += 1;
+        auto const& fill = inn_node.op.get_constant().fill;
+        _replace_with_fill(tid, fill);
+      }
+    } else if(node.op.is_constant()) {
+      // nothing to do
+    } else if(node.op.is_partialize()) {
+      if(_replace_partialize(tid)) {
+        count += 1;
+      }
+    } else {
+      throw std::runtime_error("missing node type: simplify by evaluate");
+    }
+  }
+  return count;
+}
 
 bool operator==(
   taskgraph_t::partialize_t::out_regiondim_t const& lhs,

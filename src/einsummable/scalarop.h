@@ -52,6 +52,7 @@ struct scalar_t {
 
   static scalar_t zero(dtype_t);
   static scalar_t negative_inf(dtype_t);
+  static scalar_t inf(dtype_t);
 
   // not valid for complex
   static scalar_t one(dtype_t);
@@ -71,6 +72,9 @@ struct scalar_t {
 private:
   void _copy_to_data(uint8_t const* other, int n);
 };
+
+// return castable(val,val,...) with n val inputs
+scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val);
 
 namespace scalar_ns {
 
