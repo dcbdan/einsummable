@@ -316,7 +316,7 @@ void custom01_float_ab_ab_a_to_a(
 void constant_fill(scalar_t value, uint64_t nelem, void* out);
 
 void lowertri_fill(
-  dtype_t dtype, int64_t nrow, int64_t ncol, int64_t start,
+  scalar_t lower, scalar_t upper, int64_t nrow, int64_t ncol, int64_t start,
   void* out);
 
 void initialize_fill(fill_t const& fill, void* out);

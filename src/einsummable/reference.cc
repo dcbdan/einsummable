@@ -514,13 +514,13 @@ dbuffer_t reference_fill(fill_t const& fill) {
     return ret;
   } else if(fill.is_lowertri()) {
     auto const& l = fill.get_lowertri();
-    dbuffer_t ret = make_dbuffer(l.dtype, l.ncol * l.nrow);
-    scalar_t one = scalar_t::one(l.dtype);
-    ret.zeros();
+    dbuffer_t ret = make_dbuffer(l.lower.dtype, l.ncol * l.nrow);
     for(int64_t i = 0; i != l.nrow; ++i) {
       for(int64_t j = 0; j != l.ncol; ++j) {
         if(i - l.start >= j) {
-          ret.set(i*l.ncol + j, one);
+          ret.set(i*l.ncol + j, l.lower);
+        } else {
+          ret.set(i*l.ncol + j, l.upper);
         }
       }
     }

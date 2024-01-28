@@ -1708,32 +1708,32 @@ void _lowertri_fill(
 }
 
 void lowertri_fill(
-  dtype_t dtype,
+  scalar_t one, scalar_t zero,
   int64_t nrow, int64_t ncol, int64_t start,
   void* out)
 {
-  if(dtype == dtype_t::f16) {
+  if(one.dtype == dtype_t::f16) {
     _lowertri_fill(
-      float16_t(1.0),
-      float16_t(0.0),
+      one.f16(),
+      zero.f16(),
       nrow, ncol, start,
       reinterpret_cast<float16_t*>(out));
-  } else if(dtype == dtype_t::f32) {
+  } else if(one.dtype == dtype_t::f32) {
     _lowertri_fill(
-      float(1.0),
-      float(0.0),
+      one.f32(),
+      zero.f32(),
       nrow, ncol, start,
       reinterpret_cast<float*>(out));
-  } else if(dtype == dtype_t::f64) {
+  } else if(one.dtype == dtype_t::f64) {
     _lowertri_fill(
-      double(1.0),
-      double(0.0),
+      one.f64(),
+      zero.f64(),
       nrow, ncol, start,
       reinterpret_cast<double*>(out));
-  } else if(dtype == dtype_t::c64) {
+  } else if(one.dtype == dtype_t::c64) {
     _lowertri_fill(
-      std::complex<float>(1.0,0.0),
-      std::complex<float>(0.0,0.0),
+      one.c64(),
+      zero.c64(),
       nrow, ncol, start,
       reinterpret_cast<std::complex<float>*>(out));
   } else {
@@ -1748,7 +1748,7 @@ void initialize_fill(fill_t const& fill, void* out)
     constant_fill(c.value, product(c.shape), out);
   } else if(fill.is_lowertri()) {
     auto const& l = fill.get_lowertri();
-    lowertri_fill(l.dtype, int64_t(l.nrow), int64_t(l.ncol), l.start, out);
+    lowertri_fill(l.lower, l.upper, int64_t(l.nrow), int64_t(l.ncol), l.start, out);
   } else {
     throw std::runtime_error("initialize_fill: should not reach");
   }

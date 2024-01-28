@@ -37,10 +37,11 @@ message Constant {
   repeated uint64 shape = 2;
 }
 message Lowertri {
-  required string dtype = 1;
-  required uint64 ncol = 2;
-  required uint64 nrow = 3;
-  required int64 start = 4;
+  required string lower = 1;
+  required string upper = 2;
+  required uint64 ncol = 3;
+  required uint64 nrow = 4;
+  required int64 start = 5;
 }
 message Fill {
   oneof op {

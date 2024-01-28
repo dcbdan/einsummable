@@ -16,9 +16,10 @@ struct fill_t {
 
   // for i in range(nrow):
   //   for j in range(ncol):
-  //     ret[i,j] = 1 if (i - start >= j) else 0
+  //     ret[i,j] = lower if (i - start >= j) else upper
   struct lowertri_t {
-    dtype_t dtype;
+    scalar_t lower;
+    scalar_t upper;
     uint64_t nrow;
     uint64_t ncol;
     int64_t start;

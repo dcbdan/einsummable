@@ -3,14 +3,24 @@
 std::variant<fill_t::constant_t, fill_t::lowertri_t>
 fill_t::build_from_lowertri(fill_t::lowertri_t const& l)
 {
-  if(l.start <= 1 - int64_t(l.ncol)) {
+  if(l.lower.dtype != l.upper.dtype) {
+    throw std::runtime_error("invalid lowertri values");
+  }
+
+  if(l.lower == l.upper) {
+    // Unlikely that l.lower == l.upper, but just in case
     return constant_t {
-      .value = scalar_t::one(l.dtype),
+      .value = l.lower,
+      .shape = vector<uint64_t>{l.nrow, l.ncol}
+    };
+  } else if(l.start <= 1 - int64_t(l.ncol)) {
+    return constant_t {
+      .value = l.lower,
       .shape = vector<uint64_t>{l.nrow, l.ncol}
     };
   } else if(l.start >= int64_t(l.nrow)) {
     return constant_t {
-      .value = scalar_t::zero(l.dtype),
+      .value = l.upper,
       .shape = vector<uint64_t>{l.nrow, l.ncol}
     };
   } else {
@@ -24,7 +34,8 @@ fill_t fill_t::make_constant(scalar_t value, vector<uint64_t> const& shape) {
 
 fill_t fill_t::make_square_lowertri(dtype_t d, uint64_t n) {
   return fill_t(lowertri_t {
-    .dtype = d,
+    .lower = scalar_t::one(d),
+    .upper = scalar_t::zero(d),
     .nrow = n,
     .ncol = n,
     .start = 0
@@ -46,7 +57,8 @@ fill_t::lowertri_t::select(hrect_t const& hrect) const
     throw std::runtime_error("invalid col selection");
   }
   return lowertri_t {
-    .dtype = dtype,
+    .lower = lower,
+    .upper = upper,
     .nrow = i_end - i_beg,
     .ncol = j_end - j_beg,
     .start = start - int64_t(i_beg)
@@ -72,7 +84,7 @@ dtype_t fill_t::dtype() const {
   if(is_constant()) {
     return get_constant().value.dtype;
   } else if(is_lowertri()) {
-    return get_lowertri().dtype;
+    return get_lowertri().lower.dtype;
   } else {
     throw std::runtime_error("missing fill case");
   }
@@ -108,7 +120,8 @@ void fill_t::to_proto(es_proto::Fill& f) const {
   } else if(is_lowertri()) {
     auto const& lowertri = get_lowertri();
     es_proto::Lowertri* c = f.mutable_lowertri();
-    c->set_dtype(write_with_ss(lowertri.dtype));
+    c->set_lower(write_with_ss(lowertri.lower));
+    c->set_upper(write_with_ss(lowertri.upper));
     c->set_ncol(lowertri.ncol);
     c->set_nrow(lowertri.nrow);
     c->set_start(lowertri.start);
@@ -136,7 +149,8 @@ fill_t fill_t::from_proto(es_proto::Fill const& p) {
   } else if(p.has_lowertri()) {
     auto const& l = p.lowertri();
     return fill_t(lowertri_t {
-      .dtype = parse_with_ss<dtype_t>(l.dtype()),
+      .lower = parse_with_ss<scalar_t>(l.lower()),
+      .upper = parse_with_ss<scalar_t>(l.upper()),
       .nrow = l.ncol(),
       .ncol = l.nrow(),
       .start = l.start()
