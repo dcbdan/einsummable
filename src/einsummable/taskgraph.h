@@ -120,6 +120,7 @@ public:
   // (It is not neccesarily the case that get_order = 0,1,2,...
   //  because things can get added to partialize ops)
   vector<int> get_order() const;
+  vector<int> get_reverse_order() const;
 
   tuple<vector<int>, vector<int>> get_input_core_order() const;
   set<int> get_input_everywhere_ids() const;

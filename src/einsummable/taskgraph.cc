@@ -2259,23 +2259,40 @@ tuple<
   taskgraph_t >
 taskgraph_t::prune() const
 {
-	throw std::runtime_error("tg prune: not implemented");
-  // set<int> keep_nodes;
-  // for every tid in reverse order:
-  //   if this is a save node:
-  //     keep_nodes.insert(tid)
-  //   else if this is an input node:
-  //     keep_nodes.insert(tid)
-  //
-  //   if this node is in keep_nodes:
-  //     for each input inn:
-  //       keep_nodes.insert(inn)
-  //
-  // map<int, int> xid_to_yid;
-  // for every xid in order:
-  //   if xid in keep nodes:
-  //     yid = insert the node
-  //     xid_to_yid.insert({xid,yid})
+  set<int> keep_nodes;
+  for(int const& tid: get_reverse_order()) {
+    auto const& node = nodes[tid];
+    if(node.is_save) {
+      keep_nodes.insert(tid);
+    } else if(node.op.is_input()) {
+      keep_nodes.insert(tid);
+    }
+
+    if(keep_nodes.count(tid) > 0) {
+      for(auto const& inn: node.op.inputs()) {
+        keep_nodes.insert(inn);
+      }
+    }
+  }
+
+  map<int, int> xid_to_yid;
+  auto f_xid_to_yid = [&](int xid) -> int {
+    return xid_to_yid.at(xid);
+  };
+
+  taskgraph_t ret;
+  for(int const& xid: get_order()) {
+    if(keep_nodes.count(xid) == 0) {
+      continue;
+    }
+
+    auto const& xnode = nodes[xid];
+    auto const& xop = xnode.op;
+    int yid = ret.insert(xop.remap(f_xid_to_yid), xnode.is_save);
+    xid_to_yid.insert({xid, yid});
+  }
+
+  return {xid_to_yid, ret};
 }
 
 vector<int> taskgraph_t::get_order() const {
@@ -2314,6 +2331,14 @@ vector<int> taskgraph_t::get_order() const {
     }
   }
 
+  return ret;
+}
+
+vector<int> taskgraph_t::get_reverse_order() const {
+  // TODO: This is mathematically correct, right?
+  //       If so, update any other graphs reverse order too
+  vector<int> ret = get_order();
+  std::reverse(ret.begin(), ret.end());
   return ret;
 }
 
