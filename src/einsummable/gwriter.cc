@@ -460,6 +460,16 @@ graph_writer_t::constant(
 }
 
 graph_writer_t::tensor_t
+graph_writer_t::fill(fill_t const& fill)
+{
+  int id = graph.insert_fill(fill);
+  return tensor_t(
+    full_shape_t::from_full(fill.shape()),
+    id,
+    this);
+}
+
+graph_writer_t::tensor_t
 graph_writer_t::constant(
   scalar_t value,
   full_shape_t shape,

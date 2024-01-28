@@ -534,8 +534,16 @@ tensor_t transformer_t::forward(tensor_t x)
     throw std::runtime_error("The batch size cannot be variable!");
   }
 
-  // TODO: how do masks work and when should they be supported?
-  //       mask = writer->input({ seqlen, seqlen });
+  if(seqlen > 1) {
+    if(start_pos != 0) {
+      throw std::runtime_error(
+        "Masks are only supported on the first iteration");
+      // TODO: how do masks work and should they be supported
+      //       whenever seqlen > 1?
+    }
+    mask = writer->fill(form_start_mask(seqlen, x.get_dtype()));
+  }
+
 
   tensor_t freqs_cis = get_freqs_cis(seqlen);
 
@@ -614,31 +622,15 @@ dbuffer_t transformer_t::form_freqs_cis(
   return freqs_cis;
 }
 
-template <typename T>
-void _form_start_mask_set_zero(uint64_t const& seqlen, T* data)
+fill_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype)
 {
-  for(int i = 0; i != seqlen; ++i) {
-  for(int j = 0; j != i+1;    ++j) {
-    data[i*seqlen + j] = 0.0;
-  }}
-}
-
-dbuffer_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype) {
-  dbuffer_t mask = make_dbuffer(dtype, seqlen*seqlen);
-
-  mask.fill(scalar_t::negative_inf(dtype));
-
-  if(dtype == dtype_t::f16) {
-    _form_start_mask_set_zero(seqlen, mask.f16());
-  } else if(dtype == dtype_t::f32) {
-    _form_start_mask_set_zero(seqlen, mask.f32());
-  } else if(dtype == dtype_t::f64) {
-    _form_start_mask_set_zero(seqlen, mask.f64());
-  } else {
-    throw std::runtime_error("should not happen: invalid dtype form start mask");
-  }
-
-  return mask;
+  return fill_t(fill_t::lowertri_t {
+    .lower = scalar_t::zero(dtype),
+    .upper = scalar_t::negative_inf(dtype),
+    .nrow = seqlen,
+    .ncol = seqlen,
+    .start = 0
+  });
 }
 
 tensor_t transformer_t::get_freqs_cis(uint64_t n) {

@@ -206,6 +206,10 @@ struct graph_writer_t {
     vector<vector<uint64_t>> const& shape,
     dtype_t dtype = default_dtype());
 
+  // TODO: The problem with this is that the shapes
+  //       cannot be grouped
+  tensor_t fill(fill_t const& fill);
+
   tensor_t contraction(
     string str,
     tensor_t const& lhs,
