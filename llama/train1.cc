@@ -169,7 +169,7 @@ void main_rank_zero(
   server->insert_tensor(
     full_freqs_cis.get_id(),
     full_freqs_cis.get_shape().full(),
-    transformer_t::form_full_freqs_cis(margs));
+    transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
 
   trainer_constant_ids.push_back(full_freqs_cis.get_id());
 

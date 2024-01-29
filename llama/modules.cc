@@ -593,9 +593,8 @@ dbuffer_t transformer_t::form_full_freqs_cis(
 }
 
 dbuffer_t transformer_t::form_freqs_cis(
-  uint64_t dim, uint64_t end)
+  uint64_t dim, uint64_t end, float theta)
 {
-  float theta = 10000.0;
   uint64_t hdim = uint64_div(dim, 2);
 
   dbuffer_t xs = make_dbuffer(dtype_t::f32, hdim);
@@ -620,6 +619,27 @@ dbuffer_t transformer_t::form_freqs_cis(
   }
 
   return freqs_cis;
+}
+
+dbuffer_t
+transformer_t::form_position_interpolation_full_freqs_cis(
+  model_args_t const& args, uint64_t orig_seq_len)
+{
+  return form_position_interpolation_full_freqs_cis(
+    args.dim, args.n_heads, args.max_seq_len, orig_seq_len);
+}
+
+dbuffer_t transformer_t::form_position_interpolation_full_freqs_cis(
+  uint64_t args_dim, uint64_t args_n_heads, uint64_t args_max_seq_len,
+  uint64_t orig_seq_len)
+{
+  uint64_t dim  = uint64_div(args_dim, args_n_heads);
+  uint64_t end = 2*args_max_seq_len;
+
+  float theta = 10000.0;
+  theta *= float(orig_seq_len) / float(args_max_seq_len);
+
+  return form_full_freqs_cis(dim, end, theta);
 }
 
 fill_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype)
