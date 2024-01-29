@@ -177,19 +177,87 @@ scalar_t scalar_t::zero(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
-scalar_t scalar_t::negative_inf(dtype_t dtype) {
-  if(!std::numeric_limits<double>::is_iec559) {
-    throw std::runtime_error("uh oh; can't get -inf");
-  }
-  double ninf = - std::numeric_limits<double>::infinity();
+double _f64_inf() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for inf");
+  return std::numeric_limits<double>::infinity();
+}
+double _f64_ninf() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for ninf");
+  double ret = - std::numeric_limits<double>::infinity();
+  return ret;
+}
+double _f64_nan() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for nan");
+  double ret = std::numeric_limits<double>::quiet_NaN();
+  return ret;
+}
 
+static
+float16_t const&
+f16_inf() {
+  static float16_t ret(_f64_inf());
+  return ret;
+}
+static
+float const&
+f32_inf() {
+  static float ret(_f64_inf());
+  return ret;
+}
+static
+double const&
+f64_inf() {
+  static double ret(_f64_inf());
+  return ret;
+}
+
+static
+float16_t const&
+f16_ninf() {
+  static float16_t ret(_f64_ninf());
+  return ret;
+}
+static
+float const&
+f32_ninf() {
+  static float ret(_f64_ninf());
+  return ret;
+}
+static
+double const&
+f64_ninf() {
+  static double ret(_f64_ninf());
+  return ret;
+}
+
+static
+float16_t const&
+f16_nan() {
+  static float16_t ret(_f64_nan());
+  return ret;
+}
+static
+float const&
+f32_nan() {
+  static float ret(_f64_nan());
+  return ret;
+}
+static
+double const&
+f64_nan() {
+  static double ret(_f64_nan());
+  return ret;
+}
+
+
+scalar_t scalar_t::negative_inf(dtype_t dtype) {
   switch(dtype) {
     case dtype_t::f16:
-      return scalar_t(float16_t(ninf));
+      return scalar_t(f16_ninf());
     case dtype_t::f32:
-      return scalar_t(float(ninf));
+      return scalar_t(f32_ninf());
     case dtype_t::f64:
-      return scalar_t(ninf);
+      return scalar_t(f64_ninf());
     case dtype_t::c64:
       throw std::runtime_error("no -inf for complex");
   }
@@ -197,18 +265,13 @@ scalar_t scalar_t::negative_inf(dtype_t dtype) {
 }
 
 scalar_t scalar_t::inf(dtype_t dtype) {
-  if(!std::numeric_limits<double>::is_iec559) {
-    throw std::runtime_error("uh oh; can't get inf");
-  }
-  double inf = std::numeric_limits<double>::infinity();
-
   switch(dtype) {
     case dtype_t::f16:
-      return scalar_t(float16_t(inf));
+      return scalar_t(f16_inf());
     case dtype_t::f32:
-      return scalar_t(float(inf));
+      return scalar_t(f32_inf());
     case dtype_t::f64:
-      return scalar_t(inf);
+      return scalar_t(f64_inf());
     case dtype_t::c64:
       throw std::runtime_error("no inf for complex");
   }
@@ -1129,6 +1192,23 @@ node_t node_t::simplify_once() const {
     }
     if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::zero(dtype)) {
       return lhs;
+    }
+
+    // Check for inf + x or x + inf
+    //       or -inf + x or x + -inf
+    if(!dtype_is_complex(dtype)) {
+      if(lhs.op.is_constant() &&
+        (lhs.op.get_constant() == scalar_t::inf(dtype) ||
+         lhs.op.get_constant() == scalar_t::negative_inf(dtype)))
+      {
+        return lhs;
+      }
+      if(rhs.op.is_constant() &&
+        (rhs.op.get_constant() == scalar_t::inf(dtype) ||
+         rhs.op.get_constant() == scalar_t::negative_inf(dtype)))
+      {
+        return rhs;
+      }
     }
   }
 
@@ -2451,11 +2531,35 @@ std::ostream& operator<<(std::ostream& out, scalar_t const& c) {
   if(c.dtype == dtype_t::c64) {
     out << c.c64();
   } else if(c.dtype == dtype_t::f16) {
-    out << c.f16();
+    if(c.f16() == f16_inf()) {
+      out << "INF";
+    } else if(c.f16() == f16_ninf()) {
+      out << "NINF";
+    } else if(half_float::isnan(c.f16())) {
+      out << "NAN";
+    } else {
+      out << c.f16();
+    }
   } else if(c.dtype == dtype_t::f32) {
-    out << c.f32();
+    if(c.f32() == f32_inf()) {
+      out << "INF";
+    } else if(c.f32() == f32_ninf()) {
+      out << "NINF";
+    } else if(std::isnan(c.f32())) {
+      out << "NAN";
+    } else {
+      out << c.f32();
+    }
   } else if(c.dtype == dtype_t::f64) {
-    out << c.f64();
+    if(c.f64() == f64_inf()) {
+      out << "INF";
+    } else if(c.f64() == f64_ninf()) {
+      out << "NINF";
+    } else if(std::isnan(c.f64())) {
+      out << "NAN";
+    } else {
+      out << c.f64();
+    }
   } else {
     throw std::runtime_error("should not reach << scalar_t");
   }
@@ -2470,16 +2574,56 @@ std::istream& operator>>(std::istream& inn, scalar_t& c) {
     throw std::runtime_error("expected bar in scalar_t parse");
   }
 
-  if(c.dtype == dtype_t::c64) {
-    inn >> c.c64();
-  } else if(c.dtype == dtype_t::f16) {
-    inn >> c.f16();
-  } else if(c.dtype == dtype_t::f32) {
-    inn >> c.f32();
-  } else if(c.dtype == dtype_t::f64) {
-    inn >> c.f64();
+  char peek = inn.peek();
+
+  if(peek == 'I') {
+    istream_expect(inn, "INF");
+    if(c.dtype == dtype_t::f16) {
+      c.f16() = f16_inf();
+    } else if(c.dtype == dtype_t::f32) {
+      c.f32() = f32_inf();
+    } else if(c.dtype == dtype_t::f64) {
+      c.f64() = f64_inf();
+    } else {
+      throw std::runtime_error("unexpected dtype");
+    }
+  } else if(peek == 'N') {
+    int which = istream_expect_or(inn, {"NINF", "NAN"});
+    if(which == 0) {
+      if(c.dtype == dtype_t::f16) {
+        c.f16() = f16_ninf();
+      } else if(c.dtype == dtype_t::f32) {
+        c.f32() = f32_ninf();
+      } else if(c.dtype == dtype_t::f64) {
+        c.f64() = f64_ninf();
+      } else {
+        throw std::runtime_error("unexpected dtype");
+      }
+    } else if(which == 1) {
+      if(c.dtype == dtype_t::f16) {
+        c.f16() = f16_nan();
+      } else if(c.dtype == dtype_t::f32) {
+        c.f32() = f32_nan();
+      } else if(c.dtype == dtype_t::f64) {
+        c.f64() = f64_nan();
+      } else {
+        throw std::runtime_error("unexpected dtype");
+      }
+    } else {
+      throw std::runtime_error("should not reach");
+    }
   } else {
-    throw std::runtime_error("should not reach >> scalar_t");
+    if(c.dtype == dtype_t::c64) {
+      inn >> c.c64();
+    } else if(c.dtype == dtype_t::f16) {
+      inn >> c.f16();
+    } else if(c.dtype == dtype_t::f32) {
+      inn >> c.f32();
+    } else if(c.dtype == dtype_t::f64) {
+      inn >> c.f64();
+    } else {
+      throw std::runtime_error("should not reach >> scalar_t");
+    }
   }
 
   return inn;

@@ -2792,11 +2792,66 @@ bool taskgraph_t::_replace_apply(int tid) {
   }
 
   // Create the new einsummable and rewrite the apply op
+
   if(einsummable.has_aggregation()) {
-    throw std::runtime_error(
-      "not implemented: _replace_apply "
-      "creating a new op with aggregation and a new join");
-    return false;
+    // What happens where there is an agg ?
+    //   If one of the agg modes is removed completely, then
+    //   that agg will be missing from the einsummable.
+    //   Consider
+    //     castable_jk [ f(x_ij, y_k, z_k) ] -> out_i
+    //   To
+    //     castable_jk [ g(x_ij) ] -> out_i
+    //   -----------
+    //     sum_jk [ f(x_ij) ] -> sum_j [ f(x_ij)*N_k ]   -> out_i
+    //     max_jk [ f(x_ij) ] -> max_j [ f(x_ij) ]       -> out_i
+    //     mul_jk [ f(x_ij) ] -> mul_j [ f(x_ij)^{N_k} ] -> out_i
+
+    uint64_t missing_agg_size = 1;
+    // 1. figure out the agg modes
+    // 2. figure out what their sizes are
+    for(int agg_mode = einsummable.out_rank;
+            agg_mode != einsummable.join_shape.size();
+            ++agg_mode)
+    {
+      bool is_missing = true;
+      for(int const& which: which_kept) {
+        auto const& modes = einsummable.inns[which];
+        for(auto const& mode: modes) {
+          if(mode == agg_mode) {
+            is_missing = false;
+            break;
+          }
+        }
+        if(!is_missing) {
+          break;
+        }
+      }
+      if(is_missing) {
+        missing_agg_size *= einsummable.join_shape[agg_mode];
+      }
+    }
+
+    if(missing_agg_size > 1) {
+		  castable_t castable = einsummable.castable.value();
+      if(castable == castable_t::max || castable == castable_t::min) {
+        // new_join does not need to be modified
+      } else if(castable == castable_t::add) {
+        // new_join needs to scaled by the number of missing aggs
+        scalar_t real_missing_agg_size(
+          new_join.out_dtype(),
+          write_with_ss(1.0 * missing_agg_size));
+        new_join = scalarop_t::combine(
+          scalarop_t::make_scale(real_missing_agg_size),
+          { new_join });
+      } else if(castable == castable_t::mul) {
+        // new_join needs to be raised to the power of missing aggs
+        new_join = scalarop_t::combine(
+          scalarop_t::make_power(int(missing_agg_size), new_join.out_dtype()),
+          { new_join });
+      } else {
+        throw std::runtime_error("missing castable case");
+      }
+    }
   }
 
   auto [out_str, inn_strs] = einsummable.str_terms();
@@ -2812,7 +2867,7 @@ bool taskgraph_t::_replace_apply(int tid) {
   for(int i = 1; i != new_inn_strs.size(); ++i) {
     new_str += "," + new_inn_strs[i];
   }
-  new_str + "->" + out_str;
+  new_str += "->" + out_str;
   auto [new_e_inns, new_out_rank] = einsummable_t::parse_str(new_str);
   auto new_join_shape = einsummable_t::construct_join_shape(
     einsummable.out_shape(),
@@ -2820,12 +2875,11 @@ bool taskgraph_t::_replace_apply(int tid) {
     new_inn_shapes);
 
   einsummable_t new_einsummable(
-    new_join_shape, new_e_inns, new_out_rank, new_join, std::nullopt);
+    new_join_shape, new_e_inns, new_out_rank, new_join,
+    einsummable.castable);
 
-  auto const& old_node = node;
-  auto const& old_apply = apply;
   apply_t new_apply {
-    .loc = old_apply.loc,
+    .loc = apply.loc,
     .inns = new_inns,
     .einsummable = new_einsummable
   };
@@ -3606,11 +3660,13 @@ void taskgraph_t::print_graphviz(
       }
       label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc);
     } else if(op.is_constant()) {
-      auto const& [loc, _] = node.op.get_constant();
+      auto const& [loc, fill] = node.op.get_constant();
       if(loc < colors.size()) {
         color = colors[loc];
       }
-      label = "constant" + write_with_ss(id) + "@loc" + write_with_ss(loc);
+      color = "pink";
+      label = "constant" + write_with_ss(id) + "@loc["
+        + write_with_ss(loc) + "]" + write_with_ss(fill);
     } else if(op.is_apply()) {
       auto const& [loc, _, e] = node.op.get_apply();
       if(loc < colors.size()) {

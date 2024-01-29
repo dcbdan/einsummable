@@ -66,4 +66,6 @@ private:
   build_from_lowertri(fill_t::lowertri_t const& l);
 };
 
+std::ostream& operator<<(std::ostream& out, fill_t const& f);
+
 

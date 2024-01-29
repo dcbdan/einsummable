@@ -717,15 +717,7 @@ void graph_t::print_graphviz(
       label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
     } else if(op.is_fill()) {
       auto const& f = node.op.get_fill();
-      string s;
-      if(f.is_constant()) {
-        s = write_with_ss(f.get_constant().value);
-      } else if(f.is_lowertri()) {
-        s = "lowertri";
-      } else {
-        throw std::runtime_error("missing fill type");
-      }
-      label = "fill" + write_with_ss(id) + ":" + s;
+      label = write_with_ss(f);
     } else if(op.is_select()) {
       label = "select" + write_with_ss(id);
     } else {

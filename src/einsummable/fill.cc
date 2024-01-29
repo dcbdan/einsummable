@@ -61,7 +61,7 @@ fill_t::lowertri_t::select(hrect_t const& hrect) const
     .upper = upper,
     .nrow = i_end - i_beg,
     .ncol = j_end - j_beg,
-    .start = start - int64_t(i_beg)
+    .start = start - int64_t(i_beg) + int64_t(j_beg)
   };
 }
 
@@ -158,5 +158,20 @@ fill_t fill_t::from_proto(es_proto::Fill const& p) {
   } else {
     throw std::runtime_error("should not reach");
   }
+}
+
+std::ostream& operator<<(std::ostream& out, fill_t const& f) {
+  out << "fill|";
+  if(f.is_constant()) {
+    auto const& c = f.get_constant();
+    out << "constant|" << c.value << "|" << c.shape;
+  } else if(f.is_lowertri()) {
+    auto const& l = f.get_lowertri();
+    out << "lowertri|L" << l.lower << "|U" << l.upper << "|s" << l.start << "|";
+    out << vector<uint64_t>{l.nrow, l.ncol};
+  } else {
+    throw std::runtime_error("missing fill case: operator<<");
+  }
+  return out;
 }
 
