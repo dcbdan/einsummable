@@ -87,8 +87,9 @@ exec_graph_t::make_cpu_tg_exec_graph(
     if(node.op.is_move()) {
       auto const& [src,dst,inn_tid,size] = node.op.get_move();
       if(src == this_rank) {
-        // the resulting tensor doesn't actually live here so no need to
-        // add to dinfos
+        // The resulting tensor doesn't actually live here so no need to
+        // add to dinfos. The source tensor does live here and will be initialized
+        // into dinfos at another node.
       } else if(dst == this_rank) {
         dinfos.insert({tid, dinfo_t {
           .usage_rem = 0,
@@ -270,7 +271,7 @@ cpu_tg_fill_constant_t::resource_description() const
 {
   vector<desc_ptr_t> ret;
 
-  ret.emplace_back(data_manager_t::make_desc(tid, {}));
+  ret.emplace_back(data_manager_t::make_desc(tid, vector<int>{}));
   ret.emplace_back(threadpool_manager_t::make_desc());
 
   return resource_manager_t::make_desc(ret);
@@ -285,7 +286,7 @@ void tg_send_t::launch(resource_ptr_t rsrc, std::function<void()> callback) cons
 
   auto const& wire = send_channel_manager_t::get_resource(resources[1]);
 
-  auto const& [_, mems] = data_manager_t::get_resource(resources[0]).extract();
+  auto const& [_, mems] = data_manager_t::get_resource(resources[2]).extract();
   void const* mem = mems[0];
 
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
@@ -305,7 +306,7 @@ desc_ptr_t tg_send_t::resource_description() const
    vector<desc_ptr_t> {
      notifier_t::make_desc(unit_t{}),
      send_channel_manager_t::make_desc(dst),
-     data_manager_t::make_desc({}, { src_tid }),
+     data_manager_t::make_desc(vector<int>{}, { src_tid }),
      threadpool_manager_t::make_desc()
    }
  );
@@ -333,7 +334,7 @@ desc_ptr_t tg_recv_t::resource_description() const
 {
   return resource_manager_t::make_desc(
     vector<desc_ptr_t> {
-      data_manager_t::make_desc(dst_tid, {}),
+      data_manager_t::make_desc(dst_tid, vector<int>{}),
       recv_channel_manager_t::make_desc({ dst_tid, src }),
       threadpool_manager_t::make_desc()
     }

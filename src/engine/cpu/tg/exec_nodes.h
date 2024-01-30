@@ -74,7 +74,7 @@ struct tg_send_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const;
 
   void print(std::ostream& out) const {
-    out << "tg_send_t {id = " << dst_tid << "}";
+    out << "tg_send_t {id = " << src_tid << " -> " << dst_tid << " }";
   }
 };
 
