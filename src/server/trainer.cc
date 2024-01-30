@@ -351,17 +351,20 @@ void trainer_t::adamw_update_t::modify_vars(
   iter++;
 
   scalar_t one = scalar_t::one(dtype);
+  scalar_t one_mp = scalar_t::one(min_precision);
 
   vars.insert_or_assign("beta1_complement", one - vars["beta1"]);
   vars.insert_or_assign("beta2_complement", one - vars["beta2"]);
 
-  scalarop_t power = scalarop_t::make_power(iter, dtype);
-  scalarop_t div = scalarop_t::make_div(dtype);
+  scalarop_t power = scalarop_t::make_power(iter, min_precision);
 
-  vars.insert_or_assign("beta1tt", one / (one - power.eval(vars["beta1"])));
-  vars.insert_or_assign("beta2tt", one / (one - power.eval(vars["beta2"])));
+  vars.insert_or_assign("beta1tt", one_mp / (one_mp - power.eval(vars["beta1"].convert(min_precision))));
+  vars.insert_or_assign("beta2tt", one_mp / (one_mp - power.eval(vars["beta2"].convert(min_precision))));
 
-  vars.insert({"eps", scalar_t(dtype, "1e-8")});
+  vars.insert({"eps", scalar_t(min_precision, "1e-8")});
+
+  auto& eta = vars["eta"];
+  eta = eta.convert(min_precision);
 }
 
 vector<tuple<int, int>>
@@ -376,12 +379,24 @@ trainer_t::adamw_update_t::update_weights(
     return {};
   }
 
+  scalarop_t up_prec   = scalarop_t::make_convert_dtype(dtype, min_precision);
+  scalarop_t down_prec = scalarop_t::make_convert_dtype(min_precision, dtype);
+
+  auto up_prec_scale = [&](string var) {
+    return scalarop_t::combine(
+      scalarop_t::make_scale(var, min_precision),
+      { up_prec });
+  };
+
   scalarop_t grad_update = scalarop_t::combine(
-    scalarop_t::make_sub(dtype),
+    scalarop_t::make_sub(min_precision),
     {
-      scalarop_t::make_identity(dtype),
-      scalarop_t::make_scale("eta", dtype)
+      up_prec,
+      scalarop_t::make_scale("eta", min_precision)
     });
+  grad_update = scalarop_t::combine(
+    down_prec,
+    { grad_update });
 
   scalarop_t beta1_portion = scalarop_t::combine(
     scalarop_t::make_add(dtype),
@@ -389,24 +404,27 @@ trainer_t::adamw_update_t::update_weights(
       scalarop_t::make_scale("beta1", dtype),
       scalarop_t::make_scale("beta1_complement", dtype)
     });
+
   scalarop_t scale_square = scalarop_t::combine(
-    scalarop_t::make_scale("beta2_complement"),
+    scalarop_t::make_scale("beta2_complement", dtype),
     { scalarop_t::make_square(dtype) });
+
   scalarop_t beta2_portion = scalarop_t::combine(
     scalarop_t::make_add(dtype),
     {
       scalarop_t::make_scale("beta2", dtype),
       scale_square
     });
+
   scalarop_t sqrt_plus_eps = scalarop_t::combine(
-    scalarop_t::make_add(dtype),
+    scalarop_t::make_add(min_precision),
     {
-      scalarop_t::make_sqrt(dtype),
-      scalarop_t::make_variable("eps", dtype)
+      scalarop_t::make_sqrt(min_precision),
+      scalarop_t::make_variable("eps", min_precision)
     });
 
-  scalarop_t beta1t_scale = scalarop_t::make_scale("beta1tt", dtype);
-  scalarop_t beta2t_scale = scalarop_t::make_scale("beta2tt", dtype);
+  scalarop_t beta1t_scale = up_prec_scale("beta1tt");
+  scalarop_t beta2t_scale = up_prec_scale("beta2tt");
 
   m_ids.reserve(n);
   v_ids.reserve(n);
@@ -431,7 +449,7 @@ trainer_t::adamw_update_t::update_weights(
     int vv = insert_einsummable_ew(graph, beta2t_scale, { v_new });
     vv = insert_einsummable_ew(graph, sqrt_plus_eps, { vv });
 
-    int xx = insert_einsummable_ew(graph, scalarop_t::make_div(dtype), {mm, vv});
+    int xx = insert_einsummable_ew(graph, scalarop_t::make_div(min_precision), {mm, vv});
 
     int w_new = insert_einsummable_ew(graph, grad_update, {w_id, xx});
 

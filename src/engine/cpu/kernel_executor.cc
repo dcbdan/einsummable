@@ -739,8 +739,8 @@ inline std::complex<T> _complex(T const& x, T const& y) {
   { \
     TO* out     = reinterpret_cast<TO*>(_out); \
     T const* x0 = reinterpret_cast<T const*>(_x0); \
-    for(uint64_t i = 0; i != n; ++i) { \
-      out[i] = op; \
+    for(uint64_t i0 = 0; i0 != n; ++i0) { \
+      out[i0] = op; \
     } \
   }
 
@@ -850,35 +850,41 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     }} \
   }
 
-_unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i]))
-_unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i]))
-_unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i]))
-_unary_ew_loop(u3,float16_t,float16_t,(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4))))))
-_unary_ew_loop(u4,float,float,_exp(x0[i]))
-_unary_ew_loop(u5,float,float,_pow(x0[i],(*((double*)(d+0)))))
-_unary_ew_loop(u6,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
-_unary_ew_loop(u7,float,float,_pow(x0[i],(*((double*)(d+0)))))
-_unary_ew_loop(u8,float16_t,float,float16_t(x0[i]))
-_unary_ew_loop(u9,float16_t,float16_t,((*((float16_t*)(d+0)))*x0[i]))
-_unary_ew_loop(u10,float,float16_t,float(x0[i]))
-_unary_ew_loop(u12,double,double,(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16))))))
-_unary_ew_loop(u13,double,double,((*((double*)(d+0)))+x0[i]))
-_unary_ew_loop(u14,double,double,((*((double*)(d+0)))*x0[i]))
-_unary_ew_loop(u15,float,float,(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8))))))
-_unary_ew_loop(u16,float,float,((*((float*)(d+0)))+x0[i]))
-_unary_ew_loop(u17,float,float,((*((float*)(d+0)))*x0[i]))
-_unary_ew_loop(u18,float,double,float(x0[i]))
-_unary_ew_loop(u19,double,float,double(x0[i]))
-_unary_ew_loop(u20,float16_t,double,float16_t(x0[i]))
-_unary_ew_loop(u21,double,float16_t,double(x0[i]))
-_unary_ew_loop(u22,double,double,_pow(x0[i],(*((double*)(d+0)))))
-_unary_ew_loop(u23,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i])))
-_unary_ew_loop(u24,double,double,((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i])))
-_unary_ew_loop(u25,double,double,_exp(x0[i]))
-_unary_ew_loop(u26,float,float,((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4))))))
-_unary_ew_loop(u27,float,float,_pow(_log(x0[i]),(*((double*)(d+0)))))
-_unary_ew_loop(u28,float,float,_log(x0[i]))
-_unary_ew_loop(u29,float,float,((*((float*)(d+0)))*_pow(_log(x0[i]),(*((double*)(d+4))))))
+_unary_ew_loop(u0,float,float,((*((float*)(d+0)))>=x0[i0]?(*((float*)(d+4))):x0[i0]))
+_unary_ew_loop(u1,float16_t,float16_t,((*((float16_t*)(d+0)))>=x0[i0]?(*((float16_t*)(d+2))):x0[i0]))
+_unary_ew_loop(u2,double,double,((*((double*)(d+0)))>=x0[i0]?(*((double*)(d+8))):x0[i0]))
+_unary_ew_loop(u3,float16_t,float16_t,(x0[i0]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i0]))),(*((double*)(d+4))))))
+_unary_ew_loop(u4,float,float,_exp(x0[i0]))
+_unary_ew_loop(u5,float,float,_pow(x0[i0],(*((double*)(d+0)))))
+_unary_ew_loop(u6,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0])))
+_unary_ew_loop(u7,float,float,_pow(x0[i0],(*((double*)(d+0)))))
+_unary_ew_loop(u8,float16_t,float,float16_t(x0[i0]))
+_unary_ew_loop(u9,float16_t,float16_t,((*((float16_t*)(d+0)))*x0[i0]))
+_unary_ew_loop(u10,float,float16_t,float(x0[i0]))
+_unary_ew_loop(u12,double,double,(x0[i0]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i0]))),(*((double*)(d+16))))))
+_unary_ew_loop(u13,double,double,((*((double*)(d+0)))+x0[i0]))
+_unary_ew_loop(u14,double,double,((*((double*)(d+0)))*x0[i0]))
+_unary_ew_loop(u15,float,float,(x0[i0]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8))))))
+_unary_ew_loop(u16,float,float,((*((float*)(d+0)))+x0[i0]))
+_unary_ew_loop(u17,float,float,((*((float*)(d+0)))*x0[i0]))
+_unary_ew_loop(u18,float,double,float(x0[i0]))
+_unary_ew_loop(u19,double,float,double(x0[i0]))
+_unary_ew_loop(u20,float16_t,double,float16_t(x0[i0]))
+_unary_ew_loop(u21,double,float16_t,double(x0[i0]))
+_unary_ew_loop(u22,double,double,_pow(x0[i0],(*((double*)(d+0)))))
+_unary_ew_loop(u23,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0])))
+_unary_ew_loop(u24,double,double,((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i0])))
+_unary_ew_loop(u25,double,double,_exp(x0[i0]))
+_unary_ew_loop(u26,float,float,((*((float*)(d+0)))+_pow(x0[i0],(*((double*)(d+4))))))
+_unary_ew_loop(u27,float,float,_pow(_log(x0[i0]),(*((double*)(d+0)))))
+_unary_ew_loop(u28,float,float,_log(x0[i0]))
+_unary_ew_loop(u29,float,float,((*((float*)(d+0)))*_pow(_log(x0[i0]),(*((double*)(d+4))))))
+_unary_ew_loop(u30,float16_t,float16_t,_exp(x0[i0]))
+_unary_ew_loop(u31,float16_t,float16_t,_log(x0[i0]))
+_unary_ew_loop(u32,float16_t,float16_t,_pow(_log(x0[i0]),(*((double*)(d+0)))))
+_unary_ew_loop(u33,float16_t,float16_t,_pow(x0[i0],(*((double*)(d+0)))))
+_unary_ew_loop(u34,float16_t,float16_t,((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2))))))
+_unary_ew_loop(u35,float,float16_t,((*((float*)(d+0)))*float(x0[i0])))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -924,9 +930,18 @@ _binary_ew_loop(b40,c40,d40,float,float,float,(x0[i0]*((*((float*)(d+0)))*x1[i1]
 _binary_ew_loop(b41,c41,d41,float,float,float,(x0[i0]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i1]))),(*((double*)(d+8))))+(x1[i1]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i1]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i1])))))))))
 _binary_ew_loop(b42,c42,d42,float,float,float,(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4)))))))
 _binary_ew_loop(b43,c43,d43,float,float,float,(x0[i0]*((*((float*)(d+0)))*x1[i1])))
+_binary_ew_loop(b44,c44,d44,float16_t,float16_t,float16_t,(x0[i0]*(_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x1[i1]))),(*((double*)(d+4))))+(x1[i1]*((*((float16_t*)(d+12)))*(_pow(((*((float16_t*)(d+14)))+_exp(((*((float16_t*)(d+16)))*x1[i1]))),(*((double*)(d+18))))*((*((float16_t*)(d+26)))*_exp(((*((float16_t*)(d+28)))*x1[i1])))))))))
+_binary_ew_loop(b45,c45,d45,float16_t,float16_t,float16_t,(x0[i0]*_exp(x1[i1])))
+_binary_ew_loop(b46,c46,d46,float16_t,float16_t,float16_t,(x0[i0]*_pow(x1[i1],(*((double*)(d+0))))))
+_binary_ew_loop(b47,c47,d47,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*x1[i1])))
+_binary_ew_loop(b48,c48,d48,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4)))))))
+_binary_ew_loop(b49,c49,d49,float16_t,float16_t,float16_t,(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2)))))
+_binary_ew_loop(b50,c50,d50,float16_t,float16_t,float,float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1])))))
 
 _ternary_ew_loop(tstraight_0,t2112_0,float,float,float,float,(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4))))))))
 _ternary_ew_loop(tstraight_1,t2112_1,float,float,float,float,((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2]))
+_ternary_ew_loop(tstraight_2,t2112_2,float16_t,float16_t,float16_t,float16_t,(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2))))))))
+_ternary_ew_loop(tstraight_3,t2112_3,float16_t,float16_t,float16_t,float16_t,((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2]))
 
 optional<
   tuple<vector<uint8_t>,
@@ -945,35 +960,41 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
   string key = op.type_signature() + "|" + op_str;
 
   static map<string, kernel_t> kernels = {
-    { "f32->f32|((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):x0[i])", u0 },
-    { "f16->f16|((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):x0[i])", u1 },
-    { "f64->f64|((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):x0[i])", u2 },
-    { "f16->f16|(x0[i]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i]))),(*((double*)(d+4)))))", u3 },
-    { "f32->f32|_exp(x0[i])", u4 },
-    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u5 },
-    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u6 },
-    { "f32->f32|_pow(x0[i],(*((double*)(d+0))))", u7 },
-    { "f32->f16|float16_t(x0[i])", u8 },
-    { "f16->f16|((*((float16_t*)(d+0)))*x0[i])", u9 },
-    { "f16->f32|float(x0[i])", u10 },
-    { "f64->f64|(x0[i]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i]))),(*((double*)(d+16)))))", u12 },
-    { "f64->f64|((*((double*)(d+0)))+x0[i])", u13 },
-    { "f64->f64|((*((double*)(d+0)))*x0[i])", u14 },
-    { "f32->f32|(x0[i]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i]))),(*((double*)(d+8)))))", u15 },
-    { "f32->f32|((*((float*)(d+0)))+x0[i])", u16 },
-    { "f32->f32|((*((float*)(d+0)))*x0[i])", u17 },
-    { "f64->f32|float(x0[i])", u18 },
-    { "f32->f64|double(x0[i])", u19 },
-    { "f64->f16|float16_t(x0[i])", u20 },
-    { "f16->f64|double(x0[i])", u21 },
-    { "f64->f64|_pow(x0[i],(*((double*)(d+0))))", u22 },
-    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i]))", u23 },
-    { "f64->f64|((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i]))", u24 },
-    { "f64->f64|_exp(x0[i])", u25 },
-    { "f32->f32|((*((float*)(d+0)))+_pow(x0[i],(*((double*)(d+4)))))", u26 },
-    { "f32->f32|_pow(_log(x0[i]),(*((double*)(d+0))))", u27 },
-    { "f32->f32|_log(x0[i])", u28 },
-    { "f32->f32|((*((float*)(d+0)))*_pow(_log(x0[i]),(*((double*)(d+4)))))", u29 }
+    { "f32->f32|((*((float*)(d+0)))>=x0[i0]?(*((float*)(d+4))):x0[i0])", u0 },
+    { "f16->f16|((*((float16_t*)(d+0)))>=x0[i0]?(*((float16_t*)(d+2))):x0[i0])", u1 },
+    { "f64->f64|((*((double*)(d+0)))>=x0[i0]?(*((double*)(d+8))):x0[i0])", u2 },
+    { "f16->f16|(x0[i0]*_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x0[i0]))),(*((double*)(d+4)))))", u3 },
+    { "f32->f32|_exp(x0[i0])", u4 },
+    { "f32->f32|_pow(x0[i0],(*((double*)(d+0))))", u5 },
+    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0]))", u6 },
+    { "f32->f32|_pow(x0[i0],(*((double*)(d+0))))", u7 },
+    { "f32->f16|float16_t(x0[i0])", u8 },
+    { "f16->f16|((*((float16_t*)(d+0)))*x0[i0])", u9 },
+    { "f16->f32|float(x0[i0])", u10 },
+    { "f64->f64|(x0[i0]*_pow(((*((double*)(d+0)))+_exp(((*((double*)(d+8)))*x0[i0]))),(*((double*)(d+16)))))", u12 },
+    { "f64->f64|((*((double*)(d+0)))+x0[i0])", u13 },
+    { "f64->f64|((*((double*)(d+0)))*x0[i0])", u14 },
+    { "f32->f32|(x0[i0]*_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8)))))", u15 },
+    { "f32->f32|((*((float*)(d+0)))+x0[i0])", u16 },
+    { "f32->f32|((*((float*)(d+0)))*x0[i0])", u17 },
+    { "f64->f32|float(x0[i0])", u18 },
+    { "f32->f64|double(x0[i0])", u19 },
+    { "f64->f16|float16_t(x0[i0])", u20 },
+    { "f16->f64|double(x0[i0])", u21 },
+    { "f64->f64|_pow(x0[i0],(*((double*)(d+0))))", u22 },
+    { "f32->f32|((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0]))", u23 },
+    { "f64->f64|((*((double*)(d+0)))+((*((double*)(d+8)))*x0[i0]))", u24 },
+    { "f64->f64|_exp(x0[i0])", u25 },
+    { "f32->f32|((*((float*)(d+0)))+_pow(x0[i0],(*((double*)(d+4)))))", u26 },
+    { "f32->f32|_pow(_log(x0[i0]),(*((double*)(d+0))))", u27 },
+    { "f32->f32|_log(x0[i0])", u28 },
+    { "f32->f32|((*((float*)(d+0)))*_pow(_log(x0[i0]),(*((double*)(d+4)))))", u29 },
+    { "f16->f16|_exp(x0[i0])", u30 },
+    { "f16->f16|_log(x0[i0])", u31 },
+    { "f16->f16|_pow(_log(x0[i0]),(*((double*)(d+0))))", u32 },
+    { "f16->f16|_pow(x0[i0],(*((double*)(d+0))))", u33 },
+    { "f16->f16|((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2)))))", u34 },
+    { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 }
   };
 
   auto iter = kernels.find(key);
@@ -1003,50 +1024,57 @@ lookup_binary_straight_ew_kernel(
     void(*)(uint8_t const*, uint64_t, void*, void const*, void const*);
 
   static map<string, kernel_t> kernels = {
-    { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", b0 },
-    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", b1 },
-    { "f32,f32->f32|(x0[i]*x1[i])", b2 },
-    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", b3 },
-    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", b4 },
-    { "f16,f16->f16|_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2))))", b5 },
-    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i])))", b6 },
-    { "f16,f16->f16|(x0[i]*x1[i])", b7 },
-    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i])", b8 },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", b9 },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", b10 },
-    { "f64,f64->f64|_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8))))", b11 },
-    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i])))", b12 },
-    { "f64,f64->f64|(x0[i]*x1[i])", b13 },
-    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", b14 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b15 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", b16 },
-    { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b17 },
-    { "f16,f16->f16|(x0[i]+x1[i])", b18 },
-    { "f32,f32->f32|(x0[i]+x1[i])", b19 },
-    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", b20 },
-    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", b21 },
-    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", b22 },
-    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", b23 },
-    { "f64,f64->f64|(x0[i]+x1[i])", b24 },
-    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", b25 },
-    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", b26 },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", b27 },
-    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", b28 },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", b29 },
-    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", b30 },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8)))))", b31 },
-    { "f64,f64->f64|(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8)))))", b32 },
-    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", b33 },
-    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", b34 },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", b35 },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", b36 },
-    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", b37 },
-    { "f32,f32->f32|(x0[i]*_exp(x1[i]))", b38 },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", b39 },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", b40 },
-    { "f32,f32->f32|(x0[i]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i]))),(*((double*)(d+8))))+(x1[i]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i]))))))))", b41 },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", b42 },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", b43 }
+    { "f32,f32->f32|_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4))))", b0 },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1])))", b1 },
+    { "f32,f32->f32|(x0[i0]*x1[i1])", b2 },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i0]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i1])", b3 },
+    { "f32,f32->f32|(x0[i0]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1])))", b4 },
+    { "f16,f16->f16|_pow((x0[i0]+((*((float16_t*)(d+0)))*x1[i1])),(*((double*)(d+2))))", b5 },
+    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i0]+((*((float16_t*)(d+2)))*x1[i1])))", b6 },
+    { "f16,f16->f16|(x0[i0]*x1[i1])", b7 },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i0]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i1])", b8 },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1])))", b9 },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1])))", b10 },
+    { "f64,f64->f64|_pow((x0[i0]+((*((double*)(d+0)))*x1[i1])),(*((double*)(d+8))))", b11 },
+    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i0]+((*((double*)(d+8)))*x1[i1])))", b12 },
+    { "f64,f64->f64|(x0[i0]*x1[i1])", b13 },
+    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i0]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i1])", b14 },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1])))", b15 },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1])))", b16 },
+    { "f32,f32->f32|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", b17 },
+    { "f16,f16->f16|(x0[i0]+x1[i1])", b18 },
+    { "f32,f32->f32|(x0[i0]+x1[i1])", b19 },
+    { "f16,f16->f16|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", b20 },
+    { "f16,f16->f16|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", b21 },
+    { "f32,f32->f32|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", b22 },
+    { "f32,f32->f32|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", b23 },
+    { "f64,f64->f64|(x0[i0]+x1[i1])", b24 },
+    { "f64,f64->f64|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", b25 },
+    { "f64,f64->f64|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", b26 },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*x1[i1]))", b27 },
+    { "f32,f32->f32|(x0[i0]+((*((float*)(d+0)))*x1[i1]))", b28 },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*x1[i1]))", b29 },
+    { "f64,f64->f64|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", b30 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))>=x1[i1]?(*((float*)(d+4))):(*((float*)(d+8)))))", b31 },
+    { "f64,f64->f64|(x0[i0]*((*((double*)(d+0)))>=x1[i1]?(*((double*)(d+4))):(*((double*)(d+8)))))", b32 },
+    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i0]+((*((float*)(d+8)))*x1[i1]))))", b33 },
+    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i0]+((*((double*)(d+8)))*x1[i1]))))", b34 },
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*x1[i1]))", b35 },
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*_pow(x1[i1],(*((double*)(d+8))))))", b36 },
+    { "f32,f32->f32|(x0[i0]==x1[i1]?(*((float*)(d+0))):(*((float*)(d+4))))", b37 },
+    { "f32,f32->f32|(x0[i0]*_exp(x1[i1]))", b38 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4))))))", b39 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*x1[i1]))", b40 },
+    { "f32,f32->f32|(x0[i0]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i1]))),(*((double*)(d+8))))+(x1[i1]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i1]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i1]))))))))", b41 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4))))))", b42 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*x1[i1]))", b43 },
+    { "f16,f16->f16|(x0[i0]*(_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x1[i1]))),(*((double*)(d+4))))+(x1[i1]*((*((float16_t*)(d+12)))*(_pow(((*((float16_t*)(d+14)))+_exp(((*((float16_t*)(d+16)))*x1[i1]))),(*((double*)(d+18))))*((*((float16_t*)(d+26)))*_exp(((*((float16_t*)(d+28)))*x1[i1]))))))))", b44 },
+    { "f16,f16->f16|(x0[i0]*_exp(x1[i1]))", b45 },
+    { "f16,f16->f16|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", b46 },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*x1[i1]))", b47 },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4))))))", b48 },
+    { "f16,f16->f16|(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2))))", b49 },
+    { "f16,f32->f16|float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))", b50 }
   };
 
   auto iter = kernels.find(key);
@@ -1076,8 +1104,10 @@ lookup_ternary_straight_ew_kernel(
     void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
 
   static map<string, kernel_t> kernels = {
-    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", tstraight_0 },
-    { "f32,f32,f32->f32|((x0[i]*_pow(x1[i],(*((double*)(d+0)))))*x2[i])", tstraight_1 }
+    { "f32,f32,f32->f32|(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4)))))))", tstraight_0 },
+    { "f32,f32,f32->f32|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", tstraight_1 },
+    { "f16,f16,f16->f16|(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2)))))))", tstraight_2 },
+    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", tstraight_3 }
   };
 
   auto iter = kernels.find(key);
@@ -1108,50 +1138,58 @@ lookup_binary_212_ew_kernel(
     void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*);
 
   static map< string, tuple<kernel_t, kernel_t> > kernels = {
-    { "f32,f32->f32|_pow((x0[i]+((*((float*)(d+0)))*x1[i])),(*((double*)(d+4))))", { c0, d0} },
-    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i]+((*((float*)(d+4)))*x1[i])))", { c1, d1} },
-    { "f32,f32->f32|(x0[i]*x1[i])", { c2, d2} },
-    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i])", { c3, d3} },
-    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i])))", { c4, d4} },
-    { "f16,f16->f16|_pow((x0[i]+((*((float16_t*)(d+0)))*x1[i])),(*((double*)(d+2))))", { c5, d5} },
-    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i]+((*((float16_t*)(d+2)))*x1[i])))", { c6, d6} },
-    { "f16,f16->f16|(x0[i]*x1[i])", { c7, d7} },
-    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i])", { c8, d8} },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", { c9, d9} },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i])))", { c10, d10} },
-    { "f64,f64->f64|_pow((x0[i]+((*((double*)(d+0)))*x1[i])),(*((double*)(d+8))))", { c11, d11} },
-    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i]+((*((double*)(d+8)))*x1[i])))", { c12, d12} },
-    { "f64,f64->f64|(x0[i]*x1[i])", { c13, d13} },
-    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i])", { c14, d14} },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", { c15, d15} },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i])))", { c16, d16} },
-    { "f32,f32->f32|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c17, d17} },
-    { "f16,f16->f16|(x0[i]+x1[i])", { c18, d18} },
-    { "f32,f32->f32|(x0[i]+x1[i])", { c19, d19} },
-    { "f16,f16->f16|(x0[i]<x1[i]?x0[i]:x1[i])", { c20, d20} },
-    { "f16,f16->f16|(x0[i]>x1[i]?x0[i]:x1[i])", { c21, d21} },
-    { "f32,f32->f32|(x0[i]<x1[i]?x0[i]:x1[i])", { c22, d22} },
-    { "f32,f32->f32|(x0[i]>x1[i]?x0[i]:x1[i])", { c23, d23} },
-    { "f64,f64->f64|(x0[i]+x1[i])", { c24, d24} },
-    { "f64,f64->f64|(x0[i]<x1[i]?x0[i]:x1[i])", { c25, d25} },
-    { "f64,f64->f64|(x0[i]>x1[i]?x0[i]:x1[i])", { c26, d26} },
-    { "f16,f16->f16|(x0[i]+((*((float16_t*)(d+0)))*x1[i]))", { c27, d27} },
-    { "f32,f32->f32|(x0[i]+((*((float*)(d+0)))*x1[i]))", { c28, d28} },
-    { "f64,f64->f64|(x0[i]+((*((double*)(d+0)))*x1[i]))", { c29, d29} },
-    { "f64,f64->f64|(x0[i]*_pow(x1[i],(*((double*)(d+0)))))", { c30, d30} },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))>=x1[i]?(*((float*)(d+4))):(*((float*)(d+8)))))", {c31, d31} },
-    { "f64,f64->f64|(x0[i]*((*((double*)(d+0)))>=x1[i]?(*((double*)(d+4))):(*((double*)(d+8)))))", {c32, d32} },
-    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i]+((*((float*)(d+8)))*x1[i]))))", {c33, d33} },
-    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i]+((*((double*)(d+8)))*x1[i]))))", {c34, d34} },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*x1[i]))", {c35,d35} },
-    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i])+((*((float*)(d+4)))*_pow(x1[i],(*((double*)(d+8))))))", {c36,d36} },
-    { "f32,f32->f32|(x0[i]==x1[i]?(*((float*)(d+0))):(*((float*)(d+4))))", {c37,d37} },
-    { "f32,f32->f32|(x0[i]*_exp(x1[i]))", {c38,d38} },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", {c39,d39} },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", {c40,d40} },
-    { "f32,f32->f32|(x0[i]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i]))),(*((double*)(d+8))))+(x1[i]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i]))))))))", {c41,d41} },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*_pow(x1[i],(*((double*)(d+4))))))", {c42,d42} },
-    { "f32,f32->f32|(x0[i]*((*((float*)(d+0)))*x1[i]))", {c43,d43} }
+    { "f32,f32->f32|_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4))))", { c0, d0} },
+    { "f32,f32->f32|((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1])))", { c1, d1} },
+    { "f32,f32->f32|(x0[i0]*x1[i1])", { c2, d2} },
+    { "f32,f32->f32|(((*((float*)(d+0)))>=x0[i0]?(*((float*)(d+4))):(*((float*)(d+8))))*x1[i1])", { c3, d3} },
+    { "f32,f32->f32|(x0[i0]+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1])))", { c4, d4} },
+    { "f16,f16->f16|_pow((x0[i0]+((*((float16_t*)(d+0)))*x1[i1])),(*((double*)(d+2))))", { c5, d5} },
+    { "f16,f16->f16|((*((float16_t*)(d+0)))*(x0[i0]+((*((float16_t*)(d+2)))*x1[i1])))", { c6, d6} },
+    { "f16,f16->f16|(x0[i0]*x1[i1])", { c7, d7} },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))>=x0[i0]?(*((float16_t*)(d+2))):(*((float16_t*)(d+4))))*x1[i1])", { c8, d8} },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1])))", { c9, d9} },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*((*((float16_t*)(d+2)))*x1[i1])))", { c10, d10} },
+    { "f64,f64->f64|_pow((x0[i0]+((*((double*)(d+0)))*x1[i1])),(*((double*)(d+8))))", { c11, d11} },
+    { "f64,f64->f64|((*((double*)(d+0)))*(x0[i0]+((*((double*)(d+8)))*x1[i1])))", { c12, d12} },
+    { "f64,f64->f64|(x0[i0]*x1[i1])", { c13, d13} },
+    { "f64,f64->f64|(((*((double*)(d+0)))>=x0[i0]?(*((double*)(d+8))):(*((double*)(d+16))))*x1[i1])", { c14, d14} },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1])))", { c15, d15} },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*((*((double*)(d+8)))*x1[i1])))", { c16, d16} },
+    { "f32,f32->f32|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", { c17, d17} },
+    { "f16,f16->f16|(x0[i0]+x1[i1])", { c18, d18} },
+    { "f32,f32->f32|(x0[i0]+x1[i1])", { c19, d19} },
+    { "f16,f16->f16|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", { c20, d20} },
+    { "f16,f16->f16|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", { c21, d21} },
+    { "f32,f32->f32|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", { c22, d22} },
+    { "f32,f32->f32|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", { c23, d23} },
+    { "f64,f64->f64|(x0[i0]+x1[i1])", { c24, d24} },
+    { "f64,f64->f64|(x0[i0]<x1[i1]?x0[i0]:x1[i1])", { c25, d25} },
+    { "f64,f64->f64|(x0[i0]>x1[i1]?x0[i0]:x1[i1])", { c26, d26} },
+    { "f16,f16->f16|(x0[i0]+((*((float16_t*)(d+0)))*x1[i1]))", { c27, d27} },
+    { "f32,f32->f32|(x0[i0]+((*((float*)(d+0)))*x1[i1]))", { c28, d28} },
+    { "f64,f64->f64|(x0[i0]+((*((double*)(d+0)))*x1[i1]))", { c29, d29} },
+    { "f64,f64->f64|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", { c30, d30} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))>=x1[i1]?(*((float*)(d+4))):(*((float*)(d+8)))))", {c31, d31} },
+    { "f64,f64->f64|(x0[i0]*((*((double*)(d+0)))>=x1[i1]?(*((double*)(d+4))):(*((double*)(d+8)))))", {c32, d32} },
+    { "f32,f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*(x0[i0]+((*((float*)(d+8)))*x1[i1]))))", {c33, d33} },
+    { "f32,f32->f32|((*((double*)(d+0)))*((*((double*)(d+4)))*(x0[i0]+((*((double*)(d+8)))*x1[i1]))))", {c34, d34} },
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*x1[i1]))", {c35,d35} },
+    { "f32,f32->f32|(((*((float*)(d+0)))*x0[i0])+((*((float*)(d+4)))*_pow(x1[i1],(*((double*)(d+8))))))", {c36,d36} },
+    { "f32,f32->f32|(x0[i0]==x1[i1]?(*((float*)(d+0))):(*((float*)(d+4))))", {c37,d37} },
+    { "f32,f32->f32|(x0[i0]*_exp(x1[i1]))", {c38,d38} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4))))))", {c39,d39} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*x1[i1]))", {c40,d40} },
+    { "f32,f32->f32|(x0[i0]*(_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x1[i1]))),(*((double*)(d+8))))+(x1[i1]*((*((float*)(d+16)))*(_pow(((*((float*)(d+20)))+_exp(((*((float*)(d+24)))*x1[i1]))),(*((double*)(d+28))))*((*((float*)(d+36)))*_exp(((*((float*)(d+40)))*x1[i1]))))))))", {c41,d41} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*_pow(x1[i1],(*((double*)(d+4))))))", {c42,d42} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*x1[i1]))", {c43,d43} },
+    { "f16,f16->f16|(x0[i0]*(_pow(((*((float16_t*)(d+0)))+_exp(((*((float16_t*)(d+2)))*x1[i1]))),(*((double*)(d+4))))+(x1[i1]*((*((float16_t*)(d+12)))*(_pow(((*((float16_t*)(d+14)))+_exp(((*((float16_t*)(d+16)))*x1[i1]))),(*((double*)(d+18))))*((*((float16_t*)(d+26)))*_exp(((*((float16_t*)(d+28)))*x1[i1]))))))))", { c44, d44} },
+    { "f16,f16->f16|(x0[i0]*_exp(x1[i1]))", { c45, d45} },
+    { "f16,f16->f16|(x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))", { c46, d46} },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*x1[i1]))", { c47, d47} },
+    { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4))))))", { c48, d48} },
+    { "f16,f16->f16|(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2))))", {c49, d49} },
+    { "f16,f32->f16|float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))", {c50, d50} },
+
   };
 
   auto iter = kernels.find(key);
@@ -1185,8 +1223,10 @@ lookup_ternary_2112_ew_kernel(
     void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*);
 
   static map< string, kernel_t > kernels = {
-    { "f32,f32,f32->f32|(x0[i]*(x1[i]*((*((float*)(d+0)))*_pow(x2[i],(*((double*)(d+4)))))))", t2112_0 },
-    { "f32,f32,f32->f32|((x0[i]*_pow(x1[i],(*((double*)(d+0)))))*x2[i])", t2112_1 }
+    { "f32,f32,f32->f32|(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4)))))))", t2112_0 },
+    { "f32,f32,f32->f32|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", t2112_1 },
+    { "f16,f16,f16->f16|(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2)))))))", t2112_2 },
+    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", t2112_3 }
   };
 
   auto iter = kernels.find(key);

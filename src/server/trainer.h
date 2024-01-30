@@ -101,7 +101,16 @@ private:
 
   // https://arxiv.org/pdf/1711.05101.pdf
   struct adamw_update_t {
-    adamw_update_t(dtype_t d): iter(0), dtype(d) {}
+    adamw_update_t(dtype_t d, dtype_t min_precision = dtype_t::f32):
+      iter(0), dtype(d), min_precision(min_precision)
+    {
+      if(dtype_is_complex(min_precision) || dtype_is_complex(dtype)) {
+        throw std::runtime_error("adamw: don't give complex dtype");
+      }
+      if(dtype_size(min_precision) < dtype_size(dtype)) {
+        min_precision = dtype;
+      }
+    }
 
     void init(trainer_t& self);
 
@@ -117,6 +126,7 @@ private:
     vector<int> v_ids;
 
     dtype_t dtype;
+    dtype_t min_precision;
     int iter;
 
     int insert_einsummable_ew(

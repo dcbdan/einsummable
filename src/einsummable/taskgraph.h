@@ -460,6 +460,9 @@ bool operator!=(
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
 
+bool tg_do_simplify();
+void set_tg_do_simplify(bool b);
+
 /////////////////////////////////////
 
 struct multiple_placement_t {

@@ -4,6 +4,17 @@
 
 #include "einsummable.pb.h"
 
+static bool& _tg_do_simplify() {
+  static bool v = true;
+  return v;
+}
+bool tg_do_simplify() {
+  return _tg_do_simplify();
+}
+void set_tg_do_simplify(bool b) {
+  _tg_do_simplify() = b;
+}
+
 // The compilation from graph to taskgraph is designed to
 // automatically split up tensors so as to only move
 // the specified elements.
@@ -352,7 +363,7 @@ taskgraph_t::make(
     ret = std::move(new_tg);
   };
 
-  if(ret.simplify() > 0) {
+  if(tg_do_simplify() && ret.simplify() > 0) {
     auto const& [to_new_tg, new_tg] = ret.prune();
 
     correct_inns_and_saves(new_tg, to_new_tg);

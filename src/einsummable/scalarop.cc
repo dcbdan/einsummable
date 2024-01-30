@@ -1483,7 +1483,8 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     }
     throw std::runtime_error("should not reach: to_cpp_bytes");
   } else if(op.is_hole()) {
-    return "x" + std::to_string(op.get_which_input()) + "[i]";
+    string which = std::to_string(op.get_which_input());
+    return "x" + which + "[i" + which + "]";
   } else if(op.is_variable()) {
     throw std::runtime_error("no cpp bytes for variable");
   } else if(op.is_add()) {
@@ -2358,7 +2359,7 @@ scalarop_t scalarop_t::make_complex(dtype_t out) {
 // These + ops could be implemented with scalarop
 scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
   if(dtype != rhs.dtype) {
-    throw std::runtime_error("can only add with the same dtype");
+    throw std::runtime_error("can only add into with the same dtype");
   }
 
   if(dtype == dtype_t::f16) {
@@ -2415,7 +2416,7 @@ scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
 
 scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs) {
   if(lhs.dtype != rhs.dtype) {
-    throw std::runtime_error("can only add with the same dtype");
+    throw std::runtime_error("can only subtract with the same dtype");
   }
   if(lhs.dtype == dtype_t::f16) {
     return scalar_t(lhs.f16() - rhs.f16());
@@ -2432,7 +2433,7 @@ scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs) {
 
 scalar_t operator/(scalar_t const& lhs, scalar_t const& rhs) {
   if(lhs.dtype != rhs.dtype) {
-    throw std::runtime_error("can only add with the same dtype");
+    throw std::runtime_error("can only divide with the same dtype");
   }
   if(lhs.dtype == dtype_t::f16) {
     return scalar_t(lhs.f16() / rhs.f16());

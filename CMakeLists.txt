@@ -98,9 +98,6 @@ if(${CPU_EXECUTION_ENGINE})
 
   include_directories(${MKL_INCLUDE})
 
-  message(STATUS ${SENTENCEPIECE_DIR})
-  include_directories(${SENTENCEPIECE_DIR}/include)
-
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
@@ -130,8 +127,6 @@ if(${CPU_EXECUTION_ENGINE})
     cpu_execution_engine
     MKL::MKL
     ucx::ucp ucx::ucs
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
     ${Protobuf_LIBRARIES}
     proto)
   endfunction()
@@ -142,7 +137,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
   #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
   #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
-  #add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
+  add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
   #add_cpu_application("cpumanager"            "exps" "cpumanager")
   #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
   #add_cpu_application("cpumms"                "exps" "cpumms")
@@ -181,6 +176,12 @@ if(${CPU_EXECUTION_ENGINE})
   add_cpu_llama_application("train1" "train1")
   add_cpu_llama_application("trainsize" "trainsize")
 
+endif()
+
+if(${SENTENCEPIECE_EXP})
+  message(STATUS ${SENTENCEPIECE_DIR})
+  include_directories(${SENTENCEPIECE_DIR}/include)
+
   function(add_sp_application exec dir filename)
   add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
@@ -188,7 +189,6 @@ if(${CPU_EXECUTION_ENGINE})
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
   endfunction()
   add_sp_application("llama_tokenizer" "llama" "tokenizer")
-
 endif()
 
 if(${GPU_EXECUTION_ENGINE})

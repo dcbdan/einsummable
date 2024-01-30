@@ -17,6 +17,7 @@ exec_graph_t::make_cpu_tg_exec_graph(
   {
     int nfail = 0;
     cpu_kernel_executor_t k;
+    set<string> ss;
     for(auto const& node: taskgraph.nodes) {
       if(node.op.is_apply()) {
         einsummable_t e = node.op.get_apply()
@@ -26,7 +27,9 @@ exec_graph_t::make_cpu_tg_exec_graph(
         auto maybe_worksize = k.build(e);
         if(!maybe_worksize) {
           DOUT(e);
-          DOUT(std::get<0>(e.join.to_cpp_bytes()));
+          string s = std::get<0>(e.join.to_cpp_bytes());
+          DOUT(s);
+          ss.insert(write_with_ss(e.join));
           DOUT("");
           nfail++;
         }
@@ -34,8 +37,15 @@ exec_graph_t::make_cpu_tg_exec_graph(
     }
     if(nfail > 0) {
       DOUT("num fail: " << nfail);
+
+      for(auto const& s: ss) {
+        DOUT("\""+s+"\",");
+      }
+      DOUT(ss.size());
+
       throw std::runtime_error("will not be able to compile all the kernels");
     }
+
   }
 
   using dinfo_t = data_manager_t::info_t;

@@ -22,6 +22,13 @@ void main_rank_zero(
   args_t& pargs,
   autoplace_config_t config)
 {
+  //
+  pargs.set_default("simplify_tg", true);
+  set_tg_do_simplify(pargs.get<bool>("simplify_tg"));
+  //
+
+  dtype_t dtype = default_dtype();
+
   pargs.set_default("seed", int(-1));
   int seed = pargs.get<int>("seed");
   if(seed >= 0) {
@@ -44,6 +51,7 @@ void main_rank_zero(
   pargs.set_default<int>("max_n_layers", -1);
   {
     int n_layers = pargs.get<int>("max_n_layers");
+    DLINEOUT("n_layers " << n_layers);
     if(n_layers >= 0) {
       margs.n_layers = std::min(margs.n_layers, n_layers);
     }
@@ -77,7 +85,7 @@ void main_rank_zero(
   tensor_t predictions = model.forward(embeddings);
   tensor_t labels = writer.input(
     vector<uint64_t>{margs.batch_size, margs.vocab_size},
-    predictions.get_dtype());
+    dtype);
 
   // Compute the loss
   //   l{n} = log [ exp(v{n,y{n}})) / sum_c exp(v{n,c}) ]
@@ -86,7 +94,6 @@ void main_rank_zero(
   //   where c{n} = max_c v{n,c}
   tensor_t loss;
   {
-    dtype_t dtype = predictions.get_dtype();
     tensor_t v = predictions;
     tensor_t c = writer.reduction("bv->b", castable_t::max, v);
     // v = v - c
@@ -130,11 +137,11 @@ void main_rank_zero(
       // For the lora, we have (X*L0)*L1 where L0 needs to be
       // initialized gaussiann and L1 needs to be initialized with zeros
       auto shape = tensor.get_shape().full();
-      dbuffer_t dbuffer = make_dbuffer(tensor.get_dtype(), product(shape));
+      dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
 
       if(name.find("lora0") != string::npos) {
         dbuffer.rnorm();
-        dbuffer.scale(scalar_t(float(1e-2)));
+        dbuffer.scale(scalar_t(dtype, write_with_ss(float(1e-3))));
       } else if(name.find("lora1") != string::npos) {
         dbuffer.zeros();
       } else {
@@ -169,6 +176,7 @@ void main_rank_zero(
   server->insert_tensor(
     full_freqs_cis.get_id(),
     full_freqs_cis.get_shape().full(),
+    //transformer_t::form_full_freqs_cis(margs));
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
 
   trainer_constant_ids.push_back(full_freqs_cis.get_id());
@@ -184,9 +192,9 @@ void main_rank_zero(
     trainer_constant_ids,
     trainer_weight_ids,
     f_autoplace,
-    dtype_t::f32,
+    dtype,
     update_type_t::adamw,
-    false // don't make the gradients inspectable
+    true // TODO don't make the gradients inspectable
   );
 
   trainer.init();
@@ -196,11 +204,12 @@ void main_rank_zero(
 
   dataset_reader_t data_loader(tokenizer_file, dataset_file);
 
+  scalar_t _lr(dtype, write_with_ss(pargs.get<float>("learning_rate")));
   map<string, scalar_t> vars {
-    { "beta1", scalar_t(dtype_t::f32, "0.9") },
-    { "beta2", scalar_t(dtype_t::f32, "0.999") },
-    { "eta", scalar_t(pargs.get<float>("learning_rate")) },
-    { "learning_rate", scalar_t(pargs.get<float>("learning_rate")) },
+    { "beta1", scalar_t(dtype, "0.9") },
+    { "beta2", scalar_t(dtype, "0.999") },
+    { "eta", _lr },
+    { "learning_rate", _lr },
   };
 
   pargs.set_default<int>("niter", 2);
@@ -232,24 +241,32 @@ void main_rank_zero(
         vector_flatten(data_tokens)));
 
     DOUT("iter: " << iter);
-    //std::sort(trainer_weight_ids.begin(), trainer_weight_ids.end());
-    //for(int const& id: trainer_weight_ids) {
-    //  DOUT("weight " << id << ": " << server->get_tensor_from_gid(id).sum_to_f64());
-    //}
+    std::sort(trainer_weight_ids.begin(), trainer_weight_ids.end());
+    for(int const& id: trainer_weight_ids) {
+      DOUT("weight " << id << ": " << server->get_tensor_from_gid(id).sum_to_f64());
+    }
 
     server->insert_tensor(
       labels.get_id(),
       labels.get_shape().full(),
-      data_loader.one_hot_encode(labels.get_dtype(), label_tokens));
+      data_loader.one_hot_encode(dtype, label_tokens));
 
     trainer(vars);
 
     double loss_val = server->get_tensor_from_gid(loss.get_id()).sum_to_f64();
     DOUT("loss: " << loss_val);
+    for(auto const& id: trainer.get_saved_gradients()) {
+      DOUT("grad " << id << ": " << server->get_tensor_from_gid(id).sum_to_f64());
+    }
+    if(std::isnan(loss_val) || std::isinf(loss_val)) {
+      throw std::runtime_error("loss is nan or inf");
+    }
   }
 }
 
 int main(int argc, char** argv) {
+  set_default_dtype(dtype_t::f32);
+
   int expected_argc = 9;
   if(argc < expected_argc) {
     usage();
@@ -265,7 +282,6 @@ int main(int argc, char** argv) {
   mem_size *= GB;
 
   string which_server = parse_with_ss<string>(argv[5]);
-  DLINEOUT("which server " << which_server);
 
   string base_data_file(argv[6]);
   int num_data_files = parse_with_ss<int>(argv[7]);

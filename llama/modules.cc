@@ -639,7 +639,7 @@ dbuffer_t transformer_t::form_position_interpolation_full_freqs_cis(
   float theta = 10000.0;
   theta *= float(orig_seq_len) / float(args_max_seq_len);
 
-  return form_full_freqs_cis(dim, end, theta);
+  return form_freqs_cis(dim, end, theta);
 }
 
 fill_t transformer_t::form_start_mask(uint64_t seqlen, dtype_t dtype)
