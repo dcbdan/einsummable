@@ -1151,8 +1151,9 @@ graph_t::build_grad_term_reduction_maxmin(
 
   vector<uint64_t> out_shape(join_shape.begin(), join_shape.begin() + out_rank);
 
-  auto [i_str, _inn_strs] = einsummable_t::make_str_terms({ inn }, out_rank);
-  string const& ij_str = _inn_strs[0];
+  auto str_terms = einsummable_t::make_str_terms({ inn }, out_rank);
+  string const& i_str = std::get<0>(str_terms);
+  string const& ij_str = std::get<1>(str_terms)[0];
 
   int const& x_id = inn_id;
   auto const& x_shape = inn_shape;

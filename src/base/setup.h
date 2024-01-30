@@ -87,11 +87,13 @@ T product(vector<T> const& xs)
   return ret;
 }
 
-template <typename T>
-void print_vec(vector<T> const& xs)
-{
-  print_vec(std::cout, xs);
+template <typename T, typename U>
+std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
+  auto const& [x1,x2] = x12;
+  out << "tup[" << x1 << "|" << x2 << "]";
+  return out;
 }
+
 
 template <typename T>
 void print_vec(std::ostream& out, vector<T> const& xs)
@@ -109,17 +111,17 @@ void print_vec(std::ostream& out, vector<T> const& xs)
 }
 
 template <typename T>
+void print_vec(vector<T> const& xs)
+{
+  print_vec(std::cout, xs);
+}
+
+template <typename T>
 std::ostream& operator<<(std::ostream& out, vector<T> const& ts) {
   print_vec(out, ts);
   return out;
 }
 
-template <typename T, typename U>
-std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
-  auto const& [x1,x2] = x12;
-  out << "tup[" << x1 << "|" << x2 << "]";
-  return out;
-}
 
 uint64_t uint64_div(uint64_t top, uint64_t bot, string err_msg);
 
