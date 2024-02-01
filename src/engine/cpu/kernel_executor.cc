@@ -487,11 +487,12 @@ void cpu_kernel_executor_t::call(
     auto const& b = get<batch_matmul_t>(kernel);
     batch_matrix_multiply(
       b.dtype,
-      b.nb,
+      0, b.nb,
       b.info.batched_out, b.info.batched_lhs, b.info.batched_rhs,
-      b.ni, b.nj, b.nk,
+      b.ni, 0, b.ni,        b.nj, b.nk,
       b.info.trans_lhs, b.info.trans_rhs,
-      out, inns[0], inns[1]);
+      out, inns[0], inns[1],
+      false);
   } else if(holds_alternative<contraction_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:contraction");
     assert_num_inputs(2);
@@ -674,7 +675,7 @@ build_einsummable(einsummable_t const& e)
   if(maybe.value() != 0) {
     throw std::runtime_error("build_einsummable: this kernel requires a workspace");
   }
-  auto const& meta_info = ks.get_built_kernel_info(e);
+  auto meta_info = ks.get_built_kernel_info(e);
   return [meta_info](void* out, vector<void const*> inns) {
     cpu_kernel_executor_t::call(meta_info, out, inns);
   };
@@ -1332,17 +1333,33 @@ build_ab_a_reduction_kernel(dtype_t dtype, castable_t castable) {
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
-  dtype_t const& dtype,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
-  void* out,
-  void const* lhs,
-  void const* rhs,
-  bool is_zero_else_one)
+  dtype_t dtype,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
+  void* out_,
+  void const* lhs_,
+  void const* rhs_,
+  bool update)
 {
+  uint8_t      * out = reinterpret_cast<uint8_t      *>(out_);
+  uint8_t const* lhs = reinterpret_cast<uint8_t const*>(lhs_);
+  uint8_t const* rhs = reinterpret_cast<uint8_t const*>(rhs_);
+
+  out += dtype_size(dtype)*(offset_i*nk);
+  lhs += dtype_size(dtype)*( trans_lhs ? ( offset_i ) : ( offset_i*nj ) );
+
+  // trans_lhs ? ji : ij
+  // trans_rhs ? kj : jk
+
+  auto tl = trans_lhs ? CblasTrans : CblasNoTrans;
+  auto tr = trans_rhs ? CblasTrans : CblasNoTrans;
+
+  auto sl = trans_lhs ? ni : nj;
+  auto sr = trans_rhs ? nj : nk;
+
   if(dtype == dtype_t::f16) {
     using f16_t = MKL_F16;
     // Use the half library (float16_t) to set one and zero,
@@ -1353,60 +1370,44 @@ void matrix_multiply_update(
     f16_t& zero = reinterpret_cast<f16_t&>(zero_);
 
     cblas_hgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
+      CblasRowMajor,tl,tr,
+      size_i,nk,nj,
       one,
-      (f16_t const*)lhs,
-      trans_lhs ? ni : nj,
-      (f16_t const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? zero : one,
-      (f16_t*)out,
+      reinterpret_cast<f16_t const*>(lhs),sl,
+      reinterpret_cast<f16_t const*>(rhs),sr,
+      update ? one : zero,
+      reinterpret_cast<f16_t*>(out),
       nk);
   } else if(dtype == dtype_t::f32) {
     cblas_sgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
+      CblasRowMajor,tl,tr,
+      size_i,nk,nj,
       1.0f,
-      (float const*)lhs,
-      trans_lhs ? ni : nj,
-      (float const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? 0.0f : 1.0f,
-      (float*)out,
+      reinterpret_cast<float const*>(lhs),sl,
+      reinterpret_cast<float const*>(rhs),sr,
+      update ? 1.0f : 0.0f,
+      reinterpret_cast<float*>(out),
       nk);
   } else if(dtype == dtype_t::f64) {
     cblas_dgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
+      CblasRowMajor,tl,tr,
+      size_i,nk,nj,
       1.0,
-      (double const*)lhs,
-      trans_lhs ? ni : nj,
-      (double const*)rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? 0.0 : 1.0,
-      (double*)out,
+      reinterpret_cast<double const*>(lhs),sl,
+      reinterpret_cast<double const*>(rhs),sr,
+      update ? 1.0 : 0.0,
+      reinterpret_cast<double*>(out),
       nk);
   } else if(dtype == dtype_t::c64) {
     std::complex<float> one(1.0, 0.0);
     std::complex<float> zero(0.0, 0.0);
     cblas_cgemm(
-      CblasRowMajor,
-      trans_lhs ? CblasTrans : CblasNoTrans,
-      trans_rhs ? CblasTrans : CblasNoTrans,
-      ni,nk,nj,
+      CblasRowMajor,tl,tr,
+      size_i,nk,nj,
       (void*)&one,
-      lhs,
-      trans_lhs ? ni : nj,
-      rhs,
-      trans_rhs ? nj : nk,
-      is_zero_else_one ? (void*)&zero : (void*)&one,
+      lhs,sl,
+      rhs,sr,
+      update ? (void*)&one : (void*)&zero,
       out,
       nk);
   } else {
@@ -1415,75 +1416,80 @@ void matrix_multiply_update(
 }
 
 void matrix_multiply(
-  dtype_t const& dtype,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
+  dtype_t dtype,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
   void* out,
   void const* lhs,
   void const* rhs)
 {
-  matrix_multiply_update(dtype, ni,nj,nk, trans_lhs,trans_rhs, out,lhs,rhs, true);
+  matrix_multiply_update(dtype,
+    ni,offset_i,size_i,nj,nk,
+    trans_lhs,trans_rhs,
+    out,lhs,rhs,
+    false);
 }
 
 // b<ij> , b<jk> -> b<ik>
-//
-// This kernel includes things like
-//   bij,jk->ik
-//   ji,bjk->bik
-//   ij,jk->bik
-//   bij,bjk->ik
-// by just looping over the batched dimension
 void batch_matrix_multiply(
-  dtype_t const& dtype,
-  uint64_t const& nb,
-  bool const& batched_out,
-  bool const& batched_lhs,
-  bool const& batched_rhs,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
+  dtype_t dtype,
+  uint64_t offset_b, uint64_t size_b,
+  bool batched_out,
+  bool batched_lhs,
+  bool batched_rhs,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
   void* _out,
   void const* _lhs,
-  void const* _rhs)
+  void const* _rhs,
+  bool update)
 {
-  if(nb == 1) {
-    matrix_multiply(dtype, ni,nj,nk,trans_lhs, trans_rhs, _out, _lhs, _rhs);
-    return;
-  }
-
   uint8_t      * out = (uint8_t      *)_out;
   uint8_t const* lhs = (uint8_t const*)_lhs;
   uint8_t const* rhs = (uint8_t const*)_rhs;
 
   uint64_t offset_lhs = batched_lhs ? dtype_size(dtype)*ni*nj : 0 ;
   uint64_t offset_rhs = batched_rhs ? dtype_size(dtype)*nj*nk : 0 ;
+
+  lhs += offset_b * offset_lhs;
+  rhs += offset_b * offset_rhs;
+
   if(batched_out) {
     uint64_t offset_out = dtype_size(dtype)*ni*nk;
-    for(int b = 0; b != nb; ++b) {
-      matrix_multiply(
-        dtype, ni, nj, nk, trans_lhs, trans_rhs,
-        (void*)out, (void const*)lhs, (void const*)rhs);
+    out += offset_b * offset_out;
+    for(int b = 0; b != size_b; ++b) {
+      matrix_multiply_update(
+        dtype, ni, offset_i, size_i, nj, nk, trans_lhs, trans_rhs,
+        reinterpret_cast<void*>(out),
+        reinterpret_cast<void const*>(lhs),
+        reinterpret_cast<void const*>(rhs),
+        update);
       lhs += offset_lhs;
       rhs += offset_rhs;
       out += offset_out;
     }
   } else {
     matrix_multiply_update(
-      dtype, ni, nj, nk, trans_lhs, trans_rhs,
-      (void*)out, (void const*)lhs, (void const*)rhs,
-      true);
+      dtype, ni, offset_i, size_i, nj, nk, trans_lhs, trans_rhs,
+      reinterpret_cast<void*>(out),
+      reinterpret_cast<void const*>(lhs),
+      reinterpret_cast<void const*>(rhs),
+      update);
     lhs += offset_lhs;
     rhs += offset_rhs;
-    for(int b = 1; b != nb; ++b) {
+    for(int b = 1; b != size_b; ++b) {
       matrix_multiply_update(
-        dtype, ni, nj, nk, trans_lhs, trans_rhs,
-        (void*)out, (void const*)lhs, (void const*)rhs,
-        false);
+        dtype, ni, offset_i, size_i, nj, nk, trans_lhs, trans_rhs,
+        reinterpret_cast<void*>(out),
+        reinterpret_cast<void const*>(lhs),
+        reinterpret_cast<void const*>(rhs),
+        true);
       lhs += offset_lhs;
       rhs += offset_rhs;
     }

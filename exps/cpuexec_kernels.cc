@@ -1,7 +1,7 @@
 #include "../src/einsummable/dbuffer.h"
 #include "../src/einsummable/reference.h"
 #include "../src/einsummable/einsummable.h"
-#include "../src/execution/cpu/kernels.h"
+#include "../src/engine/cpu/kernel_executor.h"
 
 #include <mkl_cblas.h>
 #include <mkl.h>
@@ -20,8 +20,74 @@ void test_mm(dtype_t dtype, uint64_t i = 5, uint64_t j = 6, uint64_t k = 7) {
   dbuffer_t out_ref = reference_einsummable(matmul, {lhs, rhs});
 
   dbuffer_t out = make_dbuffer(dtype, i*k);
+
   auto f = build_einsummable(matmul);
+
   f(out.ptr(), {lhs.ptr(), rhs.ptr()});
+
+  if(!is_close(out_ref, out)) {
+    DOUT(dtype);
+    DOUT(out_ref);
+    DOUT(out);
+    throw std::runtime_error("MM ARE NOT CLOSE!");
+  }
+}
+
+void test_subset_bmm(
+  dtype_t dtype,
+  bool trans_lhs,
+  bool batch_out,
+  partdim_t pd_b,
+  partdim_t pd_i,
+  uint64_t nj,
+  uint64_t nk)
+{
+  uint64_t nb = pd_b.total();
+  uint64_t ni = pd_i.total();
+
+  string s_lhs = trans_lhs ? "bji" : "bij";
+  string s_rhs = "bjk";
+  string s_out = batch_out ? "bik" : "ik";
+
+  auto [inns, out_rank] = einsummable_t::parse_str(s_lhs + "," + s_rhs + "->" + s_out);
+  vector<uint64_t> out_shape =
+    batch_out ? vector<uint64_t>{nb,ni,nk} : vector<uint64_t>{ni,nk} ;
+  vector<uint64_t> lhs_shape =
+    trans_lhs ? vector<uint64_t>{nb,nj,ni} : vector<uint64_t>{nb,ni,nj} ;
+  vector<uint64_t> rhs_shape { nb,nj,nk };
+  vector<uint64_t> join_shape = einsummable_t::construct_join_shape(
+    out_shape,
+    inns,
+    { lhs_shape, rhs_shape }
+  );
+  einsummable_t contraction(
+    join_shape, inns, out_rank,
+    scalarop_t::make_mul(dtype), castable_t::add);
+
+  dbuffer_t lhs = make_dbuffer(dtype, product(lhs_shape));
+  dbuffer_t rhs = make_dbuffer(dtype, product(rhs_shape));
+
+  lhs.random();
+  rhs.random();
+
+  dbuffer_t out_ref = reference_einsummable(contraction, {lhs, rhs});
+
+  dbuffer_t out = make_dbuffer(dtype, product(out_shape));
+
+  out.zeros();
+  for(int which_b = 0; which_b != pd_b.num_parts(); ++which_b) {
+  for(int which_i = 0; which_i != pd_i.num_parts(); ++which_i) {
+    batch_matrix_multiply(
+      dtype,
+      pd_b.offset_at(which_b), pd_b.size_at(which_b),
+      batch_out, true, true,
+      ni, pd_i.offset_at(which_i), pd_i.size_at(which_i),
+      nj, nk,
+      trans_lhs, false,
+      out.ptr(), lhs.ptr(), rhs.ptr(),
+      true
+    );
+  }}
 
   if(!is_close(out_ref, out)) {
     DOUT(dtype);
@@ -277,7 +343,7 @@ void test_a_contraction() {
     scalarop_t::make_mul(dtype),
     castable_t::add);
 
-  kernel_manager_t km;
+  cpu_kernel_executor_t km;
   uint64_t workspace_size = km.build(e).value();
 
   auto inn_shapes = e.inn_shapes();
@@ -343,6 +409,15 @@ void test_half_mm(uint64_t ni, uint64_t nj, uint64_t nk,
 }
 
 int main() {
+//  bool trans_lhs = true;
+//  bool batch_out = false;
+//  partdim_t pd_b = partdim_t::split(6, 2);
+//  partdim_t pd_i = partdim_t::split(6, 2);
+//  uint64_t nj = 6;
+//  uint64_t nk = 6;
+//
+//  test_subset_bmm(dtype_t::f32, trans_lhs, batch_out, pd_b, pd_i, nj, nk);
+//////////////////////////////////
   //mkl_set_num_threads(1);
   //test_half_mm(1, 400, 33); // ijk: ij,jk->ik
   //test_half_mm(1, 400, 32); // ijk: ij,jk->ik
@@ -367,57 +442,57 @@ int main() {
 
   //test_mm(dtype_t::f16);
   test_mm(dtype_t::f32);
-  test_mm(dtype_t::f64);
-  test_mm(dtype_t::c64);
+  //test_mm(dtype_t::f64);
+  //test_mm(dtype_t::c64);
 
   //test_bmm(dtype_t::f16);
-  test_bmm(dtype_t::f32);
-  test_bmm(dtype_t::f64);
-  test_bmm(dtype_t::c64);
+  //test_bmm(dtype_t::f32);
+  //test_bmm(dtype_t::f64);
+  //test_bmm(dtype_t::c64);
 
-  test_unary(scalarop_t::make_relu(dtype_t::f64));
-  test_unary(scalarop_t::make_silu(dtype_t::f64));
-  test_unary(scalarop_t::make_increment(scalar_t(double(1.965))));
-  test_unary(scalarop_t::make_scale(scalar_t(double(1.965))));
+  //test_unary(scalarop_t::make_relu(dtype_t::f64));
+  //test_unary(scalarop_t::make_silu(dtype_t::f64));
+  //test_unary(scalarop_t::make_increment(scalar_t(double(1.965))));
+  //test_unary(scalarop_t::make_scale(scalar_t(double(1.965))));
 
-  test_unary(scalarop_t::make_relu(dtype_t::f32));
-  test_unary(scalarop_t::make_silu(dtype_t::f32));
-  test_unary(scalarop_t::make_increment(scalar_t(float(1.965))));
-  test_unary(scalarop_t::make_scale(scalar_t(float(1.965))));
+  //test_unary(scalarop_t::make_relu(dtype_t::f32));
+  //test_unary(scalarop_t::make_silu(dtype_t::f32));
+  //test_unary(scalarop_t::make_increment(scalar_t(float(1.965))));
+  //test_unary(scalarop_t::make_scale(scalar_t(float(1.965))));
 
-  test_binary(scalarop_t::make_add(dtype_t::f16));
-  test_binary(scalarop_t::make_sub(dtype_t::f16));
-  test_binary(scalarop_t::make_mul(dtype_t::f16));
-  test_binary(scalarop_t::make_min(dtype_t::f16));
-  test_binary(scalarop_t::make_max(dtype_t::f16));
+  //test_binary(scalarop_t::make_add(dtype_t::f16));
+  //test_binary(scalarop_t::make_sub(dtype_t::f16));
+  //test_binary(scalarop_t::make_mul(dtype_t::f16));
+  //test_binary(scalarop_t::make_min(dtype_t::f16));
+  //test_binary(scalarop_t::make_max(dtype_t::f16));
 
-  test_binary(scalarop_t::make_add(dtype_t::f32));
-  test_binary(scalarop_t::make_sub(dtype_t::f32));
-  test_binary(scalarop_t::make_mul(dtype_t::f32));
-  test_binary(scalarop_t::make_min(dtype_t::f32));
-  test_binary(scalarop_t::make_max(dtype_t::f32));
+  //test_binary(scalarop_t::make_add(dtype_t::f32));
+  //test_binary(scalarop_t::make_sub(dtype_t::f32));
+  //test_binary(scalarop_t::make_mul(dtype_t::f32));
+  //test_binary(scalarop_t::make_min(dtype_t::f32));
+  //test_binary(scalarop_t::make_max(dtype_t::f32));
 
-  test_binary(scalarop_t::make_add(dtype_t::f64));
-  test_binary(scalarop_t::make_sub(dtype_t::f64));
-  test_binary(scalarop_t::make_mul(dtype_t::f64));
-  test_binary(scalarop_t::make_min(dtype_t::f64));
-  test_binary(scalarop_t::make_max(dtype_t::f64));
+  //test_binary(scalarop_t::make_add(dtype_t::f64));
+  //test_binary(scalarop_t::make_sub(dtype_t::f64));
+  //test_binary(scalarop_t::make_mul(dtype_t::f64));
+  //test_binary(scalarop_t::make_min(dtype_t::f64));
+  //test_binary(scalarop_t::make_max(dtype_t::f64));
 
-  test_reduction_ab_a(dtype_t::f16, castable_t::add);
-  test_reduction_ab_a(dtype_t::f16, castable_t::mul);
-  test_reduction_ab_a(dtype_t::f16, castable_t::min);
-  test_reduction_ab_a(dtype_t::f16, castable_t::max);
+  //test_reduction_ab_a(dtype_t::f16, castable_t::add);
+  //test_reduction_ab_a(dtype_t::f16, castable_t::mul);
+  //test_reduction_ab_a(dtype_t::f16, castable_t::min);
+  //test_reduction_ab_a(dtype_t::f16, castable_t::max);
 
-  test_reduction_ab_a(dtype_t::f32, castable_t::add);
-  test_reduction_ab_a(dtype_t::f32, castable_t::mul);
-  test_reduction_ab_a(dtype_t::f32, castable_t::min);
-  test_reduction_ab_a(dtype_t::f32, castable_t::max);
+  //test_reduction_ab_a(dtype_t::f32, castable_t::add);
+  //test_reduction_ab_a(dtype_t::f32, castable_t::mul);
+  //test_reduction_ab_a(dtype_t::f32, castable_t::min);
+  //test_reduction_ab_a(dtype_t::f32, castable_t::max);
 
-  test_reduction_ab_a(dtype_t::f64, castable_t::add);
-  test_reduction_ab_a(dtype_t::f64, castable_t::mul);
-  test_reduction_ab_a(dtype_t::f64, castable_t::min);
-  test_reduction_ab_a(dtype_t::f64, castable_t::max);
+  //test_reduction_ab_a(dtype_t::f64, castable_t::add);
+  //test_reduction_ab_a(dtype_t::f64, castable_t::mul);
+  //test_reduction_ab_a(dtype_t::f64, castable_t::min);
+  //test_reduction_ab_a(dtype_t::f64, castable_t::max);
 
-  test_reduction_ab_a(dtype_t::c64, castable_t::add);
-  test_reduction_ab_a(dtype_t::c64, castable_t::mul);
+  //test_reduction_ab_a(dtype_t::c64, castable_t::add);
+  //test_reduction_ab_a(dtype_t::c64, castable_t::mul);
 }

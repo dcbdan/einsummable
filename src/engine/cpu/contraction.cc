@@ -48,11 +48,13 @@ void contraction_t::operator()(
 
     batch_matrix_multiply(
       dtype,
-      inner.nb,
+      0, inner.nb,
       true, true, true, // have batching
-      inner.ni, inner.nj, inner.nk,
+      inner.ni, 0, inner.ni,
+      inner.nj, inner.nk,
       inner.lhs_t, inner.rhs_t,
-      out_work, lhs_work, rhs_work);
+      out_work, lhs_work, rhs_work,
+      false);
 
     if(out_p) {
       permute_kernel(dtype, 1024,
