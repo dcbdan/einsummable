@@ -71,6 +71,7 @@ add_llama_application("llama_exp02" "exp02")
 add_llama_application("llama_exp03" "exp03")
 add_llama_application("llama_autodiff_test" "autodiff_test")
 
+
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
     set(MKL_THREADING sequential)
@@ -250,4 +251,5 @@ if(${GPU_EXECUTION_ENGINE})
   # add_gpu_application("test_alignment"  "exps" "test_alignment")
 
   add_gpu_application("basicTest" "exps" "GPU_test")
+  add_llama_application("gpu_llama" "gpu")
 endif()
