@@ -8,6 +8,22 @@ buffer_t make_buffer_reference(uint8_t* data, uint64_t size) {
   return std::make_shared<buffer_holder_t>(data, size);
 }
 
+buffer_t make_buffer_reference(void* data, uint64_t size) {
+  return std::make_shared<buffer_holder_t>(
+    reinterpret_cast<uint8_t*>(data),
+    size);
+}
+
+buffer_t make_buffer_copy(buffer_t other) {
+  if(other) {
+    buffer_t ret = make_buffer(other->size);
+    std::memcpy(ret->raw(), other->raw(), other->size);
+    return ret;
+  } else {
+    return nullptr;
+  }
+}
+
 bool operator==(buffer_t const& lhs, buffer_t const& rhs) {
   return *lhs == *rhs;
 }

@@ -228,6 +228,27 @@ einsummable_t einsummable_t::merge_adjacent_dims() const {
     join, castable);
 }
 
+einsummable_t einsummable_t::replace_scalar_variables(
+  map<string, scalar_t> const& vars) const
+{
+  scalarop_t new_join = join.replace_variables(vars);
+
+  // TODO
+  // Here is an issue: it may be the case that new_join does not
+  // have the same set of holes.. For instance,
+  //   join: f(x0,x1) = x0*variable + x1
+  // will be replaced with
+  //   new_join: f(x1) = x1
+  // The issue is that einsummable_t needs to know the dtype of x0.
+
+  return einsummable_t(
+    join_shape,
+    inns,
+    out_rank,
+    new_join,
+    castable);
+}
+
 einsummable_t einsummable_t::from_proto(es_proto::Einsummable const& e) {
   vector<uint64_t> join_shape;
   {
@@ -703,6 +724,10 @@ vector<uint64_t> einsummable_t::inn_shape(int which_inn) const {
   return ret;
 }
 
+uint64_t einsummable_t::inn_size(int which_inn) const {
+  return product(inn_shape(which_inn)) * dtype_size(inn_dtype(which_inn));
+}
+
 vector<vector<int>>
 einsummable_t::input_idxs(vector<int> const& join_idx) const
 {
@@ -861,7 +886,9 @@ std::ostream& operator<<(std::ostream& out, einsummable_t const& e) {
   for(int i = 1; i < e.join_shape.size(); ++i) {
     out << "," << e.join_shape[i];
   }
-  out << "] ";
+  out << "]";
+
+  out << e.castable << " ";
 
   out << e.str() << " | ";
 

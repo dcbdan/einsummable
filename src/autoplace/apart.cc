@@ -11,6 +11,21 @@ using ap_graph_t     = typename build_trees_ns::bgraph_t<unit_t>;
 using ap_tree_t      = typename build_trees_ns::btree_t<unit_t>;
 using ap_graphtree_t = typename build_trees_ns::bgraph_t<ap_tree_t>;
 
+int safe_log2(int n) {
+  int ret = log2(n);
+  if(ret < 0) {
+    throw std::runtime_error("ret should not be negative");
+  }
+  int n_ = 1;
+  for(int i = 0; i != ret; ++i) {
+    n_ *= 2;
+  }
+  if(n != n_) {
+    throw std::runtime_error("safe log2 failed on " + write_with_ss(n));
+  }
+  return ret;
+}
+
 struct _plan_t {
   partition_t partition;
   vector<int> which;
@@ -224,6 +239,8 @@ struct compute_cost_t {
     uint64_t compute_cost = 0;
     if(node.op.is_einsummable()) {
       einsummable_t const& e = node.op.get_einsummable();
+      // TODO: if the join op is not a mul, the cost would still hold...
+      // TODO: what if there is a broadcast?
       if(e.is_contraction()) {
         vector<int> op_block_shape = join_part.block_shape();
         int op_n_blocks = product(op_block_shape);
@@ -371,7 +388,7 @@ struct compute_cost_t {
 
 template <typename F>
 optional<partition_t>
-_get_refi_partition(
+_get_refi_partition01(
   graph_t const& graph,
   int gid,
   F get_partition)
@@ -460,7 +477,7 @@ uint64_t _solve_tree(
         };
 
         all_refi_parts.push_back(
-          _get_refi_partition(graph, gid, get_partition));
+          _get_refi_partition01(graph, gid, get_partition));
 
       } while(has_tree_inns && increment_idxs(inn_num_plans, which));
     }
@@ -555,6 +572,7 @@ vector<partition_t> apart01(
   graph_t const& graph,
   int n_compute,
   int max_branching,
+  uint64_t discount_input_factor,
   parts_space_t search_space)
 {
   //{
@@ -563,7 +581,7 @@ vector<partition_t> apart01(
   //  DOUT("printed g.gv");
   //}
 
-  int log2_n = log2(n_compute);
+  int log2_n = safe_log2(n_compute);
   // TODO: ^ use this for the costing
 
   // Note: every formation node has the same partition as the input
@@ -652,7 +670,7 @@ vector<partition_t> apart01(
     .graph = graph,
     .cache = {},
     .exact = false,
-    .discount_input_factor = 100 // TODO: this should be a parameter
+    .discount_input_factor = discount_input_factor
   };
   map<int, partition_t> partitions_so_far;
   for(int const& root_id: btrees.dag_order_inns_to_outs()) {
@@ -691,7 +709,7 @@ uint64_t apart01_cost(
     }
 
     optional<partition_t> refi_partition =
-      _get_refi_partition(graph, gid, get_partition);
+      _get_refi_partition01(graph, gid, get_partition);
 
     //auto [compute_here, repart_here] = compute_cost.cost(
     //  gid, get_partition(gid), refi_partition);
@@ -702,4 +720,227 @@ uint64_t apart01_cost(
   }
 
   return total;
+}
+
+struct compute_cost02_t {
+  graph_t const& graph;
+
+  uint64_t compute_cost(
+    int gid,
+    partition_t const& join_part)
+  {
+    // Compute the cost to move the einsummable inputs from an island to where
+    // they will be used.
+    //
+    // For all other node types, how many times the input chunks get used does
+    // not depend on the join partition, so let the cost be the constant 0.
+    auto const& node = graph.nodes[gid];
+
+    if(!node.op.is_einsummable()) {
+      return 0;
+    }
+
+    einsummable_t const& e = node.op.get_einsummable();
+
+    uint64_t compute_cost = 0;
+    vector<int> op_block_shape = join_part.block_shape();
+    int op_n_blocks = product(op_block_shape);
+
+    // for each input, compute the cost to broadcast it
+    // across the remaining portion of the grid
+    for(int i = 0; i != e.inns.size(); ++i) {
+      int const& inn_gid = node.inns[i];
+
+      vector<int> inn_block_shape = e.get_input_from_join(op_block_shape, i);
+      int inn_n_blocks = product(inn_block_shape);
+      uint64_t multiplier = uint64_t(op_n_blocks / inn_n_blocks);
+
+      vector<uint64_t> inn_shape = e.get_input_from_join(e.join_shape, i);
+      compute_cost += product(inn_shape) * multiplier;
+    }
+
+    return compute_cost;
+  }
+
+  uint64_t repartition_cost(
+    partition_t const& join_part,
+    partition_t const& refi_part)
+  {
+    if(join_part.partdims.size() < refi_part.partdims.size()) {
+      throw std::runtime_error("should not occur: invalid input to repartition cost");
+    }
+
+    int out_rank = refi_part.partdims.size();
+
+    partition_t out_part = partition_t(vector<partdim_t>(
+      join_part.partdims.begin(),
+      join_part.partdims.begin() + out_rank));
+
+    if(!vector_equal(out_part.total_shape(), refi_part.total_shape())) {
+      throw std::runtime_error("mismatched outpart and refipart");
+    }
+
+    uint64_t nagg = join_part.num_parts() / out_part.num_parts();
+
+    if(out_part == refi_part) {
+      // Move each other aggregate into the output at zero
+      return (nagg - 1) * product(refi_part.total_shape());
+    }
+
+    // Otherwise, move each sub-tensor into the output block
+
+    vector<uint64_t> block_sizes_aa = out_part.all_block_sizes().get();
+    copyregion_full_t copyregion(out_part, refi_part);
+    uint64_t ret = 0;
+    do {
+      ret += nagg * block_sizes_aa[copyregion.idx_aa];
+    } while(copyregion.increment());
+
+    return ret;
+  }
+
+  uint64_t operator()(
+    int gid,
+    partition_t const& join_part,
+    optional<partition_t> const& maybe_usage_part)
+  {
+    uint64_t compute_cost = this->compute_cost(gid, join_part);
+
+    auto const& node = graph.nodes[gid];
+
+    if(maybe_usage_part) {
+      if(node.outs.size() == 0) {
+        throw std::runtime_error("should have no usage part");
+      }
+
+      bool is_complex_join_part = dtype_is_complex(node.op.out_dtype());
+
+      auto const& usage_part = maybe_usage_part.value();
+
+      if(is_complex_join_part) {
+        partition_t join_part_ = join_part;
+        int out_rank = usage_part.partdims.size();
+
+        partdim_t& pd = join_part_.partdims[out_rank-1];
+        pd = partdim_t::from_sizes(vector_double(pd.sizes()));
+
+        return compute_cost + repartition_cost(join_part_, usage_part);
+      } else {
+        return compute_cost + repartition_cost(join_part, usage_part);
+      }
+    } else {
+      if(node.outs.size() != 0) {
+        throw std::runtime_error("should have a usage part");
+      }
+      return compute_cost;
+    }
+  }
+};
+
+template <typename F>
+optional<partition_t>
+_get_refi_partition02(
+  graph_t const& graph,
+  int gid,
+  F get_partition)
+{
+  auto const& node = graph.nodes[gid];
+  if(node.outs.size() > 0) {
+    return twolayer_construct_refinement_partition(
+      graph, gid, get_partition);
+  }
+
+  return std::nullopt;
+}
+
+vector<partition_t> apart02(
+  graph_t const& graph,
+  int n_compute,
+  map<int, partition_t> const& fixed_parts,
+  vector<tuple<int,int>> const& equal_parts_)
+{
+  // verify fixed_parts, equal_parts_ makes sense, even if this
+  // constraint is more restrictive than required
+  map<int, int> equal_parts;
+  {
+    for(auto const& [id0,id1]: equal_parts_) {
+      equal_parts.insert({id0, id1});
+      equal_parts.insert({id1, id0});
+    }
+    if(equal_parts_.size()*2 != equal_parts.size()) {
+      throw std::runtime_error("not fully supported: equal_parts");
+    }
+
+    for(auto const& [id, _]: fixed_parts) {
+      if(equal_parts.count(id) > 0) {
+        throw std::runtime_error("can't have equal id and fixed id");
+      }
+    }
+  }
+
+  get_parts_t get_possible_parts {
+    .graph = graph,
+    .log2_n = safe_log2(n_compute),
+    .search_space = parts_space_t::contraction,
+    .set_parts = std::nullopt
+  };
+  compute_cost02_t coster {
+    .graph = graph
+  };
+
+  vector<uint64_t> costs(graph.nodes.size());
+  vector<partition_t> parts;
+  {
+    map<int, partition_t> parts_;
+    std::function<partition_t const&(int)> get_refi_part =
+      [&](int id) -> partition_t const&
+    {
+      return parts_.at(id);
+    };
+
+    for(int id: graph.get_reverse_order()) {
+      auto iter_fixed = fixed_parts.find(id);
+      if(iter_fixed != fixed_parts.end()) {
+        parts_.insert({id, iter_fixed->second});
+
+        auto refi_part = _get_refi_partition02(graph, id, get_refi_part);
+        costs[id] = coster(id, iter_fixed->second, refi_part);
+
+        continue;
+      }
+      auto iter_eq = equal_parts.find(id);
+      if(iter_eq != equal_parts.end()) {
+        int other = iter_eq->second;
+        auto iter = parts_.find(other);
+        if(iter != parts_.end()) {
+          parts_.insert({id, iter->second});
+          costs[id] = costs[other];
+          continue;
+        }
+      }
+
+      auto refi_part = _get_refi_partition02(graph, id, get_refi_part);
+      uint64_t best_cost;
+      optional<partition_t> best_part;
+      for(auto const& part: get_possible_parts(id)) {
+        uint64_t cost = coster(id, part, refi_part);
+        if(
+          (bool(best_part) && cost < best_cost) ||
+          (!bool(best_part)))
+        {
+          best_cost = cost;
+          best_part = part;
+        }
+      }
+      parts_.insert({id, best_part.value()});
+      costs[id] = best_cost;
+    }
+
+    parts.reserve(graph.nodes.size());
+    for(int id = 0; id != graph.nodes.size(); ++id) {
+      parts.push_back(parts_.at(id));
+    }
+  }
+
+  return parts;
 }

@@ -32,9 +32,22 @@ message Touch {
   required string dtype = 3;
 }
 
-message Fill {
+message Constant {
   required string value = 1;
   repeated uint64 shape = 2;
+}
+message Lowertri {
+  required string lower = 1;
+  required string upper = 2;
+  required uint64 ncol = 3;
+  required uint64 nrow = 4;
+  required int64 start = 5;
+}
+message Fill {
+  oneof op {
+    Constant constant = 1;
+    Lowertri lowertri = 2;
+  }
 }
 
 message TGInput {

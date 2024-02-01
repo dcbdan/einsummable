@@ -1,9 +1,9 @@
 #pragma once
-#include "../../base/setup.h"
+#include "../../../base/setup.h"
 
-#include "../../base/buffer.h"
+#include "../../../base/buffer.h"
 
-#include "../resource_manager.h"
+#include "../../resource_manager.h"
 
 struct cpu_workspace_resource_t {
   int which;

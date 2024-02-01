@@ -69,7 +69,8 @@ struct attention_t {
     graph_writer_t* w,
     string name, //should be "attention."
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank);
 
   tensor_t apply_rotary_embedding(tensor_t x, tensor_t freqs_cis);
 
@@ -104,6 +105,11 @@ struct attention_t {
   tensor_t wv;
   tensor_t wo;
 
+  optional<tuple<tensor_t, tensor_t>> lora_wq;
+  optional<tuple<tensor_t, tensor_t>> lora_wk;
+  optional<tuple<tensor_t, tensor_t>> lora_wv;
+  optional<tuple<tensor_t, tensor_t>> lora_wo;
+
   optional<tuple<tensor_t, tensor_t>> prev_kv;
 
   // This gets set after in the forward pass
@@ -137,7 +143,8 @@ struct transformer_block_t {
     graph_writer_t* w,
     int layer_id,
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank);
 
   tensor_t forward(
     tensor_t x,
@@ -166,7 +173,8 @@ struct transformer_t {
   transformer_t(
     graph_writer_t* w,
     model_args_t args,
-    uint64_t start_pos);
+    uint64_t start_pos,
+    optional<int> lora_rank = std::nullopt);
 
   tensor_t forward(tensor_t x);
 
@@ -175,8 +183,16 @@ struct transformer_t {
   static dbuffer_t form_full_freqs_cis(model_args_t const& args);
   static dbuffer_t form_full_freqs_cis(
     uint64_t args_dim, uint64_t args_n_heads, uint64_t args_max_seq_len);
-  static dbuffer_t form_freqs_cis(uint64_t dim, uint64_t end);
-  static dbuffer_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
+  static dbuffer_t form_freqs_cis(uint64_t dim, uint64_t end, float theta = 10000.0);
+
+  static dbuffer_t form_position_interpolation_full_freqs_cis(
+    model_args_t const& args,
+    uint64_t orig_seq_len);
+  static dbuffer_t form_position_interpolation_full_freqs_cis(
+    uint64_t args_dim, uint64_t args_n_heads, uint64_t args_max_seq_len,
+    uint64_t orig_seq_len);
+
+  static fill_t form_start_mask(uint64_t seqlen, dtype_t dtype = default_dtype());
 
   // grab full_freqs_cis from [start_pos: start_pos+seqlen]
   tensor_t get_freqs_cis(uint64_t seqlen);

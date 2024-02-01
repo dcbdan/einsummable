@@ -1,10 +1,6 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/reference.h"
 
-#include "../src/execution/cpu/kernels.h"
-#include "../src/execution/cpu/permute.h"
-#include "../src/execution/cpu/contraction.h"
-
 #include <fstream>
 
 #include <mkl.h> // for mkl_set_num_threads
@@ -27,63 +23,9 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
   bool keystrcd = false)
 {
   vector<string> ks = {
-    "ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]",
-    "power{2}[+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
-    "*[constant{f32|2},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]",
-    "*[hole|f32@0,hole|f32@1]",
-    "*[ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},constant{f32|1}],hole|f32@1]",
-    "+[hole|f32@0,*[constant{f32|-1},*[constant{f32|0.01},hole|f32@1]]]",
-    "ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},hole|f16@0]",
-    "power{2}[+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
-    "*[constant{f16|2},+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]]",
-    "*[hole|f16@0,hole|f16@1]",
-    "*[ite_>=[constant{f16|0},hole|f16@0,constant{f16|0},constant{f16|1}],hole|f16@1]",
-    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
-    "+[hole|f16@0,*[constant{f16|-1},*[constant{f16|1000},hole|f16@1]]]",
-    "ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},hole|f64@0]",
-    "power{2}[+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
-    "*[constant{f64|2},+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]]",
-    "*[hole|f64@0,hole|f64@1]",
-    "*[ite_>=[constant{f64|0},hole|f64@0,constant{f64|0},constant{f64|1}],hole|f64@1]",
-    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
-    "+[hole|f64@0,*[constant{f64|-1},*[constant{f64|1000.1},hole|f64@1]]]",
-    "*[hole|f16@0,power{-1}[+[constant{f16|1},exp[*[constant{f16|-1},hole|f16@0]]]]]",
-    "*[hole|f32@0,power{-1}[hole|f32@1]]",
-    "exp[hole|f32@0]",
-    "power{2}[hole|f32@0]",
-    "+[*[constant{f32|0.00195312},hole|f32@0],constant{f32|1e-05}]",
-    "power{-0.5}[hole|f32@0]",
-    "to_f16[hole|f32@0]",
-    "*[constant{f16|0.125},hole|f16@0]",
-    "to_f32[hole|f16@0]",
-    "+[*[constant{f32|0.00195312},hole|f32@0],constant{f32|1e-05}]",
-    "+[hole|f16@0,hole|f16@1]",
-    "+[hole|f32@0,hole|f32@1]",
-    "*[hole|f64@0,power{-1}[+[constant{f64|1},exp[*[constant{f64|-1},hole|f64@0]]]]]",
-    "+[constant{f64|1.965},hole|f64@0]",
-    "*[constant{f64|1.965},hole|f64@0]",
-    "*[hole|f32@0,power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@0]]]]]",
-    "+[constant{f32|1.965},hole|f32@0]",
-    "*[constant{f32|1.965},hole|f32@0]",
-    "ite_<[hole|f16@0,hole|f16@1,hole|f16@0,hole|f16@1]",
-    "ite_>[hole|f16@0,hole|f16@1,hole|f16@0,hole|f16@1]",
-    "ite_<[hole|f32@0,hole|f32@1,hole|f32@0,hole|f32@1]",
-    "ite_>[hole|f32@0,hole|f32@1,hole|f32@0,hole|f32@1]",
-    "+[hole|f64@0,hole|f64@1]",
-    "ite_<[hole|f64@0,hole|f64@1,hole|f64@0,hole|f64@1]",
-    "ite_>[hole|f64@0,hole|f64@1,hole|f64@0,hole|f64@1]",
-    "+[hole|f16@0,*[constant{f16|-1},hole|f16@1]]",
-    "+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]",
-    "+[hole|f64@0,*[constant{f64|-1},hole|f64@1]]",
-    "to_f32[hole|f64@0]",
-    "to_f64[hole|f32@0]",
-    "to_f16[hole|f64@0]",
-    "to_f64[hole|f16@0]",
-    "power{2}[hole|f64@0]",
-    "+[*[constant{f32|0.000244141},hole|f32@0],constant{f32|1e-06}]",
-    "+[*[constant{f64|0.000244141},hole|f64@0],constant{f64|1e-06}]",
-    "exp[hole|f64@0]",
-    "*[hole|f64@0,power{-1}[hole|f64@1]]"
+    "*[constant{f32|1024},to_f32[hole|f16@0]]",
+    "*[constant{f32|9.99024},to_f32[hole|f16@0]]",
+    "to_f16[+[to_f32[hole|f16@0],*[constant{f32|-1},*[constant{f32|5.00679e-06},hole|f32@1]]]]"
   };
 
   auto to_type_str = [](dtype_t const& d) {
@@ -100,13 +42,19 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
     }
   };
 
-  int nu = 0;
-  int nb = 0;
+  int nu = 30;
+  int nb = 44;
   int nf = 0;
+  set<string> seen;
   for(auto const& s: ks) {
     scalarop_t f = parse_with_ss<scalarop_t>(s);
     auto [op_str, bytes] = f.to_cpp_bytes();
     string key = f.type_signature() + "|" + op_str;
+
+    if(seen.count(key) > 0) {
+      continue;
+    }
+    seen.insert(key);
 
     int n_inn = f.num_inputs();
     if(n_inn == 1) {
@@ -154,9 +102,9 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
     //std::cout << std::endl;
   }
 
-  if(nf != 0) {
-    throw std::runtime_error("COULD NOT PROCESS ALL");
-  }
+  //if(nf != 0) {
+  //  throw std::runtime_error("COULD NOT PROCESS ALL");
+  //}
 }
 
 void print_loop_kernel_info() {

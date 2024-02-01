@@ -8,6 +8,7 @@
 
 #ifdef CPU_EXEC
 #include "cpu/kernel_executor.h"
+#include "cpu/tg/data_manager.h"
 #endif
 
 #ifdef GPU_EXEC
@@ -22,7 +23,16 @@ struct exec_graph_t {
     memgraph_t const& memgraph,
     int this_rank,
     cpu_kernel_executor_t& cpu_executor,
-    int channels_per_move = 1);
+    int channels_per_move = 1,
+    map<string, scalar_t> const& scalar_vars = {});
+
+  static tuple<exec_graph_t, map<int, data_manager_t::info_t>>
+  make_cpu_tg_exec_graph(
+    taskgraph_t const& taskgraph,
+    int this_rank,
+    cpu_kernel_executor_t& cpu_executor,
+    int num_channels_per_move,
+    map<string, scalar_t> const& scalar_vars = {});
 #endif
 
 #ifdef GPU_EXEC
@@ -33,7 +43,8 @@ struct exec_graph_t {
     int this_rank,
     vector<kernel_manager_t>& gpu_kms,
     int num_gpus_per_node,
-    vector<void*> gpu_mems);
+    vector<void*> gpu_mems,
+    map<string, scalar_t> const& scalar_vars = {});
 #endif
 
   struct op_base_t {
@@ -111,17 +122,17 @@ struct exec_graph_t {
 
   // One big note about deadlocks:
   //   In the following, a launched send_t cannot be finished until recv_t
-  //   is launched. Once launched, a recv_t can finish. 
-  //   
+  //   is launched. Once launched, a recv_t can finish.
+  //
   //   If all nodes launch launch sends on all threads, nothing can progress!
   //   And this sort of deadlock really does happen!
   //
-  //   Two things are done: 
+  //   Two things are done:
   //   1. The priority of recv_t is less than send_t.. This will only help
   //      when the priority is being used but does not prevent deadlocks.
   //   2. The send_t requires resoruces from a send_channel_manager. One solution
   //      is to have the channel manager make sure the maximum number of sends
-  //      happening at a time is less than the total number of threads. If the 
+  //      happening at a time is less than the total number of threads. If the
   //      total number of threads is zero, the deadlock could still happen.
 
   struct notify_recv_ready_t : op_base_t {

@@ -40,6 +40,8 @@ void reference_einsummable_inplace(
   dbuffer_t out,
   vector<dbuffer_t> const& inputs);
 
+dbuffer_t reference_fill(fill_t const& fill);
+
 dbuffer_t reference_select(
   select_t const& select,
   vector<dbuffer_t> const& inputs);

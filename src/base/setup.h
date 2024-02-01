@@ -503,6 +503,13 @@ void set_union_inplace(set<T>& ret, set<T> const& these) {
   }
 }
 
+template <typename T>
+void set_union_inplace(set<T>& ret, vector<T> const& these) {
+  for(auto const& x: these) {
+    ret.insert(x);
+  }
+}
+
 template <typename Iter, typename F>
 Iter max_element_transform(
   Iter first,
@@ -614,6 +621,8 @@ int runif(int beg, int end);
 int runif(int n);
 
 int runif(vector<double> probs);
+
+double rnorm();
 
 template <typename T>
 T vector_random_pop(vector<T>& xs) {
@@ -1014,6 +1023,12 @@ void istream_expect(std::istream& inn, string const& xs);
 
 // find the longest parse of the options; throw an error if no parse
 int istream_expect_or(std::istream& inn, vector<string> const& options);
+
+string istream_consume_alphanumeric(std::istream& inn);
+string istream_consume_alphanumeric_u(std::istream& inn);
+
+bool is_alphanumeric(string const& s);
+bool is_alphanumeric_u(string const& s);
 
 struct unit_t {};
 

@@ -3,65 +3,10 @@
 
 #include "../base/placement.h"
 #include "einsummable.h"
-#include "touch.h" // only for subset_t::as_touch
+#include "fill.h"
+#include "select.h"
+
 #include "relation.h"
-
-// fill_t is used to describe a variety of constant tensors.
-// (for now, only tensors fill with a single constant value are supported)
-struct fill_t {
-  scalar_t value;
-  vector<uint64_t> shape;
-};
-
-struct select_t {
-  struct selectdim_t {
-    uint64_t d_inn;
-    uint64_t offset_inn;
-    uint64_t offset_out;
-    uint64_t size;
-  };
-
-  using inn_region_t = vector<selectdim_t>;
-
-  dtype_t dtype;
-  vector<uint64_t> out_shape;
-  vector<inn_region_t> inn_regions;
-
-  select_t(
-    dtype_t dtype,
-    vector<uint64_t> const& out_shape,
-    vector<inn_region_t> const& inn_regions);
-
-  vector<touch_t> as_touches() const;
-  touch_t as_touch(int which) const;
-
-  vector<uint64_t> // a point with respect to the output tensor
-  wrt_output_point(
-    vector<uint64_t> const& inn_point, // a point with respect to an input tensor
-    int which_inn) const; // which input tensor
-
-  hrect_t wrt_output_hrect(hrect_t const& inn_hrect, int which_inn) const;
-
-  // For each input that touches into the out_hrect,
-  //   return the hrect portion of the input tensor and which input
-  vector<tuple<hrect_t, int>>
-  collect(hrect_t out_hrect) const;
-
-  hrect_t wrt_output_inn_hrect(int which_input) const;
-  hrect_t wrt_input_inn_hrect(int which_input) const;
-
-  vector<uint64_t> inn_shape(int which_input) const;
-};
-
-select_t make_concat(
-  int dim,
-  dtype_t dtype,
-  vector<vector<uint64_t>> const& input_shapes);
-
-select_t make_subset(
-  dtype_t dtype,
-  vector<tuple<uint64_t, uint64_t>> const& hrect,
-  vector<uint64_t> inn_shape);
 
 struct graph_t {
   // Methods to construct a graph object
@@ -84,7 +29,11 @@ struct graph_t {
 
   int insert_to_real(int inn);
 
+  int insert_constant(scalar_t value, vector<uint64_t> const& shape);
+  int insert_constant(fill_t::constant_t const& c) { return insert_fill(fill_t(c)); }
+
   int insert_fill(fill_t const& fill);
+  int insert_fill(fill_t::constant_t const& c) { return insert_fill(fill_t(c)); }
 
   int insert_concat(
     int dim,
@@ -129,6 +78,13 @@ struct graph_t {
   // create a placement where every node is unpartitioned
   // and every block is at loc 0
   vector<placement_t> make_singleton_placement() const;
+
+  uint64_t nelem(int id) const {
+    return product(out_shape(id));
+  }
+  uint64_t out_size(int id) const {
+    return nelem(id) * dtype_size(out_dtype(id));
+  }
 
   vector<uint64_t> out_shape(int id) const;
 
@@ -283,10 +239,12 @@ private:
 
   vector<int> reverse_order_nodeset(set<int> const& ids) const;
 
+  using constant_t = fill_t::constant_t;
+
   struct backprop_tensor_t {
     backprop_tensor_t();
     backprop_tensor_t(int id);
-    backprop_tensor_t(fill_t const& fill);
+    backprop_tensor_t(constant_t const& fill);
 
     static backprop_tensor_t ones(
       dtype_t const& dtype,
@@ -295,12 +253,11 @@ private:
       dtype_t const& dtype,
       vector<uint64_t> const& shape);
 
-    using op_t = std::variant<int, fill_t>;
+    using op_t = std::variant<int, constant_t>;
     op_t op;
 
     int const& get_id() const;
-    fill_t const& get_fill() const;
-    scalar_t get_constant() const;
+    constant_t const& get_constant() const;
 
     bool is_constant() const;
 

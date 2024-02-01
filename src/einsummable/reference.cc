@@ -69,8 +69,7 @@ map<int, dbuffer_t> reference_compute_graph(
       tensors[id] = t;
     } else if(node.op.is_fill()) {
       auto const& fill = node.op.get_fill();
-      dbuffer_t d = make_dbuffer(fill.value.dtype, product(fill.shape));
-      d.fill(fill.value);
+      dbuffer_t d = reference_fill(fill);
       tensors[id] = d;
     } else if(node.op.is_einsummable()) {
       vector<dbuffer_t> inns;
@@ -507,6 +506,30 @@ void reference_einsummable_inplace(
   } while (indexer_utils<uint64_t>::increment_idxs(out_shape, out_index));
 }
 
+dbuffer_t reference_fill(fill_t const& fill) {
+  if(fill.is_constant()) {
+    auto const& c = fill.get_constant();
+    dbuffer_t ret = make_dbuffer(c.value.dtype, product(c.shape));
+    ret.fill(c.value);
+    return ret;
+  } else if(fill.is_lowertri()) {
+    auto const& l = fill.get_lowertri();
+    dbuffer_t ret = make_dbuffer(l.lower.dtype, l.ncol * l.nrow);
+    for(int64_t i = 0; i != l.nrow; ++i) {
+      for(int64_t j = 0; j != l.ncol; ++j) {
+        if(i - l.start >= j) {
+          ret.set(i*l.ncol + j, l.lower);
+        } else {
+          ret.set(i*l.ncol + j, l.upper);
+        }
+      }
+    }
+    return ret;
+  } else {
+    throw std::runtime_error("reference_fill: missing impl");
+  }
+}
+
 dbuffer_t reference_select(
   select_t const& select,
   vector<dbuffer_t> const& inns)
@@ -632,7 +655,7 @@ void reference_touch(
   } else if(dtype == dtype_t::c64) {
     _reference_touch(touch, out.c64(), inn.c64());
   } else {
-    throw std::runtime_error("should not reach fill");
+    throw std::runtime_error("should not reach touch");
   }
 }
 

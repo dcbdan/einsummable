@@ -33,7 +33,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   int this_rank,
   vector<kernel_manager_t>& gpu_kms,
   int num_gpus_per_node,
-  vector<void*> gpu_mems)
+  vector<void*> gpu_mems,
+  map<string, scalar_t> const& scalar_vars);
 {
   exec_graph_t graph;
   auto evict_called = false;
@@ -94,8 +95,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           throw std::runtime_error("only allowing touches to have a group");
         }
 
-        auto einsum = apply.get_einsummable();
-        auto einsum_merged = apply.get_einsummable().merge_adjacent_dims();
+        einsummable_t einsum = apply
+          .get_einsummable()
+          .replace_scalar_variables(scalar_vars)
+          .merge_adjacent_dims();
+
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(
           gpu_kms[loc],
@@ -103,8 +107,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           apply.mems,
           node.op.get_apply_loc()
         );
+        // Note: op->einsummable and einsum should be the same here
 
-        auto maybe_built = gpu_kms[loc].build(op->einsummable);
+        auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
@@ -125,7 +130,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
               apply.mems[i].offset));
           }
           // get the workspace size
-          op->workspace_size = gpu_kms[loc].known_workspace_size(einsum_merged, out_mem, inn_mems);
+          op->workspace_size = gpu_kms[loc].known_workspace_size(einsum, out_mem, inn_mems);
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);

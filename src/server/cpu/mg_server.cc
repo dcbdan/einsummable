@@ -1,4 +1,4 @@
-#include "server.h"
+#include "mg_server.h"
 
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
@@ -7,12 +7,13 @@
 #include "../../engine/channel_manager.h"
 #include "../../engine/notifier.h"
 
-#include "../../engine/cpu/storage_manager.h"
-#include "../../engine/cpu/workspace_manager.h"
+#include "../../engine/cpu/mg/storage_manager.h"
+#include "../../engine/cpu/mg/workspace_manager.h"
 
 void cpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
-  bool for_remap)
+  bool for_remap,
+  map<string, scalar_t> const& scalar_vars)
 {
   int n_threads = threadpool.num_runners();
   if(n_threads == 1) {
@@ -26,7 +27,8 @@ void cpu_mg_server_t::execute_memgraph(
       memgraph,
       this_rank,
       kernel_executor,
-      num_channels_per_move);
+      num_channels_per_move,
+      scalar_vars);
 
   rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
   recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
@@ -278,7 +280,6 @@ void cpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
 }
 
 void cpu_mg_server_t::print() {
-  DLINEOUT("data_locs size is " << data_locs.size());
   for(auto const& [tid, loc]: data_locs) {
     DOUT(tid << ": " << dbuffer_t(default_dtype(), local_copy_data(tid)));
   }

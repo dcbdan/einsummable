@@ -20,6 +20,8 @@ using buffer_t = std::shared_ptr<buffer_holder_t>;
 
 buffer_t make_buffer(uint64_t size);
 buffer_t make_buffer_reference(uint8_t* data, uint64_t size);
+buffer_t make_buffer_reference(void*    data, uint64_t size);
+buffer_t make_buffer_copy(buffer_t other);
 
 bool operator==(buffer_holder_t const& lhs, buffer_holder_t const& rhs);
 bool operator!=(buffer_holder_t const& lhs, buffer_holder_t const& rhs);

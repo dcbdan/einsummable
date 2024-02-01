@@ -58,6 +58,8 @@ add_base_application("scalarop"         "exps" "scalarop")
 #add_base_application("mm"               "exps" "mm")
 #add_base_application("engine"           "exps" "engine")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
+add_base_application("autoplace"        "exps" "autoplace")
+add_base_application("tgsimplify"       "exps" "tgsimplify")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -67,9 +69,9 @@ endfunction()
 
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
-add_llama_application("llama_exp02" "exp02")
-add_llama_application("llama_exp03" "exp03")
-add_llama_application("llama_autodiff_test" "autodiff_test")
+#add_llama_application("llama_exp02" "exp02")
+#add_llama_application("llama_exp03" "exp03")
+#add_llama_application("llama_autodiff_test" "autodiff_test")
 
 
 if(${CPU_EXECUTION_ENGINE})
@@ -86,7 +88,6 @@ if(${CPU_EXECUTION_ENGINE})
   #  this helps empirically)
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
 
   if(NOT DEFINED UCX_PATH)
@@ -101,6 +102,8 @@ if(${CPU_EXECUTION_ENGINE})
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
   file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
+  file(GLOB CPMG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/mg/*.cc)
+  file(GLOB CPTG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/tg/*.cc)
   file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
 
   # TODO: how do you make it so that not all the ES_FILES and MG_FILES
@@ -114,17 +117,19 @@ if(${CPU_EXECUTION_ENGINE})
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
+    ${CPMG_FILES}
+    ${CPTG_FILES}
     ${CS_FILES}
   )
 
   function(add_cpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc llama/modules.cc)
+  add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
     MKL::MKL
-    ucx::ucp ucx::ucs)
+    ucx::ucp ucx::ucs
+    ${Protobuf_LIBRARIES}
+    proto)
   endfunction()
 
   #add_cpu_application("cpuexec"               "exps" "cpuexec")
@@ -133,7 +138,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
   #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
   #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
-  #add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
+  add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
   #add_cpu_application("cpumanager"            "exps" "cpumanager")
   #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
   #add_cpu_application("cpumms"                "exps" "cpumms")
@@ -143,12 +148,14 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_engine_lff"        "exps" "cpu_engine_lff")
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
-  add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
+  #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  add_cpu_application("senexp"                "exps" "senexp")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
-      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc)
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
+      llama/dataset_reader.cc llama/piper.cc)
     target_link_libraries(${exec}
       cpu_execution_engine
       proto
@@ -157,9 +164,32 @@ if(${CPU_EXECUTION_ENGINE})
       ucx::ucp ucx::ucs)
   endfunction()
 
-  add_cpu_llama_application("llama_cpu" "cpu2")
-  add_cpu_llama_application("inference_exp" "inference_exp")
+  #add_cpu_llama_application("llama_cpu" "cpu2")
+  #add_cpu_llama_application("inference_exp" "inference_exp")
 
+  # For some reason sentencepiece + protocolbuffers + this application
+  # isn't cooperating well. Something to do with symbols + protocol
+  # buffers being used in sentence piece and this application. So instead
+  # of using sentence piece directly, train1 launches the tokenizer
+  # executable and reads and writes from it.
+  # And the tokenizer executable calls sentencepiece.
+
+  add_cpu_llama_application("train1" "train1")
+  add_cpu_llama_application("trainsize" "trainsize")
+
+endif()
+
+if(${SENTENCEPIECE_EXP})
+  message(STATUS ${SENTENCEPIECE_DIR})
+  include_directories(${SENTENCEPIECE_DIR}/include)
+
+  function(add_sp_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
+  endfunction()
+  add_sp_application("llama_tokenizer" "llama" "tokenizer")
 endif()
 
 if(${GPU_EXECUTION_ENGINE})
@@ -177,7 +207,6 @@ if(${GPU_EXECUTION_ENGINE})
 
   # add ucx dependency
   # define UCX_PATH below
-  SET(UCX_PATH "/opt/ucx")
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()

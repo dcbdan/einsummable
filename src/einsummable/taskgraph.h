@@ -92,15 +92,22 @@ struct taskgraph_t {
 
   set<int> collect_passthrough_partials() const;
 
+private:
   optional<
     tuple<
       map<int, int>,
       taskgraph_t > >
   remove_passthrough_partials() const;
-  // This simplification maintains that all inn nodes are still there and all
+
+  tuple<
+    map<int, int>,
+    taskgraph_t >
+  prune() const;
+  // These simplifications maintain that all inn nodes are still there and all
   // save nodes are still there, but everything inbetween may be different.
   // A map which is guaranteed to have all source save and inn tids is returned
 
+public:
   // for debugging
   void print() const;
 
@@ -113,6 +120,7 @@ struct taskgraph_t {
   // (It is not neccesarily the case that get_order = 0,1,2,...
   //  because things can get added to partialize ops)
   vector<int> get_order() const;
+  vector<int> get_reverse_order() const;
 
   tuple<vector<int>, vector<int>> get_input_core_order() const;
   set<int> get_input_everywhere_ids() const;
@@ -133,6 +141,10 @@ struct taskgraph_t {
 
   uint64_t out_size(int id) const { return nodes[id].op.out_size(); }
   int out_loc(int id) const { return nodes[id].op.out_loc(); }
+
+  bool is_save(int id) const { return nodes[id].is_save; }
+
+  bool is_local_to(int id, int loc) const { return nodes[id].op.is_local_to(loc); }
 
 private:
   struct input_t {
@@ -370,6 +382,56 @@ public:
 
 private:
   int insert(op_t op, bool is_save);
+
+  // simplify as many nodes as possible;
+  // return the number simplified in some way
+  int simplify();
+
+  void _replace_with_new_node(int tid, op_t const& op);
+  void _replace_with_fill(int tid, fill_t const& fill);
+  bool _replace_apply(int tid);
+  bool _replace_partialize(int tid);
+
+  // A helper class for _replace_partialize
+  struct _unit_simplify_t {
+    using input_op_t     = taskgraph_t::partialize_t::input_op_t;
+    using partial_unit_t = taskgraph_t::partialize_t::partial_unit_t;
+
+    _unit_simplify_t(
+      taskgraph_t const& tg,
+      dtype_t dtype,
+      partial_unit_t const& unit);
+
+    bool is_changed() const;
+    bool is_constant() const;
+    scalar_t get_constant() const;
+    vector<input_op_t> get_inputs() const;
+
+  private:
+    // 1. was already a constant               ; unchanged
+    // 2. was not simplified                   ; unchanged
+    // 3. was simplified to a constant         ; changed
+    // 4. was simplified but not to a constant ; changed
+    // 2. evaluates to a constant, changed
+
+    taskgraph_t const& tg;
+
+    // Case input_op_t         : is a constant
+    // Case vector<input_op_t> : is not a constant
+    std::variant<input_op_t, vector<input_op_t>> op;
+
+    bool changed;
+
+    optional<scalar_t> get_constant_at(input_op_t const& input) const;
+
+    //   These are annihilator functions:
+    //     (+ inf) (+ -inf) (max inf) (min -inf) (mul 0)
+    static bool is_annihilator(dtype_t dtype, castable_t castable, scalar_t val);
+
+    //   These are identity functions:
+    //     (+ 0), (max -inf) (min inf) (mul 1)
+    static bool is_identity(dtype_t dtype, castable_t castable, scalar_t val);
+  };
 };
 
 partition_t double_last_dim(partition_t const& p);
@@ -397,6 +459,9 @@ bool operator!=(
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const&);
 std::ostream& operator<<(std::ostream& out, touch_t const&);
+
+bool tg_do_simplify();
+void set_tg_do_simplify(bool b);
 
 /////////////////////////////////////
 

@@ -52,6 +52,7 @@ struct scalar_t {
 
   static scalar_t zero(dtype_t);
   static scalar_t negative_inf(dtype_t);
+  static scalar_t inf(dtype_t);
 
   // not valid for complex
   static scalar_t one(dtype_t);
@@ -72,11 +73,15 @@ private:
   void _copy_to_data(uint8_t const* other, int n);
 };
 
+// return castable(val,val,...) with n val inputs
+scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val);
+
 namespace scalar_ns {
 
 struct op_t {
   static op_t make_constant(scalar_t value);
   static op_t make_hole(int arg, dtype_t dtype);
+  static op_t make_variable(string name, dtype_t dtype);
   static op_t make_ite(compare_t);
   static string h_str(int arg, dtype_t dtype);
 
@@ -89,11 +94,18 @@ struct op_t {
     dtype_t dtype;
   };
 
+  struct variable {
+    string name;
+    dtype_t dtype;
+  };
+
   struct add {};
 
   struct mul {};
 
   struct exp {};
+
+  struct log {};
 
   struct power {
     double to_the;
@@ -121,9 +133,11 @@ struct op_t {
 
   bool is_constant() const;
   bool is_hole()     const;
+  bool is_variable() const;
   bool is_add()      const;
   bool is_mul()      const;
   bool is_exp()      const;
+  bool is_log()      const;
   bool is_power()    const;
   bool is_ite()      const;
   bool is_convert()  const;
@@ -133,6 +147,8 @@ struct op_t {
   bool is_cplex()    const;
 
   scalar_t get_constant() const;
+
+  variable get_variable() const;
 
   int get_which_input() const;
 
@@ -148,16 +164,20 @@ struct op_t {
 
   int num_inputs() const;
 
+  // Note: xs are the inputs of this op.
+  //       holes and variables cannot be evaluated.
   scalar_t eval(vector<scalar_t> const& xs) const;
 
   std::variant<
-    constant, hole, add, mul,
-    exp, power, ite, convert,
+    constant, hole, variable,
+    add, mul, exp, log, power,
+    ite, convert,
     conj, real, imag, cplex> op;
 
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_exp(scalar_t inn);
+  static scalar_t _eval_log(scalar_t inn);
   static scalar_t _eval_power(double to_the, scalar_t inn);
   static scalar_t _eval_ite(compare_t compare,
     scalar_t lhs, scalar_t rhs, scalar_t if_true, scalar_t if_false);
@@ -172,6 +192,7 @@ struct op_t {
   static optional<dtype_t> _type_add(dtype_t lhs, dtype_t rhs);
   static optional<dtype_t> _type_mul(dtype_t lhs, dtype_t rhs);
   static optional<dtype_t> _type_exp(dtype_t inn);
+  static optional<dtype_t> _type_log(dtype_t inn);
   static optional<dtype_t> _type_power(dtype_t inn);
   static optional<dtype_t> _type_ite(dtype_t, dtype_t, dtype_t, dtype_t);
   static optional<dtype_t> _type_convert(dtype_t inn, dtype_t out);
@@ -190,18 +211,24 @@ struct node_t {
 
   static node_t make_constant(scalar_t value);
 
-  scalar_t eval(vector<scalar_t> const& inputs) const;
+  scalar_t eval(
+    vector<scalar_t> const& inputs,
+    map<string, scalar_t> const& variables) const;
 
   node_t derivative(int arg) const;
   node_t wirtinger_derivative(int arg, bool conjugate) const;
 
   node_t simplify() const;
 
+  node_t replace_variables(map<string, scalar_t> const& vars) const;
+
   string to_cppstr(std::function<string(int)> write_hole) const;
 
   string to_cpp_bytes(vector<uint8_t>& bytes) const;
 
   void which_inputs(set<int>& items) const;
+
+  void which_variables(set<string>& variables) const;
 
   // if there are no holes, return -1
   int max_hole() const;
@@ -235,6 +262,7 @@ struct cutensor_scalarop_t {
   // list out cutensor elementwise ops that
   // may be discovered
   enum cop_t { add, mul, min, max, exp, pow, identity, relu};
+  // TODO: add log
 
   struct arg_t {
     scalar_t scale;
@@ -273,7 +301,13 @@ struct scalarop_t {
 
   scalarop_t(node_t const& node);
 
-  scalar_t eval(vector<scalar_t> const& inputs) const;
+  scalar_t eval() const;
+
+  scalar_t eval(scalar_t const& x0) const;
+
+  scalar_t eval(
+    vector<scalar_t> const& inputs,
+    map<string, scalar_t> const& variables = {}) const;
 
   // not valid if dtype is complex
   scalarop_t derivative(int arg) const;
@@ -282,8 +316,12 @@ struct scalarop_t {
 
   scalarop_t simplify() const;
 
+  // Note: it is an error if not all variables are provided
+  scalarop_t replace_variables(map<string, scalar_t> const& vars) const;
+
   dtype_t out_dtype() const { return node.dtype; }
 
+  // TODO: make it so that arg must be [0,1,...,num_args-1] and return dtype_t
   optional<dtype_t> inn_dtype(int arg) const;
 
   bool is_used(int arg) const { return bool(inn_dtype(arg)); }
@@ -292,7 +330,13 @@ struct scalarop_t {
 
   set<int> which_inputs() const;
 
+  set<string> which_variables() const;
+
+  bool has_variables() const;
+
   int num_inputs() const;
+
+  int num_variables() const;
 
   bool is_constant() const;
 
@@ -309,6 +353,9 @@ struct scalarop_t {
   bool is_max() const;
   bool is_min() const;
   bool is_add() const;
+
+  // If this is *[constant,hole0], return the constant
+  optional<scalar_t> get_scale_from_scale() const;
 
   // TODO: These methods should be const
   optional<cutensor_scalarop_t::arg_t> set_up_arg(node_t node);
@@ -334,6 +381,8 @@ struct scalarop_t {
 
   static scalarop_t make_constant(scalar_t val);
 
+  static scalarop_t make_variable(string name, dtype_t d = default_dtype());
+
   // x0 + x1
   static scalarop_t make_add(dtype_t d = default_dtype());
 
@@ -358,11 +407,13 @@ struct scalarop_t {
   // x0 == x1 ? 1.0 : 0.0
   static scalarop_t make_is_equal(dtype_t d = default_dtype());
 
-  // xn * val
+  // xn * (val or variable)
   static scalarop_t make_scale_which(scalar_t val, int arg);
+  static scalarop_t make_scale_which(string name, int arg, dtype_t d = default_dtype());
 
-  // x0 * val
+  // x0 * (val or variable)
   static scalarop_t make_scale(scalar_t val);
+  static scalarop_t make_scale(string name, dtype_t d = default_dtype());
 
   // x0 - x1
   static scalarop_t make_sub(dtype_t d = default_dtype());
@@ -372,9 +423,17 @@ struct scalarop_t {
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
+  static scalarop_t make_log(dtype_t d = default_dtype());
+
+  static scalarop_t make_sqrt(dtype_t d = default_dtype());
+
+  static scalarop_t make_inverse(dtype_t d = default_dtype());
+
   static scalarop_t make_inverse_sqrt(dtype_t d = default_dtype());
 
   static scalarop_t make_square(dtype_t d = default_dtype());
+
+  static scalarop_t make_power(int n, dtype_t d = default_dtype());
 
   static scalarop_t make_relu(dtype_t d = default_dtype());
 
@@ -410,6 +469,8 @@ std::ostream& operator<<(std::ostream& out, scalar_t const& c);
 std::istream& operator>>(std::istream& inn, scalar_t& c);
 
 scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs);
+scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs);
+scalar_t operator/(scalar_t const& lhs, scalar_t const& rhs);
 
 bool operator==(scalar_t const& lhs, scalar_t const& rhs);
 bool operator!=(scalar_t const& lhs, scalar_t const& rhs);

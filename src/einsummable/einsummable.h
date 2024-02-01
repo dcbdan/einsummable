@@ -37,6 +37,9 @@ struct einsummable_t {
   //   a b, b c ->a c
   einsummable_t merge_adjacent_dims() const;
 
+  einsummable_t replace_scalar_variables(
+    map<string, scalar_t> const& vars) const;
+
   string to_wire() const;
   static einsummable_t from_wire(string const& str);
 
@@ -117,6 +120,8 @@ struct einsummable_t {
   vector<vector<uint64_t>> inn_shapes() const;
 
   vector<uint64_t> inn_shape(int which_inn) const;
+
+  uint64_t inn_size(int which_inn) const;
 
   vector<vector<int>> input_idxs(vector<int> const& join_idx) const;
 

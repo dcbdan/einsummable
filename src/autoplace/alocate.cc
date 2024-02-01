@@ -1,5 +1,7 @@
 #include "alocate.h"
 
+#include "autoplace.h" // equal_holder_t
+
 struct _alocate01_rw_t {
   _alocate01_rw_t(
     int nlocs,
@@ -144,10 +146,7 @@ vector<placement_t> alocate01(
       }
     }
   }
-  auto pls = rw.get_placements();
-  return pls;
-
-  //return rw.get_placements();
+  return rw.get_placements();
 }
 
 _alocate01_rw_t::_alocate01_rw_t(
@@ -258,3 +257,208 @@ vector<uint64_t> _alocate01_rw_t::cost_agg_plan(
   return ret;
 }
 
+struct _alocate02_rw_t {
+  _alocate02_rw_t(
+    int nlocs,
+    uint64_t flops_per_byte_moved,
+    graph_t const& graph,
+    vector<partition_t> const& parts);
+
+  vector<uint64_t> move_cost(
+    set<int> const& src_locs,
+    set<int> const& dst_locs,
+    uint64_t bytes) const;
+
+  vector<uint64_t> refi_cost(rid_t rid) const;
+
+  vector<uint64_t> contributing_cost(jid_t jid) const;
+
+  void set_locs(int gid, vtensor_t<int> const& locs);
+
+  void set_loc(jid_t jid, int loc);
+
+  uint64_t get_cost() const { return *std::max_element(cost.begin(), cost.end()); }
+
+  vector<placement_t> get_placements() const {
+    return _rw.get_placements();
+  }
+
+private:
+  int const nlocs;
+  uint64_t const flops_per_byte_moved;
+  relationwise_t _rw;
+
+  vector<uint64_t> cost;
+};
+
+_alocate02_rw_t::_alocate02_rw_t(
+  int nls,
+  uint64_t f,
+  graph_t const& graph,
+  vector<partition_t> const& parts)
+  : nlocs(nls), flops_per_byte_moved(f),
+    cost(nlocs),
+    _rw(graph, parts)
+{}
+
+vector<uint64_t> _alocate02_rw_t::move_cost(
+  set<int> const& src_locs,
+  set<int> const& dst_locs,
+  uint64_t bytes) const
+{
+  vector<uint64_t> ret(nlocs);
+  for(int const& src: src_locs) {
+    for(int const& dst: dst_locs) {
+      if(src != dst) {
+        ret[src] += flops_per_byte_moved*bytes;
+        ret[dst] += flops_per_byte_moved*bytes;
+      }
+    }
+  }
+  return ret;
+}
+
+vector<uint64_t> _alocate02_rw_t::refi_cost(rid_t rid) const
+{
+  refinement_t const& refi = _rw.get_refi(rid);
+
+  set<int> dst_locs = _rw.get_refi_usage_locs(rid);
+
+  vector<uint64_t> ret(nlocs);
+  for(agg_unit_t const& unit: refi.units) {
+    set<int> src_locs;
+    for(int const& bid: unit.deps) {
+      int const& loc = _rw.get_loc(jid_t{ rid.gid, bid });
+      if(loc != -1) {
+        src_locs.insert(loc);
+      }
+    }
+
+    vector_add_into(
+      ret,
+      move_cost(src_locs, dst_locs, unit.size));
+  }
+
+  return ret;
+}
+
+vector<uint64_t> _alocate02_rw_t::contributing_cost(jid_t jid) const
+{
+  vector<uint64_t> ret(nlocs);
+  int const& loc = _rw.get_loc(jid);
+  if(loc == -1) {
+    return ret;
+  }
+
+  join_t const& join = _rw.get_join(jid);
+  if(join.einsummable) {
+    int64_t join_cost = product(join.einsummable.value().join_shape);
+    ret[loc] += join_cost;
+  }
+
+  for(int const& bid: join.outs) {
+    vector_add_into(ret, refi_cost(rid_t { jid.gid, bid }));
+  }
+  for(rid_t const& rid: join.deps) {
+    vector_add_into(ret, refi_cost(rid));
+  }
+
+  return ret;
+}
+
+void _alocate02_rw_t::set_locs(int gid, vtensor_t<int> const& locations)
+{
+  vector<int> block_shape = locations.get_shape();
+
+  if(!vector_equal(
+    block_shape,
+    _rw.ginfos[gid].partition.block_shape()))
+  {
+    throw std::runtime_error("invalid block shapes provided!");
+  }
+
+  int nbid = product(block_shape);
+  vector<int> const& locs = locations.get();
+  for(int bid = 0; bid != nbid; ++bid) {
+    set_loc(jid_t { gid, bid }, locs[bid]);
+  }
+}
+
+void _alocate02_rw_t::set_loc(jid_t jid, int loc) {
+  {
+    int prev_loc = _rw.get_loc(jid);
+    if(prev_loc == loc) {
+      return;
+    }
+  }
+
+  vector<uint64_t> prev_contrib = contributing_cost(jid);
+  _rw.get_loc(jid) = loc;
+  vector<uint64_t> curr_contrib = contributing_cost(jid);
+
+  for(int i = 0; i != nlocs; ++i) {
+    cost[i] += curr_contrib[i];
+    cost[i] -= prev_contrib[i];
+  }
+}
+
+vector<placement_t> alocate02(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  uint64_t flops_per_byte_moved,
+  map<int, vtensor_t<int>> const& fixed_pls,
+  vector<tuple<int,int>> const& equal_pls)
+{
+  _alocate02_rw_t rw(nlocs, flops_per_byte_moved, graph, parts);
+
+  equal_holder_t eqs(equal_pls);
+  for(auto const& [id, locs]: fixed_pls) {
+    if(eqs.has(id)) {
+      throw std::runtime_error("move equal set to fixed...");
+    }
+
+    rw.set_locs(id, locs);
+  }
+
+  // Note: this will solve eq gids multiple times
+  for(int const& base_gid: graph.get_order()) {
+    if(fixed_pls.count(base_gid) > 0) {
+      continue;
+    }
+
+    set<int> gids;
+    if(eqs.has(base_gid)) {
+      gids = eqs[base_gid];
+    } else {
+      gids.insert(base_gid);
+    }
+
+    int nbid = parts[base_gid].num_parts();
+    for(int bid = 0; bid != nbid; ++bid) {
+      auto set_loc = [&](int loc) {
+        for(int const& gid: gids) {
+          rw.set_loc({gid, bid}, loc);
+        }
+      };
+
+      set_loc(0);
+      int best_loc = 0;
+      uint64_t best_cost = rw.get_cost();
+      for(int loc = 1; loc != nlocs; ++loc) {
+        set_loc(loc);
+        uint64_t cost = rw.get_cost();
+        if(cost < best_cost) {
+          best_loc  = loc;
+          best_cost = cost;
+        }
+      }
+
+      if(best_loc != nlocs - 1) {
+        set_loc(best_loc);
+      }
+    }
+  }
+
+  return rw.get_placements();
+}

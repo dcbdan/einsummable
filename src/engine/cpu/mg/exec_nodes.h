@@ -1,4 +1,4 @@
-#include "../exec_graph.h"
+#include "../../exec_graph.h"
 
 struct cpu_einsummable_t : exec_graph_t::op_base_t {
   cpu_einsummable_t(
@@ -19,6 +19,23 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "cpu_einsummable"; }
 
+  int get_priority() const { return 200; }
+};
+
+struct cpu_fill_constant_t : exec_graph_t::op_base_t {
+  cpu_fill_constant_t(
+    uint64_t offset_,
+    fill_t const& fill_)
+    : offset(offset_), fill(fill_)
+  {}
+
+  uint64_t offset;
+  fill_t fill;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+
+  void print(std::ostream& out) const { out << "cpu_fill_constant"; }
   int get_priority() const { return 200; }
 };
 

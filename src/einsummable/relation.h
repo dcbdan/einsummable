@@ -3,6 +3,7 @@
 
 #include "../base/placement.h"
 
+#include "einsummable.pb.h"
 #include "scalarop.h"
 
 struct relation_t {

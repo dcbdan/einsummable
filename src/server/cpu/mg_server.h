@@ -7,7 +7,7 @@
 #include "../../engine/exec_state.h"
 
 #include "../../engine/cpu/kernel_executor.h"
-#include "../../engine/cpu/storage.h"
+#include "../../engine/cpu/mg/storage.h"
 
 //#include <sys/mman.h>
 
@@ -42,7 +42,10 @@ struct cpu_mg_server_t : server_mg_base_t
 
   threadpool_t* get_cpu_threadpool() { return &threadpool; }
 
-  void execute_memgraph(memgraph_t const& memgraph, bool for_remap);
+  void execute_memgraph(
+    memgraph_t const& memgraph,
+    bool for_remap,
+    map<string, scalar_t> const& scalar_vars);
 
   buffer_t local_copy_data(int tid);
 

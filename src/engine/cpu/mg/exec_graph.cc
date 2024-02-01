@@ -1,18 +1,19 @@
-#include "../exec_graph.h"
+#include "../../exec_graph.h"
 
 #include "exec_nodes.h"
 
 #include "workspace_manager.h"
 #include "storage_manager.h"
 
-#include "../../einsummable/dbuffer.h" // TODO: remove
+#include "../../../einsummable/dbuffer.h" // TODO: remove
 
 exec_graph_t
 exec_graph_t::make_cpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
   cpu_kernel_executor_t& cpu_executor,
-  int num_channels_per_move)
+  int num_channels_per_move,
+  map<string, scalar_t> const& scalar_vars)
 {
   // Note: all nodes must have the same num_channels_per_move
 
@@ -26,7 +27,6 @@ exec_graph_t::make_cpu_exec_graph(
   {
     auto const& node = memgraph.nodes[mid];
     auto const& mid_inns = node.inns;
-    auto const& mid_outs = node.outs;
 
     vector<int> inns;
     for(auto const& mid: mid_inns) {
@@ -58,6 +58,15 @@ exec_graph_t::make_cpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert_from_mid(op, mid);
+    } else if(node.op.is_constant()) {
+      auto const& constant = node.op.get_constant();
+      auto const& fill = constant.fill;
+
+      cpu_fill_constant_t* op = new cpu_fill_constant_t(
+        constant.offset,
+        fill);
+
+      insert_from_mid(op_ptr_t(op), mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       if(apply.is_einsummable()) {
@@ -66,7 +75,11 @@ exec_graph_t::make_cpu_exec_graph(
         }
 
         // build the kernel
-        einsummable_t e = apply.get_einsummable().merge_adjacent_dims();
+        einsummable_t e = apply
+          .get_einsummable()
+          .replace_scalar_variables(scalar_vars)
+          .merge_adjacent_dims();
+
         auto maybe_worksize = cpu_executor.build(e);
         if(!maybe_worksize) {
           DOUT(std::get<0>(e.join.to_cpp_bytes()));
@@ -261,6 +274,39 @@ cpu_touch_t::resource_description() const
 
   return resource_manager_t::make_desc(ret);
 }
+
+void cpu_fill_constant_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
+  void* out_mem = increment_void_ptr(global_buffer, offset);
+
+  thread_resource.launch(
+    [this, callback, out_mem]
+    {
+      initialize_fill(this->fill, out_mem);
+      callback();
+    });
+}
+
+desc_ptr_t
+cpu_fill_constant_t::resource_description() const
+{
+  vector<desc_ptr_t> ret;
+
+  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(threadpool_manager_t::make_desc());
+
+  return resource_manager_t::make_desc(ret);
+}
+
 
 void cpu_touch_t::launch(
   resource_ptr_t rsrc,

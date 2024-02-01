@@ -1,5 +1,33 @@
 #include "scalarop.h"
 
+scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val)
+{
+  if(n == 0) {
+    throw std::runtime_error("agg power: invalid n value");
+  }
+  if(n == 1) {
+    // no castable is applied when n = 1
+    return val;
+  }
+  if(castable == castable_t::min || castable == castable_t::max) {
+    if(dtype_is_complex(val.dtype)) {
+      throw std::runtime_error("can't max min complex");
+    } else {
+      return val;
+    }
+  }
+  if(castable == castable_t::add) {
+    // TODO: what if n is really big?
+    return scalarop_t::make_scale(
+      scalar_t(val.dtype, write_with_ss(double(n)))).eval(val);
+  }
+  if(castable == castable_t::mul) {
+    // TODO: what if n is really big?
+    return scalarop_t::make_power(int(n), val.dtype).eval(val);
+  }
+  throw std::runtime_error("should not reach: agg power");
+}
+
 compare_t compare_flip(compare_t c) {
   switch(c) {
     case compare_t::lt:
@@ -149,21 +177,103 @@ scalar_t scalar_t::zero(dtype_t dtype) {
   throw std::runtime_error("should not reach");
 }
 
-scalar_t scalar_t::negative_inf(dtype_t dtype) {
-  if(!std::numeric_limits<double>::is_iec559) {
-    throw std::runtime_error("uh oh; can't get -inf");
-  }
-  double ninf = - std::numeric_limits<double>::infinity();
+double _f64_inf() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for inf");
+  return std::numeric_limits<double>::infinity();
+}
+double _f64_ninf() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for ninf");
+  double ret = - std::numeric_limits<double>::infinity();
+  return ret;
+}
+double _f64_nan() {
+  static_assert(std::numeric_limits<double>::is_iec559, "for nan");
+  double ret = std::numeric_limits<double>::quiet_NaN();
+  return ret;
+}
 
+static
+float16_t const&
+f16_inf() {
+  static float16_t ret(_f64_inf());
+  return ret;
+}
+static
+float const&
+f32_inf() {
+  static float ret(_f64_inf());
+  return ret;
+}
+static
+double const&
+f64_inf() {
+  static double ret(_f64_inf());
+  return ret;
+}
+
+static
+float16_t const&
+f16_ninf() {
+  static float16_t ret(_f64_ninf());
+  return ret;
+}
+static
+float const&
+f32_ninf() {
+  static float ret(_f64_ninf());
+  return ret;
+}
+static
+double const&
+f64_ninf() {
+  static double ret(_f64_ninf());
+  return ret;
+}
+
+static
+float16_t const&
+f16_nan() {
+  static float16_t ret(_f64_nan());
+  return ret;
+}
+static
+float const&
+f32_nan() {
+  static float ret(_f64_nan());
+  return ret;
+}
+static
+double const&
+f64_nan() {
+  static double ret(_f64_nan());
+  return ret;
+}
+
+
+scalar_t scalar_t::negative_inf(dtype_t dtype) {
   switch(dtype) {
     case dtype_t::f16:
-      return scalar_t(float16_t(ninf));
+      return scalar_t(f16_ninf());
     case dtype_t::f32:
-      return scalar_t(float(ninf));
+      return scalar_t(f32_ninf());
     case dtype_t::f64:
-      return scalar_t(ninf);
+      return scalar_t(f64_ninf());
     case dtype_t::c64:
       throw std::runtime_error("no -inf for complex");
+  }
+  throw std::runtime_error("should not reach");
+}
+
+scalar_t scalar_t::inf(dtype_t dtype) {
+  switch(dtype) {
+    case dtype_t::f16:
+      return scalar_t(f16_inf());
+    case dtype_t::f32:
+      return scalar_t(f32_inf());
+    case dtype_t::f64:
+      return scalar_t(f64_inf());
+    case dtype_t::c64:
+      throw std::runtime_error("no inf for complex");
   }
   throw std::runtime_error("should not reach");
 }
@@ -285,6 +395,12 @@ op_t op_t::make_hole(int arg, dtype_t dtype) {
   };
 }
 
+op_t op_t::make_variable(string name, dtype_t dtype) {
+  return op_t {
+    .op = variable{ name, dtype }
+  };
+}
+
 op_t op_t::make_ite(compare_t c) {
   return op_t {
     .op = ite{ c }
@@ -297,9 +413,11 @@ string op_t::h_str(int arg, dtype_t dtype) {
 
 bool op_t::is_constant() const { return std::holds_alternative< constant >(op); }
 bool op_t::is_hole()     const { return std::holds_alternative< hole     >(op); }
+bool op_t::is_variable() const { return std::holds_alternative< variable >(op); }
 bool op_t::is_add()      const { return std::holds_alternative< add      >(op); }
 bool op_t::is_mul()      const { return std::holds_alternative< mul      >(op); }
 bool op_t::is_exp()      const { return std::holds_alternative< exp      >(op); }
+bool op_t::is_log()      const { return std::holds_alternative< log      >(op); }
 bool op_t::is_power()    const { return std::holds_alternative< power    >(op); }
 bool op_t::is_ite()      const { return std::holds_alternative< ite      >(op); }
 bool op_t::is_convert()  const { return std::holds_alternative< convert  >(op); }
@@ -309,6 +427,8 @@ bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); 
 bool op_t::is_cplex()    const { return std::holds_alternative< cplex    >(op); }
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
+
+op_t::variable op_t::get_variable() const { return std::get<variable>(op); }
 
 int op_t::get_which_input() const { return std::get<hole>(op).arg; }
 
@@ -323,10 +443,12 @@ compare_t op_t::get_ite_compare() const { return std::get<ite>(op).compare; }
 dtype_t op_t::get_convert() const { return std::get<convert>(op).dtype; }
 
 int op_t::num_inputs() const {
-  if(is_constant() || is_hole()) {
+  if(is_constant() || is_hole() || is_variable()) {
     return 0;
   }
-  if(is_power() || is_exp() || is_convert() || is_conj() || is_real() || is_imag()) {
+  if(is_power() || is_exp() || is_log() || is_convert() ||
+     is_conj() || is_real() || is_imag())
+  {
     return 1;
   }
   if(is_add() || is_mul() || is_cplex()) {
@@ -338,15 +460,16 @@ int op_t::num_inputs() const {
   throw std::runtime_error("should not reach: num_inputs");
 }
 
-scalar_t op_t::eval(vector<scalar_t> const& xs) const {
+scalar_t op_t::eval(vector<scalar_t> const& xs) const
+{
   if(xs.size() != num_inputs()) {
     throw std::runtime_error("invalid op_t::eval");
   }
   if(is_constant()) {
     return get_constant();
   }
-  if(is_hole()) {
-    throw std::runtime_error("cannot eval inputs; no variable state here");
+  if(is_hole() || is_variable()) {
+    throw std::runtime_error("cannot eval inputs or variables; no state here");
   }
   if(is_add()) {
     return _eval_add(xs[0], xs[1]);
@@ -356,6 +479,9 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const {
   }
   if(is_exp()) {
     return _eval_exp(xs[0]);
+  }
+  if(is_log()) {
+    return _eval_log(xs[0]);
   }
   if(is_power()) {
     return _eval_power(get_power(), xs[0]);
@@ -389,7 +515,10 @@ node_t node_t::make_constant(scalar_t value) {
   };
 }
 
-scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
+scalar_t node_t::eval(
+  vector<scalar_t> const& inputs,
+  map<string, scalar_t> const& variables) const
+{
   if(op.is_hole()) {
     int which = op.get_which_input();
     if(which < 0 || which >= inputs.size()) {
@@ -401,11 +530,23 @@ scalar_t node_t::eval(vector<scalar_t> const& inputs) const {
     }
     return ret;
   }
+  if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    auto iter = variables.find(v.name);
+    if(iter == variables.end()) {
+      throw std::runtime_error("variable not in variable map");
+    }
+    scalar_t const& ret = iter->second;
+    if(ret.dtype != v.dtype) {
+      throw std::runtime_error("variable value provided has wrong dtype");
+    }
+    return ret;
+  }
 
   vector<scalar_t> cs;
   cs.reserve(children.size());
   for(auto const& child: children) {
-    cs.push_back(child.eval(inputs));
+    cs.push_back(child.eval(inputs, variables));
   }
 
   return op.eval(cs);
@@ -450,7 +591,7 @@ scalar_t op_t::_eval_mul(scalar_t lhs, scalar_t rhs)
 scalar_t op_t::_eval_exp(scalar_t inn)
 {
   if(inn.dtype == dtype_t::c64) {
-    throw std::runtime_error("cannot exp complex");
+    throw std::runtime_error("not implemented: exp complex"); // TODO
   }
   if(inn.dtype == dtype_t::f16) {
     return scalar_t(half_float::exp(inn.f16()));
@@ -462,6 +603,23 @@ scalar_t op_t::_eval_exp(scalar_t inn)
     return scalar_t(std::exp(inn.f64()));
   }
   throw std::runtime_error("_eval_exp: should not reach");
+}
+
+scalar_t op_t::_eval_log(scalar_t inn)
+{
+  if(inn.dtype == dtype_t::c64) {
+    throw std::runtime_error("not implemented: log complex"); // TODO
+  }
+  if(inn.dtype == dtype_t::f16) {
+    return scalar_t(half_float::log(inn.f16()));
+  }
+  if(inn.dtype == dtype_t::f32) {
+    return scalar_t(std::log(inn.f32()));
+  }
+  if(inn.dtype == dtype_t::f64) {
+    return scalar_t(std::log(inn.f64()));
+  }
+  throw std::runtime_error("_eval_log: should not reach");
 }
 
 scalar_t op_t::_eval_power(double to_the, scalar_t inn)
@@ -478,7 +636,7 @@ scalar_t op_t::_eval_power(double to_the, scalar_t inn)
   if(inn.dtype == dtype_t::f64) {
     return scalar_t(std::pow(inn.f64(), to_the));
   }
-  throw std::runtime_error("_eval_exp: should not reach");
+  throw std::runtime_error("_eval_power: should not reach");
 }
 
 scalar_t op_t::_eval_ite(
@@ -553,6 +711,13 @@ optional<dtype_t> op_t::_type_mul(dtype_t lhs, dtype_t rhs) {
 }
 
 optional<dtype_t> op_t::_type_exp(dtype_t inn) {
+  if(inn == dtype_t::c64) {
+    return std::nullopt;
+  }
+  return inn;
+}
+
+optional<dtype_t> op_t::_type_log(dtype_t inn) {
   if(inn == dtype_t::c64) {
     return std::nullopt;
   }
@@ -635,6 +800,8 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   } else if(is_hole()) {
     if(inns.size() != 0) { return std::nullopt; }
     return get_hole_dtype();
+  } else if(is_variable()){
+    return get_variable().dtype;
   } else if(is_add()) {
     if(inns.size() != 2) { return std::nullopt; }
     return _type_add(inns[0], inns[1]);
@@ -644,6 +811,9 @@ optional<dtype_t> op_t::type_of(vector<dtype_t> inns) const {
   } else if(is_exp()) {
     if(inns.size() != 1) { return std::nullopt; }
     return _type_exp(inns[0]);
+  } else if(is_log()) {
+    if(inns.size() != 1) { return std::nullopt; }
+    return _type_log(inns[0]);
   } else if(is_power()) {
     if(inns.size() != 1) { return std::nullopt; }
     return _type_power(inns[0]);
@@ -702,7 +872,8 @@ bool op_t::_compare(compare_t c, scalar_t lhs, scalar_t rhs) {
 }
 
 node_t node_t::derivative(int arg) const {
-  if(op.is_constant()) {
+  if(op.is_constant() || op.is_variable()) {
+    // TODO: are we making assumptions on variable?
     return make_constant(scalar_t::zero(dtype));
   } else if(op.is_hole()) {
     if(arg == op.get_which_input()) {
@@ -760,6 +931,18 @@ node_t node_t::derivative(int arg) const {
     string s_this = write_with_ss(*this);
 
     return parse_with_ss<node_t>("*[" + s_this + "," + s_deri_inn + "]");
+  } else if(op.is_log()) {
+    // ln(f(x)) => 1/f(x) * f'(x)
+    node_t const& inn = children[0];
+
+    node_t deri_inn = inn.derivative(arg);
+
+    string s_deri_inn = write_with_ss(deri_inn);
+
+    string s_this = write_with_ss(*this);
+    string s_inv_this = "power{-1.0}[" + s_this + "]";
+
+    return parse_with_ss<node_t>("*[" + s_inv_this + "," + s_deri_inn + "]");
   } else if(op.is_power()) {
     // I(x)^i => i * { (I(x) ^{i-1}) * I'(x) }
     //           A     B               C
@@ -869,7 +1052,8 @@ node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
     return parse_with_ss<node_t>("+[" + lhs + "," + rhs + "]");
   };
 
-  if(op.is_constant()) {
+  if(op.is_constant() || op.is_variable()) {
+    // TODO: are we making assumptionso on variable?
     return make_constant(scalar_t::zero(dtype));
   } else if(op.is_hole()) {
     if(conjugate) {
@@ -905,6 +1089,8 @@ node_t node_t::wirtinger_derivative(int arg, bool conjugate) const {
     string dg_dzz = write_with_ss(
       children[0].wirtinger_derivative(arg, conjugate));
     return parse_with_ss<node_t>("*["+dh_dg+","+dg_dzz+"]");
+  } else if(op.is_log()) {
+    throw std::runtime_error("not implemented");
   } else if(op.is_power()) {
     if(arg != 0) {
       return make_constant(scalar_t::zero(dtype));
@@ -965,15 +1151,16 @@ node_t node_t::simplify() const {
 }
 
 node_t node_t::simplify_once() const {
-  if(op.is_hole() || op.is_constant()) {
+  if(op.is_hole() || op.is_constant() || op.is_variable()) {
     return *this;
   }
 
-  // Case: Has no inputs (and therefore should be a constant)
+  // Case: Has no inputs and no variables (and therefore should be a constant)
   {
     set<int> holes; which_inputs(holes);
-    if(holes.size() == 0) {
-      scalar_t val = eval({});
+    set<string> variables; which_variables(variables);
+    if(holes.size() == 0 && variables.size() == 0) {
+      scalar_t val = eval({}, {});
       string constant = ("constant{" + write_with_ss(val) + "}");
       return parse_with_ss<node_t>(constant);
     }
@@ -1005,6 +1192,23 @@ node_t node_t::simplify_once() const {
     }
     if(rhs.op.is_constant() && rhs.op.get_constant() == scalar_t::zero(dtype)) {
       return lhs;
+    }
+
+    // Check for inf + x or x + inf
+    //       or -inf + x or x + -inf
+    if(!dtype_is_complex(dtype)) {
+      if(lhs.op.is_constant() &&
+        (lhs.op.get_constant() == scalar_t::inf(dtype) ||
+         lhs.op.get_constant() == scalar_t::negative_inf(dtype)))
+      {
+        return lhs;
+      }
+      if(rhs.op.is_constant() &&
+        (rhs.op.get_constant() == scalar_t::inf(dtype) ||
+         rhs.op.get_constant() == scalar_t::negative_inf(dtype)))
+      {
+        return rhs;
+      }
     }
   }
 
@@ -1095,6 +1299,33 @@ node_t node_t::simplify_once() const {
   };
 }
 
+node_t node_t::replace_variables(map<string, scalar_t> const& vars) const {
+  if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    auto iter = vars.find(v.name);
+    if(iter == vars.end()) {
+      throw std::runtime_error("missing variable");
+    }
+    scalar_t const& val = iter->second;
+    if(val.dtype != v.dtype) {
+      throw std::runtime_error("variable dtype provided is incorrect");
+    }
+    return make_constant(val);
+  }
+
+  vector<node_t> new_children;
+  new_children.reserve(children.size());
+  for(auto const& child: children) {
+    new_children.push_back(child.replace_variables(vars));
+  }
+
+  return node_t {
+    .op = op,
+    .dtype = dtype,
+    .children = new_children
+  };
+}
+
 optional<node_t> node_t::normalize_order() const {
   auto is_ordered = [](node_t const& lhs, node_t const& rhs) {
     int l = lhs.max_hole();
@@ -1160,6 +1391,9 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
     return write_with_ss(op.get_constant());
   } else if(op.is_hole()) {
     return w(op.get_which_input());
+  } else if(op.is_variable()) {
+    // not really cpp str, but oh well
+    return op.get_variable().name;
   } else if(op.is_add()) {
     auto lhs = children[0].to_cppstr(w);
     auto rhs = children[1].to_cppstr(w);
@@ -1171,6 +1405,9 @@ string node_t::to_cppstr(std::function<string(int)> w) const {
   } else if(op.is_exp()) {
     auto inn = children[0].to_cppstr(w);
     return "_exp(" + inn + ")";
+  } else if(op.is_log()) {
+    auto inn = children[0].to_cppstr(w);
+    return "_log(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cppstr(w);
     return "_pow(" + inn + "," + write_with_ss(op.get_power()) + ")";
@@ -1246,7 +1483,10 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     }
     throw std::runtime_error("should not reach: to_cpp_bytes");
   } else if(op.is_hole()) {
-    return "x" + std::to_string(op.get_which_input()) + "[i]";
+    string which = std::to_string(op.get_which_input());
+    return "x" + which + "[i" + which + "]";
+  } else if(op.is_variable()) {
+    throw std::runtime_error("no cpp bytes for variable");
   } else if(op.is_add()) {
     auto lhs = children[0].to_cpp_bytes(bytes);
     auto rhs = children[1].to_cpp_bytes(bytes);
@@ -1258,6 +1498,9 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
   } else if(op.is_exp()) {
     auto inn = children[0].to_cpp_bytes(bytes);
     return "_exp(" + inn + ")";
+  } else if(op.is_log()) {
+    auto inn = children[0].to_cpp_bytes(bytes);
+    return "_log(" + inn + ")";
   } else if(op.is_power()) {
     auto inn = children[0].to_cpp_bytes(bytes);
     auto offset = push_into_bytes(bytes, op.get_power());
@@ -1281,6 +1524,19 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
         return "double(" + inn + ")";
       }
       throw std::runtime_error("should not reach");
+  } else if(op.is_conj()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_conj(" + i0 + ")";
+  } else if(op.is_real()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_real(" + i0 + ")";
+  } else if(op.is_imag()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    return "_imag(" + i0 + ")";
+  } else if(op.is_cplex()) {
+    auto i0 = children[0].to_cpp_bytes(bytes);
+    auto i1 = children[1].to_cpp_bytes(bytes);
+    return "_make_complex(" + i0 + "," + i1 + ")";
   } else {
     throw std::runtime_error("to_cpp_bytes: should not reach");
   }
@@ -1293,6 +1549,15 @@ void node_t::which_inputs(set<int>& items) const {
   }
   for(auto const& child: children) {
     child.which_inputs(items);
+  }
+}
+
+void node_t::which_variables(set<string>& items) const {
+  if(op.is_variable()) {
+    items.insert(op.get_variable().name);
+  }
+  for(auto const& child: children) {
+    child.which_variables(items);
   }
 }
 
@@ -1428,8 +1693,19 @@ scalarop_t::scalarop_t(scalar_ns::node_t const& n)
   }
 }
 
-scalar_t scalarop_t::eval(vector<scalar_t> const& inputs) const {
-  return node.eval(inputs);
+scalar_t scalarop_t::eval() const {
+  return eval(vector<scalar_t>{}, {});
+}
+
+scalar_t scalarop_t::eval(scalar_t const& x0) const {
+  return eval({x0}, {});
+}
+
+scalar_t scalarop_t::eval(
+  vector<scalar_t> const& inputs,
+  map<string, scalar_t> const& variables) const
+{
+  return node.eval(inputs, variables);
 }
 
 scalarop_t scalarop_t::derivative(int arg) const {
@@ -1442,6 +1718,10 @@ scalarop_t scalarop_t::wirtinger_derivative(int arg, bool conjugate) const {
 
 scalarop_t scalarop_t::simplify() const {
   return scalarop_t(node.simplify());
+}
+
+scalarop_t scalarop_t::replace_variables(map<string, scalar_t> const& vars) const {
+  return scalarop_t(node.replace_variables(vars));
 }
 
 optional<dtype_t> scalarop_t::inn_dtype(int arg) const {
@@ -1464,14 +1744,29 @@ set<int> scalarop_t::which_inputs() const {
   return ret;
 }
 
+set<string> scalarop_t::which_variables() const {
+  set<string> ret;
+  node.which_variables(ret);
+  return ret;
+}
+
+bool scalarop_t::has_variables() const {
+  // Could be faster but just dispatching to which_variables..
+  return which_variables().size() > 0;
+}
+
 int scalarop_t::num_inputs() const {
   return node.num_inputs();
+}
+
+int scalarop_t::num_variables() const {
+  // Could be faster but just dispatching to which_variables..
+  return which_variables().size();
 }
 
 bool scalarop_t::is_constant() const {
   return num_inputs() == 0;
 }
-
 
 bool scalarop_t::is_unary() const {
   return num_inputs() == 1;
@@ -1505,7 +1800,28 @@ bool scalarop_t::is_max() const {
   return *this == make_max(node.dtype);
 }
 
+optional<scalar_t> scalarop_t::get_scale_from_scale() const {
+  if(!node.op.is_mul()) {
+    return std::nullopt;
+  }
 
+  auto const& lhs = node.children[0];
+  if(!lhs.op.is_constant()) {
+    return std::nullopt;
+  }
+
+  auto const& rhs = node.children[1];
+  if(!rhs.op.is_hole()) {
+    return std::nullopt;
+  }
+
+  bool is_arg0 = rhs.op.get_hole().arg == 0;
+  if(!is_arg0) {
+    return std::nullopt;
+  }
+
+  return lhs.op.get_constant();
+}
 
 optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
   // TODO: review this
@@ -1520,6 +1836,8 @@ optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
     cutensor_scalarop_t::cop_t op;
     if(node.op.is_exp()){
       op = cutensor_scalarop_t::cop_t::exp;
+    } else if(node.op.is_log()) {
+      throw std::runtime_error("not implemented set_up_arg log");
     }else if(node.op.is_power()){
       op = cutensor_scalarop_t::cop_t::pow;
     }else{
@@ -1808,6 +2126,13 @@ scalarop_t scalarop_t::make_constant(scalar_t val) {
   return parse_with_ss<scalarop_t>("constant{"+write_with_ss(val)+"}");
 }
 
+scalarop_t scalarop_t::make_variable(string name, dtype_t dtype) {
+  if(!is_alphanumeric_u(name)) {
+    throw std::runtime_error("variable name must be alphanumeric or underscore");
+  }
+  return parse_with_ss<scalarop_t>("variable{"+name+"|"+write_with_ss(dtype)+"}");
+}
+
 // x0 + x1
 scalarop_t scalarop_t::make_add(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
@@ -1871,9 +2196,28 @@ scalarop_t scalarop_t::make_scale_which(scalar_t val, int arg) {
   string constant = "constant{" + write_with_ss(val) + "}";
   return parse_with_ss<scalarop_t>("*[" + hole + "," + constant + "]");
 }
+
+// xn * var
+scalarop_t scalarop_t::make_scale_which(string var, int arg, dtype_t dtype) {
+  if(!is_alphanumeric_u(var)) {
+    throw std::runtime_error("invalid variable name");
+  }
+
+  string hole = op_t::h_str(arg, dtype);
+  string variable = "variable{" + var + "|" + write_with_ss(dtype) +"}";
+  return parse_with_ss<scalarop_t>("*[" + hole + "," + variable + "]");
+}
+
 // x0 * val
 scalarop_t scalarop_t::make_scale(scalar_t val) {
   return make_scale_which(val, 0);
+}
+scalarop_t scalarop_t::make_scale(string var, dtype_t dtype) {
+  if(!is_alphanumeric_u(var)) {
+    throw std::runtime_error("invalid variable name");
+  }
+
+  return make_scale_which(var, 0, dtype);
 }
 
 // x0 - x1
@@ -1895,6 +2239,21 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
+scalarop_t scalarop_t::make_log(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("log["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_sqrt(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{0.5}["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_inverse(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{-1.0}["+h0+"]");
+}
+
 scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("power{-0.5}["+h0+"]");
@@ -1903,6 +2262,11 @@ scalarop_t scalarop_t::make_inverse_sqrt(dtype_t dtype) {
 scalarop_t scalarop_t::make_square(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("power{2.0}["+h0+"]");
+}
+
+scalarop_t scalarop_t::make_power(int n, dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  return parse_with_ss<scalarop_t>("power{"+write_with_ss(n)+"}["+h0+"]");
 }
 
 scalarop_t scalarop_t::make_relu(dtype_t dtype) {
@@ -1995,7 +2359,7 @@ scalarop_t scalarop_t::make_complex(dtype_t out) {
 // These + ops could be implemented with scalarop
 scalar_t& scalar_t::operator+=(scalar_t const& rhs) {
   if(dtype != rhs.dtype) {
-    throw std::runtime_error("can only add with the same dtype");
+    throw std::runtime_error("can only add into with the same dtype");
   }
 
   if(dtype == dtype_t::f16) {
@@ -2045,6 +2409,40 @@ scalar_t operator+(scalar_t const& lhs, scalar_t const& rhs) {
     return scalar_t(lhs.f64() + rhs.f64());
   } else if(lhs.dtype == dtype_t::c64) {
     return scalar_t(lhs.c64() + rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+}
+
+scalar_t operator-(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only subtract with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() - rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() - rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() - rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() - rhs.c64());
+  } else {
+    throw std::runtime_error("missing dtype for adding");
+  }
+}
+
+scalar_t operator/(scalar_t const& lhs, scalar_t const& rhs) {
+  if(lhs.dtype != rhs.dtype) {
+    throw std::runtime_error("can only divide with the same dtype");
+  }
+  if(lhs.dtype == dtype_t::f16) {
+    return scalar_t(lhs.f16() / rhs.f16());
+  } else if(lhs.dtype == dtype_t::f32) {
+    return scalar_t(lhs.f32() / rhs.f32());
+  } else if(lhs.dtype == dtype_t::f64) {
+    return scalar_t(lhs.f64() / rhs.f64());
+  } else if(lhs.dtype == dtype_t::c64) {
+    return scalar_t(lhs.c64() / rhs.c64());
   } else {
     throw std::runtime_error("missing dtype for adding");
   }
@@ -2134,11 +2532,35 @@ std::ostream& operator<<(std::ostream& out, scalar_t const& c) {
   if(c.dtype == dtype_t::c64) {
     out << c.c64();
   } else if(c.dtype == dtype_t::f16) {
-    out << c.f16();
+    if(c.f16() == f16_inf()) {
+      out << "INF";
+    } else if(c.f16() == f16_ninf()) {
+      out << "NINF";
+    } else if(half_float::isnan(c.f16())) {
+      out << "NAN";
+    } else {
+      out << c.f16();
+    }
   } else if(c.dtype == dtype_t::f32) {
-    out << c.f32();
+    if(c.f32() == f32_inf()) {
+      out << "INF";
+    } else if(c.f32() == f32_ninf()) {
+      out << "NINF";
+    } else if(std::isnan(c.f32())) {
+      out << "NAN";
+    } else {
+      out << c.f32();
+    }
   } else if(c.dtype == dtype_t::f64) {
-    out << c.f64();
+    if(c.f64() == f64_inf()) {
+      out << "INF";
+    } else if(c.f64() == f64_ninf()) {
+      out << "NINF";
+    } else if(std::isnan(c.f64())) {
+      out << "NAN";
+    } else {
+      out << c.f64();
+    }
   } else {
     throw std::runtime_error("should not reach << scalar_t");
   }
@@ -2153,16 +2575,56 @@ std::istream& operator>>(std::istream& inn, scalar_t& c) {
     throw std::runtime_error("expected bar in scalar_t parse");
   }
 
-  if(c.dtype == dtype_t::c64) {
-    inn >> c.c64();
-  } else if(c.dtype == dtype_t::f16) {
-    inn >> c.f16();
-  } else if(c.dtype == dtype_t::f32) {
-    inn >> c.f32();
-  } else if(c.dtype == dtype_t::f64) {
-    inn >> c.f64();
+  char peek = inn.peek();
+
+  if(peek == 'I') {
+    istream_expect(inn, "INF");
+    if(c.dtype == dtype_t::f16) {
+      c.f16() = f16_inf();
+    } else if(c.dtype == dtype_t::f32) {
+      c.f32() = f32_inf();
+    } else if(c.dtype == dtype_t::f64) {
+      c.f64() = f64_inf();
+    } else {
+      throw std::runtime_error("unexpected dtype");
+    }
+  } else if(peek == 'N') {
+    int which = istream_expect_or(inn, {"NINF", "NAN"});
+    if(which == 0) {
+      if(c.dtype == dtype_t::f16) {
+        c.f16() = f16_ninf();
+      } else if(c.dtype == dtype_t::f32) {
+        c.f32() = f32_ninf();
+      } else if(c.dtype == dtype_t::f64) {
+        c.f64() = f64_ninf();
+      } else {
+        throw std::runtime_error("unexpected dtype");
+      }
+    } else if(which == 1) {
+      if(c.dtype == dtype_t::f16) {
+        c.f16() = f16_nan();
+      } else if(c.dtype == dtype_t::f32) {
+        c.f32() = f32_nan();
+      } else if(c.dtype == dtype_t::f64) {
+        c.f64() = f64_nan();
+      } else {
+        throw std::runtime_error("unexpected dtype");
+      }
+    } else {
+      throw std::runtime_error("should not reach");
+    }
   } else {
-    throw std::runtime_error("should not reach >> scalar_t");
+    if(c.dtype == dtype_t::c64) {
+      inn >> c.c64();
+    } else if(c.dtype == dtype_t::f16) {
+      inn >> c.f16();
+    } else if(c.dtype == dtype_t::f32) {
+      inn >> c.f32();
+    } else if(c.dtype == dtype_t::f64) {
+      inn >> c.f64();
+    } else {
+      throw std::runtime_error("should not reach >> scalar_t");
+    }
   }
 
   return inn;
@@ -2225,12 +2687,17 @@ std::ostream& operator<<(std::ostream& out, op_t const& op) {
     out << "constant{" << op.get_constant() << "}";
   } else if(op.is_hole()) {
     out << "hole|" << op.get_hole_dtype() << "@" << op.get_which_input();
+  } else if(op.is_variable()) {
+    auto const& v = op.get_variable();
+    out << "variable{" << v.name << "|" << v.dtype << "}";
   } else if(op.is_add()) {
     out << "+";
   } else if(op.is_mul()) {
     out << "*";
   } else if(op.is_exp()) {
     out << "exp";
+  } else if(op.is_log()) {
+    out << "log";
   } else if(op.is_power()) {
     out << "power{" << op.get_power() << "}";
   } else if(op.is_ite()) {
@@ -2268,6 +2735,14 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
     } else {
       throw std::runtime_error("should not reach: ite or imag");
     }
+  } else if(c == 'v') {
+    istream_expect(inn, "variable{");
+    string name = istream_consume_alphanumeric_u(inn);
+    istream_expect(inn, "|");
+    dtype_t dtype;
+    inn >> dtype;
+    istream_expect(inn, "}");
+    op.op = scalar_ns::op_t::variable{ .name = name, .dtype = dtype };
   } else if(c == 'h') {
     istream_expect(inn, "hole|");
     dtype_t dtype;
@@ -2285,6 +2760,9 @@ std::istream& operator>>(std::istream& inn, op_t& op) {
   } else if(c == 'e') {
     istream_expect(inn, "exp");
     op.op = scalar_ns::op_t::exp{ };
+  } else if(c == 'l') {
+    istream_expect(inn, "log");
+    op.op = scalar_ns::op_t::log { };
   } else if(c == 'p') {
     istream_expect(inn, "power{");
     double i;
@@ -2344,6 +2822,8 @@ std::istream& operator>>(std::istream& inn, node_t& node) {
       node.dtype = node.op.get_constant().dtype;
     } else if(node.op.is_hole()) {
       node.dtype = node.op.get_hole_dtype();
+    } else if(node.op.is_variable()) {
+      node.dtype = node.op.get_variable().dtype;
     } else {
       throw std::runtime_error("parse node: invalid op with no inputs");
     }

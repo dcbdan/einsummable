@@ -83,17 +83,20 @@ gpu_mg_server_t::gpu_mg_server_t(
 
 void gpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
-  bool for_remap)
+  bool for_remap,
+  map<string, scalar_t> const& scalar_vars)
 {
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
-  auto initial = std::chrono::high_resolution_clock::now(); 
+  auto initial = std::chrono::high_resolution_clock::now();
   DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
-      memgraph, comm.get_this_rank(), kernel_managers, num_gpus_per_node[comm.get_this_rank()], mems);
+      memgraph, comm.get_this_rank(), kernel_managers,
+      num_gpus_per_node[comm.get_this_rank()], mems,
+      scalar_vars);
   DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
@@ -114,12 +117,12 @@ void gpu_mg_server_t::execute_memgraph(
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();
   auto end = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);  
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
   DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-  auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);  
+  auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
   if (duration2.count() - duration.count() > 10){
     DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
-  }  
+  }
 }
 
 // memstoloc_t is not a contiguous data structure,
@@ -273,11 +276,11 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
       increment_void_ptr(mems[local_gpu], offset),
       ret_buffer->size,
       cudaMemcpyDeviceToHost);
-    
+
     if(error != cudaSuccess) {
       throw std::runtime_error("cudaMemcpy failed");
     }
-    
+
     // DLINEOUT(dbuffer_t(dtype_t::f32, ret_buffer));
 
     return ret_buffer;

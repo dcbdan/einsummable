@@ -5,7 +5,6 @@
 #include "../src/einsummable/relation.h"
 
 #include "../src/engine/communicator.h"
-#include "../src/server/cpu/server.h"
 
 #include <fstream>
 

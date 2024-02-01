@@ -36,15 +36,37 @@ int main(int argc, char** argv) {
       margs.n_layers = std::min(margs.n_layers, n_layers);
     }
   }
-  DLINE;
 
   builder_t builder = builder_t::make_first_token(margs, seqlen);
+
+  std::unordered_set<einsummable_t> einsummables;
+  for(auto const& node: builder.graph.nodes) {
+    if(node.op.is_einsummable()) {
+      auto e = node.op.get_einsummable();
+      for(uint64_t& d: e.join_shape) {
+        d = 1;
+      }
+      einsummables.insert(e);
+    }
+  }
+  int num = einsummables.size();
+  int num_unary = 0;
+  int num_binary = 0;
+  for(auto const& e: einsummables) {
+    if(e.inns.size() == 1) {
+      num_unary++;
+    }
+    if(e.inns.size() == 2) {
+      num_binary++;
+    }
+  }
+  DOUT("total, unary, binary: " << num << " " << num_unary << " " << num_binary);
+
   vector<int> weight_ids;
   for(auto const& [name, weight_id]: builder.weights) {
     weight_ids.push_back(weight_id);
   }
   int const& scores = builder.scores;
-  DLINE;
 
   graph_t& graph = builder.graph;
 

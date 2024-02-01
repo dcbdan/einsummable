@@ -1,8 +1,11 @@
 #pragma once
 #include "../../base/setup.h"
 
+#include "../../base/buffer.h"
+
 #include "../../einsummable/scalarop.h"
 #include "../../einsummable/einsummable.h"
+#include "../../einsummable/fill.h"
 #include "../../base/timetracker.h"
 
 #include "../touch.h"
@@ -41,11 +44,25 @@ private:
     void (*f)(uint8_t const*, uint64_t, void*, void const*, void const*);
   };
 
+  struct ternary_straight_ew_t {
+    uint64_t n;
+    vector<uint8_t> data;
+    void (*f)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
+  };
+
   struct binary_212_ew_t {
     uint64_t na;
     uint64_t nb;
     vector<uint8_t> data;
     void (*f)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*);
+    bool swapargs;
+  };
+
+  struct ternary_2112_ew_t {
+    uint64_t na;
+    uint64_t nb;
+    vector<uint8_t> data;
+    void (*f)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*);
   };
 
   struct tensor_permute_t {
@@ -60,9 +77,21 @@ private:
     std::function<void(uint64_t, uint64_t, void*, void const*)> f;
   };
 
+  struct sum_then_scale_ab_a_t {
+    uint64_t na;
+    uint64_t nb;
+    scalar_t value;
+  };
+
   struct broadcast_b_ab_t {
-    uint64_t sz_a;
+    uint64_t nelem_a;
     uint64_t sz_b;
+  };
+
+  struct broadcast_a_ab_t {
+    dtype_t dtype;
+    uint64_t nelem_a;
+    uint64_t nelem_b;
   };
 
   // kernel_t is a misc catchall that can just wrap a lambda
@@ -105,10 +134,17 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
+  void operator()(
+    einsummable_t const& e,
+    void* out,
+    vector<void const*> inns,
+    optional<buffer_t> workspace = std::nullopt) const;
+
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
-    unary_straight_ew_t, binary_straight_ew_t, binary_212_ew_t, tensor_permute_t,
-    reduction_ab_a_t, broadcast_b_ab_t,
+    unary_straight_ew_t, binary_straight_ew_t, ternary_straight_ew_t,
+    binary_212_ew_t, ternary_2112_ew_t, tensor_permute_t,
+    reduction_ab_a_t, sum_then_scale_ab_a_t, broadcast_b_ab_t, broadcast_a_ab_t,
     kernel_t>;
 
   kernel_info_t const& get_built_kernel_info(einsummable_t const& e) const;
@@ -149,10 +185,22 @@ lookup_binary_straight_ew_kernel(
 
 optional<tuple<
   vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_straight_ew_kernel(
+  scalarop_t binary_op);
+
+optional<tuple<
+  vector<uint8_t>,
   void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*)> >
 lookup_binary_212_ew_kernel(
   scalarop_t binary_op,
   bool is_ab_a);
+
+optional<tuple<
+  vector<uint8_t>,
+  void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*)> >
+lookup_ternary_2112_ew_kernel(
+  scalarop_t ternary_op);
 
 std::function<void(uint64_t, uint64_t, void*, void const*)>
 build_ab_a_reduction_kernel(
@@ -218,6 +266,14 @@ void c64_mul_abcd_bd_to_abcd(
   std::complex<float>* out,
   std::complex<float> const* lhs,
   std::complex<float> const* rhs);
+void c64_mulconj_abcd_bd_to_abcd(
+  uint64_t na,
+  uint64_t nb,
+  uint64_t nc,
+  uint64_t nd,
+  std::complex<float>* out,
+  std::complex<float> const* lhs,
+  std::complex<float> const* rhs);
 
 void permute_kernel(
   dtype_t dtype,
@@ -228,9 +284,41 @@ void permute_kernel(
   void const* inn);
 
 void broadcast_b_ab_kernel(
-  uint64_t sz_a,
+  uint64_t nelem_a,
   uint64_t sz_b,
   void* out,
   void const* inn);
+
+void broadcast_a_ab_kernel(
+  dtype_t dtype,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  void* out,
+  void const* inn);
+
+void sum_then_scale_ab_a_kernel(
+  scalar_t value,
+  uint64_t nelem_a,
+  uint64_t nelem_b,
+  void* out,
+  void const* inn);
+
+// ab,ab,a->a
+// *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+void custom01_float_ab_ab_a_to_a(
+  uint64_t na,
+  uint64_t nb,
+  float* out,
+  float const* x0,
+  float const* x1,
+  float const* x2);
+
+void constant_fill(scalar_t value, uint64_t nelem, void* out);
+
+void lowertri_fill(
+  scalar_t lower, scalar_t upper, int64_t nrow, int64_t ncol, int64_t start,
+  void* out);
+
+void initialize_fill(fill_t const& fill, void* out);
 
 timetracker_t& get_cpu_kernel_timetracker();
