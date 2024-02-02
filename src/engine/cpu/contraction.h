@@ -3,8 +3,36 @@
 
 #include "../../einsummable/scalarop.h"
 
+// This is like a contraction, except the full tensors must be
+// permuted if a permutation is provided.
+struct full_contraction_t {
+  struct permute_t {
+    vector<uint64_t> inn_shape;
+    vector<int> out_perm;
+  };
+  optional<permute_t> lhs;
+  optional<permute_t> rhs;
+  optional<permute_t> out;
+
+  uint64_t nb;
+  uint64_t ni;
+  uint64_t nj;
+  uint64_t nk;
+  bool trans_lhs;
+  bool trans_rhs;
+
+  static full_contraction_t make(
+    dtype_t dtype,
+    vector<uint64_t> const& shape,
+    vector<int> const& lhs_inn_modes,
+    vector<int> const& rhs_inn_modes,
+    int out_rank);
+};
+
 struct contraction_t {
 private:
+  friend class full_contraction_t;
+
   struct permute_info_t {
     vector<uint64_t> inn_shape;
     vector<int> out_perm;
