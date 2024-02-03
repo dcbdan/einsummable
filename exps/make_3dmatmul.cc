@@ -1,6 +1,8 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/taskgraph.h"
 
+#include <fstream>
+
 void usage() {
   std::cout << "Usage: pi pj pk di dj dk num_processors\n"
             << "\n"
@@ -36,17 +38,25 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto g = three_dimensional_matrix_multiplication(
+  graph_constructor_t g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
 
-  g.graph.print();
+  {
+    std::ofstream f("g.gv");
+    g.graph.print_graphviz(f);
+    DOUT("printed g.gv");
+  }
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(g.graph, g.get_placements());
 
   vector<char> line(40, '/');
   std::cout << std::string(line.begin(), line.end()) << std::endl;
 
-  taskgraph.print();
+  {
+    std::ofstream f("tg.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("printed tg.gv");
+  }
 }
 
 

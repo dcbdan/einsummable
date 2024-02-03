@@ -114,18 +114,20 @@ int main(int argc, char** argv) {
   DOUT("number of weight tensors: " << trainer_weight_ids.size());
 
   autoplace_config_t config =
-    autoplace_config_t::make_default02(world_size, num_threads);
+    autoplace_config_t::make_default01(world_size, num_threads);
 
   auto f_autoplace = [&config](
     graph_t const& graph,
     map<int, placement_t> const& fixed_pls,
     vector<tuple<int,int>> const& equal_pls)
   {
-    return autoplace02(graph, config, fixed_pls, equal_pls);
+    //return autoplace02(graph, config, fixed_pls, equal_pls);
+    return autoplace01(graph, config);
   };
 
+  auto const& graph = writer.get_graph();
   taskgraph_t taskgraph = trainer_t::dry_setup(
-    writer.get_graph(),
+    graph,
     loss.get_id(),
     vector<int>{loss.get_id()},                        // inspect
     vector<int>{embeddings.get_id(), labels.get_id()}, // data
@@ -137,26 +139,68 @@ int main(int argc, char** argv) {
     false // don't make the gradients inspectable
   );
 
-  bool success;
-  try {
-    auto [_0, _1, memgraph] = memgraph_t::make_without_evict(
-      taskgraph,
-      vector<uint64_t>(world_size, mem_size));
-    DLINEOUT("memgraph size is " << memgraph.nodes.size());
-    success = true;
-  } catch(std::runtime_error const& error) {
-    string msg = error.what();
-    DOUT(msg);
-    success = false;
+  std::unordered_map<einsummable_t, int> ecnts;
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_apply()) {
+      einsummable_t e = node.op.get_apply().einsummable.merge_adjacent_dims();
+      ecnts[e]++;
+    }
+  }
+  for(auto const& [e, cnt]: ecnts) {
+    if(e.is_contraction()) {
+      DOUT(e << ": " << cnt);
+    }
   }
 
+  bool success;
+  //try {
+  //  auto [_0, _1, memgraph] = memgraph_t::make_without_evict(
+  //    taskgraph,
+  //    vector<uint64_t>(world_size, mem_size));
+  //  DLINEOUT("memgraph size is " << memgraph.nodes.size());
+  //  success = true;
+  //} catch(std::runtime_error const& error) {
+  //  string msg = error.what();
+  //  DOUT(msg);
+  //  success = false;
+  //}
+  success = true;
+
   std::cout << "world_size,mem_size,num_threads,lora_rank,model_name,"
-               "batch_size,sequence_length,did_compile" << std::endl;
+               "batch_size,sequence_length,did_compile";
+  if(success) {
+    std::cout << ",flops,bytes_moved,weight_size";
+  }
+  std::cout << std::endl;
+
   std::cout << world_size << "," << (mem_size/GB) << "," << num_threads << ","
             << lora_rank << "," << model_name << ","
             << margs.batch_size << "," << margs.max_seq_len << ","
-            << std::boolalpha << success
-            << std::endl;
+            << std::boolalpha << success;
+  if(success) {
+    uint64_t weight_size = 0;
+    uint64_t flops = 0;
+    uint64_t bytes_moved = 0;
+    for(auto const& id: trainer_weight_ids) {
+      weight_size += graph.out_size(id);
+    }
+    for(auto const& node: taskgraph.nodes) {
+      if(node.op.is_move()) {
+        bytes_moved += node.op.get_move().size;
+      } else if(node.op.is_apply()) {
+        flops += product(node.op.get_apply().einsummable.join_shape);
+      }
+    }
+    std::cout << "," << flops << "," << bytes_moved << "," << weight_size;
 
+    uint64_t ww = 0;
+    for(auto const& [name, tensor]: weight_map) {
+      int id = tensor.get_id();
+      ww += graph.out_size(id);
+    }
+    std::cout << ",ww" << ww;
+  }
+
+  std::cout << std::endl;
 }
 

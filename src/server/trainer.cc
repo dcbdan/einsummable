@@ -240,21 +240,30 @@ void trainer_t::init() {
 
 void trainer_t::operator()(map<string, scalar_t> const& scalar_vars)
 {
-  // prepare: Verify that data ids, constant ids and weight ids are in the server.
-  //          and do a remap to give them the correct placement.
-  server->remap(inn_remap);
-  // Note: this will delete any inspect tensors from the previous iteration
+  {
+    gremlin_t g("inn remap");
+    // prepare: Verify that data ids, constant ids and weight ids are in the server.
+    //          and do a remap to give them the correct placement.
+    server->remap(inn_remap);
+    // Note: this will delete any inspect tensors from the previous iteration
+  }
 
   // execute: Run the graph
   auto vars = scalar_vars;
   updater.modify_vars(vars);
-  server->execute(taskgraph, after_execution_map, vars);
+  {
+    gremlin_t g("execute");
+    server->execute(taskgraph, after_execution_map, vars);
+  }
 
   // remap: make sure that
   //        1) the updated weights are at the init weights
   //        2) constant tensors and inspect tensors are not deleted
-  server->remap(out_remap_rels);
-  server->remap_gids(out_remap_gids);
+  {
+    gremlin_t g("out remap");
+    server->remap(out_remap_rels);
+    server->remap_gids(out_remap_gids);
+  }
 }
 
 void trainer_t::update_t::init(trainer_t& self) {

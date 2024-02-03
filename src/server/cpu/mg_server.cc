@@ -16,7 +16,8 @@ void cpu_mg_server_t::execute_memgraph(
   map<string, scalar_t> const& scalar_vars)
 {
   int n_threads = threadpool.num_runners();
-  if(n_threads == 1) {
+  int world_size = comm.get_world_size();
+  if(n_threads == 1 && world_size > 1) {
     throw std::runtime_error("must have more than one thread in the threadpool");
   }
 
@@ -30,21 +31,23 @@ void cpu_mg_server_t::execute_memgraph(
       num_channels_per_move,
       scalar_vars);
 
-  rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
-  recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
+  vector<rm_ptr_t> managers;
+  managers.emplace_back(new cpu_workspace_manager_t());
+  managers.emplace_back(new group_manager_t());
+  managers.emplace_back(new global_buffers_t(mem->raw()));
+  managers.emplace_back(new cpu_storage_manager_t(&storage));
 
-  rm_ptr_t resource_manager(new resource_manager_t(
-    vector<rm_ptr_t> {
-      rm_ptr_t(new cpu_workspace_manager_t()),
-      rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(mem->raw())),
-      rm_ptr_t(new cpu_storage_manager_t(&storage)),
-      rm_ptr_t(new notifier_t(comm, rcm)),
-      rm_ptr_t(new send_channel_manager_t(comm, n_threads-1)),
-      rcm_ptr,
-      rm_ptr_t(new threadpool_manager_t(threadpool)),
-    }
-  ));
+  if(world_size > 1) {
+    rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
+    recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
+    managers.emplace_back(new notifier_t(comm, rcm));
+    managers.emplace_back(new send_channel_manager_t(comm, n_threads-1));
+    managers.push_back(rcm_ptr);
+  }
+
+  managers.emplace_back(new threadpool_manager_t(threadpool));
+
+  rm_ptr_t resource_manager(new resource_manager_t(std::move(managers)));
 
   exec_state_t state(graph, resource_manager, priority_type, this_rank);
 

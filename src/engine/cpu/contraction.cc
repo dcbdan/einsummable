@@ -52,9 +52,10 @@ full_contraction_t::make(
         out_shape, plan.modes_out(), out_modes);
 
     full_contraction_t f {
-      .lhs = std::nullopt,
-      .rhs = std::nullopt,
-      .out = std::nullopt,
+      .dtype = dtype,
+      .perm_lhs = std::nullopt,
+      .perm_rhs = std::nullopt,
+      .perm_out = std::nullopt,
       .nb = nb,
       .ni = ni,
       .nj = nj,
@@ -66,21 +67,21 @@ full_contraction_t::make(
     uint64_t cost = 0;
     if(!perm_lhs.is_no_op()) {
       cost += product(lhs_shape);
-      f.lhs = permute_t {
+      f.perm_lhs = permute_t {
         .inn_shape = perm_lhs.inn_shape,
         .out_perm  = perm_lhs.out_perm
       };
     }
     if(!perm_rhs.is_no_op()) {
       cost += product(rhs_shape);
-      f.rhs = permute_t {
+      f.perm_rhs = permute_t {
         .inn_shape = perm_rhs.inn_shape,
         .out_perm  = perm_rhs.out_perm
       };
     }
     if(!perm_out.is_no_op()) {
       cost += product(out_shape);
-      f.out = permute_t {
+      f.perm_out = permute_t {
         .inn_shape = perm_out.inn_shape,
         .out_perm  = perm_out.out_perm
       };

@@ -44,7 +44,7 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
 #add_base_application("reference"        "exps" "reference")
 # add_base_application("copyregion"       "exps" "copyregion")
 add_base_application("scalarop"         "exps" "scalarop")
@@ -157,10 +157,10 @@ if(${CPU_EXECUTION_ENGINE})
       llama/dataset_reader.cc llama/piper.cc)
     target_link_libraries(${exec}
       cpu_execution_engine
-      proto
-      ${Protobuf_LIBRARIES}
       MKL::MKL
-      ucx::ucp ucx::ucs)
+      ucx::ucp ucx::ucs
+      ${Protobuf_LIBRARIES}
+      proto)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu2")

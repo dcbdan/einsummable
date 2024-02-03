@@ -10,9 +10,12 @@ struct full_contraction_t {
     vector<uint64_t> inn_shape;
     vector<int> out_perm;
   };
-  optional<permute_t> lhs;
-  optional<permute_t> rhs;
-  optional<permute_t> out;
+
+  dtype_t dtype;
+
+  optional<permute_t> perm_lhs;
+  optional<permute_t> perm_rhs;
+  optional<permute_t> perm_out;
 
   uint64_t nb;
   uint64_t ni;
