@@ -143,11 +143,11 @@ struct server_cpu_mg_local_t : server_base_t {
   virtual make_mg_info_t recv_make_mg_info() = 0;
   virtual void           send_make_mg_info() = 0;
 
-  virtual void storage_remap_server(
+  void storage_remap_server(
     vector<vector<std::array<int, 2>>> const& remaps) = 0;
   virtual void storage_remap_client() = 0;
 
-  virtual void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc) = 0;
+  void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc) = 0;
   virtual void rewrite_data_locs_client() = 0;
   // }}}
 

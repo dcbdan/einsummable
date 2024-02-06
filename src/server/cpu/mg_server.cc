@@ -486,3 +486,33 @@ void server_cpu_mg_local_t::execute_memgraph(
     }
   }
 }
+
+void server_cpu_mg_local_t::rewrite_data_locs_server(
+  map<int, memstoloc_t> const& new_data_locs)
+{
+  auto get_loc = [](memstoloc_t const& x) {
+    if(x.is_memloc()) {
+      return x.get_memloc().loc;
+    } else {
+      // Note: stoloc_t::loc is a storage location, but we are
+      //       assuming that storage loc == compute-node == compute loc
+      //       here
+      return x.get_stoloc().loc;
+    }
+  };
+
+  int world_size = 1;
+  int this_rank = 0;
+
+  vector<vector<id_memsto_t>> items(world_size);
+  data_locs.clear();
+  for(auto const& [id, memstoloc]: new_data_locs) {
+    int loc = get_loc(memstoloc);
+    if(loc == this_rank) {
+      data_locs.insert({ id, memstoloc.as_memsto() });
+    } else {
+      throw std::runtime_error("Local server only has world_size of 1");
+      // items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
+    }
+  }
+}
