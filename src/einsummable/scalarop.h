@@ -42,7 +42,8 @@ struct scalar_t {
   float                const& f32() const;
   double               const& f64() const;
   std::complex<float>  const& c64() const;
-
+  
+  void const* raw() const;
   // return a string of the number;
   // this removes dtype information
   string str() const;

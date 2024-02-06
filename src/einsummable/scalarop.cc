@@ -381,6 +381,8 @@ std::complex<float> const& scalar_t::c64() const {
   return *reinterpret_cast<std::complex<float> const*>(data);
 }
 
+void const* scalar_t::raw() const { return reinterpret_cast<void const*>(data); }
+
 namespace scalar_ns {
 
 op_t op_t::make_constant(scalar_t value) {

@@ -666,7 +666,7 @@ void mm_part_graph(int argc, char** argv){
   }
 
   auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
-  auto pls = autolocate_agg_at_a_time_from_inns(graph, part, np, 100);
+  auto pls = alocate01(graph, part, np, 100);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
 
@@ -892,5 +892,7 @@ int main(int argc, char **argv) {
   // ffnn_graph(argc, argv);
   // mm_graph(argc, argv);
   // mm_part_graph(argc, argv);
-  server_mm_partition(argc, argv);
+  // server_mm_partition(argc, argv);
+  lowerTri_test();
+  // constant_test(); 
 }

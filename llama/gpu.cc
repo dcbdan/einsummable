@@ -7,29 +7,9 @@
 
 #include "../src/server/gpu/server.h"
 
-#include "../src/autoplace/apart.h"
+#include "../src/autoplace/autoplace.h"
 
 //#include <fstream>
-
-//
-// #include "../src/engine/gpu/gpu_kernel_manager.h"
-
-void do_a_matmul() {
-  DLINEOUT("doin a matmul...");
-  dbuffer_t x = make_dbuffer(dtype_t::f32, 1000*1000);
-  dbuffer_t y = make_dbuffer(dtype_t::f32, 1000*1000);
-  dbuffer_t z = make_dbuffer(dtype_t::f32, 1000*1000);
-
-  x.random("-0.00001", "0.00001");
-  y.random("-0.00001", "0.00001");
-
-  matrix_multiply(
-    dtype_t::f32,
-    1000, 1000, 1000,
-    false, false,
-    z.raw(), x.raw(), y.raw());
-}
-//
 
 struct token_maker_t {
   token_maker_t(vector<vector<int>> const ps):
@@ -165,32 +145,6 @@ vtensor_t<int> get_top_choices(
   throw std::runtime_error("get_top_choices: no dtype support here");
 }
 
-exec_state_t::priority_t parse_priority_type(string const& val) {
-  if(val == "given") {
-    return exec_state_t::priority_t::given;
-  } else if(val == "bfs") {
-    return exec_state_t::priority_t::bfs;
-  } else if(val == "dfs") {
-    return exec_state_t::priority_t::dfs;
-  } else if(val == "random") {
-    return exec_state_t::priority_t::random;
-  } else {
-    throw std::runtime_error("invalid exec state value");
-  }
-}
-
-parts_space_t parse_parts_space(string const& space_) {
-  if(space_ == "contraction") {
-    return parts_space_t::contraction;
-  } else if(space_ == "all") {
-    return parts_space_t::all;
-  } else if(space_ == "all_range") {
-    return parts_space_t::all_range;
-  } else {
-    throw std::runtime_error("invalid space_");
-  }
-}
-
 void _print_pl_info(
   string msg,
   graph_t const& graph,
@@ -227,56 +181,6 @@ void _print_pl_info(
       << num_input_msgs << "#, " << to_mb(num_input_bytes) << "MB | core "
       << num_core_msgs << "#, " << to_mb(num_core_bytes) << "MB ");
 }
-
-struct llama_autoplacer_t {
-  llama_autoplacer_t(int world_size, int num_threads_per, args_t& args)
-    : world_size(world_size), num_threads_per(num_threads_per)
-  {
-    args.set_default("space", "contraction");
-    space = parse_parts_space(args.get<string>("space"));
-
-    args.set_default("double_workers", false);
-    double_workers = args.get<bool>("double_workers");
-
-    args.set_default("max_branching", int(1));
-    max_branching = args.get<int>("max_branching");
-
-    args.set_default("flops_per_byte_moved", 100);
-    flops_per_byte_moved = args.get<int>("flops_per_byte_moved");
-  }
-
-  vector<placement_t> operator()(graph_t const& graph) const {
-    int multiplier = double_workers ? 2 : 1 ;
-
-    gremlin_t* gremlin_parts = new gremlin_t("parts");
-    auto parts = apart01(
-      graph,
-      multiplier * world_size * num_threads_per,
-      max_branching,
-      space);
-    delete gremlin_parts;
-
-    //{
-    //  std::ofstream f("g_parts.gv");
-    //  graph.print_graphviz(f, parts);
-    //  DOUT("printed g_parts.gv");
-    //}
-
-    gremlin_t gremlin_locate("locate");
-    uint64_t flops_per_byte_moved = 100;
-    auto ret = alocate01(
-      graph, parts, world_size, flops_per_byte_moved);
-    _print_pl_info("agg-at-a-time-from-inns 100", graph, ret);
-    return ret;
-  }
-
-  int world_size;
-  int num_threads_per;
-  parts_space_t space;
-  bool double_workers;
-  int max_branching;
-  uint64_t flops_per_byte_moved;
-};
 
 template <typename T>
 void vector_repeat_resize(vector<T>& ret, int n) {
@@ -330,169 +234,14 @@ token_maker_t make_default_token_maker() {
   return token_maker_t(_init_tokens);
 }
 
-// run llama to compute
-// (1) the first token and
-// (2) the second token
-void main_rank_zero_experiments(
-  gpu_mg_server_t& server,
-  tensor_reader_t& reader,
-  llama_autoplacer_t const& autoplacer,
-  args_t& args)
-{
-  int this_rank = server.comm.get_this_rank();
-
-  uint64_t bsz    = args.get<uint64_t>("batch_size");
-  uint64_t seqlen = args.get<uint64_t>("seq_len");
-  DLINEOUT("bsz " << bsz << "  | seqlen " << seqlen);
-
-  token_maker_t token_maker = make_token_maker_with_shape(bsz, seqlen);
-
-  {
-    // Note: Assuming all is this being set?
-    int seed = 99;//runif(10000);
-    DOUT("Seed: " << seed);
-    set_seed(seed);
-  }
-
-  set_default_dtype(dtype_t::f32);
-
-  string register_cmd = server.get_registered_cmd();
-
-  model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
-
-  // TODO: this may be off by one but I don't think it matters
-  margs.max_seq_len = seqlen + 2;
-
-  args.set_default<int>("max_n_layers", -1);
-  {
-    int n_layers = args.get<int>("max_n_layers");
-    if(n_layers >= 0) {
-      margs.n_layers = std::min(margs.n_layers, n_layers);
-    }
-  }
-
-  builder_t builder = builder_t::make_first_token(margs, seqlen);
-
-  dbuffer_t embedding_matrix;
-  {
-    map<int, relation_t> relations;
-    int current_tid = 0;
-    map<int, tuple<int, buffer_t>> local_data;
-
-    {
-      vector<uint64_t> shape{ margs.vocab_size, margs.dim };
-      relation_t rel = reader(register_cmd, "tok_embeddings.weight", shape, current_tid);
-      current_tid += rel.placement.num_parts();
-      embedding_matrix = server.get_tensor(rel);
-    }
-
-    auto insert_reader_rel = [&relations, &current_tid](int gid, relation_t const& rel) {
-      relations.insert({gid, rel});
-      current_tid += rel.placement.num_parts();
-    };
-    auto insert_local_buffer = [&](int gid, buffer_t data) {
-      local_data.insert({ current_tid, { this_rank, data }});
-
-      relation_t rel = relation_t::make_singleton(
-        builder.input_dtype(gid),
-        builder.input_shape(gid),
-        current_tid);
-      relations.insert({gid, rel});
-      current_tid += 1;
-    };
-
-    for(auto const& [name, gid]: builder.weights) {
-      auto shape = builder.input_shape(gid);
-      relation_t rel = reader(register_cmd, name, shape, current_tid);
-      insert_reader_rel(gid, rel);
-    }
-
-    if(builder.mask) {
-      int const& gid = builder.mask.value();
-      buffer_t mask = transformer_t::form_start_mask(seqlen).data;
-      insert_local_buffer(gid, mask);
-    }
-
-    {
-      int const& gid = builder.freqs_cis;
-      buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
-      insert_local_buffer(gid, freqs_cis);
-    }
-
-    {
-      int const& gid = builder.embeddings;
-      dbuffer_t embeddings = lookup_embeddings(
-        margs.vocab_size,
-        margs.dim,
-        embedding_matrix,
-        token_maker.get_tokens());
-      insert_local_buffer(gid, embeddings.data);
-    }
-
-    server.local_insert_tensors(local_data);
-
-    // At this point we've called local_insert_tensors on the server directly
-    // or via the reader, so tell the server how it maps to gids
-    for(auto const& [gid, rel]: relations) {
-      server.insert_gid_without_data(gid, rel);
-    }
-  }
-
-  reader.shutdown(register_cmd);
-
-  {
-    vector<placement_t> pls = autoplacer(builder.graph);
-    server.execute_graph(builder.graph, pls);
-  }
-
-  {
-    dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
-
-    uint64_t top_n = 1;
-    vtensor_t<int> top_choices = get_top_choices(
-      scores, bsz, margs.vocab_size, top_n);
-
-    token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
-  }
-
-  for(int i = 0; i != 1; ++i) {
-    builder = builder_t::make_next_token(builder);
-    server.remap_gids(builder.remap.value());
-
-    vector<placement_t> pls = autoplacer(builder.graph);
-
-    {
-      dbuffer_t embeddings = lookup_embeddings(
-        margs.vocab_size,
-        margs.dim,
-        embedding_matrix,
-        token_maker.last_column());
-
-      server.insert_tensor(builder.embeddings, pls[builder.embeddings], embeddings);
-    }
-
-    server.execute_graph(builder.graph, pls);
-
-    {
-      dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
-
-      uint64_t top_n = 1;
-      vtensor_t<int> top_choices = get_top_choices(
-        scores, bsz, margs.vocab_size, top_n);
-
-      token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
-    }
-  }
-}
 
 // TODO: this is mostly just a copy of main_rank_zero_experiments
 void main_rank_zero(
-  cpu_mg_server_t& server,
+  gpu_mg_server_t& server,
   tensor_reader_t& reader,
-  llama_autoplacer_t const& autoplacer,
   args_t& args)
 {
-  int this_rank = server.comm.get_this_rank();
+  int this_rank = 0;
 
   token_maker_t token_maker = make_default_token_maker();
 
@@ -508,8 +257,6 @@ void main_rank_zero(
     DOUT("Seed: " << seed);
     set_seed(seed);
   }
-
-  set_default_dtype(dtype_t::f32);
 
   string register_cmd = server.get_registered_cmd();
 
@@ -560,12 +307,6 @@ void main_rank_zero(
       insert_reader_rel(gid, rel);
     }
 
-    if(builder.mask) {
-      int const& gid = builder.mask.value();
-      buffer_t mask = transformer_t::form_start_mask(seqlen).data;
-      insert_local_buffer(gid, mask);
-    }
-
     {
       int const& gid = builder.freqs_cis;
       buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
@@ -594,7 +335,9 @@ void main_rank_zero(
   reader.shutdown(register_cmd);
 
   {
-    vector<placement_t> pls = autoplacer(builder.graph);
+    auto num_gpus = 4; 
+    autoplace_config_t config = autoplace_config_t::make_default01(1, num_gpus);
+    vector<placement_t> pls = autoplace01(builder.graph, config);
     server.execute_graph(builder.graph, pls);
   }
 
@@ -608,56 +351,52 @@ void main_rank_zero(
     token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
   }
 
-  args.set_default("niter", int(100));
-  int niter = args.get<int>("niter");
-  for(int i = 0; i != niter; ++i) {
-    builder = builder_t::make_next_token(builder);
-    server.remap_gids(builder.remap.value());
+  // args.set_default("niter", int(100));
+  // int niter = args.get<int>("niter");
+  // for(int i = 0; i != niter; ++i) {
+  //   builder = builder_t::make_next_token(builder);
+  //   server.remap_gids(builder.remap.value());
 
-    vector<placement_t> pls = autoplacer(builder.graph);
+  //   vector<placement_t> pls = autoplacer(builder.graph);
 
-    {
-      dbuffer_t embeddings = lookup_embeddings(
-        margs.vocab_size,
-        margs.dim,
-        embedding_matrix,
-        token_maker.last_column());
+  //   {
+  //     dbuffer_t embeddings = lookup_embeddings(
+  //       margs.vocab_size,
+  //       margs.dim,
+  //       embedding_matrix,
+  //       token_maker.last_column());
 
-      server.insert_tensor(builder.embeddings, pls[builder.embeddings], embeddings);
-    }
+  //     server.insert_tensor(builder.embeddings, pls[builder.embeddings], embeddings);
+  //   }
 
-    server.execute_graph(builder.graph, pls);
+  //   server.execute_graph(builder.graph, pls);
 
-    {
-      dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
+  //   {
+  //     dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
 
-      uint64_t top_n = 1;
-      vtensor_t<int> top_choices = get_top_choices(
-        scores, bsz, margs.vocab_size, top_n);
+  //     uint64_t top_n = 1;
+  //     vtensor_t<int> top_choices = get_top_choices(
+  //       scores, bsz, margs.vocab_size, top_n);
 
-      token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
-    }
-  }
+  //     token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
+  //   }
+  // }
 
-  vtensor_t<int> const& tokens = token_maker.get_tokens();
-  int nrow = tokens.get_shape()[0];
-  for(int row = 0; row != nrow; ++row) {
-    DOUT(tokens.index_subtensor(row).get());
-  }
+  // vtensor_t<int> const& tokens = token_maker.get_tokens();
+  // int nrow = tokens.get_shape()[0];
+  // for(int row = 0; row != nrow; ++row) {
+  //   DOUT(tokens.index_subtensor(row).get());
+  // }
 }
 
 int main(int argc, char** argv) {
-  // Sometimes mkl is slow on the first call. So
-  // "wakeup" mkl by doing a matmul
-  do_a_matmul();
+
+  set_default_dtype(dtype_t::f16);
 
   if(argc < 3) {
     DOUT("argc " << argc);
     throw std::runtime_error("required args: "
-       "addr_zero is_client world_size "
-       "memory_size(GB) "
-       "num_channels num_channels_per_move "
-       "base_data_file num_data_files");
+       "(1)base_data_file       (2)num_data_files");
   }
 
   string addr_zero = "0.0.0.0";
@@ -677,11 +416,7 @@ int main(int argc, char** argv) {
 
   int this_rank = communicator.get_this_rank();
 
-  args_t args(argc-8, argv+8);
-
-  args.set_default("priority_type", "given");
-  exec_state_t::priority_t priority_type =
-    parse_priority_type(args.get<string>("priority_type"));
+  args_t args(argc-2, argv+2);
 
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
@@ -712,16 +447,8 @@ int main(int argc, char** argv) {
   server.set_use_storage(args.get<bool>("use_storage"));
 
   if(is_rank_zero) {
-    // Assumption: all nodes have num_threads many threads
-    llama_autoplacer_t autoplacer(world_size, num_threads, args);
-
-    args.set_default("experiments", true);
-    if(args.get<bool>("experiments")) {
-      main_rank_zero_experiments(server, reader, autoplacer, args);
-    } else {
-      main_rank_zero(server, reader, autoplacer, args);
-    }
-
+    main_rank_zero(server, reader, args);
+    
     server.shutdown();
   } else {
     server.register_listen(

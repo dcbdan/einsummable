@@ -9,6 +9,7 @@
 
 #include "cuda_kernels.h"
 
+#include <cstdint>
 #include <thread>
 
 #include <cuda_runtime.h>
@@ -128,6 +129,9 @@ public:
     void* out,
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+
+  void lowerTri_fill(fill_t::lowertri_t const& l, cudaStream_t stream, void* out) const;
+  void constant_fill(fill_t::constant_t const& c, cudaStream_t stream, void* out) const;
 
 private:
   using kernel_info_t = std::variant<

@@ -6,6 +6,7 @@
 #include "storage_manager.h"
 #include "stream_pool.h"
 #include "utility.h"
+#include <cstdio>
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
 #include <iostream>
@@ -27,14 +28,13 @@ void print_exec_graph(exec_graph_t exec_graph){
   }
 }
 
-// TODO: have a stream pool implementation once creating a stream on fly works
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
   vector<kernel_manager_t>& gpu_kms,
   int num_gpus_per_node,
   vector<void*> gpu_mems,
-  map<string, scalar_t> const& scalar_vars);
+  map<string, scalar_t> const& scalar_vars)
 {
   exec_graph_t graph;
   auto evict_called = false;
@@ -93,6 +93,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       if(apply.is_einsummable()) {
         if(apply.group >= 0) {
           throw std::runtime_error("only allowing touches to have a group");
+        }
+
+        if (mid == 131){
+          printf("mid: %d\n", mid);
         }
 
         einsummable_t einsum = apply
@@ -154,7 +158,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         insert(op_ptr_t(op), mid);
         // DOUT("Inserted touch op for node " << mid);
       } else {
-        throw std::runtime_error("should not reach");
+        throw std::runtime_error("should not reach: node op is apply but not einsummable or touch");
       }
     } else if(node.op.is_move()) {
       // check if the move is local to this gpu
@@ -179,8 +183,23 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       gpu_load_t* op = new gpu_load_t(node.op.get_load());
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted load op for node " << mid);
+    } else if(node.op.is_constant()) {
+      // could be a constant or a lower triangular fill
+      auto loc = node.op.get_constant().loc;
+      auto const& fill = node.op.get_constant().fill;
+      if(fill.is_constant()) {
+        gpu_constant_t* op = new gpu_constant_t(gpu_kms[loc], node.op.get_constant());
+        insert(op_ptr_t(op), mid);
+        // DOUT("Inserted constant op for node " << mid);
+      } else if(fill.is_lowertri()) {
+        gpu_lowerTri_t* op = new gpu_lowerTri_t(gpu_kms[loc], node.op.get_constant());
+        insert(op_ptr_t(op), mid);
+        // DOUT("Inserted lowerTri op for node " << mid);
+      } else {
+        throw std::runtime_error("should not reach: constant fill is neither constant nor lowertri");
+      }
     } else {
-      throw std::runtime_error("should not reach");
+      throw std::runtime_error("unknown (and unimplemented) op in the memgraph");
     }
   }
   // Debug: print the exec_graph
@@ -519,4 +538,105 @@ void gpu_load_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_load_t: callback");
+}
+
+// constant and lowerTri need the same resources since they are the same memgraph nodes
+
+desc_ptr_t
+gpu_constant_t::resource_description() const
+{
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc(device));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
+
+  return resource_manager_t::make_desc(ret);
+}
+
+desc_ptr_t
+gpu_lowerTri_t::resource_description() const
+{
+  // 1st: gpu memory ptr
+  // 2nd: a stream
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc(device));
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
+
+  return resource_manager_t::make_desc(ret);
+}
+
+void gpu_constant_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* gpu_memory = increment_void_ptr(
+    global_buffer,
+    gpu_offset);
+
+  // create stream and launch
+  cudaSetDevice(device);
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+
+  auto num_elements = 1;
+  for (auto dim : fill.shape) {
+    num_elements *= dim;
+  }
+
+  gpu_km.constant_fill(fill, stream, gpu_memory);
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_constant_t: callback");
+}
+
+void gpu_lowerTri_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  void* gpu_memory = increment_void_ptr(
+    global_buffer,
+    gpu_offset);
+
+  // create stream and launch
+  cudaSetDevice(device);
+  // cudaStream_t stream = cuda_create_stream();
+  auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+
+  gpu_km.lowerTri_fill(fill, stream, gpu_memory);
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_lowerTri_t: callback");
 }
