@@ -73,9 +73,6 @@ private:
   void _copy_to_data(uint8_t const* other, int n);
 };
 
-// return castable(val,val,...) with n val inputs
-scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val);
-
 namespace scalar_ns {
 
 struct op_t {
@@ -461,6 +458,10 @@ private:
   node_t node;
   map<int, dtype_t> arg_types;
 };
+
+// return castable(val,val,...) with n val inputs
+scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val);
+scalarop_t agg_power_op(castable_t castable, dtype_t dtype, uint64_t n);
 
 std::ostream& operator<<(std::ostream& out, dtype_t const& c);
 std::istream& operator>>(std::istream& inn, dtype_t& c);

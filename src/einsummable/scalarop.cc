@@ -2,28 +2,33 @@
 
 scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val)
 {
+  return agg_power_op(castable, val.dtype, n).eval(val);
+}
+
+scalarop_t agg_power_op(castable_t castable, dtype_t dtype, uint64_t n)
+{
   if(n == 0) {
     throw std::runtime_error("agg power: invalid n value");
   }
   if(n == 1) {
     // no castable is applied when n = 1
-    return val;
+    return scalarop_t::make_identity(dtype);
   }
   if(castable == castable_t::min || castable == castable_t::max) {
-    if(dtype_is_complex(val.dtype)) {
+    if(dtype_is_complex(dtype)) {
       throw std::runtime_error("can't max min complex");
     } else {
-      return val;
+      return scalarop_t::make_identity(dtype);
     }
   }
   if(castable == castable_t::add) {
     // TODO: what if n is really big?
     return scalarop_t::make_scale(
-      scalar_t(val.dtype, write_with_ss(double(n)))).eval(val);
+      scalar_t(dtype, write_with_ss(double(n))));
   }
   if(castable == castable_t::mul) {
     // TODO: what if n is really big?
-    return scalarop_t::make_power(int(n), val.dtype).eval(val);
+    return scalarop_t::make_power(int(n), dtype);
   }
   throw std::runtime_error("should not reach: agg power");
 }

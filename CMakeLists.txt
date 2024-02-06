@@ -60,6 +60,7 @@ add_base_application("scalarop"         "exps" "scalarop")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
 add_base_application("tgsimplify"       "exps" "tgsimplify")
+add_base_application("es_merge"         "exps" "es_merge")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc

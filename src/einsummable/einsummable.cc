@@ -383,6 +383,133 @@ einsummable_t einsummable_t::aggregate(
     castable);
 }
 
+einsummable_t einsummable_t::merge(
+  int which, einsummable_t const& bot, einsummable_t const& top)
+{
+  if(bot.has_aggregation()) {
+    throw std::runtime_error("invalid einsummable_t::merge input einsummable");
+  }
+
+  if(which < 0 || which >= top.inns.size()) {
+    throw std::runtime_error("which in einsummable_t::merge invalid");
+  }
+
+  if(bot.out_dtype() != top.inn_dtype(which)) {
+    throw std::runtime_error("invalid dtype in einsummable_t::merge");
+  }
+
+  if(!vector_equal(bot.out_shape(), top.inn_shape(which))) {
+    throw std::runtime_error("invalid shape in einsummable_t::merge");
+  }
+
+  vector<scalarop_t> inn_ops;
+  for(int i = 0; i != top.inns.size(); ++i) {
+    if(i == which) {
+      inn_ops.push_back(bot.join);
+    } else {
+      inn_ops.push_back(scalarop_t::make_identity(top.inn_dtype(i)));
+    }
+  }
+  scalarop_t new_join = scalarop_t::combine(
+    top.join,
+    inn_ops);
+
+  vector<vector<int>> new_inns;
+  for(int i = 0; i != top.inns.size(); ++i) {
+    if(i == which) {
+      for(vector<int> const& xs: bot.inns) {
+        vector<int> new_inn;
+        for(int const& x: xs) {
+          new_inn.push_back(top.inns[which].at(x));
+        }
+        new_inns.push_back(new_inn);
+      }
+    } else {
+      new_inns.push_back(top.inns[i]);
+    }
+  }
+
+  // What happens where there is a missing agg ?
+  //   If one of the agg modes is removed completely, then
+  //   that agg will be missing from the einsummable.
+  //   Consider
+  //     castable_jk [ f(x_ij, y_k, z_k) ] -> out_i
+  //   To
+  //     castable_jk [ g(x_ij) ] -> out_i
+  //   -----------
+  //     sum_jk [ f(x_ij) ] -> sum_j [ f(x_ij)*N_k ]   -> out_i
+  //     max_jk [ f(x_ij) ] -> max_j [ f(x_ij) ]       -> out_i
+  //     mul_jk [ f(x_ij) ] -> mul_j [ f(x_ij)^{N_k} ] -> out_i
+
+  uint64_t missing_agg_size = 1;
+  // 1. figure out the agg modes
+  // 2. figure out what their sizes are
+  set<int> used_agg_modes;
+  for(auto const& inn: new_inns) {
+    for(auto const& i: inn) {
+      if(i >= top.out_rank) {
+        used_agg_modes.insert(i);
+      }
+    }
+  }
+
+  for(int agg_mode = top.out_rank;
+          agg_mode != top.join_shape.size();
+          ++agg_mode)
+  {
+    if(used_agg_modes.count(agg_mode) == 0) {
+      missing_agg_size *= top.join_shape[agg_mode];
+    }
+  }
+
+  if(missing_agg_size > 1) {
+    new_join = scalarop_t::combine(
+      agg_power_op(top.castable.value(), top.out_dtype(), missing_agg_size),
+      { new_join });
+  }
+
+  // If there are missing agg modes, they need to be removed from the
+  // join shape and the corresponding inns need to be updated.
+  // But everything has to shift, which is annoying.
+  vector<uint64_t> new_join_shape = top.join_shape;
+  if(used_agg_modes.size() != (top.join_shape.size() - top.out_rank)) {
+    new_inns = std::get<0>(parse_str(make_str(new_inns, top.out_rank)));
+
+    vector<vector<uint64_t>> new_inn_shapes;
+    for(int idx_top = 0;  idx_top != top.inns.size(); ++idx_top) {
+      if(idx_top == which) {
+        for(int idx_bot = 0; idx_bot != bot.inns.size(); ++idx_bot) {
+          new_inn_shapes.push_back(bot.inn_shape(idx_bot));
+        }
+      } else {
+        new_inn_shapes.push_back(top.inn_shape(idx_top));
+      }
+    }
+
+    new_join_shape = construct_join_shape(top.out_shape(), new_inns, new_inn_shapes);
+  }
+
+  auto ret = einsummable_t(
+    new_join_shape, new_inns, top.out_rank, new_join, top.castable);
+
+  int idx_ret = 0;
+  for(int idx_top = 0; idx_top != top.inns.size(); ++idx_top) {
+    if(idx_top == which) {
+      for(int idx_bot = 0; idx_bot != bot.inns.size(); ++idx_bot) {
+        if(!vector_equal(ret.inn_shape(idx_ret++), bot.inn_shape(idx_bot))) {
+          throw std::runtime_error("invalid");
+        }
+      }
+    } else {
+      if(!vector_equal(ret.inn_shape(idx_ret++), top.inn_shape(idx_top))) {
+        throw std::runtime_error("invalid.");
+      }
+    }
+  }
+
+  return ret;
+}
+
 einsummable_t einsummable_t::with_new_shape(
   einsummable_t const& e,
   vector<uint64_t> const& new_join_shape)
