@@ -1,3 +1,5 @@
+#ifndef NoDepCpuEngine
+
 #include "communicator.h"
 #include "comm_util.h"
 
@@ -1119,3 +1121,5 @@ void communicator_t::wire_t::listener_t::arm_worker() {
     }
   }
 }
+
+#endif

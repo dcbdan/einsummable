@@ -337,6 +337,7 @@ public:
   bool split_off_inputs_;
 };
 
+
 map<string, scalar_t> scalar_vars_from_wire(string const& s);
 string scalar_vars_to_wire(map<string, scalar_t> const& vars);
 

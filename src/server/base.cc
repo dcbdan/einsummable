@@ -51,8 +51,11 @@ void server_base_t::execute_graph(
   //  DOUT("printed tg.gv");
   //}
 
+  // inn_g_to_t is input id to taskid in taskgraph 
+  //TODO: this remap(remap_relations_t r) kind of function signature only appear in server_dist_base_t. We need to remove this 
   remap_relations_t r;
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
+    //map the previous gid,relation to new gid,relation after we make taskgraph
     r.insert(
       get_relation(gid),             // src relation
       make_relation(gid, dst_tids)   // dst relation
