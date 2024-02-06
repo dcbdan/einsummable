@@ -106,6 +106,13 @@ struct graph_t {
 
   vector<int> get_inputs() const;
 
+  static
+  tuple<
+    map<int, int>, // inns  (old graph -> new graph)
+    map<int, int>, // saves (old graph -> new graph)
+    graph_t>
+  fuse(graph_t const&);
+
 public:
 
   struct input_t {
@@ -228,6 +235,52 @@ public:
 
 private:
   int insert(op_t const& op, vector<int> inns);
+
+private:
+  // fuse stuff here
+
+  struct fuser_t {
+    int insert_input(input_t const& input);
+    int insert_fill(fill_t const& fill);
+    int insert_complexer(
+      complexer_t const& complexer,
+      int const& oid_inn);
+    int insert_squeezer(
+      squeezer_t const& squeezer,
+      int const& oid_inn);
+    int insert_select(
+      select_t const& select,
+      vector<int> const& oid_inns);
+    int insert_einsummable(
+      einsummable_t const& einsummable,
+      vector<int> const& oid_inns);
+
+    tuple<einsummable_t, vector<int>>
+    construct_einsummable_recurse(int oid) const;
+
+    tuple<einsummable_t, vector<int>>
+    _construct_einsummable_recurse(
+      einsummable_t const& oid_e,
+      vector<int> const& oid_inns) const;
+
+    void process(int oid);
+
+    bool keep_einsummable(bool is_save, einsummable_t const& einsummable) const;
+
+    // does one of these out_oid nodes require all inputs to be available?
+    bool is_required_input(set<int> const& out_oids) const;
+
+    optional<int> get_maybe_nid(int const& oid) const;
+    int get_nid(int const& oid) const { return get_maybe_nid(oid).value(); }
+
+    graph_t      & ng;
+    graph_t const& og;
+
+    map<int, int>& inn_map;
+    map<int, int>& save_map;
+
+    map<int, int> remap;
+  };
 
 private:
   // autodiff stuff here

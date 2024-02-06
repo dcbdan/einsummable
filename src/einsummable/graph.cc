@@ -559,11 +559,11 @@ vector<placement_t> graph_t::make_singleton_placement() const {
 }
 
 vector<uint64_t> graph_t::out_shape(int id) const {
-  return nodes[id].op.out_shape();
+  return nodes.at(id).op.out_shape();
 }
 
 dtype_t graph_t::out_dtype(int id) const {
-  return nodes[id].op.out_dtype();
+  return nodes.at(id).op.out_dtype();
 }
 
 vector<int> graph_t::get_order() const {
@@ -977,4 +977,183 @@ create_remap_graph_constructor(
   }
 
   return {remap_gid, g};
+}
+
+////////////////////////
+
+int graph_t::fuser_t::insert_input(graph_t::input_t const& input) {
+  return ng.insert(op_t(input), {});
+}
+
+int graph_t::fuser_t::insert_fill(fill_t const& fill) {
+  return ng.insert(op_t(fill), {});
+}
+
+int graph_t::fuser_t::insert_complexer(
+  graph_t::complexer_t const& complexer,
+  int const& oid_inn)
+{
+  return ng.insert(op_t(complexer), vector<int>{ get_nid(oid_inn) });
+}
+
+int graph_t::fuser_t::insert_squeezer(
+  graph_t::squeezer_t const& squeezer,
+  int const& oid_inn)
+{
+  return ng.insert(op_t(squeezer), vector<int>{ get_nid(oid_inn) });
+}
+
+int graph_t::fuser_t::insert_select(
+  select_t const& select,
+  vector<int> const& oid_inns)
+{
+  vector<int> nid_inns;
+  nid_inns.reserve(oid_inns.size());
+  for(int const& oid_inn: oid_inns) {
+    nid_inns.push_back(get_nid(oid_inn));
+  }
+  return ng.insert(op_t(select), nid_inns);
+}
+
+bool graph_t::fuser_t::keep_einsummable(bool is_save, einsummable_t const& einsummable) const {
+  return is_save || einsummable.has_aggregation();
+}
+
+bool graph_t::fuser_t::is_required_input(set<int> const& out_oids) const {
+  for(auto const& oid: out_oids) {
+    auto const& op = og.nodes[oid].op;
+    if(op.is_complexer() || op.is_squeezer() || op.is_select()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+tuple<einsummable_t, vector<int>>
+graph_t::fuser_t::_construct_einsummable_recurse(
+  einsummable_t const& oid_e,
+  vector<int> const& oid_inns) const
+{
+  einsummable_t new_e = oid_e;
+  vector<int> new_inns;
+  for(int i = 0; i != oid_inns.size(); ++i) {
+    auto [some_e, some_inns] = construct_einsummable_recurse(oid_inns[i]);
+    int which_to_replace = new_inns.size();
+    new_e = einsummable_t::merge(which_to_replace, some_e, new_e);
+    vector_concatenate_into(new_inns, some_inns);
+  }
+  return { new_e, new_inns };
+}
+
+tuple<einsummable_t, vector<int>>
+graph_t::fuser_t::construct_einsummable_recurse(int oid) const
+{
+  optional<int> maybe_nid = get_maybe_nid(oid);
+  if(!bool(maybe_nid)) {
+    auto const& node = og.nodes[oid];
+    if(!node.op.is_einsummable()) {
+      throw std::runtime_error("this should be the base case!");
+    }
+    einsummable_t const& oid_e = node.op.get_einsummable();
+    vector<int> const& oid_inns = node.inns;
+    return _construct_einsummable_recurse(oid_e, oid_inns);
+  } else {
+    // This is the base case
+    int const& nid = maybe_nid.value();
+    return {
+      einsummable_t::make_identity(ng.out_shape(nid), ng.out_dtype(nid)),
+      vector<int>{ nid }
+    };
+  }
+}
+
+int graph_t::fuser_t::insert_einsummable(
+  einsummable_t const& oid_e,
+  vector<int> const& oid_inns)
+{
+  auto [new_e, new_inns] = _construct_einsummable_recurse(oid_e, oid_inns);
+  int ret = ng.insert(op_t(new_e), new_inns);
+
+  if(new_e.has_aggregation()) {
+    ret = ng.insert_formation(ret, false);
+  }
+
+  return ret;
+}
+
+optional<int> graph_t::fuser_t::get_maybe_nid(int const& oid) const {
+  auto const& node = og.nodes[oid];
+  if(node.op.is_formation()) {
+    return get_nid(node.inns[0]);
+  }
+
+  auto iter = remap.find(oid);
+  if(iter == remap.end()) {
+    return std::nullopt;
+  }
+  return iter->second;
+}
+
+void graph_t::fuser_t::process(int oid) {
+  auto const& node = og.nodes[oid];
+  auto const& op = node.op;
+
+  optional<int> nid;
+  if(op.is_input()) {
+    nid = insert_input(op.get_input());
+    inn_map.insert({oid, nid.value()});
+  } else if(op.is_formation()) {
+    // nothing to do
+  } else if(op.is_complexer()) {
+    nid = insert_complexer(op.get_complexer(), node.inns[0]);
+  } else if(op.is_squeezer()) {
+    nid = insert_squeezer(op.get_squeezer(), node.inns[0]);
+  } else if(op.is_fill()) {
+    nid = insert_fill(op.get_fill());
+  } else if(op.is_select()) {
+    nid = insert_select(op.get_select(), node.inns);
+  } else if(op.is_einsummable()) {
+    auto const& e = op.get_einsummable();
+    if(keep_einsummable(op.is_save(), e) || is_required_input(node.outs)) {
+      nid = insert_einsummable(e, node.inns);
+    }
+  } else {
+    throw std::runtime_error("fuser: should not reach");
+  }
+
+  if(op.is_save() && !bool(nid)) {
+    throw std::runtime_error("if save, must have new node");
+  }
+
+  if(op.is_save()) {
+    ng.nodes[nid.value()].op.set_save(true);
+    save_map.insert({oid, nid.value()});
+  }
+
+  if(nid) {
+    remap.insert({oid, nid.value()});
+  }
+}
+
+tuple<map<int, int>, map<int, int>, graph_t>
+graph_t::fuse(graph_t const& og)
+{
+  graph_t ng;
+
+  map<int, int> inn_map;
+  map<int, int> save_map;
+
+  fuser_t fuser {
+    .ng = ng,
+    .og = og,
+    .inn_map = inn_map,
+    .save_map = save_map,
+    .remap = map<int, int>()
+  };
+
+  for(int const& oid: og.get_order()) {
+    fuser.process(oid);
+  }
+
+  return { inn_map, save_map, ng };
 }

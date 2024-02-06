@@ -383,6 +383,15 @@ einsummable_t einsummable_t::aggregate(
     castable);
 }
 
+einsummable_t einsummable_t::make_identity(
+  vector<uint64_t> const& shape,
+  dtype_t dtype)
+{
+  return einsummable_t(
+    shape, { vector_iota<int>(shape.size()) }, shape.size(),
+    scalarop_t::make_identity(dtype));
+}
+
 einsummable_t einsummable_t::merge(
   int which, einsummable_t const& bot, einsummable_t const& top)
 {

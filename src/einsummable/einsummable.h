@@ -72,6 +72,10 @@ struct einsummable_t {
     dtype_t dtype = default_dtype(),
     castable_t castable = castable_t::add);
 
+  static einsummable_t make_identity(
+    vector<uint64_t> const& inn_shape,
+    dtype_t dtype = default_dtype());
+
   static einsummable_t merge(
     int which,
     einsummable_t const& inn,
