@@ -61,6 +61,9 @@ add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
 add_base_application("tgsimplify"       "exps" "tgsimplify")
 
+add_executable(tests_base tests/base.cc tests/test.cc)
+target_link_libraries(tests_base einsummable proto ${Protobuf_LIBRARIES})
+
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
   llama/modules.cc llama/misc.cc llama/builder.cc)
