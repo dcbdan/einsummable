@@ -3,11 +3,11 @@
 struct relationwise_t {
   struct ginfo_t {
     partition_t partition;
-    vector<join_t> joins;
+    vector<join_t> joins; // = number of block from partition
     vector<int> locations;
 
-    optional<partition_t> refinement_partition;
-    optional<vector<refinement_t>> refis;
+    optional<partition_t> refinement_partition;// one for each graph node, = number of blocks in refinement partition
+    optional<vector<refinement_t>> refis; // these are the refinement sublocks in refinement partition, not all graph node have refinement
 
     bool has_refinement() const { return bool(refinement_partition); }
   };

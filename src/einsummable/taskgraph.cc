@@ -1,6 +1,8 @@
 #include "taskgraph.h"
 #include "../base/copyregion.h"
 #include "../base/hrect.h"
+#include <iostream>
+#include <fstream>
 
 #include "einsummable.pb.h"
 
@@ -3274,14 +3276,23 @@ void taskgraph_t::print_graphviz(
 
   string tab = "  ";
   out << "digraph {" << endl;
+  std::ofstream compute_file;
+  compute_file.open("compute_graph.txt");
+  std::vector<int> inputs;
+  std::vector<int> outputs;
+
+  compute_file << nodes.size();
+  compute_file << endl;
 
   for(int id = 0; id != nodes.size(); ++id) {
     node_t const& node = nodes[id];
     op_t const& op = node.op;
 
+    compute_file << "[" << op.out_size() <<  "]," << endl;
+
     string label;
     string color = "";
-
+    
     // set label and color
     if(op.is_input()) {
       auto const& [loc, _] = node.op.get_input();
@@ -3328,19 +3339,40 @@ void taskgraph_t::print_graphviz(
       auto const& inns = op.get_apply().inns;
       for(int i = 0; i != inns.size(); ++i) {
         int const& inn_id = inns[i];
+        inputs.push_back(inn_id);
+        outputs.push_back(id);
         out << tab << "n" << inn_id << " -> " << "n" << id;
         out << "[label=\"" << write_with_ss(i) << "\"]" << endl;
       }
     } else if(op.is_move()) {
       int const& inn_id = op.get_move().inn;
+      inputs.push_back(inn_id);
+        outputs.push_back(id);
       out << tab << "n" << inn_id << " -> " << "n" << id << endl;
     } else if(op.is_partialize()) {
       for(auto const& inn_id: op.inputs()) {
+        inputs.push_back(inn_id);
+        outputs.push_back(id);
         out << tab << "n" << inn_id << " -> " << "n" << id << endl;
       }
     }
   }
   out << "}" << endl;
+
+
+  for(auto const& inn: inputs){
+    compute_file << inn;
+    compute_file << ", ";
+  }
+  compute_file << endl;
+
+  for(auto const& out: outputs){
+    compute_file << out;
+    compute_file << ", ";
+  }
+
+  compute_file << endl;
+  compute_file.close();
 }
 
 std::ostream& operator<<(std::ostream& out, touchdim_t const& td) {

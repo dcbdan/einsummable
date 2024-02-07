@@ -13,18 +13,18 @@ From: ubuntu:22.04
   apt-get install -y automake autoconf libtool zip
   cd /opt
   mkdir ucx
-  unzip ucx-1.14.1.zip
-  cd ucx-1.14.1/
+  unzip ucx-1.15.0.zip
+  cd ucx-1.15.0/
   ./autogen.sh
   ./contrib/configure-release --enable-mt --prefix=/opt/ucx
   make -j
   make install
   cd /opt
-  rm ucx-1.14.1.zip
-  rm -rf ucx-1.14.1
+  rm ucx-1.15.0.zip
+  rm -rf ucx-1.15.0
   apt-get remove -y automake autoconf libtool zip gawk
 
 %files
-  ./l_BaseKit_p_2023.1.0.46401_offline.sh /opt/mkl_install.sh
-  ./ucx-1.14.1.zip /opt/ucx-1.14.1.zip
+  ./l_onemkl_p_2023.2.0.49497_offline.sh /opt/mkl_install.sh
+  ./ucx-1.15.0.zip /opt/ucx-1.15.0.zip
 

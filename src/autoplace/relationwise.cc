@@ -22,7 +22,7 @@ relationwise_t::relationwise_t(
     bool has_refinement = graph.nodes[gid].outs.size() > 0;
 
     // Note: all locations are initially filled to negative 1
-
+    // step1: construct join without edges
     ginfos.push_back(ginfo_t {
       .partition = part,
       .joins =

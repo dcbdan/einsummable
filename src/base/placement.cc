@@ -52,6 +52,7 @@ placement_t placement_t::random(partition_t const& partition, int nloc) {
   placement_t ret(partition);
   for(int& loc: ret.locations.get()) {
     loc = runif(nloc);
+    std::cout << loc << std::endl;
   }
   return ret;
 }

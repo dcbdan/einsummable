@@ -60,8 +60,25 @@ void server_base_t::execute_graph(
   }
 
   remap(r);
-
+  auto start = clock_now();
   execute(taskgraph);
+  auto end = clock_now();
+  
+  std::chrono::duration<double, std::milli> duration = end - start;
+  std::cout << "Running time: " << duration.count() << " miliseconds" << std::endl;
+
+  // Open the file in write mode
+  std::ofstream outputFile("input.txt");
+
+  if (!outputFile) {
+      std::cerr << "Failed to open the file." << std::endl;
+  }
+
+  // Write a float to the file
+  outputFile << duration.count() << std::endl;
+
+  // Close the file
+  outputFile.close();
 
   gid_map.clear();
   for(auto const& [gid, tids]: out_g_to_t) {

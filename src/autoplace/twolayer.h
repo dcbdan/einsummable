@@ -3,12 +3,12 @@
 
 #include "../einsummable/graph.h"
 
-struct jid_t {
+struct jid_t { // for join specifically
   int gid;
   int bid;
 };
 
-struct rid_t {
+struct rid_t { // for refinement specifically
   int gid;
   int bid;
 };
@@ -16,19 +16,19 @@ struct rid_t {
 struct agg_unit_t {
   uint64_t size;
   vector<int> deps; // these are the join bids of the graph node that
-                    // this agg unit belongs to
+                    // this agg unit belongs to // in edges for agg/refinement
   // TODO: why is this not a set?
 };
 
 struct refinement_t {
-  vector<agg_unit_t> units;
-  set<jid_t> outs;
+  vector<agg_unit_t> units; // join blocks -> refinement blocks, every refinement has aggregate even there is no actual
+  set<jid_t> outs; // out edges for refifement
 };
 
 struct join_t {
   optional<einsummable_t> einsummable;
-  set<rid_t> deps;
-  set<int> outs; // get all refinement bids that depend on this join
+  set<rid_t> deps; // all refine current join depends on 
+  set<int> outs; // get all refinement bids that depend on this join, just bid
 };
 
 // Note:
@@ -129,6 +129,6 @@ std::ostream& operator<<(std::ostream&, refinement_t const&);
 // as before except each agg unit has 3 inputs.
 // The refinement of Y[0,0] has one agg unit. That agg unit has as dependency
 //   (ijk->ij, X[0,0,k]) for k=0,1,2 and the size is the size of Y[0,0] block.
-// The refinement of Y[1,1] has four agg units. Each agg unit represents some i,j
+// The refinement of Y[1,1] has four agg units. Each agg unit resesents some i,j
 //   and that agg unit has blocks (ijk->ij, X[i,j,k]) for k=0,1,2.
 //   The size of each agg unit block is roughly 1/4 the size of the Y[1,1] block.

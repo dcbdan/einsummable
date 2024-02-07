@@ -707,7 +707,7 @@ int main(int argc, char** argv) {
     }
     server.local_insert_tensors(data);
   };
-
+  
   tensor_reader_t reader(
     communicator,
     reader_process,

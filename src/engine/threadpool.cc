@@ -40,8 +40,7 @@ threadpool_t::~threadpool_t() {
 }
 
 void threadpool_t::runner(int which) {
-  //get_numa_info().pin_to_this_numa_thread(which);
-  get_numa_info().pin_to_thread(which);
+  // get_numa_info().pin_to_thread(which);
 
   std::function<void()> f;
 

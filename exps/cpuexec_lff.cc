@@ -50,7 +50,8 @@ graph_t make_graph_ff_simple(
 
   tensor_t c = writer.mul(a, b);
 
-  writer.matmul(c, w2t);
+  writer.matmul(c, w2t).save();
+  
 
   return writer.get_graph();
 }
