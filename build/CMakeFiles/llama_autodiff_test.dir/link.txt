@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/llama_autodiff_test.dir/llama/autodiff_test.cc.o CMakeFiles/llama_autodiff_test.dir/llama/modules.cc.o CMakeFiles/llama_autodiff_test.dir/llama/misc.cc.o CMakeFiles/llama_autodiff_test.dir/llama/builder.cc.o  -o llama_autodiff_test  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

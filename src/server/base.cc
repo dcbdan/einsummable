@@ -66,9 +66,10 @@ void server_base_t::execute_graph(
   
   std::chrono::duration<double, std::milli> duration = end - start;
   std::cout << "Running time: " << duration.count() << " miliseconds" << std::endl;
+  // std::cout << duration.count() << std::endl;
 
   // Open the file in write mode
-  std::ofstream outputFile("input.txt");
+  std::ofstream outputFile("output.txt");
 
   if (!outputFile) {
       std::cerr << "Failed to open the file." << std::endl;

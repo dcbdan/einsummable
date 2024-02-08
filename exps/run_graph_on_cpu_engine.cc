@@ -138,7 +138,7 @@ void main_rank_zero(server_base_t* server, args_t& args, int world_size)
   // // Close the file
   // outputFile.close();
 
-  std::cout << "Text file cleared successfully." << std::endl;
+  // std::cout << "Text file cleared successfully." << std::endl;
   
   // Print the values read
   std::cout << "Number of devices: " << num_devices << std::endl;
@@ -177,9 +177,13 @@ int main(int argc, char** argv) {
   bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
 
+  DOUT("world_size: " << world_size);
+  DLINE;
+
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
   uint64_t GB = 1000000000;
   mem_size *= GB;
+  DLINE;
 
   // int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
   int num_threads = 12;
@@ -187,16 +191,22 @@ int main(int argc, char** argv) {
   int num_channels = 8;
   int num_channels_per_move = 1;
 
+  DLINE;
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
+  DOUT("addr_zero: " << addr_zero);
+  DLINE;
   int this_rank = communicator.get_this_rank();
   DOUT("this_rank: " << this_rank);
+  DLINE;
 
   args_t args(argc-(expected_argc-1), argv+(expected_argc-1));
 
-  
+  DLINE;
   cpu_mg_server_t server(
     communicator, mem_size, num_threads, num_channels_per_move);
+
+  DLINE;
 
   if(is_rank_zero) {
     main_rank_zero(&server, args, world_size);
@@ -204,5 +214,7 @@ int main(int argc, char** argv) {
   } else {
     server.listen();
   }
+
+  DLINE;
   return 0;
 }

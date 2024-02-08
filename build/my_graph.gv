@@ -1,0 +1,50 @@
+digraph {
+  n0 [style=filled,label="input0
+{1000,1000}
+{1000,1000}:f32"]
+  n1 [style=filled,label="input1
+{1000,1000}
+{1000,1000}:f32"]
+  n2 [style=filled,label="input2
+{1000,1000}
+{1000,1000}:f32"]
+  n3 [style=filled,label="input3
+{1000,1000}
+{1000,1000}:f32"]
+  n4 [style=filled,label="einsummable4:ac,bc->ab
+(x0*x1)  |  +
+{1000,1000,1000}:f32",color="pink"]
+  n0 -> n4[label="0"]
+  n1 -> n4[label="1"]
+  n5 [style=filled,label="form5
+{1000,1000}
+{1000,1000}:f32"]
+  n4 -> n5[label="0"]
+  n6 [style=filled,label="einsummable6:ab->ab
+(x0*_pow((f32|1+_exp((f32|-1*x0))),-1))  |  :
+{1000,1000}:f32"]
+  n5 -> n6[label="0"]
+  n7 [style=filled,label="einsummable7:ac,bc->ab
+(x0*x1)  |  +
+{1000,1000,1000}:f32",color="pink"]
+  n0 -> n7[label="0"]
+  n3 -> n7[label="1"]
+  n8 [style=filled,label="form8
+{1000,1000}
+{1000,1000}:f32"]
+  n7 -> n8[label="0"]
+  n9 [style=filled,label="einsummable9:ab,ab->ab
+(x0*x1)  |  :
+{1000,1000}:f32"]
+  n6 -> n9[label="0"]
+  n8 -> n9[label="1"]
+  n10 [style=filled,label="einsummable10:ac,bc->ab
+(x0*x1)  |  +
+{1000,1000,1000}:f32",color="pink"]
+  n9 -> n10[label="0"]
+  n2 -> n10[label="1"]
+  n11 [style=filled,label="form11
+{1000,1000}
+{1000,1000}:f32"]
+  n10 -> n11[label="0"]
+}

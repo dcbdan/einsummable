@@ -1,0 +1,2 @@
+# Hashes of file build rules.
+d2b4f8851d8190f584692e989b37099e src/proto/einsummable.pb.h

@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/llama_exp02.dir/llama/exp02.cc.o CMakeFiles/llama_exp02.dir/llama/modules.cc.o CMakeFiles/llama_exp02.dir/llama/misc.cc.o CMakeFiles/llama_exp02.dir/llama/builder.cc.o  -o llama_exp02  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

@@ -85,9 +85,7 @@ if(${CPU_EXECUTION_ENGINE})
   #  this helps empirically)
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
-  SET(UCX_PATH "/opt/ucx")
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")

@@ -1,0 +1,9 @@
+cmake \
+  -DMKL_DIR=/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl \
+  -DCPU_EXECUTION_ENGINE=ON \
+  -DUCX_PATH=~/ucx/install/  \
+  ../ \
+
+#  -DMKL_DIR=/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl \
+
+#  -DMKL_DIR=/opt/intel/oneapi/mkl/2024.0/ \
