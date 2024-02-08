@@ -1,4 +1,5 @@
 #include "utility.h"
+#include <cuda_runtime_api.h>
 
 cudaStream_t cuda_create_stream() {
   cudaStream_t ret;

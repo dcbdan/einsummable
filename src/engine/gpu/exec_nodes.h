@@ -1,5 +1,6 @@
 #include "../exec_graph.h"
 #include "../resource_manager.h"
+#include "gpu_kernel_manager.h"
 #include <cstdint>
 
 struct gpu_einsummable_t : exec_graph_t::op_base_t {
@@ -103,4 +104,36 @@ struct gpu_load_t: exec_graph_t::op_base_t {
   // 1 resource is always needed for a load
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_load"; }
+};
+
+struct gpu_constant_t: exec_graph_t::op_base_t {
+  gpu_constant_t(kernel_manager_t& a, memgraph_t::constant_t const& c)
+    : gpu_km(a), gpu_offset(c.offset), device(c.loc), fill(c.fill.get_constant())
+  {}
+
+  kernel_manager_t& gpu_km;
+  uint64_t gpu_offset;
+  int device;
+  fill_t::constant_t const fill;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 1 resource is always needed for a load
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "gpu_constant_fill"; }
+};
+
+struct gpu_lowerTri_t: exec_graph_t::op_base_t {
+  gpu_lowerTri_t(kernel_manager_t& a,memgraph_t::constant_t const& l)
+    : gpu_km(a), gpu_offset(l.offset), device(l.loc), fill(l.fill.get_lowertri())
+  {}
+
+  kernel_manager_t& gpu_km;
+  uint64_t gpu_offset;
+  int device;
+  fill_t::lowertri_t const fill;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  // 1 resource is always needed for a load
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "gpu_lower_tri_fill"; }
 };

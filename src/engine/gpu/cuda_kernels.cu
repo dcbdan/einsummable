@@ -1,4 +1,8 @@
 #include "cuda_kernels.h"
+#include <cstdint>
+#include <cstdio>
+#include <cuda_runtime_api.h>
+#include <sys/types.h>
 
 struct FunctorNone {
   __device__ __half operator()(const __half& a, const __half& b) const {
@@ -567,3 +571,76 @@ cudaStream_t stream, uint64_t size){
 
 }
 
+// for row in range(nrow):
+//   for column in range(ncol):
+//     ret[row, column] = lower if (row - start >= column) else upper
+
+__global__ void fill_lowerTri(
+  void* mem, uint64_t nrow, uint64_t ncol, uint64_t start,
+  uint64_t lower, uint64_t upper, int dtype_info)
+{
+  uint64_t row = blockIdx.y * blockDim.y + threadIdx.y;
+  uint64_t col = blockIdx.x * blockDim.x + threadIdx.x;
+  // printf("row: %lu, col: %lu\n", row, col);
+
+  if (row < nrow && col < ncol) {
+    uint64_t index = row * ncol + col;
+
+    // printf("row: %lu, row-start: %lu, col: %lu, lower: %d\n", row, row-start, col, row - start >= col);
+    if(dtype_info==0){
+      ((__half*)mem)[index] = row - start >= col ? *(reinterpret_cast<__half const*>(&lower)) 
+                                                    : *(reinterpret_cast<__half const*>(&upper));
+    }else if(dtype_info==1){
+      ((float*)mem)[index] = row - start >= col ? *(reinterpret_cast<float const*>(&lower)) 
+                                                : *(reinterpret_cast<float const*>(&upper));
+    }else if(dtype_info==2){
+      ((double*)mem)[index] = row - start >= col ? *(reinterpret_cast<double const*>(&lower)) 
+                                                : *(reinterpret_cast<double const*>(&upper));
+    }else if (dtype_info==3){
+      ((cuFloatComplex*)mem)[index] = row - start >= col ? *(reinterpret_cast<cuFloatComplex const*>(&lower)) 
+                                                        : *(reinterpret_cast<cuFloatComplex const*>(&upper));
+    }
+  } 
+}
+
+void fillTri_dispatch(void* mem, uint64_t nrow, uint64_t ncol, uint64_t start,
+  uint64_t lower, uint64_t upper, cudaStream_t stream, int dtype_info)
+{
+  dim3 blockSize(nrow, ncol);
+  dim3 gridSize((ncol + blockSize.x - 1) / blockSize.x,
+                (nrow + blockSize.y - 1) / blockSize.y);
+
+  fill_lowerTri<<<gridSize, blockSize,0,stream>>>
+    (mem, nrow, ncol, start, lower, upper, dtype_info);
+}
+
+__global__ void fill_constant(void* mem, uint64_t nelem, uint64_t value, int dtype_info){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(index<nelem){
+    if(dtype_info==0){
+      ((__half*)mem)[index] = *(reinterpret_cast<__half const*>(&value));
+    }else if(dtype_info==1){
+      ((float*)mem)[index] = *(reinterpret_cast<float const*>(&value));
+    }else if(dtype_info==2){
+      ((double*)mem)[index] = *(reinterpret_cast<double const*>(&value));
+    }
+    else if(dtype_info==3){
+      ((cuFloatComplex*)mem)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value));
+    }
+    else{
+      printf("ERROR: CUDA_KERNEL: dtype_info not supported\n");
+    }
+  }
+}
+
+void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
+  cudaStream_t stream, int dtype_info){
+  int blockSize = 256;
+  int gridSize = (nelem + blockSize - 1) / blockSize;
+  // printf("nelem: %lu value %f\n", nelem, *((float*)value));
+  // printf("reinterpret cast value %f\n", *reinterpret_cast<float const*>(value));
+  // printf("reinterpret cast value 2 %f\n", *reinterpret_cast<float const*>(&value));
+  fill_constant<<<gridSize, blockSize,0,stream>>>
+    (mem, nelem, value, dtype_info);
+}

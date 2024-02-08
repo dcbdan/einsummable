@@ -254,6 +254,52 @@ void kernel_manager_t::operator()(
   call(info, stream, out, inns, maybe_workspace);
 }
 
+void kernel_manager_t::lowerTri_fill(fill_t::lowertri_t const& l, 
+  cudaStream_t stream, void* out) const
+{
+  int type;
+  if (l.lower.dtype == dtype_t::f16) {
+    type = 0;
+  } else if (l.lower.dtype == dtype_t::f32) {
+    type = 1;
+  } else if (l.lower.dtype == dtype_t::f64) {
+    type = 2;
+  } else if (l.lower.dtype == dtype_t::c64) {
+    type = 3;
+  } else {
+    throw std::runtime_error("lowerTri_fill: unknown dtype");
+  }
+  cudaSetDevice(device);
+  fillTri_dispatch(out, l.nrow, l.ncol, l.start, *reinterpret_cast<const uint64_t*>(l.lower.data), 
+                    *reinterpret_cast<const uint64_t*>(l.upper.data), stream, type);
+}
+
+void kernel_manager_t::constant_fill(fill_t::constant_t const& c, 
+  cudaStream_t stream, void* out) const
+{
+  int type;
+  if (c.value.dtype == dtype_t::f16) {
+    type = 0;
+  } else if (c.value.dtype == dtype_t::f32) {
+    type = 1;
+  } else if (c.value.dtype == dtype_t::f64) {
+    type = 2;
+  } else if (c.value.dtype == dtype_t::c64) {
+    type = 3;
+  } else {
+    throw std::runtime_error("constant_fill: unknown dtype");
+  }
+  cudaSetDevice(device);
+  auto num_elements = 1;
+  for (auto dim : c.shape) {
+    num_elements *= dim;
+  }
+  // print value
+  printf("value: %f\n", *(float*)(c.value.raw()));
+  fill_constant_dispatch(out, num_elements, *reinterpret_cast<const uint64_t*>(c.value.data), 
+    stream, type);
+}
+
 void kernel_manager_t::call(
   kernel_manager_t::kernel_info_t const& kernel,
   cudaStream_t stream,
@@ -276,6 +322,8 @@ void kernel_manager_t::call(
   if(holds_alternative<matmul_t>(kernel)) {
     // std::cout << "Calling matmul" << std::endl;
     auto const& m = get<matmul_t>(kernel);
+    auto const& [dtype, ni, nj, 
+    nk, _0, _1, _2] = m;
     execute_matmul(
       m, stream,
       out, inns[0], inns[1]);
@@ -428,10 +476,12 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   int nmodeB = e.inns[1].size();
   int nmodeC = e.out_rank;
 
+
   std::reverse(modeA.begin(), modeA.end());
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
   dtype_t type = e.inn_dtype(0);
+  c.dtype = type;
   cudaDataType_t typeTensor = dtype_to_cudatype(type);
 
   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
@@ -581,10 +631,19 @@ void kernel_manager_t::execute_matmul(
   } 
 
   // auto start = std::chrono::high_resolution_clock::now();
-  if(dtype == dtype_t::f32) {
+  if(dtype == dtype_t::f16) {
     // DOUT("calling cublasSgemm");
-    // time cublasSgemm
-    
+    cublasHgemm(
+     cublas_handle, 
+     trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
+     trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
+     m, n, k, 
+     reinterpret_cast<__half const*>(&one_half), 
+     reinterpret_cast<__half const*>(lhs), ldl,
+     reinterpret_cast<__half const*>(rhs), ldr,
+     reinterpret_cast<__half const*>(&zero_half),
+     reinterpret_cast<__half*>(out), ldo);
+  } else if (dtype == dtype_t::f32){
     cublasSgemm(
      cublas_handle, 
      trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
@@ -595,7 +654,30 @@ void kernel_manager_t::execute_matmul(
      static_cast<float const*>(rhs), ldr,
      &zero_float,
      static_cast<float*>(out), ldo);
-  } else {
+  } else if (dtype == dtype_t::f64){
+    cublasDgemm(
+     cublas_handle, 
+     trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
+     trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
+     m, n, k, 
+     &one_double, 
+     static_cast<double const*>(lhs), ldl,
+     static_cast<double const*>(rhs), ldr,
+     &zero_double,
+     static_cast<double*>(out), ldo);
+  } else if (dtype == dtype_t::c64){
+    cublasCgemm(
+     cublas_handle, 
+     trans_l ? CUBLAS_OP_T : CUBLAS_OP_N,
+     trans_r ? CUBLAS_OP_T : CUBLAS_OP_N,
+     m, n, k, 
+     reinterpret_cast<cuComplex const*>(&one_complex), 
+     reinterpret_cast<cuComplex const*>(lhs), ldl,
+     reinterpret_cast<cuComplex const*>(rhs), ldr,
+     reinterpret_cast<cuComplex const*>(&zero_complex),
+     reinterpret_cast<cuComplex*>(out), ldo);
+  }
+  else {
     throw std::runtime_error("not implemented: the other cublas matmul dtypes");
   }
 
@@ -811,7 +893,7 @@ void const* kernel_manager_t::get_one_ptr(dtype_t dtype) const {
   } else if(dtype == dtype_t::c64) {
     return static_cast<void const*>(&one_complex);
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach: unknown data type");
   }
 }
 
@@ -825,7 +907,7 @@ void const* kernel_manager_t::get_zero_ptr(dtype_t dtype) const {
   } else if(dtype == dtype_t::c64) {
     return static_cast<void const*>(&zero_double);
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach: unknown data type");
   }
 }
 

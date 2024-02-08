@@ -8,14 +8,11 @@
 #include "../src/einsummable/taskgraph.h"
 #include "../src/engine/communicator.h"
 #include "../src/autoplace/apart.h"
-#include "../src/autoplace/loadbalanceplace.h"
 #include "../src/autoplace/alocate.h"
-#include "../src/autoplace/autolinns.h"
-#include "../src/autoplace/autolinns2.h"
+#include "../src/einsummable/gwriter.h"
 
 #include "../src/server/base.h"
 
-#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cuda_runtime_api.h>
@@ -23,13 +20,12 @@
 #include <cuda_runtime.h>
 
 #include "../src/base/setup.h"
+#include "gpu_kernel_manager.h"
+#include "utility.h"
 #include "../src/einsummable/reference.h"
 
-#include <cstddef>
 #include <fstream>
 #include <iostream>
-#include <memory>
-#include <optional>
 #include <sys/types.h>
 #include <tuple>
 
@@ -237,17 +233,15 @@ vector<placement_t> autoplace(
   int num_parts_per_gpu = 1)
 {
   int max_branching = 1;
-  parts_space_t space = parts_space_t::contraction;
 
-  auto parts = autopartition_for_bytes(
+  auto parts = apart01(
     graph,
     num_gpus * num_parts_per_gpu,
-    max_branching,
-    space);
+    max_branching);
 
   uint64_t flops_per_byte_moved = 100;
 
-  return autolocate_agg_at_a_time_from_inns(
+  return alocate01(
     graph, parts, num_gpus, flops_per_byte_moved);
 }
 
@@ -530,7 +524,7 @@ void server_execute_mm_partition(uint64_t matrix_dim, int num_gpus, int partitio
   DOUT("num_gpus: " << num_gpus);
   DOUT("partition: " << partition);
   auto [graph, part] = build_matmul_even_splits(matrix_dim, partition);
-  auto pls = autolocate_agg_at_a_time_from_inns(graph, part, num_gpus, 100);
+  auto pls = alocate01(graph, part, num_gpus, 100);
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
 
@@ -778,6 +772,54 @@ graph_t ffnn_specific_H1(){
   out.save_inplace();
 
   return writer.get_graph();
+}
+
+void lowerTri_test(){
+  cudaSetDevice(0);
+  kernel_manager_t km(0);
+
+  dbuffer_t input1 = make_dbuffer(dtype_t::f32, 16);
+  input1.ones();
+
+  fill_t test = fill_t::make_square_lowertri(dtype_t::f32, 4);
+  printf("Lower: %f, Upper: %f, Start: %lu\n", ((float*)test.get_lowertri().lower.raw())[0], 
+    ((float*)test.get_lowertri().upper.raw())[0], test.get_lowertri().start);
+
+  auto gpu_mem = gpu_allocate_memory(16 * sizeof(float), 0);
+  cuda_stream_t stream = cuda_stream_t();
+  cudaMemcpy(gpu_mem, input1.data->data, 16 * sizeof(float), cudaMemcpyHostToDevice);
+  printFloatGPU(gpu_mem, 16);
+  km.lowerTri_fill(test.get_lowertri(), stream.stream, gpu_mem);
+  cudaDeviceSynchronize();
+
+  printFloatGPU(gpu_mem, 16);
+}
+
+void constant_test(){
+  cudaSetDevice(0);
+  kernel_manager_t km(0);
+
+  dbuffer_t input1 = make_dbuffer(dtype_t::f32, 16);
+  input1.zeros();
+
+  auto my_scalar = scalar_t::one(dtype_t::f32);
+
+  fill_t test = fill_t::make_constant(my_scalar, {16});
+  printf("Constant: %f\n", ((float*)test.get_constant().value.raw())[0]);
+
+  auto gpu_mem = gpu_allocate_memory(16 * sizeof(float), 0);
+  cuda_stream_t stream = cuda_stream_t();
+  cudaMemcpy(gpu_mem, input1.data->data, 16 * sizeof(float), cudaMemcpyHostToDevice);
+  printFloatGPU(gpu_mem, 16);
+  km.constant_fill(test.get_constant(), stream.stream, gpu_mem);
+
+  auto cpu_ptr = malloc(16 * sizeof(float));
+  
+  cudaMemcpy(cpu_ptr, gpu_mem, 16 * sizeof(float), cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+
+  printFloatGPU(gpu_mem, 16);
+  // printFloatCPU((float*)cpu_ptr, 16);
 }
 
 
