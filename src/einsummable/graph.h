@@ -92,6 +92,11 @@ struct graph_t {
 
   vector<int> get_order() const;
 
+  // get the order by "executing" it.. This way
+  // if 3 ops can be run, the one with the fewest
+  // join-ops comes first, and so on.
+  vector<int> get_flop_order() const;
+
   vector<int> get_reverse_order() const;
 
   void print() const;
@@ -226,7 +231,8 @@ public:
 
   vector<node_t> nodes;
 
-private:
+//private: TODO TODO
+public:
   int insert(op_t const& op, vector<int> inns);
 
 private:

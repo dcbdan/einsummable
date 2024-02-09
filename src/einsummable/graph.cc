@@ -575,6 +575,74 @@ vector<int> graph_t::get_order() const {
   return ret;
 }
 
+vector<int> graph_t::get_flop_order() const {
+  vector<tuple<uint64_t, int>> pending;
+  vector<int> cnts;
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    if(node.op.is_input()) {
+      pending.emplace_back(0, gid);
+    }
+    cnts.push_back(node.get_inns_set().size());
+  }
+
+  auto pop = [&] {
+    tuple<uint64_t, int> ret = pending.back();
+    pending.pop_back();
+    return ret;
+  };
+
+  auto insert = [&](uint64_t f, int id) {
+    tuple<uint64_t, int> item(f, id);
+    pending.insert(
+      std::lower_bound(
+        pending.begin(), pending.end(), item,
+        [](tuple<uint64_t, int> const& x,
+           tuple<uint64_t, int> const& y)
+        { return x > y; }),
+      item);
+  };
+
+  auto decrement = [&](uint64_t v) {
+    for(auto& [rem, _]: pending) {
+      rem -= v;
+    }
+  };
+
+  auto get_flops = [&](int id) -> uint64_t {
+    auto const& node = nodes[id];
+    if(node.op.is_einsummable()) {
+      return product(node.op.get_einsummable().join_shape);
+    }
+    return 0;
+  };
+
+  auto complete = [&](int id) {
+    auto const& node = nodes[id];
+    for(int out: node.outs) {
+      int& cnt = cnts[out];
+      cnt -= 1;
+      if(cnt == 0) {
+        insert(get_flops(out), out);
+      }
+    }
+  };
+
+  vector<int> ret;
+  while(pending.size() > 0) {
+    auto [rem, id] = pop();
+    ret.push_back(id);
+    decrement(rem);
+    complete(id);
+  }
+
+  if(ret.size() != nodes.size()) {
+    throw std::runtime_error("invalid..");
+  }
+
+  return ret;
+}
+
 vector<int> graph_t::get_reverse_order() const {
   // Can't tell if this is just the reverse of get_order() or not,
   // so wrote the full algorithm
@@ -621,7 +689,7 @@ int graph_t::insert(
   });
 
   for(auto inn: inns) {
-    nodes[inn].outs.insert(ret);
+    nodes.at(inn).outs.insert(ret);
   }
 
   return ret;
