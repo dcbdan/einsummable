@@ -5,6 +5,8 @@
 #include "../src/einsummable/scalarop.h"
 #include "../src/einsummable/dbuffer.h"
 
+#include "modules.h"
+
 #include <fstream>
 
 using tensor_t     = graph_writer_t::tensor_t;
@@ -58,7 +60,7 @@ struct ffinfo_t {
   map<int, int> forward_labels;
 };
 
-ffinfo_t make_graph_ff_simple(
+ffinfo_t make_ff_simple(
   uint64_t batch,
   uint64_t hidden,
   uint64_t dim,
@@ -85,7 +87,7 @@ ffinfo_t make_graph_ff_simple(
   for(int i = 0; i != ws.size(); ++i) {
     tensor_t& w = ws[i];
     z = writer.ew(f, writer.matmul(z, w));
-    if(i % 8 == 0) {
+    if(i % 2 == 0) {
       checkpoints.push_back(z.get_id());
     }
   }
@@ -126,6 +128,121 @@ ffinfo_t make_graph_ff_simple(
     .graph = writer.get_graph(),
     .x = x.get_id(),
     .y = y.get_id(),
+    .ows = vector_from_each_method(ws, int, get_id),
+    .nws = vector_from_each_method(update_ws, int, get_id),
+    .loss = loss.get_id(),
+    .checkpoints = checkpoints,
+    .forward_labels = forward_labels
+  };
+}
+
+ffinfo_t make_llama_7B(
+  uint64_t batch,
+  uint64_t seqlen,
+  int n_layers = -1)
+{
+  set_default_dtype(dtype_t::f16);
+  dtype_t dtype = default_dtype();
+
+  model_args_t margs = model_args_t::llama(1, batch);
+
+  margs.max_seq_len = seqlen;
+
+  if(n_layers >= 0) {
+    margs.n_layers = std::min(margs.n_layers, n_layers);
+  }
+
+  graph_writer_t writer;
+  optional<int> lora_rank = 8;
+  transformer_t model(&writer, margs, 0, lora_rank);
+
+  tensor_t embeddings = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(margs.max_seq_len),
+    margs.full_dim()
+  }));
+  tensor_t labels = writer.input(
+    vector<uint64_t>{margs.batch_size, margs.vocab_size},
+    dtype);
+
+  tensor_t predictions = model.forward(embeddings);
+
+  // Compute the loss
+  //   l{n} = log [ exp(v{n,y{n}})) / sum_c exp(v{n,c}) ]
+  //   Loss = sum_n (l{n}) / N
+  // Note, shift by c for numerical stability;
+  //   where c{n} = max_c v{n,c}
+  tensor_t loss;
+  {
+    tensor_t v = predictions;
+    tensor_t c = writer.reduction("bv->b", castable_t::max, v);
+    // v = v - c
+    v = writer.ew("bv,b->bv", scalarop_t::make_sub(dtype), v, c);
+    // ev = exp(v)
+    tensor_t ev = writer.ew(scalarop_t::make_exp(dtype), v);
+    // evsubset{b} = sum_v ev{b,v}*labels{b,v}
+    tensor_t evsubset = writer.contraction("bv,bv->b", ev, labels);
+    tensor_t evsum    = writer.reduction("bv->b", castable_t::add, ev);
+
+    tensor_t lll = writer.ew(
+      "b,b->b",
+      scalarop_t::make_div(dtype),
+      evsubset, evsum);
+
+    lll = writer.ew(scalarop_t::make_log(dtype), lll);
+
+    // (would like to use unsqueeze here but it is not implemented)
+
+    double one_over_bsz = 1.0 / double(margs.batch_size);
+    loss = lll.scale(scalar_t(dtype, write_with_ss(one_over_bsz)));
+  }
+  loss.save_inplace();
+
+  vector<tensor_t> ws;
+  for(auto [name, tensor]: model.weight_map()) {
+    if(name.find("lora") != string::npos) {
+      ws.push_back(tensor);
+    } else {
+      if(lora_rank) {
+        // we're doing lora, so explicitly save all the weights
+        tensor.save_inplace();
+      }
+    }
+  }
+
+  vector<int> checkpoints = vector_from_each_method(
+    model.checkpoints, int, get_id);
+
+  map<int, int> forward_labels;
+  for(int gid = 0; gid != writer.get_graph().nodes.size(); ++gid) {
+    int label = get_label(writer.get_graph(), checkpoints, gid);
+    forward_labels.insert({gid, label});
+  }
+
+  vector<int> _f = vector_iota<int>(writer.get_graph().nodes.size());
+  set<int> forward_ids(_f.begin(), _f.end());
+
+  vector<tensor_t> grads = writer.backprop(loss, ws);
+
+  scalarop_t update = scalarop_t::combine(
+    scalarop_t::make_sub(),
+    {
+      scalarop_t::make_identity(),
+      scalarop_t::make_scale("learning_rate")
+    });
+
+  vector<tensor_t> update_ws;
+  for(int i = 0; i != grads.size(); ++i) {
+    tensor_t& w = ws[i];
+    tensor_t& g = grads[i];
+    update_ws.push_back(writer.ew("ij,ij->ij", update, w, g));
+    update_ws.back().save_inplace();
+  }
+
+  return ffinfo_t {
+    .graph = writer.get_graph(),
+    .x = embeddings.get_id(),
+    .y = labels.get_id(),
     .ows = vector_from_each_method(ws, int, get_id),
     .nws = vector_from_each_method(update_ws, int, get_id),
     .loss = loss.get_id(),
@@ -459,12 +576,10 @@ struct remap_former_t {
 
   // Make sure that fid exists on this graph and is a save
   int set_save(int which, int full_id) {
-    DLINEOUT("set save which=" << which << " full_id=" << full_id);
     {
       auto maybe = id_manager.get_sid(which, full_id);
       if(maybe) {
         int const& sid = maybe.value();
-        DLINEOUT("set save sid=" << sid);
         graphs[which].nodes[sid].op.set_save(true);
         return sid;
       }
@@ -486,7 +601,6 @@ struct remap_former_t {
       prev_node.op.out_dtype());
 
     // and make sure to save it
-    DLINEOUT("set save sid=" << curr_id);
     graphs[which].nodes[curr_id].op.set_save(true);
 
     // and make sure to update the id manager
@@ -522,7 +636,6 @@ struct remap_former_t {
   }
 
   map<int, int> remap_to(int which_dst) {
-    DLINEOUT("remap to enter.. " << (which_dst - 1) << " to " << which_dst);
     if(which_dst == 0) {
       throw std::runtime_error("invalid which_dst");
     }
@@ -546,7 +659,6 @@ vector<map<int, int>> form_all_remaps(
   graph_id_manager_t& id_manager,
   vector<graph_t>& graphs)
 {
-  DLINEOUT("form all remaps enter");
   remap_former_t former {
     .full_graph = full_graph,
     .id_manager = id_manager,
@@ -562,15 +674,12 @@ vector<map<int, int>> form_all_remaps(
   //       be properly added
 
   ret.push_back(former.remap_saves_to_full());
-  DLINEOUT("remapped saves to full");
 
   for(int i = graphs.size() - 1; i >= 1; --i) {
     ret.push_back(former.remap_to(i));
-    DLINEOUT("processed " << (i-1) << " to " << i << " remap");
   }
 
   ret.push_back(former.remap_inputs_from_full());
-  DLINEOUT("remapped inputs from full");
 
   std::reverse(ret.begin(), ret.end());
   return ret;
@@ -615,9 +724,7 @@ memory_usage(
       cnt -= 1;
       auto const& inn_node = graph.nodes[inn_gid];
       if(cnt == 0 && !inn_node.op.is_save()) {
-        DLINEOUT(usage << " " << graph.out_size(inn_gid));
         usage -= graph.out_size(inn_gid);
-        DLINEOUT(usage);
         keys.erase(inn_gid);
       }
     }
@@ -663,7 +770,20 @@ int main(int argc, char** argv) {
 
   ///////////////////////////////////////////////////////////////////
 
-  auto info = make_graph_ff_simple(batch, hidden, dim, num_ws);
+  pargs.set_default<uint64_t>("seqlen", 2048);
+  pargs.set_default<int>("n_layers", -1);
+
+  uint64_t seqlen = pargs.get<uint64_t>("seqlen");
+  int n_layers = pargs.get<int>("n_layers");
+
+  ///////////////////////////////////////////////////////////////////
+
+  pargs.set_default<bool>("llama", true);
+  bool do_llama = pargs.get<bool>("llama");
+
+  auto info = do_llama                         ?
+    make_llama_7B(batch, seqlen, n_layers)     :
+    make_ff_simple(batch, hidden, dim, num_ws) ;
 
   vector<string> cs {
     "#ff5733", "#377e20", "#2cb392", "#7af3f5", "#374ded", "#b337ed"
@@ -691,8 +811,6 @@ int main(int argc, char** argv) {
       backward_labels.insert({id, cpoint});
       max_backward_label = std::max(max_backward_label, cpoint);
 
-      DLINEOUT("cpoint " << cpoint);
-
       colors.insert({id, cs.at((cpoint+1) % cs.size())});
     }
   }
@@ -711,13 +829,6 @@ int main(int argc, char** argv) {
     .backward_labels = backward_labels,
     .num_forward_sections = int(info.checkpoints.size())
   };
-
-  {
-    DLINEOUT("there are "<< info.checkpoints.size() << " number of checkpoints");
-    for(int i = 0; i != 10; ++i) {
-      DOUT(former.get_ordered_section(false, i));
-    }
-  }
 
   graph_id_manager_t manager;
   vector<graph_t> graphs;
@@ -809,7 +920,6 @@ int main(int argc, char** argv) {
 
   vector<tuple<uint64_t, uint64_t>> usages;
   for(int i = 0; i != graphs.size(); ++i) {
-    DLINEOUT(usage << " | " << usages.size());
     map<int, int> const& remap = remaps[i];
     keys = remap_keys(remap, keys);
     graph_t const& graph = graphs[i];

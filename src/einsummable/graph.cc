@@ -579,11 +579,12 @@ vector<int> graph_t::get_flop_order() const {
   vector<tuple<uint64_t, int>> pending;
   vector<int> cnts;
   for(int gid = 0; gid != nodes.size(); ++gid) {
-    auto const& node = nodes[gid];
-    if(node.op.is_input()) {
+    int num_deps = nodes[gid].get_inns_set().size();
+    if(num_deps == 0) {
+      // Assuming that any node with no inputs has no flops
       pending.emplace_back(0, gid);
     }
-    cnts.push_back(node.get_inns_set().size());
+    cnts.push_back(num_deps);
   }
 
   auto pop = [&] {
@@ -637,7 +638,7 @@ vector<int> graph_t::get_flop_order() const {
   }
 
   if(ret.size() != nodes.size()) {
-    throw std::runtime_error("invalid..");
+    throw std::runtime_error("not all nodes included: get_flop_order");
   }
 
   return ret;

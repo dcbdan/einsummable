@@ -211,6 +211,9 @@ struct transformer_t {
   vector<transformer_block_t> layers;
   rms_norm_t norm;
   tensor_t w_vocab;
+
+  // TODO TODO TODO (just putting this here for ease of use)
+  vector<tensor_t> checkpoints;
 };
 
 
