@@ -72,6 +72,7 @@ endfunction()
 #add_llama_application("llama_exp02" "exp02")
 #add_llama_application("llama_exp03" "exp03")
 #add_llama_application("llama_autodiff_test" "autodiff_test")
+add_llama_application("cpoint"               "cpoint")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
