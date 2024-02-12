@@ -129,8 +129,8 @@ if(${CPU_EXECUTION_ENGINE})
   target_link_libraries(${exec}
     cpu_execution_engine
     ucx::ucp ucx::ucs
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
     ${Protobuf_LIBRARIES}
     proto)
   endfunction()
@@ -152,8 +152,8 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
-  add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
-  add_cpu_application("senexp"                "exps" "senexp")
+  #add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  #add_cpu_application("senexp"                "exps" "senexp")
   add_cpu_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   function(add_cpu_llama_application exec filename)
@@ -187,7 +187,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
   endfunction()
-  add_sp_application("llama_tokenizer" "llama" "tokenizer")
+  # add_sp_application("llama_tokenizer" "llama" "tokenizer")
 
 endif()
 
@@ -322,7 +322,7 @@ if(${NO_DEP_CPU_ENGINE})
     proto)
   endfunction()
 
-  add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
+  #add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   # function(add_cpu_llama_application exec filename)
   #   add_executable(${exec} llama/${filename}.cc
