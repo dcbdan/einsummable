@@ -212,5 +212,3 @@ struct transformer_t {
   rms_norm_t norm;
   tensor_t w_vocab;
 };
-
-

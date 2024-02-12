@@ -16,6 +16,7 @@ void add_tests_reference(tests_t::context_t tests) {
 }
 
 int main() {
+  
   tests_t tests("base");
 
   add_tests_partdim(tests.make_context("partdim"));
