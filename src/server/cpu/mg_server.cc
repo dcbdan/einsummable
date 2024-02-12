@@ -288,231 +288,231 @@ void cpu_mg_server_t::print() {
 }
 
 
-void server_cpu_mg_local_t::execute_graph(
-  graph_t const& graph,
-  vector<placement_t> const& placements,
-  map<string, scalar_t> const& scalar_vars)
-{
-  //define a lambda function used below to make a relation_t object
-  auto make_relation = [&](int gid, vtensor_t<int> const& tids) {
-    return relation_t {
-      .dtype = graph.out_dtype(gid),
-      .placement = placements[gid],
-      .tids = tids
-    };
-  };
+// void server_cpu_mg_local_t::execute_graph(
+//   graph_t const& graph,
+//   vector<placement_t> const& placements,
+//   map<string, scalar_t> const& scalar_vars)
+// {
+//   //define a lambda function used below to make a relation_t object
+//   auto make_relation = [&](int gid, vtensor_t<int> const& tids) {
+//     return relation_t {
+//       .dtype = graph.out_dtype(gid),
+//       .placement = placements[gid],
+//       .tids = tids
+//     };
+//   };
 
-  auto [inn_g_to_t, out_g_to_t, taskgraph] =
-    taskgraph_t::make(graph, placements);
-  if(make_parallel_partialize_groups()) {
-    for(auto& node: taskgraph.nodes) {
-      auto& op = node.op;
-      if(op.is_partialize()) {
-        auto& partialize = op.get_partialize();
-        partialize.make_parallel();
-      }
-    }
-  }
+//   auto [inn_g_to_t, out_g_to_t, taskgraph] =
+//     taskgraph_t::make(graph, placements);
+//   if(make_parallel_partialize_groups()) {
+//     for(auto& node: taskgraph.nodes) {
+//       auto& op = node.op;
+//       if(op.is_partialize()) {
+//         auto& partialize = op.get_partialize();
+//         partialize.make_parallel();
+//       }
+//     }
+//   }
 
-  //TODO: shouldn't have any moves or num_msgs but put here for now
-  int num_msgs = 0;
-  uint64_t num_bytes = 0;
-  for(auto const& node: taskgraph.nodes) {
-    if(node.op.is_move()) {
-      num_msgs++;
-      num_bytes += node.op.get_move().size;
-    }
-  }
-  DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
+//   //TODO: shouldn't have any moves or num_msgs but put here for now
+//   int num_msgs = 0;
+//   uint64_t num_bytes = 0;
+//   for(auto const& node: taskgraph.nodes) {
+//     if(node.op.is_move()) {
+//       num_msgs++;
+//       num_bytes += node.op.get_move().size;
+//     }
+//   }
+//   DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("printed tg.gv");
-  //}
+//   //{
+//   //  std::ofstream f("tg.gv");
+//   //  taskgraph.print_graphviz(f);
+//   //  DOUT("printed tg.gv");
+//   //}
 
-  // inn_g_to_t is input id to taskid in taskgraph 
-  remap_relations_t r;
-  for(auto const& [gid, dst_tids]: inn_g_to_t) {
-    //map the previous gid,relation to new gid,relation after we make taskgraph
-    r.insert(
-      get_relation(gid),             // src relation
-      make_relation(gid, dst_tids)   // dst relation
-    );
-  }
-  //previously we have remap(r) called. But I don't want the broadcast function inside remap, so just call remap_server
-  remap_server(r);
+//   // inn_g_to_t is input id to taskid in taskgraph 
+//   remap_relations_t r;
+//   for(auto const& [gid, dst_tids]: inn_g_to_t) {
+//     //map the previous gid,relation to new gid,relation after we make taskgraph
+//     r.insert(
+//       get_relation(gid),             // src relation
+//       make_relation(gid, dst_tids)   // dst relation
+//     );
+//   }
+//   //previously we have remap(r) called. But I don't want the broadcast function inside remap, so just call remap_server
+//   remap_server(r);
 
-  execute(taskgraph, scalar_vars);
+//   execute(taskgraph, scalar_vars);
 
-  gid_map.clear();
-  for(auto const& [gid, tids]: out_g_to_t) {
-    gid_map.insert({gid, make_relation(gid, tids)});
-  }
-}
+//   gid_map.clear();
+//   for(auto const& [gid, tids]: out_g_to_t) {
+//     gid_map.insert({gid, make_relation(gid, tids)});
+//   }
+// }
 
-void server_cpu_mg_local_t::remap_server(remap_relations_t const& remap_relations)
-{
-  auto [remap_gid, g] = create_remap_graph_constructor(remap_relations);
+// void server_cpu_mg_local_t::remap_server(remap_relations_t const& remap_relations)
+// {
+//   auto [remap_gid, g] = create_remap_graph_constructor(remap_relations);
 
-  auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
-    g.graph, g.get_placements());
+//   auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
+//     g.graph, g.get_placements());
 
-  auto [mem_sizes, full_data_locs, which_storage] = recv_make_mg_info();
+//   auto [mem_sizes, full_data_locs, which_storage] = recv_make_mg_info();
 
-  // before: full_data_locs is with respect to the remap inn tids
-  _update_map_with_new_tg_inns(
-    full_data_locs, remap_gid, gid_to_inn, remap_relations, std::nullopt);
-  // after: full_data_locs is with respect to the tasgkraph inns
+//   // before: full_data_locs is with respect to the remap inn tids
+//   _update_map_with_new_tg_inns(
+//     full_data_locs, remap_gid, gid_to_inn, remap_relations, std::nullopt);
+//   // after: full_data_locs is with respect to the tasgkraph inns
 
-  auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
-    memgraph_t::make(
-      taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, use_storage_);
+//   auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
+//     memgraph_t::make(
+//       taskgraph, which_storage, mem_sizes,
+//       full_data_locs, alloc_settings, use_storage_);
 
-  // memgraph now uses wtvr storage ids it chooses... So for each input,
-  // figure out what the remap is
-  vector<vector<std::array<int, 2>>> storage_remaps =
-    create_storage_remaps(full_data_locs, inn_tg_to_loc);
+//   // memgraph now uses wtvr storage ids it chooses... So for each input,
+//   // figure out what the remap is
+//   vector<vector<std::array<int, 2>>> storage_remaps =
+//     create_storage_remaps(full_data_locs, inn_tg_to_loc);
 
-  // not needed anymore because all the info is in out_tg_to_loc
-  full_data_locs.clear();
+//   // not needed anymore because all the info is in out_tg_to_loc
+//   full_data_locs.clear();
 
-  storage_remap_server(storage_remaps);
+//   storage_remap_server(storage_remaps);
 
-  execute_memgraph(memgraph, true);
+//   execute_memgraph(memgraph, true);
 
-  _update_map_with_new_tg_outs(
-    out_tg_to_loc, remap_gid, gid_to_out, remap_relations, std::nullopt);
+//   _update_map_with_new_tg_outs(
+//     out_tg_to_loc, remap_gid, gid_to_out, remap_relations, std::nullopt);
 
-  rewrite_data_locs_server(out_tg_to_loc);
-}
-
-
-// Gathering information about tensor location and id on all compute nodes (including server itself)
-// Because this exist inside server_cpu_mg_local_t, the return make_mg_info_t only has one out of each list (rank 0)
-server_cpu_mg_local_t::make_mg_info_t
-server_cpu_mg_local_t::recv_make_mg_info() {
-  auto fix = [](memsto_t const& memsto, int loc) {
-    if(memsto.is_mem()) {
-      return memstoloc_t(memsto.get_mem().as_memloc(loc));
-    } else {
-      int const& sto_id = memsto.get_sto();
-      return memstoloc_t(stoloc_t { loc, sto_id });
-    }
-  };
-  make_mg_info_t ret;
-
-  ret.which_storage.resize(1);
-  std::iota(ret.which_storage.begin(), ret.which_storage.end(), 0);
-
-  ret.mem_sizes.push_back(mem->size);
-  for(auto const& [id, memsto]: data_locs) {
-    ret.data_locs.insert({id, fix(memsto, 0)});
-  }
-
-  return ret;
-}
-
-static vector<vector<std::array<int, 2>>>
-server_cpu_mg_local_t::create_storage_remaps(
-  map<int, memstoloc_t> const& full_data_locs,
-  map<int, memstoloc_t> const& inn_tg_to_loc)
-{
-  vector<vector<std::array<int, 2>>> storage_remaps(1);
-  auto const& [id, mg_memstoloc] = inn_tg_to_loc;
-  if(mg_memstoloc.is_stoloc()) {
-    auto const& [loc, new_sto_id] = mg_memstoloc.get_stoloc();
-    auto const& [_, old_sto_id] = full_data_locs.at(id).get_stoloc();
-    storage_remaps[loc].push_back({new_sto_id, old_sto_id});
-  }
-
-  return storage_remaps;
-}
-
-void server_cpu_mg_local_t::storage_remap_server(
-  vector<vector<std::array<int, 2>>> const& remaps)
-{
-  storage.remap(remaps[0]);
-}
+//   rewrite_data_locs_server(out_tg_to_loc);
+// }
 
 
+// // Gathering information about tensor location and id on all compute nodes (including server itself)
+// // Because this exist inside server_cpu_mg_local_t, the return make_mg_info_t only has one out of each list (rank 0)
+// server_cpu_mg_local_t::make_mg_info_t
+// server_cpu_mg_local_t::recv_make_mg_info() {
+//   auto fix = [](memsto_t const& memsto, int loc) {
+//     if(memsto.is_mem()) {
+//       return memstoloc_t(memsto.get_mem().as_memloc(loc));
+//     } else {
+//       int const& sto_id = memsto.get_sto();
+//       return memstoloc_t(stoloc_t { loc, sto_id });
+//     }
+//   };
+//   make_mg_info_t ret;
 
-void server_cpu_mg_local_t::execute_memgraph(
-  memgraph_t const& memgraph,
-  bool for_remap,
-  map<string, scalar_t> const& scalar_vars)
-{
-  int n_threads = threadpool.num_runners();
-  if(n_threads == 1) {
-    throw std::runtime_error("must have more than one thread in the threadpool");
-  }
+//   ret.which_storage.resize(1);
+//   std::iota(ret.which_storage.begin(), ret.which_storage.end(), 0);
 
-  int this_rank = 0;
+//   ret.mem_sizes.push_back(mem->size);
+//   for(auto const& [id, memsto]: data_locs) {
+//     ret.data_locs.insert({id, fix(memsto, 0)});
+//   }
 
-  exec_graph_t graph =
-    exec_graph_t::make_cpu_exec_graph(
-      memgraph,
-      this_rank,
-      kernel_executor,
-      num_channels_per_move,
-      scalar_vars);
+//   return ret;
+// }
 
-  rm_ptr_t resource_manager(new resource_manager_t(
-    vector<rm_ptr_t> {
-      rm_ptr_t(new cpu_workspace_manager_t()),
-      rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(mem->raw())),
-      rm_ptr_t(new cpu_storage_manager_t(&storage)),
-      rm_ptr_t(new threadpool_manager_t(threadpool)),
-    }
-  ));
+// static vector<vector<std::array<int, 2>>>
+// server_cpu_mg_local_t::create_storage_remaps(
+//   map<int, memstoloc_t> const& full_data_locs,
+//   map<int, memstoloc_t> const& inn_tg_to_loc)
+// {
+//   vector<vector<std::array<int, 2>>> storage_remaps(1);
+//   auto const& [id, mg_memstoloc] = inn_tg_to_loc;
+//   if(mg_memstoloc.is_stoloc()) {
+//     auto const& [loc, new_sto_id] = mg_memstoloc.get_stoloc();
+//     auto const& [_, old_sto_id] = full_data_locs.at(id).get_stoloc();
+//     storage_remaps[loc].push_back({new_sto_id, old_sto_id});
+//   }
 
-  exec_state_t state(graph, resource_manager, priority_type, this_rank);
+//   return storage_remaps;
+// }
 
-  if(for_remap) {
-    if(this_rank == 0) {
-      //gremlin_t gremlin("execute_memgraph remap or move inputs loop time");
-      state.event_loop();
-    } else {
-      state.event_loop();
-    }
-  } else {
-    if(this_rank == 0) {
-      //gremlin_t gremlin("execute_memgraph event loop time");
-      state.event_loop();
-    } else {
-      state.event_loop();
-    }
-  }
-}
+// void server_cpu_mg_local_t::storage_remap_server(
+//   vector<vector<std::array<int, 2>>> const& remaps)
+// {
+//   storage.remap(remaps[0]);
+// }
 
-void server_cpu_mg_local_t::rewrite_data_locs_server(
-  map<int, memstoloc_t> const& new_data_locs)
-{
-  auto get_loc = [](memstoloc_t const& x) {
-    if(x.is_memloc()) {
-      return x.get_memloc().loc;
-    } else {
-      // Note: stoloc_t::loc is a storage location, but we are
-      //       assuming that storage loc == compute-node == compute loc
-      //       here
-      return x.get_stoloc().loc;
-    }
-  };
 
-  int world_size = 1;
-  int this_rank = 0;
 
-  vector<vector<id_memsto_t>> items(world_size);
-  data_locs.clear();
-  for(auto const& [id, memstoloc]: new_data_locs) {
-    int loc = get_loc(memstoloc);
-    if(loc == this_rank) {
-      data_locs.insert({ id, memstoloc.as_memsto() });
-    } else {
-      throw std::runtime_error("Local server only has world_size of 1");
-      // items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
-    }
-  }
-}
+// void server_cpu_mg_local_t::execute_memgraph(
+//   memgraph_t const& memgraph,
+//   bool for_remap,
+//   map<string, scalar_t> const& scalar_vars)
+// {
+//   int n_threads = threadpool.num_runners();
+//   if(n_threads == 1) {
+//     throw std::runtime_error("must have more than one thread in the threadpool");
+//   }
+
+//   int this_rank = 0;
+
+//   exec_graph_t graph =
+//     exec_graph_t::make_cpu_exec_graph(
+//       memgraph,
+//       this_rank,
+//       kernel_executor,
+//       num_channels_per_move,
+//       scalar_vars);
+
+//   rm_ptr_t resource_manager(new resource_manager_t(
+//     vector<rm_ptr_t> {
+//       rm_ptr_t(new cpu_workspace_manager_t()),
+//       rm_ptr_t(new group_manager_t()),
+//       rm_ptr_t(new global_buffers_t(mem->raw())),
+//       rm_ptr_t(new cpu_storage_manager_t(&storage)),
+//       rm_ptr_t(new threadpool_manager_t(threadpool)),
+//     }
+//   ));
+
+//   exec_state_t state(graph, resource_manager, priority_type, this_rank);
+
+//   if(for_remap) {
+//     if(this_rank == 0) {
+//       //gremlin_t gremlin("execute_memgraph remap or move inputs loop time");
+//       state.event_loop();
+//     } else {
+//       state.event_loop();
+//     }
+//   } else {
+//     if(this_rank == 0) {
+//       //gremlin_t gremlin("execute_memgraph event loop time");
+//       state.event_loop();
+//     } else {
+//       state.event_loop();
+//     }
+//   }
+// }
+
+// void server_cpu_mg_local_t::rewrite_data_locs_server(
+//   map<int, memstoloc_t> const& new_data_locs)
+// {
+//   auto get_loc = [](memstoloc_t const& x) {
+//     if(x.is_memloc()) {
+//       return x.get_memloc().loc;
+//     } else {
+//       // Note: stoloc_t::loc is a storage location, but we are
+//       //       assuming that storage loc == compute-node == compute loc
+//       //       here
+//       return x.get_stoloc().loc;
+//     }
+//   };
+
+//   int world_size = 1;
+//   int this_rank = 0;
+
+//   vector<vector<id_memsto_t>> items(world_size);
+//   data_locs.clear();
+//   for(auto const& [id, memstoloc]: new_data_locs) {
+//     int loc = get_loc(memstoloc);
+//     if(loc == this_rank) {
+//       data_locs.insert({ id, memstoloc.as_memsto() });
+//     } else {
+//       throw std::runtime_error("Local server only has world_size of 1");
+//       // items[loc].push_back(id_memsto_t { id, memstoloc.as_memsto() });
+//     }
+//   }
+// }
