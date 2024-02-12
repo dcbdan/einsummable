@@ -846,7 +846,7 @@ struct memgraph_make_state_t2 {
   // if this cannot allocate memory, will return false
   bool load_tensor_without_evict(int tid);
 
-  bool load_multiple_without_evict(int out_tid, vector<int> inns_tid);
+  bool load_multiple_without_evict(vector<int> tids, bool has_output_in_tids);
 
   void _load_tensor_helper(int tid, int alloc_mid);
 
