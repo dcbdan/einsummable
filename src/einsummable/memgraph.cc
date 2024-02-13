@@ -2365,6 +2365,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
         } else {
           // if not forced and not exist on memory, then record the tid of current use_tid, then allocate_multiple later.
           // TODO: write a new "load_multiple_without_evict" wrapper function that wraps around allocate_multiple
+          // std::cout << tid << " exist on storage. Load back need allocate mem" << std::endl;
           tids_to_allocate.insert(tids_to_allocate.end(), tid);
         }
       }
