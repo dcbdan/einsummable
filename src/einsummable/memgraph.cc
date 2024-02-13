@@ -2263,7 +2263,6 @@ bool memgraph_make_state_t2::input_has_been_initialized(int inn)
   > register usage for all input tensors
   > return whether or not a delete occurred in one of the register usages
 */
-
 bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touch_t> const &which_op, bool force)
 {
   /* Note to myself: should be looping through the used_tensor for current oid.
@@ -2386,6 +2385,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
           task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
       } else {
         outtid_to_allocate = tid;
+        tids_to_allocate.insert(tids_to_allocate.end(), outtid_to_allocate);
       }
     }
   }
@@ -2393,9 +2393,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     return true;
   }
   if (outtid_to_allocate != -1){
-    DOUT("output exist");
     has_output_in_tids = true;
-    tids_to_allocate.insert(tids_to_allocate.end(), outtid_to_allocate);
   }
   return load_multiple_without_evict(tids_to_allocate, has_output_in_tids);
 }
@@ -2426,6 +2424,7 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
       initialize_input(inn);
     }
   }
+  DOUT("Line 2427");
 
 
   set<int> used_task_tensors;
@@ -3273,15 +3272,15 @@ bool memgraph_make_state_t2::load_multiple_without_evict(vector<int> tids, bool 
     DOUT("allocate multiple succcess");
     vector<int> const &alloc_mids = maybe_alloc_mids.value();
     // load all inns, but don't load out_mid because out_mid has never existed before this
-    for (int idx = 0; idx < sizes_to_alloc.size() - 1; ++idx)
+    for (int idx = 0; idx < sizes_to_alloc.size(); ++idx)
     {
-      _load_tensor_helper(tids.at(idx), alloc_mids.at(idx));
-    }
-    if (has_output_in_tids) {
-      //insert the alloced_mid for the out tensor into task_tensor_to_memnode so we don't allocate twice
-      task_tensor_to_mem_node_insert_on_memory(tids.at(sizes_to_alloc.size()-1), alloc_mids.at(sizes_to_alloc.size()-1));
-    } else {
-      _load_tensor_helper(tids.at(sizes_to_alloc.size()-1), alloc_mids.at(sizes_to_alloc.size()-1));
+      auto find_iter = task_tensor_to_mem_node.find(tids.at(idx));
+      if (find_iter != task_tensor_to_mem_node.end()) {
+        _load_tensor_helper(tids.at(idx), alloc_mids.at(idx));
+      } else {
+        //insert the alloced_mid for the out tensor into task_tensor_to_memnode so we don't allocate twice
+        task_tensor_to_mem_node_insert_on_memory(tids.at(sizes_to_alloc.size()-1), alloc_mids.at(sizes_to_alloc.size()-1));
+      }
     }
     DOUT("Return from load_multiple_without_evict");
     return true;
