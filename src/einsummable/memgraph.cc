@@ -2307,8 +2307,9 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   optional<op_t> op;
   optional<int> touch_output_memid;
   vector<int> used_tids;
-	vector<int> tids_to_allocate(used_tids.size()+1);
-	int outtid_to_allocate;
+	vector<int> tids_to_allocate;
+  tids_to_allocate.reserve(10);
+	int outtid_to_allocate = -1;
   bool has_output_in_tids = true;
 
 
@@ -2340,7 +2341,6 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
-    has_output_in_tids = false;
     std::cout << "partialize node out then inns: " << used_tids << std::endl;
   }
   else
@@ -2351,11 +2351,11 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   // Now we have the used_tids, allocate for each of them.
 
   for (auto const& tid: used_tids) {
-    std::cout << "tid in used_tids to allocate" << tid << std::endl;
+    std::cout << "tid in used_tids to allocate: " << tid << std::endl;
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
     if (iter != task_tensor_to_mem_node.end()) { //if tid exist in task_tensor_to_mem_node
-      // DOUT("Not output node");
+      // DOUT("->Not output node");
       int const& memid = iter->second;
       auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
       if(maybe_mem.is_stoloc()) {
@@ -2366,11 +2366,13 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
         } else {
           // if not forced and not exist on memory, then record the tid of current use_tid, then allocate_multiple later.
           // TODO: write a new "load_multiple_without_evict" wrapper function that wraps around allocate_multiple
-          tids_to_allocate.emplace_back(tid);
+          std::cout << " 0tids_to_allocate: " << tids_to_allocate << std::endl;
+          tids_to_allocate.insert(tids_to_allocate.end(), tid);
+          std::cout << " 1tids_to_allocate: " << tids_to_allocate << std::endl;
         }
       }
     } else { //if tid is not in task_tensor_to_mem_node (not exist as a node yet) used for out_tid
-      // DOUT("Output node");
+      // DOUT("->Output node");
       if(node.op.is_input()) {
         throw std::runtime_error(
           "The input node must already be in task_tensor_to_mem_node!");
@@ -2392,11 +2394,13 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   if (force == true) {
     return true;
   }
-  if (has_output_in_tids){
-    std::cout << "outtid_to_allocate"
-    tids_to_allocate.emplace_back(outtid_to_allocate);
+  std::cout << " 2tids_to_allocate: " << tids_to_allocate << std::endl;
+  if (outtid_to_allocate != -1){
+    has_output_in_tids
+    std::cout << "outtid_to_allocate: " << outtid_to_allocate << std::endl;
+    tids_to_allocate.insert(tids_to_allocate.end(), outtid_to_allocate);
   }
-  std::cout << " tids_to_allocate: " << tids_to_allocate << std::endl;
+  std::cout << " 3tids_to_allocate: " << tids_to_allocate << std::endl;
   return load_multiple_without_evict(tids_to_allocate, has_output_in_tids);
 }
 
