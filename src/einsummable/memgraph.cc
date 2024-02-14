@@ -3196,6 +3196,7 @@ optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
 
 void memgraph_make_state_t2::evict_tensor(int victim_tid)
 {
+  std::cout << "evicting tid: " << victim_tid << std::endl;
   int node_mid = task_tensor_to_mem_node.at(victim_tid);
   auto const &node = memgraph.nodes[node_mid];
 
@@ -3287,7 +3288,9 @@ bool memgraph_make_state_t2::load_multiple_without_evict(vector<int> tids, bool 
         _load_tensor_helper(tids.at(idx), alloc_mids.at(idx));
       } else {
         //insert the alloced_mid for the out tensor into task_tensor_to_memnode so we don't allocate twice
+        DOUT("Before");
         task_tensor_to_mem_node_insert_on_memory(tids.at(sizes_to_alloc.size()-1), alloc_mids.at(sizes_to_alloc.size()-1));
+        DOUT("After");
       }
     }
     DOUT("      -- alloc success");
