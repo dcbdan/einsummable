@@ -24,11 +24,11 @@ run(
   if(which_server == "mg") {
     // mem_size = args.get<uint64_t>("mem_size_mg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_mg_server_t(communicator, 12800, num_threads));
+      new cpu_mg_server_t(communicator, 1000, num_threads));
   } else if(which_server == "tg") {
-    uint64_t mem_size = args.get<uint64_t>("mem_size_tg");
+    // uint64_t mem_size = args.get<uint64_t>("mem_size_tg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_tg_server_t(communicator, mem_size, num_threads));
+      new cpu_tg_server_t(communicator, 20000000, num_threads));
   } else {
     throw std::runtime_error("invalid server arg");
   }
@@ -63,10 +63,10 @@ int main(int argc, char** argv) {
   graph_t graph;
   {
     graph_writer_t writer;
-    auto X0 = writer.input({20,20});
-    auto X1 = writer.input({20,20});
-    auto X2 = writer.input({20,20});
-    auto X3 = writer.input({20,20});
+    auto X0 = writer.input({5,5});
+    auto X1 = writer.input({5,5});
+    auto X2 = writer.input({5,5});
+    auto X3 = writer.input({5,5});
     auto Y0 = writer.matmul(X0, X1);
     auto Y1 = writer.matmul(X2, X1);
     auto Z1 = writer.matmul(Y0, Y1).save();
@@ -88,23 +88,23 @@ int main(int argc, char** argv) {
 
   communicator_t communicator("0.0.0.0", true, 1);
 
-  // map<int, dbuffer_t> tg_tensor_results = run(communicator, graph, "tg", input_data, args);
+  map<int, dbuffer_t> tg_tensor_results = run(communicator, graph, "tg", input_data, args);
   map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args);
 
-  // if (tg_tensor_results == mg_tensor_results) {
-  //   std::cout << "The maps are equal." << std::endl;
-  // } else {
-  //   std::cout << "The maps are not equal." << std::endl;
-  // }
-  // DOUT("mg_tensor_results: ")
-  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  if (tg_tensor_results == mg_tensor_results) {
+    std::cout << "The maps are equal." << std::endl;
+  } else {
+    std::cout << "The maps are not equal." << std::endl;
+  }
+  DOUT("mg_tensor_results: ")
+  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
   
-  // DOUT("tg_tensor_results: ")
-  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  DOUT("tg_tensor_results: ")
+  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
 }
