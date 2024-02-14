@@ -431,7 +431,6 @@ checkpoint_graphs_t::checkpoint_graphs_t(
   graph_t const& full_graph,
   vector<int> const& checkpoints,
   set<int> const& forward_ids)
-  : full_graph(full_graph)
 {
   map<int, int> forward_labels;
   for(auto const& gid: forward_ids) {
@@ -481,7 +480,6 @@ checkpoint_graphs_t::checkpoint_graphs_t(
 checkpoint_taskgraphs_t::checkpoint_taskgraphs_t(
   checkpoint_graphs_t const& gs,
   vector<placement_t> const& full_pls)
-  : gs(gs)
 {
   for(int which = 0; which != gs.graphs.size(); ++which) {
     graph_t const& graph = gs.graphs[which];

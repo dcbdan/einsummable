@@ -56,7 +56,6 @@ struct checkpoint_graphs_t {
   // So to execute full_graph, you do
   //   remap[0], graphs[0], ..., remap[n-1], graphs[n-1], remap[n]
 
-  graph_t const& full_graph;
   graph_id_manager_t manager;
   vector<graph_t> graphs;
   vector<vector<tuple<int, int>>> remaps;
@@ -66,8 +65,6 @@ struct checkpoint_taskgraphs_t {
   checkpoint_taskgraphs_t(
     checkpoint_graphs_t const& gs,
     vector<placement_t> const& pls);
-
-  checkpoint_graphs_t const& gs;
 
   struct info_t {
     map<int, relation_t> init_rel;

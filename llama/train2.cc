@@ -1,3 +1,5 @@
+#include <fstream> // TODO: remove
+
 #include "misc.h"
 #include "modules.h"
 #include "reader.h"
@@ -110,6 +112,7 @@ int main(int argc, char** argv) {
 
 struct graph_setup_t {
   model_args_t margs;
+  graph_t full_graph;
   checkpoint_graphs_t checkpoint_graphs;
   updater_desc_t updater_desc;
   vector<tuple<int, int>> next_iter_remap;
@@ -122,7 +125,7 @@ struct graph_setup_t {
   vector<tuple<string, int>> model_weight_map;
 
   vector<uint64_t> get_shape(int id) const {
-    return checkpoint_graphs.full_graph.out_shape(id);
+    return full_graph.out_shape(id);
   }
 };
 
@@ -260,7 +263,7 @@ graph_setup_t make_graph(
   bool is_adamw = pargs.get<bool>("is_adamw");
 
   updater_desc_t::vanilla_t vanilla {};
-  updater_desc_t::adamw_t adamw { .min_precision = dtype_t::f64 };
+  updater_desc_t::adamw_t adamw { .min_precision = dtype_t::f32 };
   updater_desc_t updater_desc = is_adamw ?
     updater_desc_t { dtype, adamw   }    :
     updater_desc_t { dtype, vanilla }    ;
@@ -286,13 +289,21 @@ graph_setup_t make_graph(
     graph.nodes[new_id].op.set_save(true);
   }
 
+  {
+    string filename = "full_graph.gv";
+    std::ofstream f(filename);
+    graph.print_graphviz(f);
+    DOUT("printed " << filename);
+  }
+
   checkpoint_graphs_t checkpoint_graphs(
-    std::move(graph),
+    graph,
     checkpoints,
     forward_ids);
 
   return graph_setup_t {
     .margs = margs,
+    .full_graph = graph,
     .checkpoint_graphs = checkpoint_graphs,
     .updater_desc = updater_desc,
     .next_iter_remap = old_news,
@@ -312,6 +323,7 @@ void main_rank_zero(
   args_t& pargs,
   autoplace_config_t config)
 {
+  DLINEOUT("main rank zero: enter");
   dtype_t dtype = default_dtype();
 
   //
@@ -330,7 +342,9 @@ void main_rank_zero(
     batch_size = pargs.get<uint64_t>("batch_size");
   }
 
+  DLINEOUT("making info");
   auto info = make_graph(pargs, model_loader.num_files(), batch_size);
+  DLINEOUT("made info");
 
   // Used to figure out required shapes
   auto const& margs = info.margs;
@@ -348,7 +362,7 @@ void main_rank_zero(
   auto const& next_iter_remap = info.next_iter_remap;
 
   DLINEOUT("autoplace01..");
-  vector<placement_t> full_pls = autoplace01(graphs.full_graph, config);
+  vector<placement_t> full_pls = autoplace01(info.full_graph, config);
   DLINEOUT("making the taskgraphs..");
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
 
@@ -357,6 +371,7 @@ void main_rank_zero(
   DLINEOUT("init tensors");
   string register_cmd = server->get_registered_cmd();
 
+  DLINE;
   dbuffer_t embedding_matrix;
   vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
   {
@@ -368,8 +383,12 @@ void main_rank_zero(
     embedding_matrix = server->get_tensor(rel);
   }
 
+  DLINE;
   for(auto const& [name, id]: info.model_weight_map) {
+    DLINEOUT("the id is " << id);
+    DLINEOUT("graph has " << info.full_graph.nodes.size());
     auto shape = info.get_shape(id);
+    DLINEOUT(name << ": " << id << shape);
     if(name.find("lora") != string::npos) {
       // For the lora, we have (X*L0)*L1 where L0 needs to be
       // initialized gaussiann and L1 needs to be initialized with zeros
@@ -392,9 +411,11 @@ void main_rank_zero(
       server->insert_gid_without_data(id, relation);
     }
   }
+  DLINE;
 
   model_loader.shutdown(register_cmd);
 
+  DLINE;
   for(auto const& [gid, fill]: init_fills) {
     if(!fill.is_constant()) {
       throw std::runtime_error("not implemented");
@@ -403,12 +424,14 @@ void main_rank_zero(
     server->insert_constant(gid, full_pls[gid], value);
   }
 
+  DLINE;
   server->insert_tensor(
     info.full_freqs_cis_id,
     info.get_shape(info.full_freqs_cis_id),
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
   // TODO: this is how form_position_interpolation works?
 
+  DLINE;
   /////////////////////////////////////////////////////////////////////////////
 
   string tokenizer_file = pargs.get<string>("tokenizer");
@@ -473,6 +496,4 @@ void main_rank_zero(
     server->remap_gids(next_iter_remap);
   }
 }
-
-
 
