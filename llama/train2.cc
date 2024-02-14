@@ -147,7 +147,7 @@ graph_setup_t make_graph(
   pargs.set_default<int>("max_n_layers", -1);
   {
     int n_layers = pargs.get<int>("max_n_layers");
-    DLINEOUT("n_layers " << n_layers);
+    DOUT("n_layers " << n_layers);
     if(n_layers >= 0) {
       margs.n_layers = std::min(margs.n_layers, n_layers);
     }
@@ -275,6 +275,17 @@ graph_setup_t make_graph(
   vector<tuple<int, fill_t>> init_fills = update_weights(
     updater_desc, graph, old_news, weight_ids, grad_ids);
 
+  // Note that update_weights may add input nodes, which must belong
+  // to the forward graph
+  for(auto const& [new_input_id, _]: init_fills) {
+    forward_ids.insert(new_input_id);
+  }
+
+  // Make sure that every new is a save
+  for(auto const& [old_id, new_id]: old_news) {
+    graph.nodes[new_id].op.set_save(true);
+  }
+
   checkpoint_graphs_t checkpoint_graphs(
     std::move(graph),
     checkpoints,
@@ -336,11 +347,14 @@ void main_rank_zero(
   // used for the next remap
   auto const& next_iter_remap = info.next_iter_remap;
 
+  DLINEOUT("autoplace01..");
   vector<placement_t> full_pls = autoplace01(graphs.full_graph, config);
+  DLINEOUT("making the taskgraphs..");
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
+  DLINEOUT("init tensors");
   string register_cmd = server->get_registered_cmd();
 
   dbuffer_t embedding_matrix;
@@ -381,13 +395,19 @@ void main_rank_zero(
 
   model_loader.shutdown(register_cmd);
 
-  // TODO: add init fills
+  for(auto const& [gid, fill]: init_fills) {
+    if(!fill.is_constant()) {
+      throw std::runtime_error("not implemented");
+    }
+    scalar_t const& value = fill.get_constant().value;
+    server->insert_constant(gid, full_pls[gid], value);
+  }
 
   server->insert_tensor(
     info.full_freqs_cis_id,
     info.get_shape(info.full_freqs_cis_id),
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
-  // TODO: how to create the freqs cis matrix
+  // TODO: this is how form_position_interpolation works?
 
   /////////////////////////////////////////////////////////////////////////////
 

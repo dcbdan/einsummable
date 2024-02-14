@@ -20,6 +20,8 @@ struct updater_desc_t {
   std::variant<vanilla_t, adamw_t> t;
 };
 
+// Return all inputs added to the graph and
+// how to initialize those inputs
 vector<tuple<int, fill_t>>
 update_weights(
   updater_desc_t const& desc,
