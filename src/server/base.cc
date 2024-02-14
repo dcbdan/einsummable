@@ -35,14 +35,14 @@ void server_base_t::execute_graph(
     }
   }
 
-  int num_msgs = 0;
-  uint64_t num_bytes = 0;
-  for(auto const& node: taskgraph.nodes) {
-    if(node.op.is_move()) {
-      num_msgs++;
-      num_bytes += node.op.get_move().size;
-    }
-  }
+  //int num_msgs = 0;
+  //uint64_t num_bytes = 0;
+  //for(auto const& node: taskgraph.nodes) {
+  //  if(node.op.is_move()) {
+  //    num_msgs++;
+  //    num_bytes += node.op.get_move().size;
+  //  }
+  //}
   //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
   //{

@@ -45,7 +45,6 @@ int get_label(
 //  if(iter != checkpoints.end()) {
 //    return std::distance(checkpoints.begin(), iter) + 1;
 //  }
-
   return _get_label(graph, checkpoints, gid);
 }
 
@@ -136,15 +135,16 @@ ffinfo_t make_ff_simple(
   };
 }
 
-ffinfo_t make_llama_7B(
+ffinfo_t make_llama(
   uint64_t batch,
   uint64_t seqlen,
-  int n_layers = -1)
+  int n_layers = -1,
+  int n_files = 1)
 {
   set_default_dtype(dtype_t::f16);
   dtype_t dtype = default_dtype();
 
-  model_args_t margs = model_args_t::llama(1, batch);
+  model_args_t margs = model_args_t::llama(n_files, batch);
 
   margs.max_seq_len = seqlen;
 
@@ -651,7 +651,6 @@ struct remap_former_t {
     }
     return ret;
   }
-
 };
 
 vector<map<int, int>> form_all_remaps(
@@ -762,9 +761,6 @@ int main(int argc, char** argv) {
   uint64_t hidden      = pargs.get<uint64_t>("hidden");
   uint64_t dim         = pargs.get<uint64_t>("dim");
 
-  pargs.set_default<int>("nrep", 10);
-  int nrep = pargs.get<int>("nrep");
-
   pargs.set_default<int>("num_ws", 3);
   int num_ws = pargs.get<int>("num_ws");
 
@@ -781,9 +777,12 @@ int main(int argc, char** argv) {
   pargs.set_default<bool>("llama", true);
   bool do_llama = pargs.get<bool>("llama");
 
-  auto info = do_llama                         ?
-    make_llama_7B(batch, seqlen, n_layers)     :
-    make_ff_simple(batch, hidden, dim, num_ws) ;
+  pargs.set_default<int>("which_llama", 8);
+  int which_llama = pargs.get<int>("which_llama");
+
+  auto info = do_llama                               ?
+    make_llama(batch, seqlen, n_layers, which_llama) :
+    make_ff_simple(batch, hidden, dim, num_ws)       ;
 
   vector<string> cs {
     "#ff5733", "#377e20", "#2cb392", "#7af3f5", "#374ded", "#b337ed"
