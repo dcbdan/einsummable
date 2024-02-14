@@ -115,7 +115,7 @@ struct graph_setup_t {
   graph_t full_graph;
   checkpoint_graphs_t checkpoint_graphs;
   updater_desc_t updater_desc;
-  vector<tuple<int, int>> next_iter_remap;
+  vector<tuple<int, int>> old_news;
   vector<tuple<int, fill_t>> init_fills;
   int embeddings_id;
   int predictions_id;
@@ -217,6 +217,7 @@ graph_setup_t make_graph(
       double one_over_bsz = 1.0 / double(margs.batch_size);
       loss = lll.scale(scalar_t(dtype, write_with_ss(one_over_bsz)));
     }
+    loss.save_inplace();
 
     vector<tensor_t> ws;
     vector<tensor_t> cs;
@@ -306,7 +307,7 @@ graph_setup_t make_graph(
     .full_graph = graph,
     .checkpoint_graphs = checkpoint_graphs,
     .updater_desc = updater_desc,
-    .next_iter_remap = old_news,
+    .old_news = old_news,
     .init_fills = init_fills,
     .embeddings_id = embeddings_id,
     .predictions_id = predictions_id,
@@ -323,7 +324,6 @@ void main_rank_zero(
   args_t& pargs,
   autoplace_config_t config)
 {
-  DLINEOUT("main rank zero: enter");
   dtype_t dtype = default_dtype();
 
   //
@@ -342,9 +342,7 @@ void main_rank_zero(
     batch_size = pargs.get<uint64_t>("batch_size");
   }
 
-  DLINEOUT("making info");
   auto info = make_graph(pargs, model_loader.num_files(), batch_size);
-  DLINEOUT("made info");
 
   // Used to figure out required shapes
   auto const& margs = info.margs;
@@ -359,19 +357,20 @@ void main_rank_zero(
   auto const& init_fills = info.init_fills;
 
   // used for the next remap
-  auto const& next_iter_remap = info.next_iter_remap;
+  auto const& old_news = info.old_news;
+  vector<tuple<int, int>> next_iter_remap;
+  next_iter_remap.reserve(old_news.size());
+  for(auto const& [old_id, new_id]: old_news) {
+    next_iter_remap.emplace_back(new_id, old_id);
+  }
 
-  DLINEOUT("autoplace01..");
   vector<placement_t> full_pls = autoplace01(info.full_graph, config);
-  DLINEOUT("making the taskgraphs..");
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
-  DLINEOUT("init tensors");
   string register_cmd = server->get_registered_cmd();
 
-  DLINE;
   dbuffer_t embedding_matrix;
   vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
   {
@@ -383,12 +382,8 @@ void main_rank_zero(
     embedding_matrix = server->get_tensor(rel);
   }
 
-  DLINE;
   for(auto const& [name, id]: info.model_weight_map) {
-    DLINEOUT("the id is " << id);
-    DLINEOUT("graph has " << info.full_graph.nodes.size());
     auto shape = info.get_shape(id);
-    DLINEOUT(name << ": " << id << shape);
     if(name.find("lora") != string::npos) {
       // For the lora, we have (X*L0)*L1 where L0 needs to be
       // initialized gaussiann and L1 needs to be initialized with zeros
@@ -411,11 +406,9 @@ void main_rank_zero(
       server->insert_gid_without_data(id, relation);
     }
   }
-  DLINE;
 
   model_loader.shutdown(register_cmd);
 
-  DLINE;
   for(auto const& [gid, fill]: init_fills) {
     if(!fill.is_constant()) {
       throw std::runtime_error("not implemented");
@@ -424,14 +417,12 @@ void main_rank_zero(
     server->insert_constant(gid, full_pls[gid], value);
   }
 
-  DLINE;
   server->insert_tensor(
     info.full_freqs_cis_id,
     info.get_shape(info.full_freqs_cis_id),
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
   // TODO: this is how form_position_interpolation works?
 
-  DLINE;
   /////////////////////////////////////////////////////////////////////////////
 
   string tokenizer_file = pargs.get<string>("tokenizer");
