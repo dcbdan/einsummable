@@ -2323,13 +2323,13 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     std::copy(inns.begin(), inns.end(), out_then_inns.begin() + 1);
 
     used_tids = out_then_inns;
-    std::cout << "apply node out then inns: " << used_tids << std::endl;
+    // std::cout << "apply node out then inns: " << used_tids << std::endl;
   }
   else if (node.op.is_move())
   {
     auto const &[src, dst, task_inn, size] = node.op.get_move();
     used_tids = {task_inn, id};
-    std::cout << "move node out then inns: " << used_tids << std::endl;
+    // std::cout << "move node out then inns: " << used_tids << std::endl;
   }
   else if (node.op.is_partialize())
   {
@@ -2339,7 +2339,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
-    std::cout << "partialize node out then inns: " << used_tids << std::endl;
+    // std::cout << "partialize node out then inns: " << used_tids << std::endl;
   }
   else
   {
@@ -2353,7 +2353,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
     if (iter != task_tensor_to_mem_node.end()) { //if tid exist in task_tensor_to_mem_node
-      DOUT("->Not output node/Existed");
+      // DOUT("->Not output node/Existed");
       int const& memid = iter->second;
       auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
       if(maybe_mem.is_stoloc()) {
@@ -2370,7 +2370,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
         }
       }
     } else { //if tid is not in task_tensor_to_mem_node (not exist as a node yet) used for out_tid
-      DOUT("->Output node/Never Existed");
+      // DOUT("->Output node/Never Existed");
       if(node.op.is_input()) {
         throw std::runtime_error(
           "The input node must already be in task_tensor_to_mem_node!");
@@ -2410,7 +2410,7 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
   {
     id = std::get<_which_touch_t>(which_op).task_id;
   }
-  std::cout << "  add_op: adding " << id << " in add_op" << std::endl;
+  // std::cout << "  add_op: adding " << id << " in add_op" << std::endl;
 
 
   auto const &node = taskgraph.nodes[id];
@@ -2537,7 +2537,7 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
 
   if (std::holds_alternative<_which_node_t>(which_op))
   {
-    std::cout << "inserting into task_node_to_mem_node id: " << std::get<_which_node_t>(which_op).task_id << std::endl;
+    // std::cout << "inserting into task_node_to_mem_node id: " << std::get<_which_node_t>(which_op).task_id << std::endl;
     task_node_to_mem_node.insert({std::get<_which_node_t>(which_op),
                                   new_memid});
 
@@ -2548,7 +2548,7 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
   else
   {
     // This is a touch in a partialize node.
-    std::cout << "inserting into task_touch_to_mem_node id: " << std::get<_which_touch_t>(which_op).task_id << std::endl;
+    // std::cout << "inserting into task_touch_to_mem_node id: " << std::get<_which_touch_t>(which_op).task_id << std::endl;
     task_touch_to_mem_node.insert({std::get<_which_touch_t>(which_op),
                                    new_memid});
 
@@ -2792,7 +2792,7 @@ bool memgraph_make_state_t2::register_usage(int task_id)
     int completing_memnode = task_tensor_to_mem_node.at(task_id);
     auto const &memnode = memgraph.nodes[completing_memnode];
     memstoloc_t data = memnode.op.get_output_memstoloc();
-    std::cout << "Line 2792, task_id = " << task_id << " memid = " << completing_memnode << "data offset: " << data.get_memloc().offset << std::endl;
+    // std::cout << "Line 2792, task_id = " << task_id << " memid = " << completing_memnode << "data offset: " << data.get_memloc().offset << std::endl;
 
     if (data.is_stoloc())
     {
@@ -2840,7 +2840,7 @@ bool memgraph_make_state_t2::register_usage(int task_id)
     }
     int del_id = memgraph.insert(op_t(del), del_deps);
 
-    std::cout << "Free offset " << memloc.offset << " for taskid: " << task_id << std::endl;
+    // std::cout << "Free offset " << memloc.offset << " for taskid: " << task_id << std::endl;
     allocators[0].print();
     allocators[memloc.loc].free(memloc.offset, del_id);
 
@@ -2870,7 +2870,7 @@ void memgraph_make_state_t2::_task_tensor_to_mem_node_insert(
 {
   if (task_tensor_to_mem_node.count(tid) > 0)
   {
-    std::cout << "tid " << tid << " exist in task_tensor_to_mem_node" << std::endl; 
+    // std::cout << "tid " << tid << " exist in task_tensor_to_mem_node" << std::endl; 
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
   task_tensor_to_mem_node.insert({tid, mid});
@@ -3150,7 +3150,7 @@ optional<int> memgraph_make_state_t2::allocate_without_evict(
   if (maybe)
   {
     auto const &[offset, vector_deps] = maybe.value();
-    std::cout << "allocate_with_evict offset: " << offset << std::endl;
+    // std::cout << "allocate_with_evict offset: " << offset << std::endl;
     alloc_t alloc{
         .loc = loc,
         .offset = offset,
@@ -3174,7 +3174,7 @@ optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
   if (maybe)
   {
     auto const &[offsets, vector_deps] = maybe.value();
-    std::cout << "offsets: " << offsets << std::endl;
+    // std::cout << "offsets: " << offsets << std::endl;
     for (int i = 0; i < offsets.size(); ++i)
     {
       alloc_t alloc{
@@ -3183,7 +3183,7 @@ optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
           .size = sizes.at(i)};
       set<int> deps(vector_deps.at(i).begin(), vector_deps.at(i).end());
       int new_memid = memgraph.insert(op_t(alloc), deps);
-      std::cout << "new_memid: " << new_memid << "offset: " << offsets.at(i) << std::endl;
+      // std::cout << "new_memid: " << new_memid << "offset: " << offsets.at(i) << std::endl;
       memid_list.insert(memid_list.end(), new_memid);
     }
     return memid_list;
@@ -3196,7 +3196,7 @@ optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
 
 void memgraph_make_state_t2::evict_tensor(int victim_tid)
 {
-  std::cout << "evicting tid: " << victim_tid << std::endl;
+  // std::cout << "evicting tid: " << victim_tid << std::endl;
   int node_mid = task_tensor_to_mem_node.at(victim_tid);
   auto const &node = memgraph.nodes[node_mid];
 
@@ -3273,7 +3273,7 @@ bool memgraph_make_state_t2::load_multiple_without_evict(vector<int> tids, bool 
   auto const &node = taskgraph.nodes[tids.at(tids.size()-1)];
   int loc = node.op.out_loc();
   // sizes_to_alloc.emplace_back(node.op.out_size());
-  std::cout << "sizes_to_alloc: " << sizes_to_alloc << std::endl;
+  // std::cout << "sizes_to_alloc: " << sizes_to_alloc << std::endl;
 
   auto maybe_alloc_mids = allocate_multiple_without_evict(loc, sizes_to_alloc);
   if (maybe_alloc_mids)
@@ -3288,17 +3288,15 @@ bool memgraph_make_state_t2::load_multiple_without_evict(vector<int> tids, bool 
         _load_tensor_helper(tids.at(idx), alloc_mids.at(idx));
       } else {
         //insert the alloced_mid for the out tensor into task_tensor_to_memnode so we don't allocate twice
-        DOUT("Before");
-        task_tensor_to_mem_node_insert_on_memory(tids.at(sizes_to_alloc.size()-1), alloc_mids.at(sizes_to_alloc.size()-1));
-        DOUT("After");
+        task_tensor_to_mem_node_insert_on_memory(tids.at(idx), alloc_mids.at(idx));
       }
     }
-    DOUT("      -- alloc success");
+    // DOUT("      -- alloc success");
     return true;
   }
   else
   {
-    DOUT("      -- alloc fail");
+    // DOUT("      -- alloc fail");
     return false;
   }
 }
@@ -3330,7 +3328,7 @@ void memgraph_make_state_t2::_load_tensor_helper(int tid, int alloc_mid)
 {
   int const &sto_mid = task_tensor_to_mem_node.at(tid);
 
-  DOUT("--------------Before creating load node----------------");
+  // DOUT("--------------Before creating load node----------------");
   // auto alloc_node = memgraph.nodes[alloc_mid].op.get_memlocs();
 
   load_t load{
@@ -3338,7 +3336,7 @@ void memgraph_make_state_t2::_load_tensor_helper(int tid, int alloc_mid)
       .dst = memgraph.nodes[alloc_mid].op.get_output_memloc()};
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
-  std::cout << "new mid in tasktensortomem: " << mid << std::endl;
+  // std::cout << "new mid in tasktensortomem: " << mid << std::endl;
   task_tensor_to_mem_node_update_on_memory(tid, mid);
 }
 
