@@ -63,6 +63,10 @@ void server_mg_base_t::execute_tg_server(
   auto [mem_sizes, full_data_locs, which_storage] =
     recv_make_mg_info();
 
+  std::ofstream f("tg.gv");
+  taskgraph.print_graphviz(f);
+  DOUT("printed tg.gv");
+
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(

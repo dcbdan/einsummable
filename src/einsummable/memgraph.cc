@@ -1162,13 +1162,17 @@ bool memgraph_t::apply_t::is_touch() const
 einsummable_t const &
 memgraph_t::apply_t::get_einsummable() const
 {
+  DOUT("7");
   return std::get<einsummable_t>(op);
+  DOUT("77");
 }
 
 touch_t const &
 memgraph_t::apply_t::get_touch() const
 {
+  DOUT("8");
   return std::get<touch_t>(op);
+  DOUT("88");
 }
 
 dtype_t
@@ -2279,6 +2283,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
     Ps: This might hurt thruput bc we're constantly allocating and deallocating. Pps.: We are only calling some malloc&free, not actually loading stuff in, so should be fine.
     If really needed, I could change to half-allocated op tracked. */
   int id;
+  DOUT("9");
   if (std::holds_alternative<_which_node_t>(which_op))
   {
     id = std::get<_which_node_t>(which_op).task_id;
@@ -2287,6 +2292,8 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   {
     id = std::get<_which_touch_t>(which_op).task_id;
   }
+  DOUT("99");
+
 
   auto const &node = taskgraph.nodes[id];
   // vector<tuple<int, mem_t>> ret;
@@ -2335,7 +2342,9 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
   {
     auto const &partialize = node.op.get_partialize();
 
+    DOUT("1");
     auto const &[_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
+    DOUT("11");
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
@@ -2362,7 +2371,7 @@ bool memgraph_make_state_t2::allocate_op(std::variant<_which_node_t, _which_touc
           int const& memid = task_tensor_to_mem_node.at(tid);
           uint64_t const& size = memgraph.nodes[memid].op.get_output_mem().size;
         } else {
-          DOUT("on storage needs load back");
+          // DOUT("on storage needs load back");
           // if not forced and not exist on memory, then record the tid of current use_tid, then allocate_multiple later.
           // TODO: write a new "load_multiple_without_evict" wrapper function that wraps around allocate_multiple
           // std::cout << tid << " exist on storage. Load back need allocate mem" << std::endl;
@@ -2500,7 +2509,9 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
     // DOUT("  add_op: is partialize");
     auto const &partialize = node.op.get_partialize();
 
+    DOUT("2");
     auto const &[_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
+    DOUT("22");
     auto [task_inn, touch] = partialize.get_touch(unit_id, touch_id);
 
     used_tids = {task_inn, id};
@@ -2538,9 +2549,10 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
   if (std::holds_alternative<_which_node_t>(which_op))
   {
     // std::cout << "inserting into task_node_to_mem_node id: " << std::get<_which_node_t>(which_op).task_id << std::endl;
+    DOUT("3");
     task_node_to_mem_node.insert({std::get<_which_node_t>(which_op),
                                   new_memid});
-
+    DOUT("33");
     // For apply and move nodes, insert the newly created
     // memid into the tensor mapping
     task_tensor_to_mem_node_update_on_memory(id, new_memid);
@@ -2549,9 +2561,10 @@ bool memgraph_make_state_t2::add_op(std::variant<_which_node_t, _which_touch_t> 
   {
     // This is a touch in a partialize node.
     // std::cout << "inserting into task_touch_to_mem_node id: " << std::get<_which_touch_t>(which_op).task_id << std::endl;
+    DOUT("4");
     task_touch_to_mem_node.insert({std::get<_which_touch_t>(which_op),
                                    new_memid});
-
+    DOUT("44");
     int num_touches_in_partialize =
         node.op.get_partialize().get_num_touches();
 
@@ -2613,7 +2626,9 @@ void memgraph_make_state_t2::process(
       auto const &which_op = all_ops[oid];
       if (std::holds_alternative<_which_node_t>(which_op))
       {
+        DOUT("5");
         auto const &[task_id] = std::get<_which_node_t>(which_op);
+        DOUT("55");
         usage[task_id].insert(oid);
         for (auto const &inn_id : taskgraph.nodes[task_id].op.inputs())
         {
@@ -2622,8 +2637,10 @@ void memgraph_make_state_t2::process(
       }
       else
       {
+        DOUT("6");
         auto const &[task_id, unit_id, touch_id] =
             std::get<_which_touch_t>(which_op);
+        DOUT("66");
         usage[task_id].insert(oid);
         auto const &p = taskgraph.nodes[task_id].op.get_partialize();
         int const &inn_id = p.units[unit_id].inputs[touch_id].id;
@@ -2649,7 +2666,7 @@ void memgraph_make_state_t2::process(
     if (do_alloc)
     {
       // DOUT("Do alloc prior");
-      while (allocate_op(all_ops[alloc_oid], false) && alloc_oid < all_ops.size())
+      while (alloc_oid < all_ops.size() && allocate_op(all_ops[alloc_oid], false))
       {
         // std::cout << "PROCESS: allocate_op success, increment alloc_oid to " << alloc_oid + 1 <<std::endl;
         alloc_oid++;
@@ -2841,7 +2858,7 @@ bool memgraph_make_state_t2::register_usage(int task_id)
     int del_id = memgraph.insert(op_t(del), del_deps);
 
     // std::cout << "Free offset " << memloc.offset << " for taskid: " << task_id << std::endl;
-    allocators[0].print();
+    // allocators[0].print();
     allocators[memloc.loc].free(memloc.offset, del_id);
 
     task_tensor_to_mem_node_erase_on_memory(task_id);
