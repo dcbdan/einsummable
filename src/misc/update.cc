@@ -232,7 +232,7 @@ update_weights(
   }
 }
 
-void increment_vars(
+void update_vars(
   updater_desc_t const& t,
   int iter,
   map<string, scalar_t>& vars)

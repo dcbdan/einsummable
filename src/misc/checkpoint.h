@@ -59,7 +59,7 @@ struct checkpoint_graphs_t {
   graph_t const& full_graph;
   graph_id_manager_t manager;
   vector<graph_t> graphs;
-  vector<map<int, int>> remaps;
+  vector<vector<tuple<int, int>>> remaps;
 };
 
 struct checkpoint_taskgraphs_t {
@@ -70,8 +70,8 @@ struct checkpoint_taskgraphs_t {
   checkpoint_graphs_t const& gs;
 
   struct info_t {
-    taskgraph_t taskgraph;
     map<int, relation_t> init_rel;
+    taskgraph_t taskgraph;
     map<int, relation_t> save_rel;
   };
   vector<info_t> infos;

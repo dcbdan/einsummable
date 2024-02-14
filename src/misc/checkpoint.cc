@@ -471,7 +471,11 @@ checkpoint_graphs_t::checkpoint_graphs_t(
     graphs.push_back(former.form(manager.make_context(which), i));
   }
 
-  remaps = form_all_remaps(full_graph, manager, graphs);
+  vector<map<int, int>> _remaps = form_all_remaps(full_graph, manager, graphs);
+  remaps.reserve(_remaps.size());
+  for(auto const& _r: _remaps) {
+    remaps.emplace_back(_r.begin(), _r.end());
+  }
 }
 
 checkpoint_taskgraphs_t::checkpoint_taskgraphs_t(
@@ -502,8 +506,8 @@ checkpoint_taskgraphs_t::checkpoint_taskgraphs_t(
 
     auto [inn_tids, save_tids, tg] = taskgraph_t::make(graph, pls);
     infos.push_back(info_t {
-      .taskgraph = std::move(tg),
       .init_rel  = make_rels(inn_tids),
+      .taskgraph = std::move(tg),
       .save_rel  = make_rels(save_tids)
     });
   }
