@@ -228,18 +228,29 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
   }
 
   if(estr == "a->ab") {
-    if(!einsummable.join.is_identity()) {
-      return std::nullopt;
+    broadcast_a_ab_t op {
+      .out_dtype = einsummable.out_dtype(),
+      .data = {},
+      .f = nullptr,
+      .nelem_a = einsummable.join_shape[0],
+      .nelem_b = einsummable.join_shape[1],
+    };
+
+    if(einsummable.join.is_identity()) {
+      kernels.insert({einsummable, op});
+      return 0;
     }
 
-    kernels.insert({einsummable,
-      broadcast_a_ab_t {
-        .dtype = einsummable.out_dtype(),
-        .nelem_a = einsummable.join_shape[0],
-        .nelem_b = einsummable.join_shape[1],
-      }
-    });
-    return 0;
+    auto maybe = lookup_unary_straight_ew_kernel(einsummable.join);
+    if(maybe) {
+      auto const& [data, f] =  maybe.value();
+      op.data = data;
+      op.f = f;
+      kernels.insert({einsummable, op});
+      return 0;
+    }
+
+    return std::nullopt;
   }
 
   if(estr == "abcd,bd->abcd" && einsummable.join.out_dtype() == dtype_t::c64)
@@ -560,8 +571,18 @@ void cpu_kernel_executor_t::call(
   } else if(holds_alternative<broadcast_a_ab_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_a_ab");
     assert_num_inputs(1);
-    auto const& [dtype,nelem_a,nelem_b] = get<broadcast_a_ab_t>(kernel);
-    broadcast_a_ab_kernel(dtype, nelem_a, nelem_b, out, inns[0]);
+    auto const& [dtype,data,f,nelem_a,nelem_b] = get<broadcast_a_ab_t>(kernel);
+    if(f != nullptr) {
+      // a -> ab
+      // First, fill out the first row of out
+      f(data.data(), nelem_a, out, inns[0]);
+      // Second, broadcast the first row of out to the rest of out
+      broadcast_a_ab_kernel(dtype, 
+        nelem_a, nelem_b-1, 
+        increment_void_ptr(out, dtype_size(dtype)*nelem_a), out);
+    } else {
+      broadcast_a_ab_kernel(dtype, nelem_a, nelem_b, out, inns[0]);
+    }
   } else if(holds_alternative<kernel_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:misc");
     auto const& f = get<kernel_t>(kernel);
@@ -886,6 +907,7 @@ _unary_ew_loop(u32,float16_t,float16_t,_pow(_log(x0[i0]),(*((double*)(d+0)))))
 _unary_ew_loop(u33,float16_t,float16_t,_pow(x0[i0],(*((double*)(d+0)))))
 _unary_ew_loop(u34,float16_t,float16_t,((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2))))))
 _unary_ew_loop(u35,float,float16_t,((*((float*)(d+0)))*float(x0[i0])))
+_unary_ew_loop(u36,float,float,((*((float*)(d+0)))==x0[i0]?(*((float*)(d+4))):(*((float*)(d+8)))));
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -995,7 +1017,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f16->f16|_pow(_log(x0[i0]),(*((double*)(d+0))))", u32 },
     { "f16->f16|_pow(x0[i0],(*((double*)(d+0))))", u33 },
     { "f16->f16|((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2)))))", u34 },
-    { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 }
+    { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 },
+    { "f32->f32|((*((float*)(d+0)))==x0[i0]?(*((float*)(d+4))):(*((float*)(d+8))))", u36 }
   };
 
   auto iter = kernels.find(key);

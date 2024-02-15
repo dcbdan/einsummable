@@ -89,7 +89,12 @@ private:
   };
 
   struct broadcast_a_ab_t {
-    dtype_t dtype;
+    dtype_t out_dtype;
+    vector<uint8_t> data;
+
+    // if f is nullptr, then the join is identity 
+    void (*f)(uint8_t const*, uint64_t, void*, void const*);
+
     uint64_t nelem_a;
     uint64_t nelem_b;
   };
