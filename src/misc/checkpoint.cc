@@ -62,26 +62,58 @@ void graph_id_manager_t::print() const {
   }
 }
 
-static int get_label(
+static
+int set_label(
+  map<int, int>& ret,
   graph_t const& graph,
   vector<int> const& checkpoints,
+  set<int> const& forward_ids,
   int gid)
 {
-  auto iter = std::find(checkpoints.begin(), checkpoints.end(), gid);
-  if(iter != checkpoints.end()) {
-    return std::distance(checkpoints.begin(), iter);
+  // Invariant: forward_ids.count(gid) > 0
+
+  {
+    auto iter = ret.find(gid);
+    if(iter != ret.end()) {
+      return iter->second;
+    }
   }
 
+  {
+    auto iter = std::find(checkpoints.begin(), checkpoints.end(), gid);
+    if(iter != checkpoints.end()) {
+      int val = std::distance(checkpoints.begin(), iter);
+      ret.insert({gid, val});
+      return val;
+    }
+  }
+
+  int val = -1;
   auto const& node = graph.nodes[gid];
-  if(node.outs.size() == 0) {
-    return checkpoints.size();
+  for(int const& out_gid: node.outs) {
+    if(forward_ids.count(out_gid) > 0) {
+      val = std::max(val, set_label(ret, graph, checkpoints, forward_ids, out_gid));
+    }
   }
 
-  int ret = -1;
-  for(auto const& out_gid: node.outs) {
-    ret = std::max(ret, get_label(graph, checkpoints, out_gid));
+  if(val == -1) {
+    val = checkpoints.size();
   }
 
+  ret.insert({gid, val});
+  return val;
+}
+
+static
+map<int, int> build_forward_labels(
+  graph_t const& graph,
+  vector<int> const& checkpoints,
+  set<int> const& forward_ids)
+{
+  map<int, int> ret;
+  for(int const& gid: forward_ids) {
+    set_label(ret, graph, checkpoints, forward_ids, gid);
+  }
   return ret;
 }
 
@@ -432,11 +464,7 @@ checkpoint_graphs_t::checkpoint_graphs_t(
   vector<int> const& checkpoints,
   set<int> const& forward_ids)
 {
-  map<int, int> forward_labels;
-  for(auto const& gid: forward_ids) {
-    int label = get_label(full_graph, checkpoints, gid);
-    forward_labels.insert({gid, label});
-  }
+  map<int, int> forward_labels = build_forward_labels(full_graph, checkpoints, forward_ids);
 
   map<int, int> backward_labels;
   int max_backward_label = -1;

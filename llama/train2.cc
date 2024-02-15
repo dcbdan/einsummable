@@ -1,5 +1,3 @@
-#include <fstream> // TODO: remove
-
 #include "misc.h"
 #include "modules.h"
 #include "reader.h"
@@ -288,13 +286,6 @@ graph_setup_t make_graph(
   // Make sure that every new is a save
   for(auto const& [old_id, new_id]: old_news) {
     graph.nodes[new_id].op.set_save(true);
-  }
-
-  {
-    string filename = "full_graph.gv";
-    std::ofstream f(filename);
-    graph.print_graphviz(f);
-    DOUT("printed " << filename);
   }
 
   checkpoint_graphs_t checkpoint_graphs(
