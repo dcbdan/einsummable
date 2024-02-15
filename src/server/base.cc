@@ -61,10 +61,8 @@ void server_base_t::execute_graph(
       make_relation(gid, dst_tids)   // dst relation
     );
   }
-  DOUT("-------- REMAP ---------");
   remap(r);
 
-  DOUT("-------- RUN MEMGRAPH ---------");
   execute(taskgraph, scalar_vars);
 
   gid_map.clear();
