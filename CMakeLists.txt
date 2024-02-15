@@ -30,6 +30,7 @@ file(GLOB BA_FILES ${PROJECT_SOURCE_DIR}/src/base/*.cc)
 file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
 file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
 file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
+file(GLOB MS_FILES ${PROJECT_SOURCE_DIR}/src/misc/*.cc)
 
 add_library(einsummable
   STATIC
@@ -37,6 +38,7 @@ add_library(einsummable
   ${ES_FILES}
   ${MG_FILES}
   ${AP_FILES}
+  ${MS_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -72,6 +74,7 @@ endfunction()
 #add_llama_application("llama_exp02" "exp02")
 #add_llama_application("llama_exp03" "exp03")
 #add_llama_application("llama_autodiff_test" "autodiff_test")
+add_llama_application("cpoint"               "cpoint")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
@@ -113,6 +116,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
@@ -173,7 +177,8 @@ if(${CPU_EXECUTION_ENGINE})
   # executable and reads and writes from it.
   # And the tokenizer executable calls sentencepiece.
 
-  add_cpu_llama_application("train1" "train1")
+  #add_cpu_llama_application("train1" "train1")
+  add_cpu_llama_application("train2" "train2")
   add_cpu_llama_application("trainsize" "trainsize")
 
 endif()
@@ -241,6 +246,7 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}
