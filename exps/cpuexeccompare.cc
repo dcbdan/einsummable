@@ -24,7 +24,7 @@ run(
   if(which_server == "mg") {
     // mem_size = args.get<uint64_t>("mem_size_mg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_mg_server_t(communicator, 1000, num_threads));
+      new cpu_mg_server_t(communicator, 12800, num_threads));
   } else if(which_server == "tg") {
     // uint64_t mem_size = args.get<uint64_t>("mem_size_tg");
     server = std::unique_ptr<server_base_t>(
@@ -63,10 +63,10 @@ int main(int argc, char** argv) {
   graph_t graph;
   {
     graph_writer_t writer;
-    auto X0 = writer.input({5,5});
-    auto X1 = writer.input({5,5});
-    auto X2 = writer.input({5,5});
-    auto X3 = writer.input({5,5});
+    auto X0 = writer.input({20,20});
+    auto X1 = writer.input({20,20});
+    auto X2 = writer.input({20,20});
+    auto X3 = writer.input({20,20});
     auto Y0 = writer.matmul(X0, X1);
     auto Y1 = writer.matmul(X2, X1);
     auto Z1 = writer.matmul(Y0, Y1).save();
@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
   }
 
   map<int, dbuffer_t> input_data;
+  // int scale = 1;
   for(auto const& id: graph.get_inputs()) {
     dtype_t dtype = graph.out_dtype(id);
     auto shape = graph.out_shape(id);
@@ -82,8 +83,13 @@ int main(int argc, char** argv) {
     dbuffer_t d = make_dbuffer(dtype, product(shape));
     d.rnorm();
     d.scale(scalar_t(dtype, "0.0001"));
+    // d.iota();
+    // d.scale(scalar_t(dtype, "0.0001"));
+    // d.ones();
+    // d.scale(scalar_t(dtype, std::to_string(scale)));
 
     input_data.insert({id, d});
+    // scale += 1;
   }
 
   communicator_t communicator("0.0.0.0", true, 1);
@@ -96,15 +102,15 @@ int main(int argc, char** argv) {
   } else {
     std::cout << "The maps are not equal." << std::endl;
   }
-  DOUT("mg_tensor_results: ")
-  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(buffer);
-  }
+  // DOUT("mg_tensor_results: ")
+  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(buffer);
+  // }
   
-  DOUT("tg_tensor_results: ")
-  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(buffer);
-  }
+  // DOUT("tg_tensor_results: ")
+  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(buffer);
+  // }
 }
