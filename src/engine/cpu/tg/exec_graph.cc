@@ -206,7 +206,7 @@ exec_graph_t::make_cpu_tg_exec_graph(
     }
   }
 
-  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+  for(int const& tid: taskgraph.get_order()) {
     if(!taskgraph.is_local_to(tid, this_rank)) {
       continue;
     }
@@ -301,22 +301,22 @@ exec_graph_t::make_cpu_tg_exec_graph(
       if(src == this_rank) {
         int inn_eid = tid_to_eid.at(inn_tid);
 
-        int recv_ready_eid = graph.insert(
+        int ready_eid = graph.insert(
           op_ptr_t(new exec_graph_t::wait_recv_ready_t(tid, dst)),
           { inn_eid });
 
         int send_eid = graph.insert(
           op_ptr_t(new tg_send_t(dinfos, inn_tid, tid, dst)),
-          { recv_ready_eid });
+          { ready_eid });
       } else if(dst == this_rank) {
-        int recv_ready_eid = graph.insert(
-          op_ptr_t(new notify_recv_ready_t(tid, src)),
+        int ready_eid = graph.insert(
+          op_ptr_t(new exec_graph_t::notify_recv_ready_t(tid, src)),
           {} // no deps: always ready to recv
         );
 
         int recv_eid = graph.insert(
           op_ptr_t(new tg_recv_t(dinfos, tid, size, src)),
-          { recv_ready_eid });
+          { ready_eid });
 
         tid_to_eid.insert({tid, recv_eid});
       } else {
