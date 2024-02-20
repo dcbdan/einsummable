@@ -132,6 +132,8 @@ public:
 
   virtual bool make_parallel_partialize_groups() const = 0;
 
+  virtual bool is_local_location(int loc) const = 0;
+
   // This is used for the repartition funciton, which will create a threadpool
   // if none is given
   virtual threadpool_t* get_cpu_threadpool() { return nullptr; }
@@ -247,7 +249,7 @@ protected:
   // return a location that exists at this compute-node
   virtual int local_candidate_location() const = 0;
 
-  bool is_local_location(int loc) {
+  bool is_local_location(int loc) const {
     return comm.get_this_rank() == loc_to_compute_node(loc);
   }
   virtual int loc_to_compute_node(int loc) const = 0;
