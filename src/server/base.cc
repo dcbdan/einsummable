@@ -161,6 +161,17 @@ void server_base_t::insert_constant(
 void server_base_t::remap(
   map<int, relation_t> const& gid_to_new_relations)
 {
+  // Get all tids that are not going to be used and delete them.
+  {
+    vector<int> erase_gids;
+    for(auto const& [gid, _]: gid_map) {
+      if(gid_to_new_relations.count(gid) == 0) {
+        erase_gids.push_back(gid);
+      }
+    }
+    erase(erase_gids);
+  }
+
   remap_relations_t r;
   for(auto const& [gid, new_rel]: gid_to_new_relations) {
     r.insert(gid_map.at(gid), new_rel);
@@ -175,11 +186,56 @@ void server_base_t::remap_gids(vector<tuple<int,int>> const& remap)
 {
   map<int, relation_t> ret;
 
+  // Get all tids that are not going to be used and delete them.
+  {
+    set<int> src_gids;
+    {
+      auto tmp = vector_mapfst(remap);
+      src_gids = set<int>(tmp.begin(), tmp.end());
+    }
+    vector<int> erase_gids;
+    {
+      for(auto const& [gid,_]: gid_map) {
+        if(src_gids.count(gid) == 0) {
+          erase_gids.push_back(gid);
+        }
+      }
+    }
+    erase(erase_gids);
+  }
+
   for(auto const& [src,dst]: remap) {
     ret.insert({dst, gid_map.at(src)});
   }
 
   gid_map = ret;
+}
+
+void server_base_t::erase(vector<int> const& gids) {
+  vector<tuple<int, int>> loc_tid_pairs;
+  for(auto const& gid: gids) {
+    auto const& rel = gid_map.at(gid);
+    auto const& locs = rel.placement.locations.get();
+    auto const& tids = rel.tids.get();
+    vector_concatenate_into(
+      loc_tid_pairs,
+      vector_zip(locs, tids));
+  }
+
+  erase_tids(loc_tid_pairs);
+
+  for(auto const& gid: gids) {
+    gid_map.erase(gid);
+  }
+}
+
+vector<int> server_base_t::get_gids() const {
+  vector<int> ret;
+  ret.reserve(gid_map.size());
+  for(auto const& [gid, _]: gid_map) {
+    ret.push_back(gid);
+  }
+  return ret;
 }
 
 map<string, scalar_t> scalar_vars_from_wire(string const& s) {

@@ -11,6 +11,8 @@ void server_dist_base_t::listen() {
       execute_tg_client();
     } else if(cmd == cmd_t::remap) {
       remap_client();
+    } else if(cmd == cmd_t::erase_tids) {
+      erase_tids_client();
     } else if(cmd == cmd_t::get_tensor) {
       remap_relations_t remap = remap_relations_t::from_wire(comm.recv_string(0));
       map<int, buffer_t> data = local_copy_source_data(remap);
@@ -122,6 +124,27 @@ void server_dist_base_t::_local_insert_constant_relation(
   local_insert_tensors(data);
 }
 
+void server_dist_base_t::erase_tids_server(
+  vector<tuple<int, int>> const& loc_tid_pairs)
+{
+  int world_size = comm.get_world_size();
+  vector<vector<int>> tids(world_size);
+  for(auto const& [loc, tid]: loc_tid_pairs) {
+    tids[loc_to_compute_node(loc)].push_back(tid);
+  }
+
+  for(int rank = 1; rank != world_size; ++rank) {
+    comm.send_vector(rank, tids[rank]);
+  }
+
+  local_erase_tensors(tids[0]);
+}
+
+void server_dist_base_t::erase_tids_client()
+{
+  local_erase_tensors(comm.recv_vector<int>(0));
+}
+
 void server_dist_base_t::insert_relation(
   relation_t const& relation,
   dbuffer_t src_tensor)
@@ -188,6 +211,15 @@ void server_dist_base_t::remap(remap_relations_t const& remap_relations)
 {
   broadcast_cmd(cmd_t::remap);
   remap_server(remap_relations);
+}
+
+void server_dist_base_t::erase_tids(
+  vector<tuple<int, int>> const& loc_tid_pairs)
+{
+  if(loc_tid_pairs.size() > 0) {
+    broadcast_cmd(cmd_t::erase_tids);
+    erase_tids_server(loc_tid_pairs);
+  }
 }
 
 int server_dist_base_t::get_max_tid() {
