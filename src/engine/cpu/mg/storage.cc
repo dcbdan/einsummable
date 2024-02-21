@@ -65,6 +65,7 @@ void cpu_storage_t::write(buffer_t buffer, int id)
     throw std::runtime_error("id already in storage; try removing first");
   }
 
+  // TODO: what if the id is already here?
   uint64_t offset = allocator.allocate(buffer->size);
   offsets.insert({id, offset});
 

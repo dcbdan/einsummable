@@ -154,6 +154,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
   add_cpu_application("senexp"                "exps" "senexp")
+  add_cpu_application("xtreme"                "exps" "xtreme")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

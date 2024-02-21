@@ -392,6 +392,9 @@ struct scalarop_t {
   // x0 / x1
   static scalarop_t make_div(dtype_t d = default_dtype());
 
+  // 1 / x0
+  static scalarop_t make_rcp(dtype_t d = default_dtype());
+
   // min(x0, x1);
   static scalarop_t make_min(dtype_t d = default_dtype());
 
@@ -421,7 +424,11 @@ struct scalarop_t {
   // x0 + val
   static scalarop_t make_increment(scalar_t val);
 
+  // e^x0
   static scalarop_t make_exp(dtype_t d = default_dtype());
+
+  // 1 / (1 + e^(-1*x0))
+  static scalarop_t make_sigmoid(dtype_t d = default_dtype());
 
   static scalarop_t make_log(dtype_t d = default_dtype());
 
