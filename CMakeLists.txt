@@ -164,12 +164,13 @@ if(${CPU_EXECUTION_ENGINE})
       cpu_execution_engine
       proto
       ${Protobuf_LIBRARIES}
-      MKL::MKL
       ucx::ucp ucx::ucs)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
+  add_cpu_llama_application("cpuexecllama" "cpuexecllama")
+
 
   # For some reason sentencepiece + protocolbuffers + this application
   # isn't cooperating well. Something to do with symbols + protocol
@@ -322,7 +323,8 @@ if(${NO_DEP_CPU_ENGINE})
     proto)
   endfunction()
 
-  #add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
+  add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
+  add_cpu_nodep_application("cpuexecllama"        "exps" "cpuexecllama")
 
   # function(add_cpu_llama_application exec filename)
   #   add_executable(${exec} llama/${filename}.cc

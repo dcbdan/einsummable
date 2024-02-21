@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
     auto X2 = writer.input({20,20});
     auto X3 = writer.input({20,20});
     auto Y0 = writer.matmul(X0, X1);
-    auto Y1 = writer.matmul(X2, X1);
+    auto Y1 = writer.matmul(X2, X3);
     auto Z1 = writer.matmul(Y0, Y1).save();
 
     graph = writer.get_graph();
