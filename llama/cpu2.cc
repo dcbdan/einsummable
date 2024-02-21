@@ -359,7 +359,7 @@ void main_rank_zero_experiments(
 
   string register_cmd = server.get_registered_cmd();
 
-  model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
+  model_args_t margs = model_args_t::llama(reader.num_files(), bsz); //num_files is either 1,2,4,8 number of param files
 
   // TODO: this may be off by one but I don't think it matters
   margs.max_seq_len = seqlen + 2;
