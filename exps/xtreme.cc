@@ -20,8 +20,16 @@ struct xtreme_dist_t {
 
   void insert_random(int gid, relation_t const& rel);
 
-  void insert_labels(  int gid, relation_t const& rel, vector<datum_t> const& data);
+  void insert_labels(
+    int gid,
+    dtype_t d, placement_t const& pl,
+    vector<datum_t> const& data);
+  void insert_labels(int gid, relation_t const& rel, vector<datum_t> const& data);
 
+  void insert_features(
+    int gid,
+    dtype_t d, placement_t const& pl,
+    vector<datum_t> const& data);
   void insert_features(int gid, relation_t const& rel, vector<datum_t> const& data);
 
   void client_insert_random();
@@ -47,6 +55,8 @@ private:
     vector<int>      const& exclusive_sum,
     vector<uint64_t> const& features,
     vector<double>   const& scores);
+
+  relation_t make_fresh_rel(dtype_t d, placement_t const& pl);
 };
 
 void main_rank_zero(
@@ -56,7 +66,7 @@ void main_rank_zero(
   args_t& args);
 
 int main(int argc, char** argv) {
-  int expected_argc = 7;
+  int expected_argc = 8;
   if(argc < expected_argc) {
     return 1;
   }
@@ -66,15 +76,15 @@ int main(int argc, char** argv) {
   string addr_zero = parse_with_ss<string>(argv[1]);
   bool is_rank_zero = parse_with_ss<int>(argv[2]) == 0;
   int world_size = parse_with_ss<int>(argv[3]);
+  int num_channels = parse_with_ss<int>(argv[4]);
+  communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
-  communicator_t communicator(addr_zero, is_rank_zero, world_size);
-
-  uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
+  uint64_t mem_size = parse_with_ss<uint64_t>(argv[5]);
   uint64_t GB = 1000000000;
   mem_size *= GB;
 
-  int num_threads = parse_with_ss<int>(argv[5]);
-  int num_contraction_threads = parse_with_ss<int>(argv[6]);
+  int num_threads = parse_with_ss<int>(argv[6]);
+  int num_contraction_threads = parse_with_ss<int>(argv[7]);
 
   std::unique_ptr<server_base_t> server(
     new cpu_tg_server_t(communicator, mem_size, num_threads));
@@ -207,6 +217,10 @@ struct xtreme_t {
     taskgraph_t taskgraph;
     map<int, relation_t> out_rels;
     vector<tuple<int, int>> next_iter_remap;
+
+    placement_t get_placement(int inn_gid) const {
+      return inn_rels.at(inn_gid).placement;
+    }
   };
 
   struct validate_t {
@@ -219,6 +233,10 @@ struct xtreme_t {
     map<int, relation_t> inn_rels;
     taskgraph_t taskgraph;
     map<int, relation_t> out_rels;
+
+    placement_t get_placement(int inn_gid) const {
+      return inn_rels.at(inn_gid).placement;
+    }
   };
 
   vector<tuple<int, int>> remap_to_validate() const {
@@ -511,7 +529,7 @@ vector<int> read_counts_file(string filename) {
 }
 
 tuple<uint64_t, uint64_t, uint64_t>
-read_header(std::ifstream& file) {
+read_header(std::istream& file) {
   tuple<uint64_t, uint64_t, uint64_t> ret;
   auto& [a,b,c] = ret;
   a = istream_consume_uint(file);
@@ -519,7 +537,6 @@ read_header(std::ifstream& file) {
   b = istream_consume_uint(file);
   istream_expect(file, " ");
   c = istream_consume_uint(file);
-  istream_expect(file, "\n");
 
   return ret;
 }
@@ -534,19 +551,20 @@ std::ostream& operator<<(std::ostream& out, datum_t const& d) {
   return out;
 }
 
-datum_t read_datum(std::ifstream& file) {
+datum_t read_datum(std::istream& file) {
   datum_t ret;
 
   while(true) {
     ret.labels.push_back(istream_consume_uint(file));
 
-    int which = istream_expect_or(file, { ",", " ", "\n" });
-    if(which == 1) {
-      break;
-    }
-    if(which == 2) {
+    if(file.eof()) {
       // Should this even occur?
       return ret;
+    }
+
+    int which = istream_expect_or(file, { ",", " " });
+    if(which == 1) {
+      break;
     }
   }
 
@@ -556,9 +574,15 @@ datum_t read_datum(std::ifstream& file) {
     u = istream_consume_uint(file);
     istream_expect(file, ":");
     d = istream_consume_simple_double(file);
-    int which = istream_expect_or(file, { " ", "\n" });
-    if(which == 1) {
-      break;
+
+    if(file.eof()) {
+      return ret;
+    }
+
+    if(char(file.peek()) == ' ') {
+      file.get();
+    } else {
+      return ret;
     }
   }
 
@@ -573,7 +597,11 @@ struct xtreme_file_reader_t {
       counts(read_counts_file(counts_filename)),
       iter(0)
   {
-    auto [num_datum_, num_features_, num_labels_] = read_header(file);
+    string str;
+    std::getline(file, str);
+    std::stringstream sstream(str, std::ios_base::in);
+
+    auto [num_datum_, num_features_, num_labels_] = read_header(sstream);
     num_datum = num_datum_;
     num_features = num_features_;
     num_labels = num_labels_;
@@ -588,7 +616,11 @@ struct xtreme_file_reader_t {
       to_beginning();
     }
 
-    datum_t ret = read_datum(file);
+    string str;
+    std::getline(file, str);
+    std::stringstream sstream(str, std::ios_base::in);
+
+    datum_t ret = read_datum(sstream);
     iter++;
     return ret;
   }
@@ -770,9 +802,6 @@ dbuffer_t compute_sampling(
     val += (1-alpha)*y_term*(total / double(counts[l]));
   }
 
-  DOUT("num_labels is " << num_labels);
-  DOUT("sum of d is   " << d.sum_to_f64());
-
   return d;
 }
 
@@ -786,26 +815,32 @@ void main_rank_zero(
   args.set_default<uint64_t>("dim_hidden", 32768);
   args.set_default<uint64_t>("batch_train",    32);
   args.set_default<uint64_t>("batch_validate", 1024);
-  int num_layers = args.get<int>("num_layers");
-  uint64_t dim_hidden = args.get<uint64_t>("dim_hidden");
 
-  // Amazon 3M
-  uint64_t num_train = 1717899;
-  uint64_t num_test  = 742507;
-  uint64_t num_features = 337067;
-  uint64_t num_labels   = 2812281;
+  int num_hidden = args.get<int>("num_hidden");
+  uint64_t dim_hidden = args.get<uint64_t>("dim_hidden");
 
   xtreme_file_reader_t validate_reader(
     args.get<string>("validate_file"),
     args.get<string>("validate_counts"));
+  uint64_t num_test  = validate_reader.get_num_datum();
+  uint64_t num_features = validate_reader.get_num_features();
+  uint64_t num_labels   = validate_reader.get_num_labels();
+
   xtreme_file_reader_t train_reader(
     args.get<string>("train_file"),
     args.get<string>("train_counts"));
+  uint64_t num_train = train_reader.get_num_datum();
+  if(num_features != train_reader.get_num_features()) {
+    throw std::runtime_error("miscmatch number of features");
+  }
+  if(num_labels != train_reader.get_num_labels()) {
+    throw std::runtime_error("miscmatch number of labels");
+  }
 
   model_config_t model_config {
     .num_features = num_features,
     .num_labels   = num_labels,
-    .dim_hidden   = vector<uint64_t>(num_layers, dim_hidden)
+    .dim_hidden   = vector<uint64_t>(num_hidden, dim_hidden)
   };
 
   updater_desc_t updater_desc {
@@ -864,7 +899,7 @@ void main_rank_zero(
   args.set_default<int>("num_runs", 2);
   int num_runs = args.get<int>("num_runs");
 
-  args.set_default<int>("num_trainers_per_run", 2);
+  args.set_default<int>("num_trains_per_run", 2);
   int num_trains_per_run = args.get<int>("num_trains_per_run");
 
   int iter = 1;
@@ -875,11 +910,11 @@ void main_rank_zero(
       // Insert inn_data(features) and out_data(labels) for this batch
       xtreme_dist.insert_features(
         info.train.inn_data,
-        info.train.inn_rels.at(info.train.inn_data),
+        default_dtype(), info.train.get_placement(info.train.inn_data),
         data);
       xtreme_dist.insert_labels(
         info.train.out_data,
-        info.train.inn_rels.at(info.train.out_data),
+        default_dtype(), info.train.get_placement(info.train.out_data),
         data);
 
       server->remap(info.train.inn_rels);
@@ -896,8 +931,6 @@ void main_rank_zero(
       server->remap_gids(info.train.next_iter_remap);
     }
 
-    vector<vector<int>> validate_out_data;
-
     server->remap_gids(info.remap_to_validate());
 
     vector<datum_t> data = validate_reader(batch_validate);
@@ -905,7 +938,7 @@ void main_rank_zero(
     // Insert inn_data(features) and out_data(labels) for this batch
     xtreme_dist.insert_features(
       info.validate.inn_data,
-      info.validate.inn_rels.at(info.train.inn_data),
+      default_dtype(), info.validate.get_placement(info.train.inn_data),
       data);
 
     server->remap(info.validate.inn_rels);
@@ -936,6 +969,14 @@ void xtreme_dist_t::insert_random(int gid, relation_t const& rel)
 }
 
 void xtreme_dist_t::insert_labels(
+  int gid,
+  dtype_t d, placement_t const& pl,
+  vector<datum_t> const& data)
+{
+  insert_labels(gid, make_fresh_rel(d, pl), data);
+}
+
+void xtreme_dist_t::insert_labels(
   int gid, relation_t const& rel, vector<datum_t> const& data)
 {
   communicator.broadcast_string(register_cmd);
@@ -958,6 +999,14 @@ void xtreme_dist_t::insert_labels(
   _insert_labels(rel, cs, labels);
 
   server->insert_gid_without_data(gid, rel);
+}
+
+void xtreme_dist_t::insert_features(
+  int gid,
+  dtype_t d, placement_t const& pl,
+  vector<datum_t> const& data)
+{
+  insert_features(gid, make_fresh_rel(d, pl), data);
 }
 
 void xtreme_dist_t::insert_features(
@@ -1169,4 +1218,18 @@ void xtreme_dist_t::_insert_features(
   }}
 
   server->local_insert_tensors(data);
+}
+
+relation_t
+xtreme_dist_t::make_fresh_rel(dtype_t d, placement_t const& pl)
+{
+  int start_tid = server->get_max_tid() + 1;
+  auto block_shape = pl.partition.block_shape();
+  vector<int> tids(product(block_shape));
+  std::iota(tids.begin(), tids.end(), start_tid);
+  return relation_t {
+    .dtype = d,
+    .placement = pl,
+    .tids = vtensor_t<int>(block_shape, tids)
+  };
 }
