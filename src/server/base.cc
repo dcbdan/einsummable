@@ -45,11 +45,11 @@ void server_base_t::execute_graph(
   }
   //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("printed tg.gv");
-  //}
+  {
+   std::ofstream f("tg.gv");
+   taskgraph.print_graphviz(f);
+   DOUT("printed tg.gv");
+  }
 
   // inn_g_to_t is input id to taskid in taskgraph 
   //TODO: this remap(remap_relations_t r) kind of function signature only appear in server_dist_base_t. We need to remove this 

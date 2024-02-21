@@ -24,6 +24,7 @@ data_manager_t::data_manager_t(
     current_memory_usage += d->size;
   }
   if(current_memory_usage > max_memory_usage) {
+    std::cout << "current memory usage: " << current_memory_usage << " max memory usage: " << max_memory_usage << std::endl;
     throw std::runtime_error("too much init memory given to data_manager_t");
   }
 }
