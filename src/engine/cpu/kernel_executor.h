@@ -84,12 +84,13 @@ private:
   };
 
   struct broadcast_b_ab_t {
+    scalar_t scalar;
     uint64_t nelem_a;
-    uint64_t sz_b;
+    uint64_t nelem_b;
   };
 
   struct broadcast_a_ab_t {
-    dtype_t dtype;
+    scalar_t scalar;
     uint64_t nelem_a;
     uint64_t nelem_b;
   };
@@ -287,14 +288,20 @@ void permute_kernel(
   void* out,
   void const* inn);
 
+void scale_kernel(
+  scalar_t const& scalar,
+  uint64_t nelem,
+  void* out);
+
 void broadcast_b_ab_kernel(
+  scalar_t const& scalar,
   uint64_t nelem_a,
-  uint64_t sz_b,
+  uint64_t nelem_b,
   void* out,
   void const* inn);
 
 void broadcast_a_ab_kernel(
-  dtype_t dtype,
+  scalar_t const& scalar,
   uint64_t nelem_a,
   uint64_t nelem_b,
   void* out,

@@ -212,29 +212,46 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
   }
 
   if(estr == "b->ab") {
-    if(!einsummable.join.is_identity()) {
-      return std::nullopt;
+    dtype_t dtype = einsummable.out_dtype();
+    scalar_t scale;
+    if(einsummable.join.is_identity()) {
+      scale = scalar_t::one(dtype);
+    } else {
+      auto maybe = einsummable.join.get_scale_from_scale();
+      if(maybe) {
+        scale = maybe.value();
+      } else {
+        return std::nullopt;
+      }
     }
-
-    uint64_t dsz = dtype_size(einsummable.out_dtype());
 
     kernels.insert({einsummable,
       broadcast_b_ab_t {
-        .nelem_a =       einsummable.join_shape[0],
-        .sz_b    = dsz * einsummable.join_shape[1],
+        .scalar = scale,
+        .nelem_a = einsummable.join_shape[0],
+        .nelem_b = einsummable.join_shape[1],
       }
     });
     return 0;
   }
 
   if(estr == "a->ab") {
-    if(!einsummable.join.is_identity()) {
-      return std::nullopt;
+    dtype_t dtype = einsummable.out_dtype();
+    scalar_t scale;
+    if(einsummable.join.is_identity()) {
+      scale = scalar_t::one(dtype);
+    } else {
+      auto maybe = einsummable.join.get_scale_from_scale();
+      if(maybe) {
+        scale = maybe.value();
+      } else {
+        return std::nullopt;
+      }
     }
 
     kernels.insert({einsummable,
       broadcast_a_ab_t {
-        .dtype = einsummable.out_dtype(),
+        .scalar = scale,
         .nelem_a = einsummable.join_shape[0],
         .nelem_b = einsummable.join_shape[1],
       }
@@ -555,13 +572,13 @@ void cpu_kernel_executor_t::call(
   } else if(holds_alternative<broadcast_b_ab_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_b_ab");
     assert_num_inputs(1);
-    auto const& [nelem_a,sz_b] = get<broadcast_b_ab_t>(kernel);
-    broadcast_b_ab_kernel(nelem_a, sz_b, out, inns[0]);
+    auto const& [scale,nelem_a,nelem_b] = get<broadcast_b_ab_t>(kernel);
+    broadcast_b_ab_kernel(scale, nelem_a, nelem_b, out, inns[0]);
   } else if(holds_alternative<broadcast_a_ab_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:bro_a_ab");
     assert_num_inputs(1);
-    auto const& [dtype,nelem_a,nelem_b] = get<broadcast_a_ab_t>(kernel);
-    broadcast_a_ab_kernel(dtype, nelem_a, nelem_b, out, inns[0]);
+    auto const& [scale,nelem_a,nelem_b] = get<broadcast_a_ab_t>(kernel);
+    broadcast_a_ab_kernel(scale, nelem_a, nelem_b, out, inns[0]);
   } else if(holds_alternative<kernel_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:misc");
     auto const& f = get<kernel_t>(kernel);
@@ -886,6 +903,7 @@ _unary_ew_loop(u32,float16_t,float16_t,_pow(_log(x0[i0]),(*((double*)(d+0)))))
 _unary_ew_loop(u33,float16_t,float16_t,_pow(x0[i0],(*((double*)(d+0)))))
 _unary_ew_loop(u34,float16_t,float16_t,((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2))))))
 _unary_ew_loop(u35,float,float16_t,((*((float*)(d+0)))*float(x0[i0])))
+_unary_ew_loop(u36,float,float,_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8)))))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -938,11 +956,13 @@ _binary_ew_loop(b47,c47,d47,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)
 _binary_ew_loop(b48,c48,d48,float16_t,float16_t,float16_t,(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4)))))))
 _binary_ew_loop(b49,c49,d49,float16_t,float16_t,float16_t,(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2)))))
 _binary_ew_loop(b50,c50,d50,float16_t,float16_t,float,float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1])))))
+_binary_ew_loop(b51,c51,d51,float,float,float,(x0[i0]*((*((float*)(d+0)))*(_pow(((*((float*)(d+4)))+_exp(((*((float*)(d+8)))*x1[i1]))),(*((double*)(d+12))))*((*((float*)(d+20)))*_exp(((*((float*)(d+24)))*x1[i1])))))))
 
 _ternary_ew_loop(tstraight_0,t2112_0,float,float,float,float,(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4))))))))
 _ternary_ew_loop(tstraight_1,t2112_1,float,float,float,float,((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2]))
 _ternary_ew_loop(tstraight_2,t2112_2,float16_t,float16_t,float16_t,float16_t,(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2))))))))
 _ternary_ew_loop(tstraight_3,t2112_3,float16_t,float16_t,float16_t,float16_t,((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2]))
+_ternary_ew_loop(tstraight_4,t2112_4,float,float,float,float,(x0[i0]*((*((float*)(d+0)))*((*((float*)(d+4)))*(x1[i1]+((*((float*)(d+8)))*x2[i2]))))))
 
 optional<
   tuple<vector<uint8_t>,
@@ -995,7 +1015,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f16->f16|_pow(_log(x0[i0]),(*((double*)(d+0))))", u32 },
     { "f16->f16|_pow(x0[i0],(*((double*)(d+0))))", u33 },
     { "f16->f16|((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2)))))", u34 },
-    { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 }
+    { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 },
+    { "f32->f32|_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8))))", u36 }
   };
 
   auto iter = kernels.find(key);
@@ -1075,7 +1096,8 @@ lookup_binary_straight_ew_kernel(
     { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*x1[i1]))", b47 },
     { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4))))))", b48 },
     { "f16,f16->f16|(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2))))", b49 },
-    { "f16,f32->f16|float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))", b50 }
+    { "f16,f32->f16|float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))", b50 },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*(_pow(((*((float*)(d+4)))+_exp(((*((float*)(d+8)))*x1[i1]))),(*((double*)(d+12))))*((*((float*)(d+20)))*_exp(((*((float*)(d+24)))*x1[i1]))))))", b51 }
   };
 
   auto iter = kernels.find(key);
@@ -1108,7 +1130,8 @@ lookup_ternary_straight_ew_kernel(
     { "f32,f32,f32->f32|(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4)))))))", tstraight_0 },
     { "f32,f32,f32->f32|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", tstraight_1 },
     { "f16,f16,f16->f16|(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2)))))))", tstraight_2 },
-    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", tstraight_3 }
+    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", tstraight_3 },
+    { "f32,f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*((*((float*)(d+4)))*(x1[i1]+((*((float*)(d+8)))*x2[i2])))))", tstraight_4 }
   };
 
   auto iter = kernels.find(key);
@@ -1190,6 +1213,7 @@ lookup_binary_212_ew_kernel(
     { "f16,f16->f16|(((*((float16_t*)(d+0)))*x0[i0])+((*((float16_t*)(d+2)))*_pow(x1[i1],(*((double*)(d+4))))))", { c48, d48} },
     { "f16,f16->f16|(x0[i0]==x1[i1]?(*((float16_t*)(d+0))):(*((float16_t*)(d+2))))", {c49, d49} },
     { "f16,f32->f16|float16_t((float(x0[i0])+((*((float*)(d+0)))*((*((float*)(d+4)))*x1[i1]))))", {c50, d50} },
+    { "f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*(_pow(((*((float*)(d+4)))+_exp(((*((float*)(d+8)))*x1[i1]))),(*((double*)(d+12))))*((*((float*)(d+20)))*_exp(((*((float*)(d+24)))*x1[i1]))))))", {c51, d51} }
 
   };
 
@@ -1227,7 +1251,8 @@ lookup_ternary_2112_ew_kernel(
     { "f32,f32,f32->f32|(x0[i0]*(x1[i1]*((*((float*)(d+0)))*_pow(x2[i2],(*((double*)(d+4)))))))", t2112_0 },
     { "f32,f32,f32->f32|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", t2112_1 },
     { "f16,f16,f16->f16|(x0[i0]*(x1[i1]*((*((float16_t*)(d+0)))*_pow(x2[i2],(*((double*)(d+2)))))))", t2112_2 },
-    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", t2112_3 }
+    { "f16,f16,f16->f16|((x0[i0]*_pow(x1[i1],(*((double*)(d+0)))))*x2[i2])", t2112_3 },
+    { "f32,f32,f32->f32|(x0[i0]*((*((float*)(d+0)))*((*((float*)(d+4)))*(x1[i1]+((*((float*)(d+8)))*x2[i2])))))", t2112_4 }
   };
 
   auto iter = kernels.find(key);
@@ -1560,19 +1585,67 @@ void permute_kernel(
   }
 }
 
+template <typename T>
+void _scale_kernel(
+  T const& v,
+  uint64_t n,
+  void* _out)
+{
+  T* out = reinterpret_cast<T*>(_out);
+  for(uint64_t i = 0; i != n; ++i) {
+    out[i] *= v;
+  }
+}
+
+void scale_kernel(
+  scalar_t const& v,
+  uint64_t nelem,
+  void* out)
+{
+  if(v.dtype == dtype_t::f16) {
+    if(v.f16() == float16_t(1.0)) {
+      return;
+    }
+    _scale_kernel(v.f16(), nelem, out);
+  } else if(v.dtype == dtype_t::f32) {
+    if(v.f32() == float(1.0)) {
+      return;
+    }
+    _scale_kernel(v.f32(), nelem, out);
+  } else if(v.dtype == dtype_t::f64) {
+    if(v.f64() == double(1.0)) {
+      return;
+    }
+    _scale_kernel(v.f64(), nelem, out);
+  } else if(v.dtype == dtype_t::c64) {
+    if(v.c64() == std::complex<float>(1.0, 0.0)) {
+      return;
+    }
+    _scale_kernel(v.c64(), nelem, out);
+  } else {
+    throw std::runtime_error("missing dtype: scale_kernel");
+  }
+}
+
 // b->ab
 void broadcast_b_ab_kernel(
+  scalar_t const& scale,
   uint64_t nelem_a,
-  uint64_t sz_b,
-  void* _out,
+  uint64_t nelem_b,
+  void* out,
   void const* inn)
 {
-  uint8_t* out = reinterpret_cast<uint8_t*>(_out);
-  for(uint64_t i = 0; i != nelem_a; ++i) {
-    std::memcpy(
-      reinterpret_cast<void*>(out), inn, sz_b);
-    out += sz_b;
+  {
+    uint8_t* _out = reinterpret_cast<uint8_t*>(out);
+    uint64_t sz_b = dtype_size(scale.dtype) * nelem_b;
+    for(uint64_t i = 0; i != nelem_a; ++i) {
+      std::memcpy(
+        reinterpret_cast<void*>(_out), inn, sz_b);
+      _out += sz_b;
+    }
   }
+
+  scale_kernel(scale, nelem_a*nelem_b, out);
 }
 
 // a->ab
@@ -1592,23 +1665,23 @@ void _broadcast_a_ab_kernel(
 }
 
 void broadcast_a_ab_kernel(
-  dtype_t dtype,
+  scalar_t const& scalar,
   uint64_t nelem_a,
   uint64_t nelem_b,
   void* out,
   void const* inn)
 {
-  if(dtype == dtype_t::f16) {
+  if(scalar.dtype == dtype_t::f16) {
     _broadcast_a_ab_kernel(
       nelem_a, nelem_b,
       reinterpret_cast<uint16_t*>(out),
       reinterpret_cast<uint16_t const*>(inn));
-  } else if(dtype == dtype_t::f32) {
+  } else if(scalar.dtype == dtype_t::f32) {
     _broadcast_a_ab_kernel(
       nelem_a, nelem_b,
       reinterpret_cast<uint32_t*>(out),
       reinterpret_cast<uint32_t const*>(inn));
-  } else if(dtype == dtype_t::f64 || dtype == dtype_t::c64) {
+  } else if(scalar.dtype == dtype_t::f64 || scalar.dtype == dtype_t::c64) {
     _broadcast_a_ab_kernel(
       nelem_a, nelem_b,
       reinterpret_cast<uint64_t*>(out),
@@ -1616,6 +1689,8 @@ void broadcast_a_ab_kernel(
   } else {
     throw std::runtime_error("broadcast_a_ab_kernel: missing dtype implementation");
   }
+
+  scale_kernel(scalar, nelem_a*nelem_b, out);
 }
 
 template <typename T>
