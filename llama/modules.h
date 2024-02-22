@@ -82,6 +82,11 @@ struct attention_t {
     tensor_t freqs_cis,
     optional<tensor_t> mask);
 
+  tensor_t forward_test(
+    tensor_t x,
+    tensor_t freqs_cis,
+    optional<tensor_t> mask);
+
   void set_next_keys_and_values(tensor_t k, tensor_t v);
 
   map<string, tensor_t> weight_map() const;

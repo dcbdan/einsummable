@@ -367,6 +367,96 @@ tensor_t attention_t::forward(
   return lora_matmul(writer, output, wo.transpose(0,1), lora_wo);
 }
 
+tensor_t attention_t::forward_test(
+  tensor_t x,
+  tensor_t freqs_cis,
+  optional<tensor_t> mask)
+{
+  dtype_t dtype = x.get_dtype();
+  vector<uint64_t> input_shape = x.get_shape()();
+  uint64_t seqlen = input_shape[1];
+
+  if(input_shape.size() != 3 || input_shape[2] != args.dim) {
+    throw std::runtime_error("invalid shape x to attention forward");
+  }
+
+  //replace lora_matmul with this since we're not using lora
+  tensor_t xq = writer->matmul(x, wq.transpose(0,1));
+  tensor_t xk = writer->matmul(x, wk.transpose(0,1));
+  tensor_t xv = writer->matmul(x, wv.transpose(0,1));
+
+  vector<uint64_t> full_xshape = {
+    batch_size, seqlen, n_heads, head_dim
+  };
+
+  xq = xq.view_full(full_xshape);
+  xk = xk.view_full(full_xshape);
+  xv = xv.view_full(full_xshape);
+  xv.save_inplace();
+
+  xq = apply_rotary_embedding(xq.to_f32(), freqs_cis).to_dtype(dtype);
+  xk = apply_rotary_embedding(xk.to_f32(), freqs_cis).to_dtype(dtype);
+
+  // set next_kv for use later
+  set_next_keys_and_values(xk, xv);
+  // copy the tensor objects so that we can transpose them here
+  auto [keys, values] = next_kv.value();
+  // batch_size, start_pos + seqlen, n_heads, head_dim
+
+  // values.save_inplace();
+
+  xq = xq.transpose(1, 2);
+  keys = keys.transpose(1, 2);
+  values = values.transpose(1, 2);
+
+  scalarop_t scale = scalarop_t::make_scale(
+    scalar_t(dtype, write_with_ss(
+      1.0 / (std::sqrt(double(1.0) * args.head_dim()))
+    ))
+  );
+
+  tensor_t scores;
+  scores = writer->matmul(xq, keys.transpose(2, 3));
+  scores = writer->ew(scale, scores);
+
+  /*not using mask for now*/
+  // if(mask) {
+  //   scores = writer->ew(
+  //     "abcd,cd->abcd",
+  //     scalarop_t::make_add(scores.get_dtype()),
+  //     scores,
+  //     mask.value());
+  // }
+
+  // compute softmax with a minimum of 32 bits precision
+  if(dtype == dtype_t::f16) {
+    scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  } else {
+    scores = writer->softmax(scores);
+  }
+  scores.save_inplace(); 
+  // return scores;
+
+  /* --------- correct before this ---------------*/
+
+  tensor_t output;
+  output = writer->matmul(scores, values);
+  output.save_inplace();
+  output = output.transpose(1, 2);
+
+  full_shape_t output_shape({
+    full_dim_t::singleton(batch_size),
+    full_dim_t::singleton(seqlen),
+    full_dim_t({n_heads, head_dim})
+  });
+  output = output.view(output_shape);
+  
+
+  return writer->matmul(output, wo.transpose(0,1));
+}
+
+/* This function is called in attention::forward() 
+  Modifies next_kv (a field in attention_t)*/
 void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
 {
   if(k.get_shape() != v.get_shape()) {
