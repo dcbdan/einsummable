@@ -260,17 +260,33 @@ int attention_main(int argc, char** argv){
   graph_writer_t writer;
   graph_t graph;
 
-  transformer_t transformer(&writer, model_args, uint64_t(0));
-
-
+  tensor_t full_freqs_cis = writer.input(
+    { 2*model_args.max_seq_len, uint64_div(model_args.head_dim(), 2) },
+    dtype_t::c64);
   tensor_t embeddings = writer.input(full_shape_t({
     full_dim_t::singleton(model_args.batch_size),
     full_dim_t::singleton(args.get<uint64_t>("seq_len")),
     model_args.full_dim()
   }));
-  uint64_t start_pos = 0;
 
-  tensor_t freqs_cis = transformer.get_freqs_cis(args.get<uint64_t>("seq_len"));
+  uint64_t start_pos = 0;
+  
+  /* get_freqs_cis from modules.cc*/
+  using _all = graph_writer_t::idx_t::all;
+  using _rng = graph_writer_t::idx_t::rng;
+  using idx_t = graph_writer_t::idx_t;
+
+  vector<uint64_t> shape = full_freqs_cis.get_shape()();
+
+  vector<idx_t> subset(shape.size(), _all{});
+
+  int64_t b0 = int64_t(start_pos);
+  int64_t e0 = int64_t(start_pos + args.get<uint64_t>("seq_len"));
+  subset[0] = _rng{ b0, e0 };
+
+  tensor_t freqs_cis = full_freqs_cis.subset(subset);
+  
+
   attention_t attention = attention_t(&writer, "attention.", model_args, start_pos, std::nullopt);
   tensor_t scores = attention.forward(embeddings, freqs_cis, std::nullopt);
   scores.save_inplace();
