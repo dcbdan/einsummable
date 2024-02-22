@@ -24,13 +24,13 @@ run(
   uint64_t mem_size;
   std::unique_ptr<server_base_t> server;
   if(which_server == "mg") {
-    // mem_size = args.get<uint64_t>("mem_size_mg");
+    mem_size = args.get<uint64_t>("mem_size_mg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_mg_server_t(communicator, 50005760, num_threads));
+      new cpu_mg_server_t(communicator, mem_size, num_threads));
   } else if(which_server == "tg") {
-    // uint64_t mem_size = args.get<uint64_t>("mem_size_tg");
+    mem_size = args.get<uint64_t>("mem_size_tg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_tg_server_t(communicator, 5400576000, num_threads));
+      new cpu_tg_server_t(communicator, mem_size, num_threads));
   } else {
     throw std::runtime_error("invalid server arg");
   }
@@ -61,16 +61,16 @@ run(
 int feed_forward_main(int argc, char** argv){
   args_t args(argc, argv);
   args.set_default("batch_size", uint64_t(1));
-  args.set_default("seq_len", uint64_t(32));
+  args.set_default("seq_len", uint64_t(512));
 
   model_args_t model_args = model_args_t {
-    .dim             = 64, //was 4096
+    .dim             = 4096, //was 4096
     .n_layers        = 1,
-    .n_heads         = 4, //32
-    .multiple_of     = 4, //256
+    .n_heads         = 32, //32
+    .multiple_of     = 256, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
-    .max_seq_len     = 64, //was 2048
+    .max_seq_len     = 2048, //was 2048
     .vocab_size      = 32000,
   };
 
@@ -113,7 +113,7 @@ int feed_forward_main(int argc, char** argv){
       d.random();
     } else {
       d.rnorm();
-      d.scale(scalar_t(dtype, "0.0001"));
+      d.scale(scalar_t(dtype, "0.1"));
     }
     input_data.insert({input_id, d});
   }
@@ -124,8 +124,10 @@ int feed_forward_main(int argc, char** argv){
   /* Initializing some input data*/
   communicator_t communicator("0.0.0.0", true, 1);
 
-  map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args); 
   map<int, dbuffer_t> tg_tensor_results = run(communicator, graph, "tg", input_data, args);
+
+  DOUT("taskgraph done, starting memgraph");
+  map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args); 
 
   if (tg_tensor_results == mg_tensor_results) {
     std::cout << "The maps are equal." << std::endl;
@@ -239,9 +241,102 @@ int llama_main(int argc, char** argv) {
   return(1);
 }
 
+int attention_main(int argc, char** argv){
+  args_t args(argc, argv);
+  args.set_default("batch_size", uint64_t(1));
+  args.set_default("seq_len", uint64_t(512));
+
+  model_args_t model_args = model_args_t {
+    .dim             = 4096, //was 4096
+    .n_layers        = 1,
+    .n_heads         = 32, //32
+    .multiple_of     = 256, //256
+    .norm_eps        = 1e-6,
+    .batch_size      = args.get<uint64_t>("batch_size"),
+    .max_seq_len     = 2048, //was 2048
+    .vocab_size      = 32000,
+  };
+
+  graph_writer_t writer;
+  graph_t graph;
+
+  transformer_t transformer(&writer, model_args, uint64_t(0));
+
+
+  tensor_t embeddings = writer.input(full_shape_t({
+    full_dim_t::singleton(model_args.batch_size),
+    full_dim_t::singleton(args.get<uint64_t>("seq_len")),
+    model_args.full_dim()
+  }));
+  uint64_t start_pos = 0;
+
+  tensor_t freqs_cis = transformer.get_freqs_cis(args.get<uint64_t>("seq_len"));
+  attention_t attention = attention_t(&writer, "attention.", model_args, start_pos, std::nullopt);
+  tensor_t scores = attention.forward(embeddings, freqs_cis, std::nullopt);
+  scores.save_inplace();
+
+  graph = writer.get_graph();
+
+  {
+    std::cout << "g.gv" << std::endl;
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+  }
+
+  vector<int> inputs = graph.get_inputs();
+  map<int, dbuffer_t> input_data;
+  for (int input_id: inputs){
+    dtype_t dtype = graph.out_dtype(input_id);
+    auto shape = graph.out_shape(input_id);
+    DOUT(dtype);
+    DOUT(shape);
+    dbuffer_t d = make_dbuffer(dtype, product(shape));
+    if (dtype == dtype_t::c64) {
+      d.random();
+    } else {
+      d.rnorm();
+      d.scale(scalar_t(dtype, "0.1"));
+    }
+    input_data.insert({input_id, d});
+  }
+
+  std::cout << "Inputs: " << inputs << std::endl;
+  
+
+  /* Initializing some input data*/
+  communicator_t communicator("0.0.0.0", true, 1);
+
+  map<int, dbuffer_t> tg_tensor_results = run(communicator, graph, "tg", input_data, args);
+
+  DOUT("taskgraph done, starting memgraph");
+  map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args); 
+
+  if (tg_tensor_results == mg_tensor_results) {
+    std::cout << "The maps are equal." << std::endl;
+  } else {
+    std::cout << "The maps are not equal." << std::endl;
+  }
+
+  DOUT("mg_tensor_results: ")
+  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
+  
+  DOUT("tg_tensor_results: ")
+  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
+
+  return(1);
+
+}
+
 
 int main(int argc, char** argv) {
-  return llama_main(argc, argv);
+  // return llama_main(argc, argv);
   // feed_forward_main(argc, argv);
+  return attention_main(argc, argv);
   return(1);
 }
