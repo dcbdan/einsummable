@@ -115,6 +115,96 @@ int main(int argc, char** argv) {
   return 0;
 }
 
+struct rms_norm_t {
+  rms_norm_t(
+    graph_writer_t& w,
+    uint64_t dim)
+    : writer(w), eps(1e-6), dtype(default_dtype())
+  {
+    weight = writer.input(vector<uint64_t>{dim}, dtype);
+  }
+
+  tensor_t norm(tensor_t x) {
+    dtype_t d = x.get_dtype();
+  
+    if(d == dtype_t::f16) {
+      throw std::runtime_error("rms_norm_t::norm needs >16 precision");
+    }
+  
+    auto x_shape = x.get_shape()();
+    int out_rank = x_shape.size();
+    if(out_rank <= 1) {
+      throw std::runtime_error("rms_norm: not a big enough output rank");
+    }
+  
+    scalarop_t inverse_sqrt = scalarop_t::make_inverse_sqrt(d);
+    scalarop_t square       = scalarop_t::make_square(d);
+    scalarop_t mul          = scalarop_t::make_mul(d);
+  
+    scalar_t _e(d, write_with_ss(eps));
+    scalar_t _a(d, write_with_ss(1.0/double(double(1.0)*x_shape.back())));
+    scalarop_t scale_then_add_eps = scalarop_t::combine(
+      scalarop_t::make_add(d),
+      {
+        scalarop_t::make_scale(_a),
+        scalarop_t::make_constant(_e)
+      });
+  
+    string ijk(out_rank, ' ');
+    std::iota(ijk.begin(), ijk.end(), 'a');
+  
+    string ij(out_rank-1, ' ');
+    std::iota(ij.begin(), ij.end(), 'a');
+  
+    string ijk_to_ij     = ijk + "->" + ij;
+    string ijk_ij_to_ijk = ijk + ","  + ij + "->" + ijk;
+  
+    // z = x * np.power(np.mean(np.square(x), axis=-1, keepdims=True) + eps, -0.5);
+    // y = np.mean(np.square(x), axis=-1) + eps
+
+    tensor_t y;
+    y = writer.ew(square,                            x);
+    y = writer.reduction(ijk_to_ij, castable_t::add, y);
+    y = writer.ew(scale_then_add_eps,                y);
+    y = writer.ew(inverse_sqrt,                      y);
+  
+    // x * y
+    return writer.ew(ijk_ij_to_ijk, mul, x, y);
+  }
+
+  tensor_t forward(tensor_t x) {
+    if(dtype != x.get_dtype()) {
+      throw std::runtime_error("invalid input dtype rms norm t forward");
+    }
+  
+    // compute output with a minimum precision of 32
+    tensor_t output;
+    if(dtype == dtype_t::f16) {
+      output = norm(x.to_dtype(dtype_t::f32)).to_dtype(dtype);
+    } else {
+      output = norm(x);
+    }
+  
+    int out_rank = x.rank();
+  
+    string ijk(out_rank, ' ');
+    std::iota(ijk.begin(), ijk.end(), 'a');
+    string k(1, char('a' + (out_rank-1)));
+    string str = ijk + "," + k + "->" + ijk;
+  
+    scalarop_t mul = scalarop_t::make_mul(dtype);
+  
+    return writer.ew(str, mul, output, weight);
+  }
+
+  graph_writer_t& writer;
+  float eps;
+  string name;
+  dtype_t dtype;
+  tensor_t weight;
+};
+
+
 struct ff_t {
   ff_t(
     graph_writer_t& writer,
@@ -159,26 +249,37 @@ struct model_t {
     scalarops.back() = scalarop_t::make_sigmoid();
 
     for(int i = 0; i != scalarops.size(); ++i) {
-      layers.emplace_back(writer, szs[i], szs[i+1], scalarops[i]);
+      ffs.emplace_back(writer, szs[i], szs[i+1], scalarops[i]);
+      if(i + 1 != scalarops.size()) {
+        norms.emplace_back(writer, szs[i+1]);
+      }
     }
   }
 
   tensor_t forward(tensor_t data)
   {
     tensor_t x = data;
-    for(auto& layer: layers) {
-      x = layer.forward(x);
+    for(int i = 0; i != norms.size(); ++i) {
+      auto& ff   = ffs[i];
+      auto& norm = norms[i];
+      x = norm.forward(ff.forward(x));
     }
+    auto last_ff = ffs.back();
+    x = last_ff.forward(x);
     return x;
   }
 
-  vector<tensor_t> get_weights() const {
-    return vector_from_each_member(layers, tensor_t, weight);
+  vector<tensor_t> get_ff_weights() const {
+    return vector_from_each_member(ffs, tensor_t, weight);
+  }
+  vector<tensor_t> get_norm_weights() const {
+    return vector_from_each_member(norms, tensor_t, weight);
   }
 
   graph_writer_t& writer;
 
-  vector<ff_t> layers;
+  vector<ff_t> ffs;
+  vector<rms_norm_t> norms;
 };
 
 tensor_t mse(graph_writer_t& writer, tensor_t sampling, tensor_t x, tensor_t y)
@@ -203,14 +304,16 @@ struct xtreme_t {
     // (1) inn_data
     // (2) out_data,
     // (3) sampling                    <- "constants"
-    // (4) weights
+    // (4) ff_weights, norm_weights    <- "trainables"
     // (5) vector_mapfst(init_fills)   <- "constants"
     graph_t graph;
     int inn_data;
     int out_data;
     int sampling;
     int loss;
-    vector<int> weights;
+    vector<int> ff_weights;
+    vector<int> norm_weights;
+    vector<int> grads;
     vector<tuple<int, fill_t>> init_fills;
 
     map<int, relation_t> inn_rels;
@@ -226,7 +329,8 @@ struct xtreme_t {
   struct validate_t {
     graph_t graph;
     int inn_data;
-    vector<int> weights;
+    vector<int> ff_weights;
+    vector<int> norm_weights;
     vector<tuple<int, int>> constants_tid_to_vid;
     int predictions;
 
@@ -241,8 +345,11 @@ struct xtreme_t {
 
   vector<tuple<int, int>> remap_to_validate() const {
     vector<tuple<int, int>> ret = validate.constants_tid_to_vid;
-    for(int i = 0; i != train.weights.size(); ++i) {
-      ret.emplace_back(train.weights[i], validate.weights[i]);
+    for(int i = 0; i != train.ff_weights.size(); ++i) {
+      ret.emplace_back(train.ff_weights[i], validate.ff_weights[i]);
+    }
+    for(int i = 0; i != train.norm_weights.size(); ++i) {
+      ret.emplace_back(train.norm_weights[i], validate.norm_weights[i]);
     }
     return ret;
   }
@@ -317,8 +424,13 @@ xtreme_t::train_t xtreme_t::make_train_info(
   tensor_t loss = mse(writer, sampling, out_data, predictions);
   loss.save_inplace();
 
-  vector<tensor_t> weights = model.get_weights();
+  vector<tensor_t> weights = vector_concatenate(
+    model.get_ff_weights(), model.get_norm_weights());
   vector<tensor_t> grads = writer.backprop(loss, weights);
+
+  for(auto& grad: grads) {
+    grad.save_inplace();
+  }
 
   xtreme_t::train_t ret {
     .graph = writer.get_graph(),
@@ -326,12 +438,15 @@ xtreme_t::train_t xtreme_t::make_train_info(
     .out_data = out_data.get_id(),
     .sampling = sampling.get_id(),
     .loss = loss.get_id(),
-    .weights = vector_from_each_method(weights, int, get_id),
+    .ff_weights = vector_from_each_method(model.get_ff_weights(), int, get_id),
+    .norm_weights = vector_from_each_method(model.get_norm_weights(), int, get_id),
+    .grads   = vector_from_each_method(grads, int, get_id)
   };
 
   vector<tuple<int, int>> old_news;
   ret.init_fills = update_weights(
-    updater_desc, ret.graph, old_news, ret.weights,
+    updater_desc, ret.graph, old_news, 
+    vector_concatenate(ret.ff_weights, ret.norm_weights),
     vector_from_each_method(grads, int, get_id));
 
   for(auto const& [old_id, new_id]: old_news) {
@@ -368,8 +483,10 @@ xtreme_t::validate_t xtreme_t::make_validate_info(
   tensor_t predictions = model.forward(inn_data);
   predictions.save_inplace();
 
-  vector<tensor_t> weights = model.get_weights();
-  for(auto& w: weights) {
+  for(auto& w: model.get_ff_weights()) {
+    w.save_inplace();
+  }
+  for(auto& w: model.get_norm_weights()) {
     w.save_inplace();
   }
 
@@ -383,7 +500,8 @@ xtreme_t::validate_t xtreme_t::make_validate_info(
   xtreme_t::validate_t ret {
     .graph = writer.get_graph(),
     .inn_data = inn_data.get_id(),
-    .weights = vector_from_each_method(weights, int, get_id),
+    .ff_weights = vector_from_each_method(model.get_ff_weights(), int, get_id),
+    .norm_weights = vector_from_each_method(model.get_norm_weights(), int, get_id),
     .constants_tid_to_vid = constant_ids,
     .predictions = predictions.get_id(),
   };
@@ -649,11 +767,16 @@ private:
   uint64_t num_features;
   uint64_t num_labels;
 
+public:
   void to_beginning() {
     iter = 0;
     file.clear();
     file.seekg(0);
-    read_header(file);
+
+    string str;
+    std::getline(file, str);
+    std::stringstream sstream(str, std::ios_base::in);
+    read_header(sstream);
   }
 };
 
@@ -847,6 +970,10 @@ void main_rank_zero(
     .dtype = default_dtype(),
     .t = updater_desc_t::adamw_t { .min_precision = default_dtype() }
   };
+  //updater_desc_t updater_desc {
+  //  .dtype = default_dtype(),
+  //  .t = updater_desc_t::vanilla_t { }
+  //};
 
   scalar_t _lr(default_dtype(), write_with_ss(args.get<float>("learning_rate")));
   map<string, scalar_t> scalar_vars {
@@ -883,8 +1010,12 @@ void main_rank_zero(
   }
 
   // initialize the weights
-  for(int const& w_id: info.train.weights) {
+  for(int const& w_id: info.train.ff_weights) {
     xtreme_dist.insert_random(w_id, info.train.inn_rels.at(w_id));
+  }
+  for(int const& w_id: info.train.norm_weights) {
+    server->insert_constant(
+      w_id, info.train.inn_rels.at(w_id), scalar_t::one(default_dtype()));
   }
 
   // fill with random values
@@ -928,12 +1059,25 @@ void main_rank_zero(
       double loss = server->get_tensor_from_gid(info.train.loss).sum_to_f64();
       DOUT("loss: " << loss);
 
+      for(auto const& gid: info.train.grads) {
+        auto tensor = server->get_tensor_from_gid(gid);
+        double mn = tensor.min().convert(dtype_t::f64).f64();
+        double mx = tensor.max().convert(dtype_t::f64).f64();
+        auto shape = info.train.graph.nodes[gid].op.out_shape();
+        DOUT("grad " << gid << ": [" << mn << "," << mx << "]  " << shape);
+      }
+
+      if(std::isnan(loss) || std::isinf(loss)) {
+        throw std::runtime_error("loss is nan or inf");
+      }
+
       server->remap_gids(info.train.next_iter_remap);
     }
 
     server->remap_gids(info.remap_to_validate());
 
     vector<datum_t> data = validate_reader(batch_validate);
+    validate_reader.to_beginning(); // TODO: how to use validate reader?
 
     // Insert inn_data(features) and out_data(labels) for this batch
     xtreme_dist.insert_features(
@@ -952,6 +1096,8 @@ void main_rank_zero(
       server->get_tensor_from_gid(info.validate.predictions),
       data);
     scores.print(std::cout);
+
+    DOUT("");
 
     server->remap_gids(info.remap_from_validate());
   }

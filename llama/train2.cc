@@ -474,6 +474,9 @@ void main_rank_zero(
 
     double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     DOUT("loss: " << loss_val);
+    if(std::isnan(loss_val) || std::isinf(loss_val)) {
+      throw std::runtime_error("loss is nan or inf");
+    }
 
     server->remap_gids(next_iter_remap);
   }
