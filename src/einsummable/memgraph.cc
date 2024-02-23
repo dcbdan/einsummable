@@ -1477,6 +1477,14 @@ memgraph_t::make_(
     for (auto it = state.tensors_on_storage.begin(); it != state.tensors_on_storage.end(); ++it) {
       std::cout << *it << ": " << state.task_tensor_to_mem_node[*it] << std::endl;
     }
+    DOUT("tensors_on_memory: ");
+    for (auto ita = state.tensors_on_memory.begin(); ita != state.tensors_on_memory.end(); ++ita) {
+      std::cout << ita->first << ": ";
+      for (auto inn = ita->second.begin(); inn != ita->second.end(); ++inn){
+        std::cout << *inn << " ";
+      }
+      std::cout << std::endl;
+    }
   }
   else
   {
