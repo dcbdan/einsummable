@@ -1240,6 +1240,24 @@ node_t node_t::simplify_once() const {
       return lhs;
     }
 
+    // Check for (constant * (constant * hole))
+    //           (c0 * (c1 * h))
+    if(lhs.op.is_constant() && rhs.op.is_mul()) {
+      node_t& c0 = lhs; 
+      node_t& c1 = rhs.children[0];
+      node_t& h  = rhs.children[1];
+      if(c1.op.is_constant() && h.op.is_hole()) {
+        scalar_t val = scalarop_t::make_mul(c0.dtype).eval(
+          {c0.op.get_constant(), c1.op.get_constant()});
+
+        return node_t {
+          .op = op, // op is just a mul
+          .dtype = c0.dtype,
+          .children = { node_t::make_constant(val), h }
+        };
+      }
+    }
+
     // TODO: Check for 0.5*(x+x)
 
     // TODO: convert for x*x -> x^2 ?
