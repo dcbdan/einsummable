@@ -1210,6 +1210,12 @@ void xtreme_dist_t::_insert_random(relation_t const& rel)
   auto const& partition = pl.partition;
   auto const& locs      = pl.locations.get();
 
+  uint64_t total_nelems = product(partition.total_shape());
+  double rng = sqrt(6.0 / total_nelems);
+  double nrng = -1*rng;
+  string str_rng = write_with_ss(rng);
+  string str_nrng = write_with_ss(nrng);
+
   vector<uint64_t> block_nelems = partition.all_block_sizes().get();
 
   if(tids.size() != locs.size() || tids.size() != block_nelems.size()) {
@@ -1222,7 +1228,7 @@ void xtreme_dist_t::_insert_random(relation_t const& rel)
   for(int i = 0; i != locs.size(); ++i) {
     if(server->is_local_location(locs[i])) {
       dbuffer_t d = make_dbuffer(dtype, block_nelems[i]);
-      d.random("-0.0001", "0.0001");
+      d.random(str_nrng, str_rng);
       data.insert({tids[i], {locs[i], d.data}});
     }
   }
