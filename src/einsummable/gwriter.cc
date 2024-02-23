@@ -337,7 +337,7 @@ graph_writer_t::tensor_t::squeeze(int which_dim) const
     throw std::runtime_error("cannot squeeze this dimension: invalid which_dim");
   }
   if(shape[which_dim] != 1) {
-    throw std::runtime_error("cannot squeez this dimension: size > 1");
+    throw std::runtime_error("cannot squeeze this dimension: size > 1");
   }
 
   vector<idx_t> idxs;
@@ -350,6 +350,12 @@ graph_writer_t::tensor_t::squeeze(int which_dim) const
     }
   }
   return subset(idxs);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::tensor_t::sum_to_unit() const
+{
+  return self->sum_to_unit(*this);
 }
 
 bool
@@ -997,6 +1003,44 @@ graph_writer_t::broadcast(
   graph_writer_t::tensor_t const& inn)
 {
   return broadcast(full_dim_t::singleton(sz), inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::sum_to_unit(
+  graph_writer_t::tensor_t const& inn)
+{
+  int id = inn.get_id();
+  dtype_t dtype;
+  vector<uint64_t> shape;
+
+  {
+    // add a unit dimension in front of all the other dims
+    auto const& node = graph.nodes[id];
+    dtype = node.op.out_dtype();
+    shape = node.op.out_shape();
+
+    shape.insert(shape.begin(), 1);
+
+    id = graph.insert_squeezer(shape, id);
+  }
+
+  // At this point, id is a tensor starting with a unit dimension
+    
+  einsummable_t e(
+    shape,
+    vector<vector<int>>{ vector_iota<int>(shape.size()) },
+    1, 
+    scalarop_t::make_identity(dtype),
+    castable_t::add);
+
+  id = graph.insert_einsummable(e, { id });
+  id = graph.insert_formation(id, false);
+
+  // At this point, id is a unit tensor; shape [1]
+
+  full_shape_t full_shape({ full_dim_t::singleton(1) });
+
+  return tensor_t(full_shape, id, this);
 }
 
 graph_writer_t::tensor_t

@@ -133,6 +133,8 @@ struct graph_writer_t {
     tensor_t subset(vector<idx_t> const& idxs) const;
     tensor_t squeeze(int which_dim) const;
 
+    tensor_t sum_to_unit() const;
+
     // after this, the modes are 0,1,...,shape.full_rank()-1
     tensor_t physically_permute() const;
 
@@ -296,6 +298,10 @@ struct graph_writer_t {
     tensor_t const& inn);
   tensor_t broadcast(
     uint64_t sz,
+    tensor_t const& inn);
+
+  // 1ijk->1
+  tensor_t sum_to_unit(
     tensor_t const& inn);
 
 private:
