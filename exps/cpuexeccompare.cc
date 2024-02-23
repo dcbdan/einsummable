@@ -22,13 +22,13 @@ run(
   uint64_t mem_size;
   std::unique_ptr<server_base_t> server;
   if(which_server == "mg") {
-    // mem_size = args.get<uint64_t>("mem_size_mg");
+    mem_size = args.get<uint64_t>("mem_size_mg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_mg_server_t(communicator, 12800, num_threads));
+      new cpu_mg_server_t(communicator, mem_size, num_threads));
   } else if(which_server == "tg") {
-    // uint64_t mem_size = args.get<uint64_t>("mem_size_tg");
+    mem_size = args.get<uint64_t>("mem_size_tg");
     server = std::unique_ptr<server_base_t>(
-      new cpu_tg_server_t(communicator, 20000000, num_threads));
+      new cpu_tg_server_t(communicator, mem_size, num_threads));
   } else {
     throw std::runtime_error("invalid server arg");
   }
@@ -65,11 +65,19 @@ int main(int argc, char** argv) {
     graph_writer_t writer;
     auto X0 = writer.input({20,20});
     auto X1 = writer.input({20,20});
-    auto X2 = writer.input({20,20});
-    auto X3 = writer.input({20,20});
-    auto Y0 = writer.matmul(X0, X1);
-    auto Y1 = writer.matmul(X2, X3);
-    auto Z1 = writer.matmul(Y0, Y1).save();
+    // auto X2 = writer.input({20,20});
+    // auto X3 = writer.input({20,20});
+    auto Y0 = writer.matmul(X0, X1).save();
+    // auto Y1 = writer.matmul(X2, X3);
+    // auto Z1 = writer.matmul(Y0, Y1);
+    // scalarop_t scale = scalarop_t::make_scale(
+    //   scalar_t(dtype_t::f64, write_with_ss(
+    //     1.0 / (std::sqrt(double(1.0) * 32))
+    //   ))
+    // );
+    // auto Z1 = writer.matmul(Y0, Y1);
+    // auto scores = writer.ew(scale, Z1).save();
+  
 
     graph = writer.get_graph();
   }
@@ -82,7 +90,7 @@ int main(int argc, char** argv) {
 
     dbuffer_t d = make_dbuffer(dtype, product(shape));
     d.rnorm();
-    d.scale(scalar_t(dtype, "0.0001"));
+    d.scale(scalar_t(dtype, "0.01"));
     // d.iota();
     // d.scale(scalar_t(dtype, "0.0001"));
     // d.ones();
@@ -102,15 +110,15 @@ int main(int argc, char** argv) {
   } else {
     std::cout << "The maps are not equal." << std::endl;
   }
-  // DOUT("mg_tensor_results: ")
-  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  DOUT("mg_tensor_results: ")
+  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
   
-  // DOUT("tg_tensor_results: ")
-  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  DOUT("tg_tensor_results: ")
+  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
 }

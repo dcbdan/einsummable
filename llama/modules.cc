@@ -389,10 +389,11 @@ tensor_t attention_t::forward_test(
     batch_size, seqlen, n_heads, head_dim
   };
 
+
   xq = xq.view_full(full_xshape);
   xk = xk.view_full(full_xshape);
   xv = xv.view_full(full_xshape);
-  xv.save_inplace();
+  // xv.save_inplace();
 
   xq = apply_rotary_embedding(xq.to_f32(), freqs_cis).to_dtype(dtype);
   xk = apply_rotary_embedding(xk.to_f32(), freqs_cis).to_dtype(dtype);
@@ -403,7 +404,7 @@ tensor_t attention_t::forward_test(
   auto [keys, values] = next_kv.value();
   // batch_size, start_pos + seqlen, n_heads, head_dim
 
-  // values.save_inplace();
+   /* --------- correct before this ---------------*/
 
   xq = xq.transpose(1, 2);
   keys = keys.transpose(1, 2);
@@ -418,41 +419,40 @@ tensor_t attention_t::forward_test(
   tensor_t scores;
   scores = writer->matmul(xq, keys.transpose(2, 3));
   scores = writer->ew(scale, scores);
+  return scores;
 
-  /*not using mask for now*/
-  // if(mask) {
-  //   scores = writer->ew(
-  //     "abcd,cd->abcd",
-  //     scalarop_t::make_add(scores.get_dtype()),
-  //     scores,
-  //     mask.value());
+  // /*not using mask for now*/
+  // // if(mask) {
+  // //   scores = writer->ew(
+  // //     "abcd,cd->abcd",
+  // //     scalarop_t::make_add(scores.get_dtype()),
+  // //     scores,
+  // //     mask.value());
+  // // }
+
+  // // compute softmax with a minimum of 32 bits precision
+  // if(dtype == dtype_t::f16) {
+  //   scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+  // } else {
+  //   scores = writer->softmax(scores);
   // }
+  // // scores.save_inplace(); 
+  // // return scores;
 
-  // compute softmax with a minimum of 32 bits precision
-  if(dtype == dtype_t::f16) {
-    scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
-  } else {
-    scores = writer->softmax(scores);
-  }
-  scores.save_inplace(); 
-  // return scores;
+  // tensor_t output;
+  // output = writer->matmul(scores, values);
+  // // output.save_inplace();
+  // output = output.transpose(1, 2);
 
-  /* --------- correct before this ---------------*/
-
-  tensor_t output;
-  output = writer->matmul(scores, values);
-  output.save_inplace();
-  output = output.transpose(1, 2);
-
-  full_shape_t output_shape({
-    full_dim_t::singleton(batch_size),
-    full_dim_t::singleton(seqlen),
-    full_dim_t({n_heads, head_dim})
-  });
-  output = output.view(output_shape);
+  // full_shape_t output_shape({
+  //   full_dim_t::singleton(batch_size),
+  //   full_dim_t::singleton(seqlen),
+  //   full_dim_t({n_heads, head_dim})
+  // });
+  // output = output.view(output_shape);
   
 
-  return writer->matmul(output, wo.transpose(0,1));
+  // return writer->matmul(output, wo.transpose(0,1));
 }
 
 /* This function is called in attention::forward() 

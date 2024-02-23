@@ -397,7 +397,7 @@ int partial_attention_main(int argc, char** argv){
 
   attention_t attention = attention_t(&writer, "attention.", model_args, start_pos, std::nullopt);
   tensor_t score = attention.forward_test(embeddings, freqs_cis, std::nullopt);
-  // score.save_inplace();
+  score.save_inplace();
 
   graph = writer.get_graph();
 
@@ -446,12 +446,14 @@ int partial_attention_main(int argc, char** argv){
   DOUT("mg_tensor_results: ")
   for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
     auto buffer = iter->second;
+    DOUT(iter->first);
     DOUT(buffer);
   }
   
   DOUT("tg_tensor_results: ")
   for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
     auto buffer = iter->second;
+    DOUT(iter->first);
     DOUT(buffer);
   }
 
