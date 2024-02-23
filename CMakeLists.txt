@@ -173,7 +173,7 @@ if(${GPU_EXECUTION_ENGINE})
 
   # add ucx dependency
   # define UCX_PATH below
-  SET(UCX_PATH "/opt/ucx")
+  SET(UCX_PATH "/home/jiehui/new_proj")
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
@@ -200,8 +200,8 @@ if(${GPU_EXECUTION_ENGINE})
 
   add_library(cutensor SHARED IMPORTED)
   set_target_properties(cutensor PROPERTIES
-    IMPORTED_LOCATION "${CUTENSOR_ROOT}/lib/11.0/libcutensor.so"
-    INTERFACE_INCLUDE_DIRECTORIES "${CUTENSOR_ROOT}/include")
+    IMPORTED_LOCATION "/usr/lib/x86_64-linux-gnu/libcutensor/12/libcutensor.so"
+    INTERFACE_INCLUDE_DIRECTORIES "/usr/include")
 
   add_library(gpu_execution_engine
     STATIC
@@ -235,9 +235,9 @@ if(${GPU_EXECUTION_ENGINE})
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    /usr/local/cuda-11.0/lib64/libcudart.so
-    /usr/local/cuda-11.0/lib64/libcublasLt.so
-    /usr/local/cuda-11.0/lib64/libcublas.so
+    /usr/local/cuda-12.0/lib64/libcudart.so
+    /usr/local/cuda-12.0/lib64/libcublasLt.so
+    /usr/local/cuda-12.0/lib64/libcublas.so
     ucx::ucp ucx::ucs)
 
   endfunction()
@@ -247,5 +247,6 @@ if(${GPU_EXECUTION_ENGINE})
   # add_gpu_application("test_alignment"  "exps" "test_alignment")
 
   add_gpu_application("basicTest" "exps" "GPU_test")
+  add_gpu_application("gpuexec_kernelmanager"  "exps" "gpuexec_kernelmanager" )
   # add_gpu_application("ffTest" "exps" "GPU_ff_test")
 endif()

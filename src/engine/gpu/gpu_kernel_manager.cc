@@ -46,22 +46,27 @@ optional<workspace_info_t>
 kernel_manager_t::build(einsummable_t const& e_)
 {
   cudaSetDevice(device);
+  
   auto einsummable = e_.merge_adjacent_dims();
+
+  
 
   auto iter = kernels.find(einsummable);
   if(iter != kernels.end()) { 
     return workspace_size(iter->second);
   }
 
-  {
-    auto maybe_matmul = make_matmul(einsummable);
-    if(maybe_matmul) {
-      kernels.insert({einsummable, maybe_matmul.value()});
-      return workspace_info_t(0);
-    }
-  }
+  //{
+  //  auto maybe_matmul = make_matmul(einsummable);
+  //  if(maybe_matmul) {
+  //    kernels.insert({einsummable, maybe_matmul.value()});
+  //    return workspace_info_t(0);
+  //  }
+  //}
+  
 
   if(einsummable.is_contraction()) {
+    
     auto c = make_contraction(einsummable);
     kernels.insert({einsummable,c});
     return workspace_info_t(c.worksize);
@@ -86,16 +91,15 @@ kernel_manager_t::build(einsummable_t const& e_)
       auto out_shape = einsummable.out_shape();
 
       auto reduct = build_cutensor_reduction(
-        inn_modes, inn_shape,
-        out_modes, out_shape,
-        einsummable.castable.value(),
-        einsummable.inn_dtype(0));
+        einsummable,
+        einsummable.castable.value()
+        ); 
       
-      reduction_t reduct_kernel {reduct};
+      reduction_t reduct_kernel {reduct.second};
 
       kernels.insert({einsummable, reduct_kernel});
 
-      return workspace_info_t();
+      return workspace_info_t(reduct.first);
     }
 
     return std::nullopt;
@@ -117,6 +121,7 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(is_type_conversion(einsummable)){
+
     auto f = build_cutensor_type_conversion(einsummable);
 
     type_conversion_t conversion_kernel {f};
@@ -175,14 +180,19 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(c.worksize);
   }
 
+  //printf("whodont'know!");
+  
 
   auto maybe = make_cutensor_elementwise_op(einsummable); 
+  
 
   if(maybe&&einsummable.out_dtype()!=dtype_t::c64){
 
     cutensor_elementwise_op_t op = *maybe;
+    
 
     auto func = build_cutensor_elementwise(op);
+
 
     elementwise_t elementwise_kernel {func};
 
@@ -282,7 +292,13 @@ void kernel_manager_t::call(
   } else if(holds_alternative<contraction_t>(kernel)) {
     assert_num_inputs(2);
 
+    //auto c = get<contraction_t>(kernel);
     auto const& c = get<contraction_t>(kernel);
+
+    //cutensorPlan_t plan = c.plan;
+    //dtype_t dtype_c = c.dtype;
+    //uint64_t worksize_c = c.worksize;
+
 
     void* workspace = nullptr;
     uint64_t wsz = 0;
@@ -294,11 +310,12 @@ void kernel_manager_t::call(
         throw std::runtime_error("workspace required; none given");
       }
     }
-    // std::cout << "Calling contraction" << std::endl;
+    //std::cout << "Calling contraction" << std::endl;
     execute_contraction(
       c, stream,
       out, inns[0], inns[1],
       workspace, wsz);
+
   } else if(holds_alternative<reduction_t>(kernel)) {
     assert_num_inputs(1);
 
@@ -411,6 +428,23 @@ kernel_manager_t::make_matmul(einsummable_t const& e)
   return std::nullopt;
 }
 
+cutensorComputeDescriptor_t dtype_to_contraction_computetype(dtype_t type){
+  if(type == dtype_t::f16){
+    return CUTENSOR_COMPUTE_DESC_32F;
+  }
+  else if(type == dtype_t::f32){
+    return CUTENSOR_COMPUTE_DESC_32F;
+  }
+  else if(type == dtype_t::f64){
+    return CUTENSOR_COMPUTE_DESC_64F;
+  }
+  else if(type == dtype_t::c64){
+    return CUTENSOR_COMPUTE_DESC_32F;
+  }
+ 
+  return CUTENSOR_COMPUTE_DESC_32F;
+}
+
 kernel_manager_t::contraction_t
 kernel_manager_t::make_contraction(einsummable_t const& einsummable)
 {
@@ -432,9 +466,9 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
   dtype_t type = e.inn_dtype(0);
-  cudaDataType_t typeTensor = dtype_to_cudatype(type);
+  cutensorDataType_t typeTensor = dtype_to_cudatype(type);
 
-  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
+  const cutensorComputeDescriptor_t typeCompute = dtype_to_computetype(type);
   
   vector<int64_t> extent_A;
   for(auto const& mode: modeA) {
@@ -450,76 +484,95 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
     extent_C.push_back(e.join_shape[mode]);
   }
 
+  const uint32_t kAlignment = 128;
+   
+
   // Set up Tensor Descriptors for A, B, and C
   handle_cutensor_error(
-    cutensorInitTensorDescriptor(
+    cutensorCreateTensorDescriptor(
       cutensor_handle,
       &c.descA,
       nmodeA,
       extent_A.data(),
       NULL,/*stride*/
-      typeTensor, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, kAlignment ) );
 
   cutensorTensorDescriptor_t descB;
   handle_cutensor_error(
-    cutensorInitTensorDescriptor(
+    cutensorCreateTensorDescriptor(
       cutensor_handle,
       &c.descB,
       nmodeB,
       extent_B.data(),
       NULL,/*stride*/
-      typeTensor, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, kAlignment ) );
 
   cutensorTensorDescriptor_t descC;
   handle_cutensor_error(
-    cutensorInitTensorDescriptor(
+    cutensorCreateTensorDescriptor(
       cutensor_handle,
-      &c.descC,
+      &descC,
       nmodeC,
       extent_C.data(),
       NULL,/*stride*/
-      typeTensor, CUTENSOR_OP_IDENTITY ) );
+      typeTensor, kAlignment ));
 
-  // get the memory pointers to the tensors
-  uint32_t alignmentRequirementA = 16;
-  uint32_t alignmentRequirementB = 16;
-  uint32_t alignmentRequirementC = 16;
 
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D
   handle_cutensor_error(
-    cutensorInitContractionDescriptor(
+    cutensorCreateContraction(
       cutensor_handle,
       &c.desc,
-      &c.descA, modeA.data(), alignmentRequirementA,
-      &c.descB, modeB.data(), alignmentRequirementB,
-      &c.descC, modeC.data(), alignmentRequirementC,
-      &c.descC, modeC.data(), alignmentRequirementC,
+      c.descA, modeA.data(), CUTENSOR_OP_IDENTITY,
+      c.descB, modeB.data(), CUTENSOR_OP_IDENTITY,
+      descC, modeC.data(), CUTENSOR_OP_IDENTITY,
+      descC, modeC.data(),
       typeCompute) );
 
-  handle_cutensor_error(cutensorInitContractionFind(
-    cutensor_handle, 
-    &c.find,
-    CUTENSOR_ALGO_DEFAULT));
-
-  c.worksize = 0;
   
-  handle_cutensor_error(cutensorContractionGetWorkspaceSize(
-     cutensor_handle,
-     &c.desc,
-     &c.find,
-     CUTENSOR_WORKSPACE_RECOMMENDED,
-     &c.worksize));
+  
+  const cutensorAlgo_t algo = CUTENSOR_ALGO_TTGT;
 
-  handle_cutensor_error(cutensorInitContractionPlan(
-      cutensor_handle,
+  cutensorPlanPreference_t planPref;
+  handle_cutensor_error(
+    cutensorCreatePlanPreference(
+    cutensor_handle,
+    &planPref,
+    algo,
+    CUTENSOR_JIT_MODE_NONE));
+  
+  uint64_t workspaceSizeEstimate = 0;
+  const cutensorWorksizePreference_t workspacePref = CUTENSOR_WORKSPACE_DEFAULT;
+  handle_cutensor_error(
+    cutensorEstimateWorkspaceSize(cutensor_handle,
+    c.desc,
+    planPref,
+    workspacePref,
+    &workspaceSizeEstimate));
+
+  
+  handle_cutensor_error(
+    cutensorCreatePlan(cutensor_handle,
       &c.plan,
-      &c.desc,
-      &c.find,
-      c.worksize));
+      c.desc,
+      planPref,
+      workspaceSizeEstimate));
+  
+  
+  uint64_t actualWorkspaceSize = 0;
+  handle_cutensor_error(
+    cutensorPlanGetAttribute(cutensor_handle,
+      c.plan,
+      CUTENSOR_PLAN_REQUIRED_WORKSPACE,
+      &actualWorkspaceSize,
+      sizeof(actualWorkspaceSize)));
+  
+  c.worksize = actualWorkspaceSize;
 
-  return c;
+
+  return c; 
 }
 
 void kernel_manager_t::execute_matmul(
@@ -606,13 +659,13 @@ void kernel_manager_t::execute_matmul(
 }
 
 void kernel_manager_t::execute_contraction(
-  kernel_manager_t::contraction_t const& c,
-  cudaStream_t stream,
-  void* out,
-  void const* lhs,
-  void const* rhs,
-  void* work,
-  uint64_t given_worksize) const
+    contraction_t const c,
+    cudaStream_t stream,
+    void* out,
+    void const* lhs,
+    void const* rhs,
+    void* work,
+    uint64_t given_worksize) const
 {
   //// TODO: remove
   //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
@@ -626,15 +679,15 @@ void kernel_manager_t::execute_contraction(
   }
 
   void const* one_ptr  = 
-    c.dtype == dtype_t::f16 ? get_one_ptr( dtype_t::f32) : get_one_ptr( c.dtype);
+    c.dtype == dtype_t::f16 ? get_one_ptr( dtype_t::f32) : get_one_ptr(c.dtype);
   void const* zero_ptr = 
     c.dtype == dtype_t::f16 ? get_zero_ptr(dtype_t::f32) : get_zero_ptr(c.dtype);
 
-  // std::cout << "Calling cutensor contraction" << std::endl;
+  //std::cout << "Calling cutensor contraction" << std::endl;
   handle_cutensor_error(
-    cutensorContraction(
+    cutensorContract(
       cutensor_handle, 
-      &c.plan,              // TODO: c can change locations, can cutensorContrcation
+      c.plan,              // TODO: c can change locations, can cutensorContrcation
                             //       is async... this might be nitpicky
       one_ptr,   // alpha
       lhs, rhs,  // A,B

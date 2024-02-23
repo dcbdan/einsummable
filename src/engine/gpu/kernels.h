@@ -15,11 +15,11 @@ using touch_kernel_t = std::function<
     void(cudaStream_t, void*, void const*)
   >;
 using cutensor_kernel_t = std::function<
-    void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>, void*, uint64_t)
+    void(cudaStream_t, cutensorHandle_t const, void*, vector<void const*>, void*, uint64_t)
   >;
 
 using cutensor_elementwise_kernel_t = std::function<
-  void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>)
+  void(cudaStream_t, cutensorHandle_t const, void*, vector<void const*>)
 >;
 
 using cuda_kernel_t = std::function<
@@ -31,7 +31,7 @@ using void_cuda_kernel_t = std::function<
 >;
 
 //using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
-
+ 
 
 touch_kernel_t build_touch(touch_t const& touch);
 
@@ -40,17 +40,19 @@ touch_kernel_t build_touch(touch_t const& touch);
 // exists.
 //cutensor_kernel_t
 //build_einsummable(einsummable_t const& einsummable);
+ 
 
-cutensor_kernel_t
+
+std::pair<uint64_t,cutensor_kernel_t>
 build_cutensor_reduction(
-  vector<int> inn_modes, vector<uint64_t> inn_shape,
-  vector<int> out_modes, vector<uint64_t> out_shape,
-  castable_t castable,dtype_t type);
+  einsummable_t const& einsummable,
+  castable_t castable);
+
 
 uint64_t reduction_worksize(
   einsummable_t einsummable, void* out,
   vector<void const*> inns,
-  cutensorHandle_t const* handle);
+  cutensorHandle_t const handle);
 
 struct cutensor_elementwise_op_t {
   struct arg_t {
@@ -122,7 +124,7 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size);
 cutensor_elementwise_op_t make_mul_op(
   einsummable_t const& e);
 
-cudaDataType_t dtype_to_cudatype(dtype_t type);
+cutensorDataType_t dtype_to_cudatype(dtype_t type);
 
-cutensorComputeType_t dtype_to_computetype(dtype_t type);
+cutensorComputeDescriptor_t dtype_to_computetype(dtype_t type);
 

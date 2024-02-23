@@ -51,24 +51,35 @@ private:
   struct contraction_t {
     cutensorTensorDescriptor_t descA;
     cutensorTensorDescriptor_t descB;
-    cutensorTensorDescriptor_t descC;
-    cutensorContractionDescriptor_t desc;
-    cutensorContractionFind_t find;
-    cutensorContractionPlan_t plan;
+    cutensorTensorDescriptor_t descC = nullptr;
+    cutensorOperationDescriptor_t desc;
+    cutensorPlan_t plan;
     dtype_t dtype;
     uint64_t worksize;
   };
 
   contraction_t make_contraction(einsummable_t const& e);
 
+  /*void execute_contraction(
+    cutensorPlan_t plan,
+    cudaStream_t stream,
+    void* out,
+    void const* lhs,
+    void const* rhs,
+    void* work,
+    uint64_t given_worksize,
+    dtype_t dtype,
+    uint64_t worksize) const;*/
+  
   void execute_contraction(
-    contraction_t const& c,
+    contraction_t const c,
     cudaStream_t stream,
     void* out,
     void const* lhs,
     void const* rhs,
     void* work,
     uint64_t given_worksize) const;
+
 
   struct reduction_t{
     cutensor_kernel_t kernel;
@@ -82,7 +93,7 @@ private:
   struct scale_t{
     float scale;
     cuda_kernel_t kernel;
-  };
+  }; 
 
   struct pow_and_elementwise_t{
     cutensor_kernel_t kernel;
@@ -164,7 +175,7 @@ private:
   static tuple<float, float> get_increment_scale(einsummable_t e);
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
-  cutensorHandle_t* cutensor_handle;
+  cutensorHandle_t cutensor_handle;
   cublasHandle_t cublas_handle; 
 
   float16_t           one_half;

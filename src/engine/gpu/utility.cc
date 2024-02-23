@@ -59,6 +59,7 @@ void init_value(float *ptr, int count, float value) {
 
 void checkAlignment(cutensorHandle_t *handle, float *ptr,
                     cutensorTensorDescriptor_t desc) {
+  /*
   uint32_t alignmentRequirement;
   handle_cutensor_error(
     cutensorGetAlignmentRequirement(
@@ -69,7 +70,7 @@ void checkAlignment(cutensorHandle_t *handle, float *ptr,
     // print the alignment requirement
     std::cout << "*** Alignment requirement mismatch; alignment: "
               << alignmentRequirement << std::endl;
-  }
+  }*/
 }
 
 void handle_cutensor_error(cutensorStatus_t error, string msg) {
