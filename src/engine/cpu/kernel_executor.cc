@@ -904,6 +904,7 @@ _unary_ew_loop(u33,float16_t,float16_t,_pow(x0[i0],(*((double*)(d+0)))))
 _unary_ew_loop(u34,float16_t,float16_t,((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2))))))
 _unary_ew_loop(u35,float,float16_t,((*((float*)(d+0)))*float(x0[i0])))
 _unary_ew_loop(u36,float,float,_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8)))))
+_unary_ew_loop(u37,float,float,((*((float*)(d+0)))*((*((float*)(d+4)))*x0[i0])))
 
 _binary_ew_loop(b0,c0,d0,float,float,float,_pow((x0[i0]+((*((float*)(d+0)))*x1[i1])),(*((double*)(d+4)))))
 _binary_ew_loop(b1,c1,d1,float,float,float,((*((float*)(d+0)))*(x0[i0]+((*((float*)(d+4)))*x1[i1]))))
@@ -1016,7 +1017,8 @@ lookup_unary_straight_ew_kernel(scalarop_t op)
     { "f16->f16|_pow(x0[i0],(*((double*)(d+0))))", u33 },
     { "f16->f16|((*((float16_t*)(d+0)))+_pow(x0[i0],(*((double*)(d+2)))))", u34 },
     { "f16->f32|((*((float*)(d+0)))*float(x0[i0]))", u35 },
-    { "f32->f32|_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8))))", u36 }
+    { "f32->f32|_pow(((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0]))),(*((double*)(d+8))))", u36 },
+    { "f32->f32|((*((float*)(d+0)))*((*((float*)(d+4)))*x0[i0]))", u37 }
   };
 
   auto iter = kernels.find(key);

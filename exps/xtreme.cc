@@ -282,7 +282,7 @@ struct model_t {
   vector<rms_norm_t> norms;
 };
 
-tensor_t mse(graph_writer_t& writer, tensor_t sampling, tensor_t x, tensor_t y)
+tensor_t compute_mse(graph_writer_t& writer, tensor_t sampling, tensor_t x, tensor_t y)
 {
   scalarop_t difference = scalarop_t::combine(
     scalarop_t::make_square(),
@@ -310,6 +310,8 @@ struct xtreme_t {
     int inn_data;
     int out_data;
     int sampling;
+    int mse;
+    int regular;
     int loss;
     vector<int> ff_weights;
     vector<int> norm_weights;
@@ -369,6 +371,7 @@ struct xtreme_t {
   xtreme_t make(
     uint64_t batch_train,
     uint64_t batch_validate,
+    float regularize_scale,
     model_config_t const& model_config,
     updater_desc_t const& updater_desc,
     autoplace_config_t const& autoplace_config);
@@ -376,6 +379,7 @@ struct xtreme_t {
   static
   train_t make_train_info(
     uint64_t batch,
+    float regularize_scale,
     model_config_t const& model_config,
     updater_desc_t const& updater_desc,
     autoplace_config_t const& autoplace_config);
@@ -407,6 +411,7 @@ map<int, relation_t> make_rels(
 
 xtreme_t::train_t xtreme_t::make_train_info(
   uint64_t batch,
+  float lambda,
   model_config_t const& model_config,
   updater_desc_t const& updater_desc,
   autoplace_config_t const& autoplace_config)
@@ -421,11 +426,26 @@ xtreme_t::train_t xtreme_t::make_train_info(
   tensor_t sampling = writer.input(vector<uint64_t>{model_config.num_labels});
   sampling.save_inplace();
 
-  tensor_t loss = mse(writer, sampling, out_data, predictions);
+  tensor_t mse = compute_mse(writer, sampling, out_data, predictions);
+  mse = mse.sum_to_unit();
+  mse.save_inplace();
+
+  // Add a weight regularization term
+  vector<tensor_t> ff_weights = model.get_ff_weights();
+  auto square = scalarop_t::make_square(ff_weights[0].get_dtype());
+  tensor_t regular = writer.ew(square, ff_weights[0]).sum_to_unit();
+  for(int i = 1; i != ff_weights.size(); ++i) {
+    tensor_t t = writer.ew(square, ff_weights[i]).sum_to_unit();
+    regular = writer.add(regular, t);
+  }
+  regular = regular.scale(scalar_t(lambda).convert(default_dtype()));
+  regular.save_inplace();
+
+  tensor_t loss = writer.add(mse, regular);
   loss.save_inplace();
 
   vector<tensor_t> weights = vector_concatenate(
-    model.get_ff_weights(), model.get_norm_weights());
+    ff_weights, model.get_norm_weights());
   vector<tensor_t> grads = writer.backprop(loss, weights);
 
   for(auto& grad: grads) {
@@ -437,8 +457,10 @@ xtreme_t::train_t xtreme_t::make_train_info(
     .inn_data = inn_data.get_id(),
     .out_data = out_data.get_id(),
     .sampling = sampling.get_id(),
+    .mse = mse.get_id(),
+    .regular = regular.get_id(),
     .loss = loss.get_id(),
-    .ff_weights = vector_from_each_method(model.get_ff_weights(), int, get_id),
+    .ff_weights = vector_from_each_method(ff_weights, int, get_id),
     .norm_weights = vector_from_each_method(model.get_norm_weights(), int, get_id),
     .grads   = vector_from_each_method(grads, int, get_id)
   };
@@ -520,11 +542,13 @@ xtreme_t::validate_t xtreme_t::make_validate_info(
 xtreme_t xtreme_t::make(
   uint64_t batch_train,
   uint64_t batch_validate,
+  float regularize_scale,
   model_config_t const& model_config,
   updater_desc_t const& updater_desc,
   autoplace_config_t const& autoplace_config)
 {
-  auto train = make_train_info(batch_train, model_config, updater_desc, autoplace_config);
+  auto train = make_train_info(
+    batch_train, regularize_scale, model_config, updater_desc, autoplace_config);
 
   vector<tuple<int, vector<uint64_t>, dtype_t>> state_shapes;
   for(auto const& [train_id, _]: train.init_fills) {
@@ -966,14 +990,14 @@ void main_rank_zero(
     .dim_hidden   = vector<uint64_t>(num_hidden, dim_hidden)
   };
 
-  updater_desc_t updater_desc {
-    .dtype = default_dtype(),
-    .t = updater_desc_t::adamw_t { .min_precision = default_dtype() }
-  };
   //updater_desc_t updater_desc {
   //  .dtype = default_dtype(),
-  //  .t = updater_desc_t::vanilla_t { }
+  //  .t = updater_desc_t::adamw_t { .min_precision = default_dtype() }
   //};
+  updater_desc_t updater_desc {
+    .dtype = default_dtype(),
+    .t = updater_desc_t::vanilla_t { }
+  };
 
   scalar_t _lr(default_dtype(), write_with_ss(args.get<float>("learning_rate")));
   map<string, scalar_t> scalar_vars {
@@ -990,12 +1014,27 @@ void main_rank_zero(
   uint64_t batch_train    = args.get<uint64_t>("batch_train");
   uint64_t batch_validate = args.get<uint64_t>("batch_validate");
 
+  float regularize_scale = args.get<float>("regularize_scale");
+
   xtreme_t info = xtreme_t::make(
     batch_train,
     batch_validate,
+    regularize_scale,
     model_config,
     updater_desc,
     autoplace_config);
+
+  // TODO: remove
+  // {
+  //   std::ofstream f("g.gv");
+  //   info.train.graph.print_graphviz(f);
+  //   DOUT("printed g.gv");
+
+  //   DOUT("mse id is " << info.train.mse);
+  //   DOUT("reg id is " << info.train.regular);
+  //   DOUT("los id is " << info.train.loss);
+  //   DOUT("info.train.grads " << info.train.grads);
+  // }
 
   {
     args.set_default<double>("alpha", 0.5);
@@ -1056,6 +1095,10 @@ void main_rank_zero(
         info.train.out_rels,
         scalar_vars);
 
+      double mse = server->get_tensor_from_gid(info.train.mse).sum_to_f64();
+      DOUT("mse:  " << mse);
+      double regu = server->get_tensor_from_gid(info.train.regular).sum_to_f64();
+      DOUT("regu: " << regu);
       double loss = server->get_tensor_from_gid(info.train.loss).sum_to_f64();
       DOUT("loss: " << loss);
 
@@ -1072,6 +1115,14 @@ void main_rank_zero(
       }
 
       server->remap_gids(info.train.next_iter_remap);
+
+      for(auto const& gid: info.train.ff_weights) {
+        auto tensor = server->get_tensor_from_gid(gid);
+        double mn = tensor.min().convert(dtype_t::f64).f64();
+        double mx = tensor.max().convert(dtype_t::f64).f64();
+        auto shape = info.train.graph.nodes[gid].op.out_shape();
+        DOUT("ff " << gid << ": [" << mn << "," << mx << "]  " << shape);
+      }
     }
 
     server->remap_gids(info.remap_to_validate());
