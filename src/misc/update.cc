@@ -1,25 +1,21 @@
 #include "update.h"
 
 static
-einsummable_t
-vanilla_make_einsummable(
-  dtype_t dtype,
-  vector<uint64_t> const& shape)
+int graph_insert_einsummable_ew(
+  graph_t& graph,
+  scalarop_t join,
+  vector<int> const& inns)
 {
-  scalarop_t grad_update = scalarop_t::combine(
-    scalarop_t::make_sub(),
-    {
-      scalarop_t::make_identity(dtype),
-      scalarop_t::make_scale("learning_rate", dtype)
-    }
-  );
-
+  vector<uint64_t> shape = graph.out_shape(inns[0]);
   int rank = shape.size();
-  return einsummable_t(
+
+  einsummable_t e(
     shape,
-    { vector_iota<int>(rank), vector_iota<int>(rank) },
+    vector<vector<int>>(inns.size(), vector_iota<int>(rank)),
     rank,
-    grad_update);
+    join);
+
+  return graph.insert_einsummable(e, inns);
 }
 
 static
@@ -31,14 +27,56 @@ vanilla_update_weights(
   vector<int> const& weight_ids,
   vector<int> const& grad_ids)
 {
+  scalarop_t grad_update = scalarop_t::combine(
+    scalarop_t::make_sub(),
+    {
+      scalarop_t::make_identity(dtype),
+      scalarop_t::make_scale("learning_rate", dtype)
+    }
+  );
+
   ret.reserve(ret.size() + weight_ids.size());
   for(auto [weight, grad]: vector_zip(weight_ids, grad_ids)) {
-    einsummable_t e = vanilla_make_einsummable(dtype, graph.out_shape(weight));
-    int updated_weight = graph.insert_einsummable(e, {weight, grad});
+    int updated_weight = graph_insert_einsummable_ew(graph, grad_update, {weight, grad});
     ret.emplace_back(weight, updated_weight);
   }
 
   return {};
+}
+
+static
+vector<tuple<int, fill_t>>
+momentum_update_weights(
+  dtype_t dtype,
+  graph_t& graph,
+  vector<tuple<int, int>>& ret,
+  vector<int> const& weight_ids,
+  vector<int> const& grad_ids)
+{
+  scalarop_t update_v = scalarop_t::combine(
+    scalarop_t::make_sub(dtype), 
+    {
+      scalarop_t::make_scale("eta",           dtype),
+      scalarop_t::make_scale("learning_rate", dtype)
+    });
+
+  scalarop_t add = scalarop_t::make_add(dtype);
+
+  vector<tuple<int, fill_t>> inits;
+  ret.reserve(ret.size() + 2*weight_ids.size());
+  for(auto [w_id, g_id]: vector_zip(weight_ids, grad_ids)) {
+    auto shape = graph.out_shape(w_id);
+    int v_id = graph.insert_input(shape, dtype);    
+    inits.emplace_back(v_id, fill_t::make_constant(scalar_t::zero(dtype), shape));
+
+    int v_new = graph_insert_einsummable_ew(graph, update_v, {v_id, g_id});
+    int w_new = graph_insert_einsummable_ew(graph, add,      {w_id, v_new});
+
+    ret.emplace_back(v_id, v_new);
+    ret.emplace_back(w_id, w_new);
+  }
+
+  return inits;
 }
 
 static
@@ -48,6 +86,16 @@ void vanilla_update_vars(
 {
   // put a default learning rate if none is already in vars
   vars.insert({"learning_rate", scalar_t(dtype, "1e-3")});
+}
+
+static
+void momentum_update_vars(
+  dtype_t dtype,
+  map<string, scalar_t>& vars)
+{
+  // put a default learning rate if none is already in vars
+  vars.insert({"learning_rate", scalar_t(dtype, "1e-3")});
+  vars.insert({"eta",           scalar_t(dtype, "0.9")});
 }
 
 static
@@ -79,24 +127,6 @@ void adamw_update_vars(
 
   auto& eta = vars["eta"];
   eta = eta.convert(min_precision);
-}
-
-static
-int adamw_insert_einsummable_ew(
-  graph_t& graph,
-  scalarop_t join,
-  vector<int> const& inns)
-{
-  vector<uint64_t> shape = graph.out_shape(inns[0]);
-  int rank = shape.size();
-
-  einsummable_t e(
-    shape,
-    vector<vector<int>>(inns.size(), vector_iota<int>(rank)),
-    rank,
-    join);
-
-  return graph.insert_einsummable(e, inns);
 }
 
 static
@@ -180,16 +210,16 @@ adamw_update_weights(
     int const& m_id = m_ids[i];
     int const& v_id = v_ids[i];
 
-    int m_new = adamw_insert_einsummable_ew(graph, beta1_portion, {m_id, g_id});
-    int v_new = adamw_insert_einsummable_ew(graph, beta2_portion, {v_id, g_id});
+    int m_new = graph_insert_einsummable_ew(graph, beta1_portion, {m_id, g_id});
+    int v_new = graph_insert_einsummable_ew(graph, beta2_portion, {v_id, g_id});
 
-    int mm = adamw_insert_einsummable_ew(graph, beta1t_scale, { m_new });
-    int vv = adamw_insert_einsummable_ew(graph, beta2t_scale, { v_new });
-    vv = adamw_insert_einsummable_ew(graph, sqrt_plus_eps, { vv });
+    int mm = graph_insert_einsummable_ew(graph, beta1t_scale, { m_new });
+    int vv = graph_insert_einsummable_ew(graph, beta2t_scale, { v_new });
+    vv = graph_insert_einsummable_ew(graph, sqrt_plus_eps, { vv });
 
-    int xx = adamw_insert_einsummable_ew(graph, scalarop_t::make_div(min_precision), {mm, vv});
+    int xx = graph_insert_einsummable_ew(graph, scalarop_t::make_div(min_precision), {mm, vv});
 
-    int w_new = adamw_insert_einsummable_ew(graph, grad_update, {w_id, xx});
+    int w_new = graph_insert_einsummable_ew(graph, grad_update, {w_id, xx});
 
     ret.emplace_back(m_id, m_new);
     ret.emplace_back(v_id, v_new);
@@ -227,6 +257,8 @@ update_weights(
     return adamw_update_weights(
       t.dtype, a.min_precision,
       graph, old_news, weight_ids, grad_ids);
+  } else if(t.is_momentum()) {
+    return momentum_update_weights(t.dtype, graph, old_news, weight_ids, grad_ids);
   } else {
     throw std::runtime_error("update_weights invalid desc");
   }
@@ -242,6 +274,8 @@ void update_vars(
   } else if(t.is_adamw()) {
     auto const& a = t.get_adamw();
     return adamw_update_vars(t.dtype, a.min_precision, iter, vars);
+  } else if(t.is_momentum()) {
+    return momentum_update_vars(t.dtype, vars);
   } else {
     throw std::runtime_error("update_weights invalid desc");
   }
