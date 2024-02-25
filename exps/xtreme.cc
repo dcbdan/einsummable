@@ -1065,20 +1065,25 @@ void main_rank_zero(
     .dim_hidden   = vector<uint64_t>(num_hidden, dim_hidden)
   };
 
-  //updater_desc_t updater_desc {
-  //  .dtype = default_dtype(),
-  //  .t = updater_desc_t::adamw_t { .min_precision = default_dtype() }
-  //};
-  updater_desc_t updater_desc {
-    .dtype = default_dtype(),
-    .t = updater_desc_t::vanilla_t { }
-  };
+  args.set_default<bool>("use_momentum", true);
+  bool use_momentum = args.get<bool>("use_momentum");
 
+  updater_desc_t updater_desc = use_momentum ? 
+    updater_desc_t {
+      .dtype = default_dtype(),
+      .t = updater_desc_t::momentum_t {}
+    }                                        :
+    updater_desc_t {
+      .dtype = default_dtype(),
+      .t = updater_desc_t::vanilla_t { }
+    }                                        ;
+
+  args.set_default<float>("eta", 0.5);
   scalar_t _lr(default_dtype(), write_with_ss(args.get<float>("learning_rate")));
+  scalar_t _eta(default_dtype(), write_with_ss(args.get<float>("eta")));
+
   map<string, scalar_t> scalar_vars {
-    { "beta1", scalar_t(default_dtype(), "0.9") },
-    { "beta2", scalar_t(default_dtype(), "0.999") },
-    { "eta", _lr },
+    { "eta", _eta },
     { "learning_rate", _lr },
   };
 
