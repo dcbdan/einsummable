@@ -230,6 +230,35 @@ struct ff_t {
   tensor_t weight;
 };
 
+struct sigmoid_out_t {
+  sigmoid_out_t() {}
+
+  sigmoid_out_t(
+    graph_writer_t& w,
+    uint64_t d_inn,
+    uint64_t d_out)
+    : writer(&w), sigmoid(scalarop_t::make_sigmoid())
+  {
+    weight = writer->input({d_inn, d_out});
+    mean_logits = writer->input(vector<uint64_t>{d_out});
+    
+    // TODO: mean_logits should be passed in and saved by the user
+    //       if they want it saved
+  }
+
+  tensor_t forward(tensor_t x) {
+    x = writer->matmul(x, weight);
+    x = writer->ew("bj,j->bj", scalarop_t::make_add(), x, mean_logits);
+    x = writer->ew(sigmoid, x);
+    return x;
+  }
+ 
+  graph_writer_t* writer;
+  scalarop_t sigmoid;
+  tensor_t weight;
+  tensor_t mean_logits;
+};
+
 struct model_config_t {
   uint64_t num_features;
   uint64_t num_labels;
@@ -246,40 +275,47 @@ struct model_t {
     szs.push_back(config.num_labels);
 
     vector<scalarop_t> scalarops(szs.size() - 1, scalarop_t::make_silu());
-    scalarops.back() = scalarop_t::make_sigmoid();
 
-    for(int i = 0; i != scalarops.size(); ++i) {
+    int nszs = szs.size();
+    for(int i = 0; i != nszs - 2; ++i) {
       ffs.emplace_back(writer, szs[i], szs[i+1], scalarops[i]);
-      if(i + 1 != scalarops.size()) {
-        norms.emplace_back(writer, szs[i+1]);
-      }
+      norms.emplace_back(writer, szs[i+1]);
     }
+
+    out_layer = sigmoid_out_t(writer, szs[nszs-2], szs[nszs-1]);
   }
 
   tensor_t forward(tensor_t data)
   {
     tensor_t x = data;
-    for(int i = 0; i != norms.size(); ++i) {
+    for(int i = 0; i != ffs.size(); ++i) {
       auto& ff   = ffs[i];
       auto& norm = norms[i];
       x = norm.forward(ff.forward(x));
     }
-    auto last_ff = ffs.back();
-    x = last_ff.forward(x);
+    x = out_layer.forward(x);
     return x;
   }
 
   vector<tensor_t> get_ff_weights() const {
-    return vector_from_each_member(ffs, tensor_t, weight);
+    auto ret = vector_from_each_member(ffs, tensor_t, weight);
+    ret.push_back(out_layer.weight);
+    return ret;
   }
   vector<tensor_t> get_norm_weights() const {
     return vector_from_each_member(norms, tensor_t, weight);
   }
+  tensor_t get_mean_logits() const {
+    return out_layer.mean_logits;
+  }
 
   graph_writer_t& writer;
 
+  tensor_t mean_logits;
+
   vector<ff_t> ffs;
   vector<rms_norm_t> norms;
+  sigmoid_out_t out_layer;
 };
 
 tensor_t compute_mse(graph_writer_t& writer, tensor_t sampling, tensor_t x, tensor_t y)
@@ -310,6 +346,7 @@ struct xtreme_t {
     int inn_data;
     int out_data;
     int sampling;
+    int mean_logits;
     int mse;
     int regular;
     int loss;
@@ -388,6 +425,7 @@ struct xtreme_t {
   validate_t make_validate_info(
     uint64_t batch,
     vector<tuple<int, vector<uint64_t>, dtype_t>> const& constants,
+    int train_mean_logits,
     model_config_t const& model_config,
     autoplace_config_t const& autoplace_config);
 };
@@ -419,6 +457,9 @@ xtreme_t::train_t xtreme_t::make_train_info(
   graph_writer_t writer;
   model_t model(writer, model_config);
 
+  tensor_t mean_logits = model.get_mean_logits();
+  mean_logits.save_inplace();
+
   tensor_t inn_data = writer.input({batch, model_config.num_features});
   tensor_t predictions = model.forward(inn_data);
   tensor_t out_data = writer.input({batch, model_config.num_labels});
@@ -434,10 +475,14 @@ xtreme_t::train_t xtreme_t::make_train_info(
   vector<tensor_t> ff_weights = model.get_ff_weights();
   auto square = scalarop_t::make_square(ff_weights[0].get_dtype());
   tensor_t regular = writer.ew(square, ff_weights[0]).sum_to_unit();
+  uint64_t nffelem = 0;
   for(int i = 1; i != ff_weights.size(); ++i) {
     tensor_t t = writer.ew(square, ff_weights[i]).sum_to_unit();
     regular = writer.add(regular, t);
+    nffelem += product(ff_weights[i].get_shape()());
   }
+  lambda *= 1.0e5;
+  lambda /= double(nffelem);
   regular = regular.scale(scalar_t(lambda).convert(default_dtype()));
   regular.save_inplace();
 
@@ -457,6 +502,7 @@ xtreme_t::train_t xtreme_t::make_train_info(
     .inn_data = inn_data.get_id(),
     .out_data = out_data.get_id(),
     .sampling = sampling.get_id(),
+    .mean_logits = mean_logits.get_id(),
     .mse = mse.get_id(),
     .regular = regular.get_id(),
     .loss = loss.get_id(),
@@ -479,7 +525,8 @@ xtreme_t::train_t xtreme_t::make_train_info(
   // (1) weights
   // (2) states added by the updater
   ret.next_iter_remap.emplace_back(sampling.get_id(), sampling.get_id());
-  // Now also make sure to include sampling so that it won't get deleted
+  ret.next_iter_remap.emplace_back(mean_logits.get_id(), mean_logits.get_id());
+  // Now also make sure to include sampling, mean_logits so that it won't get deleted
 
   auto pls = autoplace01(ret.graph, autoplace_config);
 
@@ -495,11 +542,15 @@ xtreme_t::train_t xtreme_t::make_train_info(
 xtreme_t::validate_t xtreme_t::make_validate_info(
   uint64_t batch,
   vector<tuple<int, vector<uint64_t>, dtype_t>> const& constants,
+  int train_mean_logits,
   model_config_t const& model_config,
   autoplace_config_t const& autoplace_config)
 {
   graph_writer_t writer;
   model_t model(writer, model_config);
+
+  tensor_t mean_logits = model.get_mean_logits();
+  mean_logits.save_inplace();
 
   tensor_t inn_data = writer.input({batch, model_config.num_features});
   tensor_t predictions = model.forward(inn_data);
@@ -518,6 +569,7 @@ xtreme_t::validate_t xtreme_t::make_validate_info(
     t.save_inplace();
     constant_ids.emplace_back(train_id, t.get_id());
   }
+  constant_ids.emplace_back(train_mean_logits, mean_logits.get_id());
 
   xtreme_t::validate_t ret {
     .graph = writer.get_graph(),
@@ -568,7 +620,7 @@ xtreme_t xtreme_t::make(
   }
 
   auto validate = make_validate_info(
-    batch_validate, state_shapes, model_config, autoplace_config);
+    batch_validate, state_shapes, train.mean_logits, model_config, autoplace_config);
 
   return xtreme_t {
     .train = std::move(train),
@@ -764,6 +816,7 @@ struct xtreme_file_reader_t {
 
     datum_t ret = read_datum(sstream);
     iter++;
+
     return ret;
   }
 
@@ -949,6 +1002,28 @@ dbuffer_t compute_sampling(
     val += (1-alpha)*y_term*(total / double(counts[l]));
   }
 
+  d.scale(scalar_t(dtype_t::f64, "100.0"));
+
+  DOUT(d.min());
+  DOUT(d.max());
+  DOUT(d.sum_to_f64());
+
+  return d;
+}
+
+// get estimate probability p
+// return ln (p / 1-p)
+dbuffer_t compute_mean_logits(vector<int> const& counts) {
+  uint64_t num_labels = counts.size();
+  double total = double(vector_sum(counts));
+  dbuffer_t d = make_dbuffer(dtype_t::f64, num_labels);
+  d.zeros();
+  for(uint64_t l = 0; l != num_labels; ++l) {
+    double& val = d.f64()[l];
+    val = double(counts[l]) / total;
+    val = val / (1.0 - val);
+    val = std::log(val);
+  }
   return d;
 }
 
@@ -1046,6 +1121,11 @@ void main_rank_zero(
       info.train.sampling,
       info.train.inn_rels.at(info.train.sampling),
       compute_sampling(alpha, counts).copy(default_dtype()));
+
+    server->insert_tensor(
+      info.train.mean_logits,
+      info.train.inn_rels.at(info.train.mean_logits),
+      compute_mean_logits(counts).copy(default_dtype()));
   }
 
   // initialize the weights
@@ -1106,8 +1186,9 @@ void main_rank_zero(
         auto tensor = server->get_tensor_from_gid(gid);
         double mn = tensor.min().convert(dtype_t::f64).f64();
         double mx = tensor.max().convert(dtype_t::f64).f64();
+        double av = tensor.sum_to_f64() / double(tensor.nelem());
         auto shape = info.train.graph.nodes[gid].op.out_shape();
-        DOUT("grad " << gid << ": [" << mn << "," << mx << "]  " << shape);
+        DOUT("grad " << gid << ": [" << mn << "," << av << ", " << mx << "]  " << shape);
       }
 
       if(std::isnan(loss) || std::isinf(loss)) {
@@ -1120,8 +1201,9 @@ void main_rank_zero(
         auto tensor = server->get_tensor_from_gid(gid);
         double mn = tensor.min().convert(dtype_t::f64).f64();
         double mx = tensor.max().convert(dtype_t::f64).f64();
+        double av = tensor.sum_to_f64() / double(tensor.nelem());
         auto shape = info.train.graph.nodes[gid].op.out_shape();
-        DOUT("ff " << gid << ": [" << mn << "," << mx << "]  " << shape);
+        DOUT("ff " << gid << ": [" << mn << "," << av << "," << mx << "]  " << shape);
       }
     }
 
@@ -1218,7 +1300,7 @@ void xtreme_dist_t::insert_features(
   vector<double> scores;
   cs.reserve(data.size());
   for(auto const& datum: data) {
-    cs.push_back(datum.labels.size());
+    cs.push_back(datum.scores.size());
     vector_concatenate_into(features, vector_mapfst(datum.scores));
     vector_concatenate_into(scores,   vector_mapsnd(datum.scores));
   }
@@ -1262,7 +1344,7 @@ void xtreme_dist_t::_insert_random(relation_t const& rel)
   auto const& locs      = pl.locations.get();
 
   uint64_t total_nelems = product(partition.total_shape());
-  double rng = sqrt(6.0 / total_nelems);
+  double rng = 100*sqrt(6.0 / total_nelems);
   double nrng = -1*rng;
   string str_rng = write_with_ss(rng);
   string str_nrng = write_with_ss(nrng);
@@ -1348,6 +1430,9 @@ void xtreme_dist_t::_insert_labels(
         auto const& label = *iter;
         if(label >= l_beg && label < l_end) {
           uint64_t local_l = label - l_beg;
+          if(ret[local_l] != 0.0) {
+            throw std::runtime_error("!!!l");
+          }
           ret[local_l] = 1.0;
         }
       }
@@ -1411,6 +1496,9 @@ void xtreme_dist_t::_insert_features(
         auto const& score   = *iter_s;
         if(feature >= f_beg && feature < f_end) {
           uint64_t local_f = feature - f_beg;
+          if(ret[local_f] != 0.0) {
+            throw std::runtime_error("!!!");
+          }
           ret[local_f] = score;
         }
       }
