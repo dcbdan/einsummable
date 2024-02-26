@@ -1,0 +1,1225 @@
+digraph {
+  n0 [style=filled,label="input0
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n1 [style=filled,label="input1
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n2 [style=filled,label="input2
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n3 [style=filled,label="input3
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n4 [style=filled,label="input4
+{11008,32,128}
+{11008,32,128}:f16"]
+  n5 [style=filled,label="input5
+{32,128,11008}
+{32,128,11008}:f16"]
+  n6 [style=filled,label="input6
+{11008,32,128}
+{11008,32,128}:f16"]
+  n7 [style=filled,label="input7
+{32,128}
+{32,128}:f16"]
+  n8 [style=filled,label="input8
+{32,128}
+{32,128}:f16"]
+  n9 [style=filled,label="input9
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n10 [style=filled,label="input10
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n11 [style=filled,label="input11
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n12 [style=filled,label="input12
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n13 [style=filled,label="input13
+{11008,32,128}
+{11008,32,128}:f16"]
+  n14 [style=filled,label="input14
+{32,128,11008}
+{32,128,11008}:f16"]
+  n15 [style=filled,label="input15
+{11008,32,128}
+{11008,32,128}:f16"]
+  n16 [style=filled,label="input16
+{32,128}
+{32,128}:f16"]
+  n17 [style=filled,label="input17
+{32,128}
+{32,128}:f16"]
+  n18 [style=filled,label="input18
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n19 [style=filled,label="input19
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n20 [style=filled,label="input20
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n21 [style=filled,label="input21
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n22 [style=filled,label="input22
+{11008,32,128}
+{11008,32,128}:f16"]
+  n23 [style=filled,label="input23
+{32,128,11008}
+{32,128,11008}:f16"]
+  n24 [style=filled,label="input24
+{11008,32,128}
+{11008,32,128}:f16"]
+  n25 [style=filled,label="input25
+{32,128}
+{32,128}:f16"]
+  n26 [style=filled,label="input26
+{32,128}
+{32,128}:f16"]
+  n27 [style=filled,label="input27
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n28 [style=filled,label="input28
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n29 [style=filled,label="input29
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n30 [style=filled,label="input30
+{32,128,32,128}
+{32,128,32,128}:f16"]
+  n31 [style=filled,label="input31
+{11008,32,128}
+{11008,32,128}:f16"]
+  n32 [style=filled,label="input32
+{32,128,11008}
+{32,128,11008}:f16"]
+  n33 [style=filled,label="input33
+{11008,32,128}
+{11008,32,128}:f16"]
+  n34 [style=filled,label="input34
+{32,128}
+{32,128}:f16"]
+  n35 [style=filled,label="input35
+{32,128}
+{32,128}:f16"]
+  n36 [style=filled,label="input36
+{4096,64}
+{4096,64}:c64"]
+  n37 [style=filled,label="input37
+{32,128}
+{32,128}:f16"]
+  n38 [style=filled,label="input38
+{123,32,128}
+{123,32,128}:f16"]
+  n39 [style=filled,label="input39
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n40 [style=filled,label="input40
+{17,17}
+{17,17}:f16"]
+  n41 [style=filled,label="select41
+{17,64}:c64"]
+  n36 -> n41[label="0"]
+  n42 [style=filled,label="einsummable42:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n39 -> n42[label="0"]
+  n43 [style=filled,label="einsummable43:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n42 -> n43[label="0"]
+  n44 [style=filled,label="einsummable44:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n43 -> n44[label="0"]
+  n45 [style=filled,label="form45
+{3,17}
+{3,17}:f32"]
+  n44 -> n45[label="0"]
+  n46 [style=filled,label="einsummable46:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n45 -> n46[label="0"]
+  n47 [style=filled,label="einsummable47:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n46 -> n47[label="0"]
+  n48 [style=filled,label="einsummable48:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n42 -> n48[label="0"]
+  n47 -> n48[label="1"]
+  n49 [style=filled,label="einsummable49:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n48 -> n49[label="0"]
+  n50 [style=filled,label="einsummable50:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n49 -> n50[label="0"]
+  n7 -> n50[label="1"]
+  n51 [style=filled,label="einsummable51:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n50 -> n51[label="0"]
+  n0 -> n51[label="1"]
+  n52 [style=filled,label="form52
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n51 -> n52[label="0"]
+  n53 [style=filled,label="einsummable53:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n50 -> n53[label="0"]
+  n1 -> n53[label="1"]
+  n54 [style=filled,label="form54
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n53 -> n54[label="0"]
+  n55 [style=filled,label="einsummable55:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n50 -> n55[label="0"]
+  n2 -> n55[label="1"]
+  n56 [style=filled,label="form56
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n55 -> n56[label="0"]
+  n57 [style=filled,label="einsummable57:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n52 -> n57[label="0"]
+  n58 [style=filled,label="complexer58
+{3,17,32,64}:c64"]
+  n57 -> n58[label="0"]
+  n59 [style=filled,label="einsummable59:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n58 -> n59[label="0"]
+  n41 -> n59[label="1"]
+  n60 [style=filled,label="complexer60
+{3,17,32,128}:f32"]
+  n59 -> n60[label="0"]
+  n61 [style=filled,label="einsummable61:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n60 -> n61[label="0"]
+  n62 [style=filled,label="einsummable62:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n54 -> n62[label="0"]
+  n63 [style=filled,label="complexer63
+{3,17,32,64}:c64"]
+  n62 -> n63[label="0"]
+  n64 [style=filled,label="einsummable64:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n63 -> n64[label="0"]
+  n41 -> n64[label="1"]
+  n65 [style=filled,label="complexer65
+{3,17,32,128}:f32"]
+  n64 -> n65[label="0"]
+  n66 [style=filled,label="einsummable66:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n65 -> n66[label="0"]
+  n67 [style=filled,label="einsummable67:acbe,adbe->abcd
+(x0*x1)  |  +
+{3,32,17,17,128}:f16",color="pink"]
+  n61 -> n67[label="0"]
+  n66 -> n67[label="1"]
+  n68 [style=filled,label="form68
+{3,32,17,17}
+{3,32,17,17}:f16"]
+  n67 -> n68[label="0"]
+  n69 [style=filled,label="einsummable69:abcd->abcd
+(f16|0.0883789*x0)  |  :
+{3,32,17,17}:f16"]
+  n68 -> n69[label="0"]
+  n70 [style=filled,label="einsummable70:abcd,cd->abcd
+(x0+x1)  |  :
+{3,32,17,17}:f16"]
+  n69 -> n70[label="0"]
+  n40 -> n70[label="1"]
+  n71 [style=filled,label="einsummable71:abcd->abcd
+float(x0)  |  :
+{3,32,17,17}:f32"]
+  n70 -> n71[label="0"]
+  n72 [style=filled,label="einsummable72:abcd->abc
+x0  |  ^
+{3,32,17,17}:f32"]
+  n71 -> n72[label="0"]
+  n73 [style=filled,label="form73
+{3,32,17}
+{3,32,17}:f32"]
+  n72 -> n73[label="0"]
+  n74 [style=filled,label="einsummable74:abcd,abc->abcd
+(x0+(f32|-1*x1))  |  :
+{3,32,17,17}:f32"]
+  n71 -> n74[label="0"]
+  n73 -> n74[label="1"]
+  n75 [style=filled,label="einsummable75:abcd->abcd
+_exp(x0)  |  :
+{3,32,17,17}:f32"]
+  n74 -> n75[label="0"]
+  n76 [style=filled,label="einsummable76:abcd->abc
+x0  |  +
+{3,32,17,17}:f32"]
+  n75 -> n76[label="0"]
+  n77 [style=filled,label="form77
+{3,32,17}
+{3,32,17}:f32"]
+  n76 -> n77[label="0"]
+  n78 [style=filled,label="einsummable78:abcd,abc->abcd
+(x0*_pow(x1,-1))  |  :
+{3,32,17,17}:f32"]
+  n75 -> n78[label="0"]
+  n77 -> n78[label="1"]
+  n79 [style=filled,label="einsummable79:abcd->abcd
+float16_t(x0)  |  :
+{3,32,17,17}:f16"]
+  n78 -> n79[label="0"]
+  n80 [style=filled,label="einsummable80:abce,aebd->abcd
+(x0*x1)  |  +
+{3,32,17,128,17}:f16",color="pink"]
+  n79 -> n80[label="0"]
+  n56 -> n80[label="1"]
+  n81 [style=filled,label="form81
+{3,32,17,128}
+{3,32,17,128}:f16"]
+  n80 -> n81[label="0"]
+  n82 [style=filled,label="einsummable82:aebf,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n81 -> n82[label="0"]
+  n3 -> n82[label="1"]
+  n83 [style=filled,label="form83
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n82 -> n83[label="0"]
+  n84 [style=filled,label="einsummable84:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n39 -> n84[label="0"]
+  n83 -> n84[label="1"]
+  n85 [style=filled,label="einsummable85:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n84 -> n85[label="0"]
+  n86 [style=filled,label="einsummable86:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n85 -> n86[label="0"]
+  n87 [style=filled,label="einsummable87:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n86 -> n87[label="0"]
+  n88 [style=filled,label="form88
+{3,17}
+{3,17}:f32"]
+  n87 -> n88[label="0"]
+  n89 [style=filled,label="einsummable89:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n88 -> n89[label="0"]
+  n90 [style=filled,label="einsummable90:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n89 -> n90[label="0"]
+  n91 [style=filled,label="einsummable91:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n85 -> n91[label="0"]
+  n90 -> n91[label="1"]
+  n92 [style=filled,label="einsummable92:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n91 -> n92[label="0"]
+  n93 [style=filled,label="einsummable93:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n92 -> n93[label="0"]
+  n8 -> n93[label="1"]
+  n94 [style=filled,label="einsummable94:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n93 -> n94[label="0"]
+  n4 -> n94[label="1"]
+  n95 [style=filled,label="form95
+{3,17,11008}
+{3,17,11008}:f16"]
+  n94 -> n95[label="0"]
+  n96 [style=filled,label="einsummable96:abc->abc
+(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))  |  :
+{3,17,11008}:f16"]
+  n95 -> n96[label="0"]
+  n97 [style=filled,label="einsummable97:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n93 -> n97[label="0"]
+  n6 -> n97[label="1"]
+  n98 [style=filled,label="form98
+{3,17,11008}
+{3,17,11008}:f16"]
+  n97 -> n98[label="0"]
+  n99 [style=filled,label="einsummable99:abc,abc->abc
+(x0*x1)  |  :
+{3,17,11008}:f16"]
+  n96 -> n99[label="0"]
+  n98 -> n99[label="1"]
+  n100 [style=filled,label="einsummable100:abe,cde->abcd
+(x0*x1)  |  +
+{3,17,32,128,11008}:f16",color="pink"]
+  n99 -> n100[label="0"]
+  n5 -> n100[label="1"]
+  n101 [style=filled,label="form101
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n100 -> n101[label="0"]
+  n102 [style=filled,label="einsummable102:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n84 -> n102[label="0"]
+  n101 -> n102[label="1"]
+  n103 [style=filled,label="einsummable103:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n102 -> n103[label="0"]
+  n104 [style=filled,label="einsummable104:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n103 -> n104[label="0"]
+  n105 [style=filled,label="einsummable105:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n104 -> n105[label="0"]
+  n106 [style=filled,label="form106
+{3,17}
+{3,17}:f32"]
+  n105 -> n106[label="0"]
+  n107 [style=filled,label="einsummable107:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n106 -> n107[label="0"]
+  n108 [style=filled,label="einsummable108:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n107 -> n108[label="0"]
+  n109 [style=filled,label="einsummable109:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n103 -> n109[label="0"]
+  n108 -> n109[label="1"]
+  n110 [style=filled,label="einsummable110:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n109 -> n110[label="0"]
+  n111 [style=filled,label="einsummable111:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n110 -> n111[label="0"]
+  n16 -> n111[label="1"]
+  n112 [style=filled,label="einsummable112:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n111 -> n112[label="0"]
+  n9 -> n112[label="1"]
+  n113 [style=filled,label="form113
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n112 -> n113[label="0"]
+  n114 [style=filled,label="einsummable114:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n111 -> n114[label="0"]
+  n10 -> n114[label="1"]
+  n115 [style=filled,label="form115
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n114 -> n115[label="0"]
+  n116 [style=filled,label="einsummable116:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n111 -> n116[label="0"]
+  n11 -> n116[label="1"]
+  n117 [style=filled,label="form117
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n116 -> n117[label="0"]
+  n118 [style=filled,label="einsummable118:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n113 -> n118[label="0"]
+  n119 [style=filled,label="complexer119
+{3,17,32,64}:c64"]
+  n118 -> n119[label="0"]
+  n120 [style=filled,label="einsummable120:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n119 -> n120[label="0"]
+  n41 -> n120[label="1"]
+  n121 [style=filled,label="complexer121
+{3,17,32,128}:f32"]
+  n120 -> n121[label="0"]
+  n122 [style=filled,label="einsummable122:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n121 -> n122[label="0"]
+  n123 [style=filled,label="einsummable123:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n115 -> n123[label="0"]
+  n124 [style=filled,label="complexer124
+{3,17,32,64}:c64"]
+  n123 -> n124[label="0"]
+  n125 [style=filled,label="einsummable125:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n124 -> n125[label="0"]
+  n41 -> n125[label="1"]
+  n126 [style=filled,label="complexer126
+{3,17,32,128}:f32"]
+  n125 -> n126[label="0"]
+  n127 [style=filled,label="einsummable127:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n126 -> n127[label="0"]
+  n128 [style=filled,label="einsummable128:acbe,adbe->abcd
+(x0*x1)  |  +
+{3,32,17,17,128}:f16",color="pink"]
+  n122 -> n128[label="0"]
+  n127 -> n128[label="1"]
+  n129 [style=filled,label="form129
+{3,32,17,17}
+{3,32,17,17}:f16"]
+  n128 -> n129[label="0"]
+  n130 [style=filled,label="einsummable130:abcd->abcd
+(f16|0.0883789*x0)  |  :
+{3,32,17,17}:f16"]
+  n129 -> n130[label="0"]
+  n131 [style=filled,label="einsummable131:abcd,cd->abcd
+(x0+x1)  |  :
+{3,32,17,17}:f16"]
+  n130 -> n131[label="0"]
+  n40 -> n131[label="1"]
+  n132 [style=filled,label="einsummable132:abcd->abcd
+float(x0)  |  :
+{3,32,17,17}:f32"]
+  n131 -> n132[label="0"]
+  n133 [style=filled,label="einsummable133:abcd->abc
+x0  |  ^
+{3,32,17,17}:f32"]
+  n132 -> n133[label="0"]
+  n134 [style=filled,label="form134
+{3,32,17}
+{3,32,17}:f32"]
+  n133 -> n134[label="0"]
+  n135 [style=filled,label="einsummable135:abcd,abc->abcd
+(x0+(f32|-1*x1))  |  :
+{3,32,17,17}:f32"]
+  n132 -> n135[label="0"]
+  n134 -> n135[label="1"]
+  n136 [style=filled,label="einsummable136:abcd->abcd
+_exp(x0)  |  :
+{3,32,17,17}:f32"]
+  n135 -> n136[label="0"]
+  n137 [style=filled,label="einsummable137:abcd->abc
+x0  |  +
+{3,32,17,17}:f32"]
+  n136 -> n137[label="0"]
+  n138 [style=filled,label="form138
+{3,32,17}
+{3,32,17}:f32"]
+  n137 -> n138[label="0"]
+  n139 [style=filled,label="einsummable139:abcd,abc->abcd
+(x0*_pow(x1,-1))  |  :
+{3,32,17,17}:f32"]
+  n136 -> n139[label="0"]
+  n138 -> n139[label="1"]
+  n140 [style=filled,label="einsummable140:abcd->abcd
+float16_t(x0)  |  :
+{3,32,17,17}:f16"]
+  n139 -> n140[label="0"]
+  n141 [style=filled,label="einsummable141:abce,aebd->abcd
+(x0*x1)  |  +
+{3,32,17,128,17}:f16",color="pink"]
+  n140 -> n141[label="0"]
+  n117 -> n141[label="1"]
+  n142 [style=filled,label="form142
+{3,32,17,128}
+{3,32,17,128}:f16"]
+  n141 -> n142[label="0"]
+  n143 [style=filled,label="einsummable143:aebf,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n142 -> n143[label="0"]
+  n12 -> n143[label="1"]
+  n144 [style=filled,label="form144
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n143 -> n144[label="0"]
+  n145 [style=filled,label="einsummable145:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n102 -> n145[label="0"]
+  n144 -> n145[label="1"]
+  n146 [style=filled,label="einsummable146:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n145 -> n146[label="0"]
+  n147 [style=filled,label="einsummable147:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n146 -> n147[label="0"]
+  n148 [style=filled,label="einsummable148:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n147 -> n148[label="0"]
+  n149 [style=filled,label="form149
+{3,17}
+{3,17}:f32"]
+  n148 -> n149[label="0"]
+  n150 [style=filled,label="einsummable150:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n149 -> n150[label="0"]
+  n151 [style=filled,label="einsummable151:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n150 -> n151[label="0"]
+  n152 [style=filled,label="einsummable152:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n146 -> n152[label="0"]
+  n151 -> n152[label="1"]
+  n153 [style=filled,label="einsummable153:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n152 -> n153[label="0"]
+  n154 [style=filled,label="einsummable154:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n153 -> n154[label="0"]
+  n17 -> n154[label="1"]
+  n155 [style=filled,label="einsummable155:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n154 -> n155[label="0"]
+  n13 -> n155[label="1"]
+  n156 [style=filled,label="form156
+{3,17,11008}
+{3,17,11008}:f16"]
+  n155 -> n156[label="0"]
+  n157 [style=filled,label="einsummable157:abc->abc
+(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))  |  :
+{3,17,11008}:f16"]
+  n156 -> n157[label="0"]
+  n158 [style=filled,label="einsummable158:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n154 -> n158[label="0"]
+  n15 -> n158[label="1"]
+  n159 [style=filled,label="form159
+{3,17,11008}
+{3,17,11008}:f16"]
+  n158 -> n159[label="0"]
+  n160 [style=filled,label="einsummable160:abc,abc->abc
+(x0*x1)  |  :
+{3,17,11008}:f16"]
+  n157 -> n160[label="0"]
+  n159 -> n160[label="1"]
+  n161 [style=filled,label="einsummable161:abe,cde->abcd
+(x0*x1)  |  +
+{3,17,32,128,11008}:f16",color="pink"]
+  n160 -> n161[label="0"]
+  n14 -> n161[label="1"]
+  n162 [style=filled,label="form162
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n161 -> n162[label="0"]
+  n163 [style=filled,label="einsummable163:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n145 -> n163[label="0"]
+  n162 -> n163[label="1"]
+  n164 [style=filled,label="einsummable164:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n163 -> n164[label="0"]
+  n165 [style=filled,label="einsummable165:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n164 -> n165[label="0"]
+  n166 [style=filled,label="einsummable166:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n165 -> n166[label="0"]
+  n167 [style=filled,label="form167
+{3,17}
+{3,17}:f32"]
+  n166 -> n167[label="0"]
+  n168 [style=filled,label="einsummable168:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n167 -> n168[label="0"]
+  n169 [style=filled,label="einsummable169:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n168 -> n169[label="0"]
+  n170 [style=filled,label="einsummable170:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n164 -> n170[label="0"]
+  n169 -> n170[label="1"]
+  n171 [style=filled,label="einsummable171:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n170 -> n171[label="0"]
+  n172 [style=filled,label="einsummable172:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n171 -> n172[label="0"]
+  n25 -> n172[label="1"]
+  n173 [style=filled,label="einsummable173:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n172 -> n173[label="0"]
+  n18 -> n173[label="1"]
+  n174 [style=filled,label="form174
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n173 -> n174[label="0"]
+  n175 [style=filled,label="einsummable175:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n172 -> n175[label="0"]
+  n19 -> n175[label="1"]
+  n176 [style=filled,label="form176
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n175 -> n176[label="0"]
+  n177 [style=filled,label="einsummable177:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n172 -> n177[label="0"]
+  n20 -> n177[label="1"]
+  n178 [style=filled,label="form178
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n177 -> n178[label="0"]
+  n179 [style=filled,label="einsummable179:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n174 -> n179[label="0"]
+  n180 [style=filled,label="complexer180
+{3,17,32,64}:c64"]
+  n179 -> n180[label="0"]
+  n181 [style=filled,label="einsummable181:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n180 -> n181[label="0"]
+  n41 -> n181[label="1"]
+  n182 [style=filled,label="complexer182
+{3,17,32,128}:f32"]
+  n181 -> n182[label="0"]
+  n183 [style=filled,label="einsummable183:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n182 -> n183[label="0"]
+  n184 [style=filled,label="einsummable184:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n176 -> n184[label="0"]
+  n185 [style=filled,label="complexer185
+{3,17,32,64}:c64"]
+  n184 -> n185[label="0"]
+  n186 [style=filled,label="einsummable186:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n185 -> n186[label="0"]
+  n41 -> n186[label="1"]
+  n187 [style=filled,label="complexer187
+{3,17,32,128}:f32"]
+  n186 -> n187[label="0"]
+  n188 [style=filled,label="einsummable188:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n187 -> n188[label="0"]
+  n189 [style=filled,label="einsummable189:acbe,adbe->abcd
+(x0*x1)  |  +
+{3,32,17,17,128}:f16",color="pink"]
+  n183 -> n189[label="0"]
+  n188 -> n189[label="1"]
+  n190 [style=filled,label="form190
+{3,32,17,17}
+{3,32,17,17}:f16"]
+  n189 -> n190[label="0"]
+  n191 [style=filled,label="einsummable191:abcd->abcd
+(f16|0.0883789*x0)  |  :
+{3,32,17,17}:f16"]
+  n190 -> n191[label="0"]
+  n192 [style=filled,label="einsummable192:abcd,cd->abcd
+(x0+x1)  |  :
+{3,32,17,17}:f16"]
+  n191 -> n192[label="0"]
+  n40 -> n192[label="1"]
+  n193 [style=filled,label="einsummable193:abcd->abcd
+float(x0)  |  :
+{3,32,17,17}:f32"]
+  n192 -> n193[label="0"]
+  n194 [style=filled,label="einsummable194:abcd->abc
+x0  |  ^
+{3,32,17,17}:f32"]
+  n193 -> n194[label="0"]
+  n195 [style=filled,label="form195
+{3,32,17}
+{3,32,17}:f32"]
+  n194 -> n195[label="0"]
+  n196 [style=filled,label="einsummable196:abcd,abc->abcd
+(x0+(f32|-1*x1))  |  :
+{3,32,17,17}:f32"]
+  n193 -> n196[label="0"]
+  n195 -> n196[label="1"]
+  n197 [style=filled,label="einsummable197:abcd->abcd
+_exp(x0)  |  :
+{3,32,17,17}:f32"]
+  n196 -> n197[label="0"]
+  n198 [style=filled,label="einsummable198:abcd->abc
+x0  |  +
+{3,32,17,17}:f32"]
+  n197 -> n198[label="0"]
+  n199 [style=filled,label="form199
+{3,32,17}
+{3,32,17}:f32"]
+  n198 -> n199[label="0"]
+  n200 [style=filled,label="einsummable200:abcd,abc->abcd
+(x0*_pow(x1,-1))  |  :
+{3,32,17,17}:f32"]
+  n197 -> n200[label="0"]
+  n199 -> n200[label="1"]
+  n201 [style=filled,label="einsummable201:abcd->abcd
+float16_t(x0)  |  :
+{3,32,17,17}:f16"]
+  n200 -> n201[label="0"]
+  n202 [style=filled,label="einsummable202:abce,aebd->abcd
+(x0*x1)  |  +
+{3,32,17,128,17}:f16",color="pink"]
+  n201 -> n202[label="0"]
+  n178 -> n202[label="1"]
+  n203 [style=filled,label="form203
+{3,32,17,128}
+{3,32,17,128}:f16"]
+  n202 -> n203[label="0"]
+  n204 [style=filled,label="einsummable204:aebf,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n203 -> n204[label="0"]
+  n21 -> n204[label="1"]
+  n205 [style=filled,label="form205
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n204 -> n205[label="0"]
+  n206 [style=filled,label="einsummable206:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n163 -> n206[label="0"]
+  n205 -> n206[label="1"]
+  n207 [style=filled,label="einsummable207:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n206 -> n207[label="0"]
+  n208 [style=filled,label="einsummable208:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n207 -> n208[label="0"]
+  n209 [style=filled,label="einsummable209:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n208 -> n209[label="0"]
+  n210 [style=filled,label="form210
+{3,17}
+{3,17}:f32"]
+  n209 -> n210[label="0"]
+  n211 [style=filled,label="einsummable211:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n210 -> n211[label="0"]
+  n212 [style=filled,label="einsummable212:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n211 -> n212[label="0"]
+  n213 [style=filled,label="einsummable213:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n207 -> n213[label="0"]
+  n212 -> n213[label="1"]
+  n214 [style=filled,label="einsummable214:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n213 -> n214[label="0"]
+  n215 [style=filled,label="einsummable215:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n214 -> n215[label="0"]
+  n26 -> n215[label="1"]
+  n216 [style=filled,label="einsummable216:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n215 -> n216[label="0"]
+  n22 -> n216[label="1"]
+  n217 [style=filled,label="form217
+{3,17,11008}
+{3,17,11008}:f16"]
+  n216 -> n217[label="0"]
+  n218 [style=filled,label="einsummable218:abc->abc
+(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))  |  :
+{3,17,11008}:f16"]
+  n217 -> n218[label="0"]
+  n219 [style=filled,label="einsummable219:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n215 -> n219[label="0"]
+  n24 -> n219[label="1"]
+  n220 [style=filled,label="form220
+{3,17,11008}
+{3,17,11008}:f16"]
+  n219 -> n220[label="0"]
+  n221 [style=filled,label="einsummable221:abc,abc->abc
+(x0*x1)  |  :
+{3,17,11008}:f16"]
+  n218 -> n221[label="0"]
+  n220 -> n221[label="1"]
+  n222 [style=filled,label="einsummable222:abe,cde->abcd
+(x0*x1)  |  +
+{3,17,32,128,11008}:f16",color="pink"]
+  n221 -> n222[label="0"]
+  n23 -> n222[label="1"]
+  n223 [style=filled,label="form223
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n222 -> n223[label="0"]
+  n224 [style=filled,label="einsummable224:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n206 -> n224[label="0"]
+  n223 -> n224[label="1"]
+  n225 [style=filled,label="einsummable225:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n224 -> n225[label="0"]
+  n226 [style=filled,label="einsummable226:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n225 -> n226[label="0"]
+  n227 [style=filled,label="einsummable227:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n226 -> n227[label="0"]
+  n228 [style=filled,label="form228
+{3,17}
+{3,17}:f32"]
+  n227 -> n228[label="0"]
+  n229 [style=filled,label="einsummable229:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n228 -> n229[label="0"]
+  n230 [style=filled,label="einsummable230:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n229 -> n230[label="0"]
+  n231 [style=filled,label="einsummable231:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n225 -> n231[label="0"]
+  n230 -> n231[label="1"]
+  n232 [style=filled,label="einsummable232:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n231 -> n232[label="0"]
+  n233 [style=filled,label="einsummable233:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n232 -> n233[label="0"]
+  n34 -> n233[label="1"]
+  n234 [style=filled,label="einsummable234:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n233 -> n234[label="0"]
+  n27 -> n234[label="1"]
+  n235 [style=filled,label="form235
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n234 -> n235[label="0"]
+  n236 [style=filled,label="einsummable236:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n233 -> n236[label="0"]
+  n28 -> n236[label="1"]
+  n237 [style=filled,label="form237
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n236 -> n237[label="0"]
+  n238 [style=filled,label="einsummable238:abef,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n233 -> n238[label="0"]
+  n29 -> n238[label="1"]
+  n239 [style=filled,label="form239
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n238 -> n239[label="0"]
+  n240 [style=filled,label="einsummable240:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n235 -> n240[label="0"]
+  n241 [style=filled,label="complexer241
+{3,17,32,64}:c64"]
+  n240 -> n241[label="0"]
+  n242 [style=filled,label="einsummable242:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n241 -> n242[label="0"]
+  n41 -> n242[label="1"]
+  n243 [style=filled,label="complexer243
+{3,17,32,128}:f32"]
+  n242 -> n243[label="0"]
+  n244 [style=filled,label="einsummable244:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n243 -> n244[label="0"]
+  n245 [style=filled,label="einsummable245:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n237 -> n245[label="0"]
+  n246 [style=filled,label="complexer246
+{3,17,32,64}:c64"]
+  n245 -> n246[label="0"]
+  n247 [style=filled,label="einsummable247:abcd,bd->abcd
+(x0*x1)  |  :
+{3,17,32,64}:c64"]
+  n246 -> n247[label="0"]
+  n41 -> n247[label="1"]
+  n248 [style=filled,label="complexer248
+{3,17,32,128}:f32"]
+  n247 -> n248[label="0"]
+  n249 [style=filled,label="einsummable249:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n248 -> n249[label="0"]
+  n250 [style=filled,label="einsummable250:acbe,adbe->abcd
+(x0*x1)  |  +
+{3,32,17,17,128}:f16",color="pink"]
+  n244 -> n250[label="0"]
+  n249 -> n250[label="1"]
+  n251 [style=filled,label="form251
+{3,32,17,17}
+{3,32,17,17}:f16"]
+  n250 -> n251[label="0"]
+  n252 [style=filled,label="einsummable252:abcd->abcd
+(f16|0.0883789*x0)  |  :
+{3,32,17,17}:f16"]
+  n251 -> n252[label="0"]
+  n253 [style=filled,label="einsummable253:abcd,cd->abcd
+(x0+x1)  |  :
+{3,32,17,17}:f16"]
+  n252 -> n253[label="0"]
+  n40 -> n253[label="1"]
+  n254 [style=filled,label="einsummable254:abcd->abcd
+float(x0)  |  :
+{3,32,17,17}:f32"]
+  n253 -> n254[label="0"]
+  n255 [style=filled,label="einsummable255:abcd->abc
+x0  |  ^
+{3,32,17,17}:f32"]
+  n254 -> n255[label="0"]
+  n256 [style=filled,label="form256
+{3,32,17}
+{3,32,17}:f32"]
+  n255 -> n256[label="0"]
+  n257 [style=filled,label="einsummable257:abcd,abc->abcd
+(x0+(f32|-1*x1))  |  :
+{3,32,17,17}:f32"]
+  n254 -> n257[label="0"]
+  n256 -> n257[label="1"]
+  n258 [style=filled,label="einsummable258:abcd->abcd
+_exp(x0)  |  :
+{3,32,17,17}:f32"]
+  n257 -> n258[label="0"]
+  n259 [style=filled,label="einsummable259:abcd->abc
+x0  |  +
+{3,32,17,17}:f32"]
+  n258 -> n259[label="0"]
+  n260 [style=filled,label="form260
+{3,32,17}
+{3,32,17}:f32"]
+  n259 -> n260[label="0"]
+  n261 [style=filled,label="einsummable261:abcd,abc->abcd
+(x0*_pow(x1,-1))  |  :
+{3,32,17,17}:f32"]
+  n258 -> n261[label="0"]
+  n260 -> n261[label="1"]
+  n262 [style=filled,label="einsummable262:abcd->abcd
+float16_t(x0)  |  :
+{3,32,17,17}:f16"]
+  n261 -> n262[label="0"]
+  n263 [style=filled,label="einsummable263:abce,aebd->abcd
+(x0*x1)  |  +
+{3,32,17,128,17}:f16",color="pink"]
+  n262 -> n263[label="0"]
+  n239 -> n263[label="1"]
+  n264 [style=filled,label="form264
+{3,32,17,128}
+{3,32,17,128}:f16"]
+  n263 -> n264[label="0"]
+  n265 [style=filled,label="einsummable265:aebf,cdef->abcd
+(x0*x1)  |  +
+{3,17,32,128,32,128}:f16",color="pink"]
+  n264 -> n265[label="0"]
+  n30 -> n265[label="1"]
+  n266 [style=filled,label="form266
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n265 -> n266[label="0"]
+  n267 [style=filled,label="einsummable267:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n224 -> n267[label="0"]
+  n266 -> n267[label="1"]
+  n268 [style=filled,label="einsummable268:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n267 -> n268[label="0"]
+  n269 [style=filled,label="einsummable269:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n268 -> n269[label="0"]
+  n270 [style=filled,label="einsummable270:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n269 -> n270[label="0"]
+  n271 [style=filled,label="form271
+{3,17}
+{3,17}:f32"]
+  n270 -> n271[label="0"]
+  n272 [style=filled,label="einsummable272:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n271 -> n272[label="0"]
+  n273 [style=filled,label="einsummable273:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n272 -> n273[label="0"]
+  n274 [style=filled,label="einsummable274:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n268 -> n274[label="0"]
+  n273 -> n274[label="1"]
+  n275 [style=filled,label="einsummable275:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n274 -> n275[label="0"]
+  n276 [style=filled,label="einsummable276:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n275 -> n276[label="0"]
+  n35 -> n276[label="1"]
+  n277 [style=filled,label="einsummable277:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n276 -> n277[label="0"]
+  n31 -> n277[label="1"]
+  n278 [style=filled,label="form278
+{3,17,11008}
+{3,17,11008}:f16"]
+  n277 -> n278[label="0"]
+  n279 [style=filled,label="einsummable279:abc->abc
+(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))  |  :
+{3,17,11008}:f16"]
+  n278 -> n279[label="0"]
+  n280 [style=filled,label="einsummable280:abde,cde->abc
+(x0*x1)  |  +
+{3,17,11008,32,128}:f16",color="pink"]
+  n276 -> n280[label="0"]
+  n33 -> n280[label="1"]
+  n281 [style=filled,label="form281
+{3,17,11008}
+{3,17,11008}:f16"]
+  n280 -> n281[label="0"]
+  n282 [style=filled,label="einsummable282:abc,abc->abc
+(x0*x1)  |  :
+{3,17,11008}:f16"]
+  n279 -> n282[label="0"]
+  n281 -> n282[label="1"]
+  n283 [style=filled,label="einsummable283:abe,cde->abcd
+(x0*x1)  |  +
+{3,17,32,128,11008}:f16",color="pink"]
+  n282 -> n283[label="0"]
+  n32 -> n283[label="1"]
+  n284 [style=filled,label="form284
+{3,17,32,128}
+{3,17,32,128}:f16"]
+  n283 -> n284[label="0"]
+  n285 [style=filled,label="einsummable285:abcd,abcd->abcd
+(x0+x1)  |  :
+{3,17,32,128}:f16"]
+  n267 -> n285[label="0"]
+  n284 -> n285[label="1"]
+  n286 [style=filled,label="einsummable286:abcd->abcd
+float(x0)  |  :
+{3,17,32,128}:f32"]
+  n285 -> n286[label="0"]
+  n287 [style=filled,label="einsummable287:abcd->abcd
+_pow(x0,2)  |  :
+{3,17,32,128}:f32"]
+  n286 -> n287[label="0"]
+  n288 [style=filled,label="einsummable288:abcd->ab
+x0  |  +
+{3,17,32,128}:f32"]
+  n287 -> n288[label="0"]
+  n289 [style=filled,label="form289
+{3,17}
+{3,17}:f32"]
+  n288 -> n289[label="0"]
+  n290 [style=filled,label="einsummable290:ab->ab
+(f32|1e-06+(f32|0.000244141*x0))  |  :
+{3,17}:f32"]
+  n289 -> n290[label="0"]
+  n291 [style=filled,label="einsummable291:ab->ab
+_pow(x0,-0.5)  |  :
+{3,17}:f32"]
+  n290 -> n291[label="0"]
+  n292 [style=filled,label="einsummable292:abcd,ab->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f32"]
+  n286 -> n292[label="0"]
+  n291 -> n292[label="1"]
+  n293 [style=filled,label="einsummable293:abcd->abcd
+float16_t(x0)  |  :
+{3,17,32,128}:f16"]
+  n292 -> n293[label="0"]
+  n294 [style=filled,label="einsummable294:abcd,cd->abcd
+(x0*x1)  |  :
+{3,17,32,128}:f16"]
+  n293 -> n294[label="0"]
+  n37 -> n294[label="1"]
+  n295 [style=filled,label="select295
+{3,1,32,128}:f16"]
+  n294 -> n295[label="0"]
+  n296 [style=filled,label="squeezer296
+{3,32,128}:f16",color="azure2"]
+  n295 -> n296[label="0"]
+  n297 [style=filled,label="einsummable297:acd,bcd->ab
+(x0*x1)  |  +
+{3,123,32,128}:f16",color="pink"]
+  n296 -> n297[label="0"]
+  n38 -> n297[label="1"]
+  n298 [style=filled,label="form298
+{3,123}
+{3,123}:f16"]
+  n297 -> n298[label="0"]
+}

@@ -76,12 +76,6 @@ reader.h
 ../src/engine/cpu/kernel_executor.h
 /home/ubuntu/einsummable/src/engine/cpu/kernel_executor.h
 
-/home/ubuntu/einsummable/llama/misc.cc
-misc.h
-/home/ubuntu/einsummable/llama/misc.h
-cctype
--
-
 /home/ubuntu/einsummable/llama/misc.h
 ../src/base/setup.h
 /home/ubuntu/einsummable/src/base/setup.h

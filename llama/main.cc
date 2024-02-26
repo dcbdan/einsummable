@@ -4,6 +4,8 @@
 #include "../src/einsummable/graph.h"
 #include "../src/einsummable/gwriter.h"
 #include "../src/einsummable/reference.h"
+#include "../src/autoplace/alocate.h"
+#include "../src/autoplace/apart.h"
 
 #include <fstream>
 
@@ -335,12 +337,17 @@ int main() {
   //y = model.forward(x);
 
   y = y.save();
-
+  
   graph_t const& graph = writer.get_graph();
+  vector<partition_t> parts = apart01(graph,4);
+  vector<placement_t> placements = alocate01(graph, parts,4,100);
+
+  auto [inn_gid_to_tids, out_gid_to_tids, part_graph] = taskgraph_t::make(graph, placements);
+
 
   {
-    std::ofstream f("g.gv");
-    graph.print_graphviz(f);
+    std::ofstream f("llama_7B_4device.gv");
+    part_graph.print_graphviz(f);
     DOUT("wrote to g.gv");
   }
 }

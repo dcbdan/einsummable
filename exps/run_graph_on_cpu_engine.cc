@@ -87,7 +87,7 @@ void main_rank_zero(server_base_t* server, args_t& args, int world_size)
 {
   // TODO:
   // 1. create a graph
-  int num_threads_per = 2; // 
+  int num_threads_per = 4; // 
   DOUT("world_size*num_threads_per: " << world_size*num_threads_per);
   uint64_t batch = 1000;
   uint64_t hidden = 1000;
@@ -98,6 +98,17 @@ void main_rank_zero(server_base_t* server, args_t& args, int world_size)
   graph.print_graphviz(f);
   vector<partition_t> parts = apart01(graph,world_size*num_threads_per);
   // vector<placement_t> placements = alocate01(graph, parts,world_size,1000);
+
+
+  // for(auto const& p: placements){
+  //   const vtensor_t i = p.locations;
+  //   std::cout << i << std::endl;
+  // }
+
+  // auto [inn_gid_to_tids, out_gid_to_tids, part_graph] = taskgraph_t::make(graph, placements);
+  //   std::ofstream f1("my_task_graph.gv");
+  //   part_graph.print_graphviz(f1);
+
 
   int num_devices;
   vector<int> rl_placements;
@@ -147,10 +158,23 @@ void main_rank_zero(server_base_t* server, args_t& args, int world_size)
       std::cout << placement << " ";
   }
   std::cout << std::endl;
+  // std::vector<int> myVector = {
+  //       3, 3, 0, 2, 1, 3, 2, 3, 1, 0, 2, 0, 0, 0, 0, 3, 3, 3, 0, 0, 3, 3, 2, 0,
+  //       2, 1, 2, 1, 0, 2, 2, 3, 3, 3, 1, 2, 0, 0, 2, 0, 2, 3, 1, 1, 1, 2, 3, 0,
+  //       2, 0, 0, 1, 3, 3, 1, 2, 1, 1, 0, 3, 0, 1, 0, 3, 2, 1, 3, 2, 2, 2, 1, 1,
+  //       1, 3, 3, 1, 1, 0, 1, 0, 2, 1, 3, 3, 3, 1, 2, 0, 0, 3, 0, 3, 0, 2, 1, 3,
+  //       1, 0, 0, 1, 2, 1, 3, 2, 3, 1, 0, 3, 2, 1, 0, 3, 2, 1, 1, 0, 3, 3, 1, 2,
+  //       0, 3, 1, 3, 2, 0, 2, 3, 3, 2, 2, 3, 2, 2, 3, 1, 1, 3, 0, 1, 3, 2, 2, 3,
+  //       1, 3, 3
+  //   };
   
   std::vector<placement_t> placements = pre_assign_loc(parts, num_devices, rl_placements, graph);
 
+  // auto [inn_gid_to_tids, out_gid_to_tids, part_graph] = taskgraph_t::make(graph, placements);
 
+
+  // std::ofstream f1("xin_task_graph.gv");
+  // part_graph.print_graphviz(f1);
   // 2. insert the input tensors
   buffer_t x = make_data({batch, dim});
   buffer_t w1 = make_data({hidden, dim});
@@ -178,12 +202,10 @@ int main(int argc, char** argv) {
   int world_size = parse_with_ss<int>(argv[3]);
 
   DOUT("world_size: " << world_size);
-  DLINE;
 
   uint64_t mem_size = parse_with_ss<uint64_t>(argv[4]);
   uint64_t GB = 1000000000;
   mem_size *= GB;
-  DLINE;
 
   // int num_threads = std::max(1, int(std::thread::hardware_concurrency()));
   int num_threads = 12;
@@ -191,22 +213,17 @@ int main(int argc, char** argv) {
   int num_channels = 8;
   int num_channels_per_move = 1;
 
-  DLINE;
   communicator_t communicator(addr_zero, is_rank_zero, world_size, num_channels);
 
   DOUT("addr_zero: " << addr_zero);
-  DLINE;
   int this_rank = communicator.get_this_rank();
   DOUT("this_rank: " << this_rank);
-  DLINE;
 
   args_t args(argc-(expected_argc-1), argv+(expected_argc-1));
 
-  DLINE;
   cpu_mg_server_t server(
     communicator, mem_size, num_threads, num_channels_per_move);
 
-  DLINE;
 
   if(is_rank_zero) {
     main_rank_zero(&server, args, world_size);
@@ -215,6 +232,5 @@ int main(int argc, char** argv) {
     server.listen();
   }
 
-  DLINE;
   return 0;
 }

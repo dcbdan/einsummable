@@ -65,7 +65,7 @@ add_executable(${exec} llama/${filename}.cc
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_llama_application("llama_main"  "main")
+add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
 add_llama_application("llama_exp02" "exp02")
 add_llama_application("llama_exp03" "exp03")

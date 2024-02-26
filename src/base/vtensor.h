@@ -197,10 +197,11 @@ std::ostream& operator<<(std::ostream& out, vtensor_t<T> const& tensor)
     out << "tensur[null]";
     return out;
   }
-  out << "tensor" << shape << "@";
+  // out << "tensor" << shape << "@";
   vector<int> index(shape.size(), 0);
   do {
-    out << "I" << index << tensor.at(index) << " ";
+    // out << "I" << index << tensor.at(index) << " ";
+    out << tensor.at(index) << " ";
   } while(increment_idxs(shape, index));
 
   return out;

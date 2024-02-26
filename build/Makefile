@@ -111,108 +111,17 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named cpu_execution_engine
+# Target rules for targets named llama_autodiff_test
 
 # Build rule for target.
-cpu_execution_engine: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 cpu_execution_engine
-.PHONY : cpu_execution_engine
+llama_autodiff_test: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 llama_autodiff_test
+.PHONY : llama_autodiff_test
 
 # fast build rule for target.
-cpu_execution_engine/fast:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/build
-.PHONY : cpu_execution_engine/fast
-
-#=============================================================================
-# Target rules for targets named llama_exp03
-
-# Build rule for target.
-llama_exp03: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 llama_exp03
-.PHONY : llama_exp03
-
-# fast build rule for target.
-llama_exp03/fast:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/build
-.PHONY : llama_exp03/fast
-
-#=============================================================================
-# Target rules for targets named inference_exp
-
-# Build rule for target.
-inference_exp: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 inference_exp
-.PHONY : inference_exp
-
-# fast build rule for target.
-inference_exp/fast:
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/build
-.PHONY : inference_exp/fast
-
-#=============================================================================
-# Target rules for targets named llama_cpu
-
-# Build rule for target.
-llama_cpu: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 llama_cpu
-.PHONY : llama_cpu
-
-# fast build rule for target.
-llama_cpu/fast:
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/build
-.PHONY : llama_cpu/fast
-
-#=============================================================================
-# Target rules for targets named autodiff_test
-
-# Build rule for target.
-autodiff_test: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 autodiff_test
-.PHONY : autodiff_test
-
-# fast build rule for target.
-autodiff_test/fast:
-	$(MAKE) -f CMakeFiles/autodiff_test.dir/build.make CMakeFiles/autodiff_test.dir/build
-.PHONY : autodiff_test/fast
-
-#=============================================================================
-# Target rules for targets named run_graph_on_cpu_engine
-
-# Build rule for target.
-run_graph_on_cpu_engine: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 run_graph_on_cpu_engine
-.PHONY : run_graph_on_cpu_engine
-
-# fast build rule for target.
-run_graph_on_cpu_engine/fast:
-	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/build
-.PHONY : run_graph_on_cpu_engine/fast
-
-#=============================================================================
-# Target rules for targets named test_two_layer_graph
-
-# Build rule for target.
-test_two_layer_graph: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 test_two_layer_graph
-.PHONY : test_two_layer_graph
-
-# fast build rule for target.
-test_two_layer_graph/fast:
-	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/build
-.PHONY : test_two_layer_graph/fast
-
-#=============================================================================
-# Target rules for targets named llama_exp02
-
-# Build rule for target.
-llama_exp02: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 llama_exp02
-.PHONY : llama_exp02
-
-# fast build rule for target.
-llama_exp02/fast:
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/build
-.PHONY : llama_exp02/fast
+llama_autodiff_test/fast:
+	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/build
+.PHONY : llama_autodiff_test/fast
 
 #=============================================================================
 # Target rules for targets named scalarop
@@ -228,17 +137,95 @@ scalarop/fast:
 .PHONY : scalarop/fast
 
 #=============================================================================
-# Target rules for targets named llama_autodiff_test
+# Target rules for targets named llama_exp02
 
 # Build rule for target.
-llama_autodiff_test: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 llama_autodiff_test
-.PHONY : llama_autodiff_test
+llama_exp02: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 llama_exp02
+.PHONY : llama_exp02
 
 # fast build rule for target.
-llama_autodiff_test/fast:
-	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/build
-.PHONY : llama_autodiff_test/fast
+llama_exp02/fast:
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/build
+.PHONY : llama_exp02/fast
+
+#=============================================================================
+# Target rules for targets named test_two_layer_graph
+
+# Build rule for target.
+test_two_layer_graph: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 test_two_layer_graph
+.PHONY : test_two_layer_graph
+
+# fast build rule for target.
+test_two_layer_graph/fast:
+	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/build
+.PHONY : test_two_layer_graph/fast
+
+#=============================================================================
+# Target rules for targets named run_graph_on_cpu_engine
+
+# Build rule for target.
+run_graph_on_cpu_engine: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 run_graph_on_cpu_engine
+.PHONY : run_graph_on_cpu_engine
+
+# fast build rule for target.
+run_graph_on_cpu_engine/fast:
+	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/build
+.PHONY : run_graph_on_cpu_engine/fast
+
+#=============================================================================
+# Target rules for targets named autodiff_test
+
+# Build rule for target.
+autodiff_test: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 autodiff_test
+.PHONY : autodiff_test
+
+# fast build rule for target.
+autodiff_test/fast:
+	$(MAKE) -f CMakeFiles/autodiff_test.dir/build.make CMakeFiles/autodiff_test.dir/build
+.PHONY : autodiff_test/fast
+
+#=============================================================================
+# Target rules for targets named llama_cpu
+
+# Build rule for target.
+llama_cpu: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 llama_cpu
+.PHONY : llama_cpu
+
+# fast build rule for target.
+llama_cpu/fast:
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/build
+.PHONY : llama_cpu/fast
+
+#=============================================================================
+# Target rules for targets named inference_exp
+
+# Build rule for target.
+inference_exp: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 inference_exp
+.PHONY : inference_exp
+
+# fast build rule for target.
+inference_exp/fast:
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/build
+.PHONY : inference_exp/fast
+
+#=============================================================================
+# Target rules for targets named llama_main
+
+# Build rule for target.
+llama_main: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 llama_main
+.PHONY : llama_main
+
+# fast build rule for target.
+llama_main/fast:
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/build
+.PHONY : llama_main/fast
 
 #=============================================================================
 # Target rules for targets named einsummable
@@ -252,6 +239,32 @@ einsummable: cmake_check_build_system
 einsummable/fast:
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/build
 .PHONY : einsummable/fast
+
+#=============================================================================
+# Target rules for targets named llama_exp03
+
+# Build rule for target.
+llama_exp03: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 llama_exp03
+.PHONY : llama_exp03
+
+# fast build rule for target.
+llama_exp03/fast:
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/build
+.PHONY : llama_exp03/fast
+
+#=============================================================================
+# Target rules for targets named cpu_execution_engine
+
+# Build rule for target.
+cpu_execution_engine: cmake_check_build_system
+	$(MAKE) -f CMakeFiles/Makefile2 cpu_execution_engine
+.PHONY : cpu_execution_engine
+
+# fast build rule for target.
+cpu_execution_engine/fast:
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/build
+.PHONY : cpu_execution_engine/fast
 
 #=============================================================================
 # Target rules for targets named proto
@@ -407,11 +420,12 @@ llama/builder.o: llama/builder.cc.o
 
 # target to build an object file
 llama/builder.cc.o:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.o
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.o
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.o
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.o
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/builder.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.o
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.o
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.o
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/builder.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.o
 .PHONY : llama/builder.cc.o
 
 llama/builder.i: llama/builder.cc.i
@@ -420,11 +434,12 @@ llama/builder.i: llama/builder.cc.i
 
 # target to preprocess a source file
 llama/builder.cc.i:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.i
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.i
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.i
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.i
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/builder.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.i
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.i
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.i
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/builder.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.i
 .PHONY : llama/builder.cc.i
 
 llama/builder.s: llama/builder.cc.s
@@ -433,11 +448,12 @@ llama/builder.s: llama/builder.cc.s
 
 # target to generate assembly for a file
 llama/builder.cc.s:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.s
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.s
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.s
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.s
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/builder.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/builder.cc.s
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/builder.cc.s
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/builder.cc.s
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/builder.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/builder.cc.s
 .PHONY : llama/builder.cc.s
 
 llama/cpu2.o: llama/cpu2.cc.o
@@ -548,17 +564,45 @@ llama/inference_exp.cc.s:
 	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/inference_exp.cc.s
 .PHONY : llama/inference_exp.cc.s
 
+llama/main.o: llama/main.cc.o
+
+.PHONY : llama/main.o
+
+# target to build an object file
+llama/main.cc.o:
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/main.cc.o
+.PHONY : llama/main.cc.o
+
+llama/main.i: llama/main.cc.i
+
+.PHONY : llama/main.i
+
+# target to preprocess a source file
+llama/main.cc.i:
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/main.cc.i
+.PHONY : llama/main.cc.i
+
+llama/main.s: llama/main.cc.s
+
+.PHONY : llama/main.s
+
+# target to generate assembly for a file
+llama/main.cc.s:
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/main.cc.s
+.PHONY : llama/main.cc.s
+
 llama/misc.o: llama/misc.cc.o
 
 .PHONY : llama/misc.o
 
 # target to build an object file
 llama/misc.cc.o:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.o
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.o
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.o
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.o
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/misc.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.o
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.o
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.o
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/misc.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.o
 .PHONY : llama/misc.cc.o
 
 llama/misc.i: llama/misc.cc.i
@@ -567,11 +611,12 @@ llama/misc.i: llama/misc.cc.i
 
 # target to preprocess a source file
 llama/misc.cc.i:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.i
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.i
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.i
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.i
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/misc.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.i
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.i
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.i
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/misc.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.i
 .PHONY : llama/misc.cc.i
 
 llama/misc.s: llama/misc.cc.s
@@ -580,11 +625,12 @@ llama/misc.s: llama/misc.cc.s
 
 # target to generate assembly for a file
 llama/misc.cc.s:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.s
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.s
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.s
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.s
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/misc.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/misc.cc.s
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/misc.cc.s
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/misc.cc.s
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/misc.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/misc.cc.s
 .PHONY : llama/misc.cc.s
 
 llama/modules.o: llama/modules.cc.o
@@ -593,13 +639,14 @@ llama/modules.o: llama/modules.cc.o
 
 # target to build an object file
 llama/modules.cc.o:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.o
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.o
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.o
-	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.o
-	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.o
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.o
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/modules.cc.o
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.o
 .PHONY : llama/modules.cc.o
 
 llama/modules.i: llama/modules.cc.i
@@ -608,13 +655,14 @@ llama/modules.i: llama/modules.cc.i
 
 # target to preprocess a source file
 llama/modules.cc.i:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.i
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.i
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.i
-	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.i
-	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.i
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.i
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/modules.cc.i
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.i
 .PHONY : llama/modules.cc.i
 
 llama/modules.s: llama/modules.cc.s
@@ -623,13 +671,14 @@ llama/modules.s: llama/modules.cc.s
 
 # target to generate assembly for a file
 llama/modules.cc.s:
-	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.s
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.s
-	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.s
-	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.s
-	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.s
-	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.s
 	$(MAKE) -f CMakeFiles/llama_autodiff_test.dir/build.make CMakeFiles/llama_autodiff_test.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp02.dir/build.make CMakeFiles/llama_exp02.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/test_two_layer_graph.dir/build.make CMakeFiles/test_two_layer_graph.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/run_graph_on_cpu_engine.dir/build.make CMakeFiles/run_graph_on_cpu_engine.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/llama_main.dir/build.make CMakeFiles/llama_main.dir/llama/modules.cc.s
+	$(MAKE) -f CMakeFiles/llama_exp03.dir/build.make CMakeFiles/llama_exp03.dir/llama/modules.cc.s
 .PHONY : llama/modules.cc.s
 
 llama/reader.o: llama/reader.cc.o
@@ -638,8 +687,8 @@ llama/reader.o: llama/reader.cc.o
 
 # target to build an object file
 llama/reader.cc.o:
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.o
 	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/reader.cc.o
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.o
 .PHONY : llama/reader.cc.o
 
 llama/reader.i: llama/reader.cc.i
@@ -648,8 +697,8 @@ llama/reader.i: llama/reader.cc.i
 
 # target to preprocess a source file
 llama/reader.cc.i:
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.i
 	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/reader.cc.i
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.i
 .PHONY : llama/reader.cc.i
 
 llama/reader.s: llama/reader.cc.s
@@ -658,8 +707,8 @@ llama/reader.s: llama/reader.cc.s
 
 # target to generate assembly for a file
 llama/reader.cc.s:
-	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.s
 	$(MAKE) -f CMakeFiles/llama_cpu.dir/build.make CMakeFiles/llama_cpu.dir/llama/reader.cc.s
+	$(MAKE) -f CMakeFiles/inference_exp.dir/build.make CMakeFiles/inference_exp.dir/llama/reader.cc.s
 .PHONY : llama/reader.cc.s
 
 src/autoplace/aggplan.o: src/autoplace/aggplan.cc.o
@@ -668,8 +717,8 @@ src/autoplace/aggplan.o: src/autoplace/aggplan.cc.o
 
 # target to build an object file
 src/autoplace/aggplan.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/aggplan.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.o
 .PHONY : src/autoplace/aggplan.cc.o
 
 src/autoplace/aggplan.i: src/autoplace/aggplan.cc.i
@@ -678,8 +727,8 @@ src/autoplace/aggplan.i: src/autoplace/aggplan.cc.i
 
 # target to preprocess a source file
 src/autoplace/aggplan.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/aggplan.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.i
 .PHONY : src/autoplace/aggplan.cc.i
 
 src/autoplace/aggplan.s: src/autoplace/aggplan.cc.s
@@ -688,8 +737,8 @@ src/autoplace/aggplan.s: src/autoplace/aggplan.cc.s
 
 # target to generate assembly for a file
 src/autoplace/aggplan.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/aggplan.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/aggplan.cc.s
 .PHONY : src/autoplace/aggplan.cc.s
 
 src/autoplace/alocate.o: src/autoplace/alocate.cc.o
@@ -698,8 +747,8 @@ src/autoplace/alocate.o: src/autoplace/alocate.cc.o
 
 # target to build an object file
 src/autoplace/alocate.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/alocate.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o
 .PHONY : src/autoplace/alocate.cc.o
 
 src/autoplace/alocate.i: src/autoplace/alocate.cc.i
@@ -708,8 +757,8 @@ src/autoplace/alocate.i: src/autoplace/alocate.cc.i
 
 # target to preprocess a source file
 src/autoplace/alocate.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/alocate.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.i
 .PHONY : src/autoplace/alocate.cc.i
 
 src/autoplace/alocate.s: src/autoplace/alocate.cc.s
@@ -718,8 +767,8 @@ src/autoplace/alocate.s: src/autoplace/alocate.cc.s
 
 # target to generate assembly for a file
 src/autoplace/alocate.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/alocate.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.s
 .PHONY : src/autoplace/alocate.cc.s
 
 src/autoplace/apart.o: src/autoplace/apart.cc.o
@@ -728,8 +777,8 @@ src/autoplace/apart.o: src/autoplace/apart.cc.o
 
 # target to build an object file
 src/autoplace/apart.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/apart.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o
 .PHONY : src/autoplace/apart.cc.o
 
 src/autoplace/apart.i: src/autoplace/apart.cc.i
@@ -738,8 +787,8 @@ src/autoplace/apart.i: src/autoplace/apart.cc.i
 
 # target to preprocess a source file
 src/autoplace/apart.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/apart.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.i
 .PHONY : src/autoplace/apart.cc.i
 
 src/autoplace/apart.s: src/autoplace/apart.cc.s
@@ -748,8 +797,8 @@ src/autoplace/apart.s: src/autoplace/apart.cc.s
 
 # target to generate assembly for a file
 src/autoplace/apart.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/apart.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.s
 .PHONY : src/autoplace/apart.cc.s
 
 src/autoplace/locsetter.o: src/autoplace/locsetter.cc.o
@@ -758,8 +807,8 @@ src/autoplace/locsetter.o: src/autoplace/locsetter.cc.o
 
 # target to build an object file
 src/autoplace/locsetter.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/locsetter.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.o
 .PHONY : src/autoplace/locsetter.cc.o
 
 src/autoplace/locsetter.i: src/autoplace/locsetter.cc.i
@@ -768,8 +817,8 @@ src/autoplace/locsetter.i: src/autoplace/locsetter.cc.i
 
 # target to preprocess a source file
 src/autoplace/locsetter.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/locsetter.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.i
 .PHONY : src/autoplace/locsetter.cc.i
 
 src/autoplace/locsetter.s: src/autoplace/locsetter.cc.s
@@ -778,8 +827,8 @@ src/autoplace/locsetter.s: src/autoplace/locsetter.cc.s
 
 # target to generate assembly for a file
 src/autoplace/locsetter.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/locsetter.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.s
 .PHONY : src/autoplace/locsetter.cc.s
 
 src/autoplace/relationwise.o: src/autoplace/relationwise.cc.o
@@ -788,8 +837,8 @@ src/autoplace/relationwise.o: src/autoplace/relationwise.cc.o
 
 # target to build an object file
 src/autoplace/relationwise.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/relationwise.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o
 .PHONY : src/autoplace/relationwise.cc.o
 
 src/autoplace/relationwise.i: src/autoplace/relationwise.cc.i
@@ -798,8 +847,8 @@ src/autoplace/relationwise.i: src/autoplace/relationwise.cc.i
 
 # target to preprocess a source file
 src/autoplace/relationwise.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/relationwise.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.i
 .PHONY : src/autoplace/relationwise.cc.i
 
 src/autoplace/relationwise.s: src/autoplace/relationwise.cc.s
@@ -808,8 +857,8 @@ src/autoplace/relationwise.s: src/autoplace/relationwise.cc.s
 
 # target to generate assembly for a file
 src/autoplace/relationwise.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/relationwise.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.s
 .PHONY : src/autoplace/relationwise.cc.s
 
 src/autoplace/twolayer.o: src/autoplace/twolayer.cc.o
@@ -818,8 +867,8 @@ src/autoplace/twolayer.o: src/autoplace/twolayer.cc.o
 
 # target to build an object file
 src/autoplace/twolayer.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/twolayer.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o
 .PHONY : src/autoplace/twolayer.cc.o
 
 src/autoplace/twolayer.i: src/autoplace/twolayer.cc.i
@@ -828,8 +877,8 @@ src/autoplace/twolayer.i: src/autoplace/twolayer.cc.i
 
 # target to preprocess a source file
 src/autoplace/twolayer.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/twolayer.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.i
 .PHONY : src/autoplace/twolayer.cc.i
 
 src/autoplace/twolayer.s: src/autoplace/twolayer.cc.s
@@ -838,8 +887,8 @@ src/autoplace/twolayer.s: src/autoplace/twolayer.cc.s
 
 # target to generate assembly for a file
 src/autoplace/twolayer.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/autoplace/twolayer.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.s
 .PHONY : src/autoplace/twolayer.cc.s
 
 src/base/buffer.o: src/base/buffer.cc.o
@@ -848,8 +897,8 @@ src/base/buffer.o: src/base/buffer.cc.o
 
 # target to build an object file
 src/base/buffer.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/buffer.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.o
 .PHONY : src/base/buffer.cc.o
 
 src/base/buffer.i: src/base/buffer.cc.i
@@ -858,8 +907,8 @@ src/base/buffer.i: src/base/buffer.cc.i
 
 # target to preprocess a source file
 src/base/buffer.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/buffer.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.i
 .PHONY : src/base/buffer.cc.i
 
 src/base/buffer.s: src/base/buffer.cc.s
@@ -868,8 +917,8 @@ src/base/buffer.s: src/base/buffer.cc.s
 
 # target to generate assembly for a file
 src/base/buffer.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/buffer.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.s
 .PHONY : src/base/buffer.cc.s
 
 src/base/copyregion.o: src/base/copyregion.cc.o
@@ -878,8 +927,8 @@ src/base/copyregion.o: src/base/copyregion.cc.o
 
 # target to build an object file
 src/base/copyregion.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/copyregion.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o
 .PHONY : src/base/copyregion.cc.o
 
 src/base/copyregion.i: src/base/copyregion.cc.i
@@ -888,8 +937,8 @@ src/base/copyregion.i: src/base/copyregion.cc.i
 
 # target to preprocess a source file
 src/base/copyregion.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/copyregion.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.i
 .PHONY : src/base/copyregion.cc.i
 
 src/base/copyregion.s: src/base/copyregion.cc.s
@@ -898,8 +947,8 @@ src/base/copyregion.s: src/base/copyregion.cc.s
 
 # target to generate assembly for a file
 src/base/copyregion.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/copyregion.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.s
 .PHONY : src/base/copyregion.cc.s
 
 src/base/hrect.o: src/base/hrect.cc.o
@@ -908,8 +957,8 @@ src/base/hrect.o: src/base/hrect.cc.o
 
 # target to build an object file
 src/base/hrect.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/hrect.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.o
 .PHONY : src/base/hrect.cc.o
 
 src/base/hrect.i: src/base/hrect.cc.i
@@ -918,8 +967,8 @@ src/base/hrect.i: src/base/hrect.cc.i
 
 # target to preprocess a source file
 src/base/hrect.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/hrect.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.i
 .PHONY : src/base/hrect.cc.i
 
 src/base/hrect.s: src/base/hrect.cc.s
@@ -928,8 +977,8 @@ src/base/hrect.s: src/base/hrect.cc.s
 
 # target to generate assembly for a file
 src/base/hrect.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/hrect.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.s
 .PHONY : src/base/hrect.cc.s
 
 src/base/indexer.o: src/base/indexer.cc.o
@@ -938,8 +987,8 @@ src/base/indexer.o: src/base/indexer.cc.o
 
 # target to build an object file
 src/base/indexer.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/indexer.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.o
 .PHONY : src/base/indexer.cc.o
 
 src/base/indexer.i: src/base/indexer.cc.i
@@ -948,8 +997,8 @@ src/base/indexer.i: src/base/indexer.cc.i
 
 # target to preprocess a source file
 src/base/indexer.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/indexer.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.i
 .PHONY : src/base/indexer.cc.i
 
 src/base/indexer.s: src/base/indexer.cc.s
@@ -958,8 +1007,8 @@ src/base/indexer.s: src/base/indexer.cc.s
 
 # target to generate assembly for a file
 src/base/indexer.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/indexer.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/indexer.cc.s
 .PHONY : src/base/indexer.cc.s
 
 src/base/partdim.o: src/base/partdim.cc.o
@@ -968,8 +1017,8 @@ src/base/partdim.o: src/base/partdim.cc.o
 
 # target to build an object file
 src/base/partdim.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partdim.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.o
 .PHONY : src/base/partdim.cc.o
 
 src/base/partdim.i: src/base/partdim.cc.i
@@ -978,8 +1027,8 @@ src/base/partdim.i: src/base/partdim.cc.i
 
 # target to preprocess a source file
 src/base/partdim.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partdim.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.i
 .PHONY : src/base/partdim.cc.i
 
 src/base/partdim.s: src/base/partdim.cc.s
@@ -988,8 +1037,8 @@ src/base/partdim.s: src/base/partdim.cc.s
 
 # target to generate assembly for a file
 src/base/partdim.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partdim.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partdim.cc.s
 .PHONY : src/base/partdim.cc.s
 
 src/base/partition.o: src/base/partition.cc.o
@@ -998,8 +1047,8 @@ src/base/partition.o: src/base/partition.cc.o
 
 # target to build an object file
 src/base/partition.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partition.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o
 .PHONY : src/base/partition.cc.o
 
 src/base/partition.i: src/base/partition.cc.i
@@ -1008,8 +1057,8 @@ src/base/partition.i: src/base/partition.cc.i
 
 # target to preprocess a source file
 src/base/partition.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partition.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.i
 .PHONY : src/base/partition.cc.i
 
 src/base/partition.s: src/base/partition.cc.s
@@ -1018,8 +1067,8 @@ src/base/partition.s: src/base/partition.cc.s
 
 # target to generate assembly for a file
 src/base/partition.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/partition.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.s
 .PHONY : src/base/partition.cc.s
 
 src/base/permute.o: src/base/permute.cc.o
@@ -1028,8 +1077,8 @@ src/base/permute.o: src/base/permute.cc.o
 
 # target to build an object file
 src/base/permute.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/permute.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.o
 .PHONY : src/base/permute.cc.o
 
 src/base/permute.i: src/base/permute.cc.i
@@ -1038,8 +1087,8 @@ src/base/permute.i: src/base/permute.cc.i
 
 # target to preprocess a source file
 src/base/permute.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/permute.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.i
 .PHONY : src/base/permute.cc.i
 
 src/base/permute.s: src/base/permute.cc.s
@@ -1048,8 +1097,8 @@ src/base/permute.s: src/base/permute.cc.s
 
 # target to generate assembly for a file
 src/base/permute.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/permute.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.s
 .PHONY : src/base/permute.cc.s
 
 src/base/placement.o: src/base/placement.cc.o
@@ -1058,8 +1107,8 @@ src/base/placement.o: src/base/placement.cc.o
 
 # target to build an object file
 src/base/placement.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/placement.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o
 .PHONY : src/base/placement.cc.o
 
 src/base/placement.i: src/base/placement.cc.i
@@ -1068,8 +1117,8 @@ src/base/placement.i: src/base/placement.cc.i
 
 # target to preprocess a source file
 src/base/placement.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/placement.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.i
 .PHONY : src/base/placement.cc.i
 
 src/base/placement.s: src/base/placement.cc.s
@@ -1078,8 +1127,8 @@ src/base/placement.s: src/base/placement.cc.s
 
 # target to generate assembly for a file
 src/base/placement.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/placement.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.s
 .PHONY : src/base/placement.cc.s
 
 src/base/setup.o: src/base/setup.cc.o
@@ -1088,8 +1137,8 @@ src/base/setup.o: src/base/setup.cc.o
 
 # target to build an object file
 src/base/setup.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/setup.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.o
 .PHONY : src/base/setup.cc.o
 
 src/base/setup.i: src/base/setup.cc.i
@@ -1098,8 +1147,8 @@ src/base/setup.i: src/base/setup.cc.i
 
 # target to preprocess a source file
 src/base/setup.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/setup.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.i
 .PHONY : src/base/setup.cc.i
 
 src/base/setup.s: src/base/setup.cc.s
@@ -1108,8 +1157,8 @@ src/base/setup.s: src/base/setup.cc.s
 
 # target to generate assembly for a file
 src/base/setup.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/setup.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.s
 .PHONY : src/base/setup.cc.s
 
 src/base/timeplot.o: src/base/timeplot.cc.o
@@ -1118,8 +1167,8 @@ src/base/timeplot.o: src/base/timeplot.cc.o
 
 # target to build an object file
 src/base/timeplot.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timeplot.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.o
 .PHONY : src/base/timeplot.cc.o
 
 src/base/timeplot.i: src/base/timeplot.cc.i
@@ -1128,8 +1177,8 @@ src/base/timeplot.i: src/base/timeplot.cc.i
 
 # target to preprocess a source file
 src/base/timeplot.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timeplot.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.i
 .PHONY : src/base/timeplot.cc.i
 
 src/base/timeplot.s: src/base/timeplot.cc.s
@@ -1138,8 +1187,8 @@ src/base/timeplot.s: src/base/timeplot.cc.s
 
 # target to generate assembly for a file
 src/base/timeplot.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timeplot.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timeplot.cc.s
 .PHONY : src/base/timeplot.cc.s
 
 src/base/timetracker.o: src/base/timetracker.cc.o
@@ -1148,8 +1197,8 @@ src/base/timetracker.o: src/base/timetracker.cc.o
 
 # target to build an object file
 src/base/timetracker.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timetracker.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.o
 .PHONY : src/base/timetracker.cc.o
 
 src/base/timetracker.i: src/base/timetracker.cc.i
@@ -1158,8 +1207,8 @@ src/base/timetracker.i: src/base/timetracker.cc.i
 
 # target to preprocess a source file
 src/base/timetracker.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timetracker.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.i
 .PHONY : src/base/timetracker.cc.i
 
 src/base/timetracker.s: src/base/timetracker.cc.s
@@ -1168,8 +1217,8 @@ src/base/timetracker.s: src/base/timetracker.cc.s
 
 # target to generate assembly for a file
 src/base/timetracker.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/base/timetracker.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/base/timetracker.cc.s
 .PHONY : src/base/timetracker.cc.s
 
 src/einsummable/backprop.o: src/einsummable/backprop.cc.o
@@ -1178,8 +1227,8 @@ src/einsummable/backprop.o: src/einsummable/backprop.cc.o
 
 # target to build an object file
 src/einsummable/backprop.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/backprop.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o
 .PHONY : src/einsummable/backprop.cc.o
 
 src/einsummable/backprop.i: src/einsummable/backprop.cc.i
@@ -1188,8 +1237,8 @@ src/einsummable/backprop.i: src/einsummable/backprop.cc.i
 
 # target to preprocess a source file
 src/einsummable/backprop.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/backprop.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.i
 .PHONY : src/einsummable/backprop.cc.i
 
 src/einsummable/backprop.s: src/einsummable/backprop.cc.s
@@ -1198,8 +1247,8 @@ src/einsummable/backprop.s: src/einsummable/backprop.cc.s
 
 # target to generate assembly for a file
 src/einsummable/backprop.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/backprop.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.s
 .PHONY : src/einsummable/backprop.cc.s
 
 src/einsummable/dbuffer.o: src/einsummable/dbuffer.cc.o
@@ -1208,8 +1257,8 @@ src/einsummable/dbuffer.o: src/einsummable/dbuffer.cc.o
 
 # target to build an object file
 src/einsummable/dbuffer.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/dbuffer.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.o
 .PHONY : src/einsummable/dbuffer.cc.o
 
 src/einsummable/dbuffer.i: src/einsummable/dbuffer.cc.i
@@ -1218,8 +1267,8 @@ src/einsummable/dbuffer.i: src/einsummable/dbuffer.cc.i
 
 # target to preprocess a source file
 src/einsummable/dbuffer.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/dbuffer.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.i
 .PHONY : src/einsummable/dbuffer.cc.i
 
 src/einsummable/dbuffer.s: src/einsummable/dbuffer.cc.s
@@ -1228,8 +1277,8 @@ src/einsummable/dbuffer.s: src/einsummable/dbuffer.cc.s
 
 # target to generate assembly for a file
 src/einsummable/dbuffer.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/dbuffer.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.s
 .PHONY : src/einsummable/dbuffer.cc.s
 
 src/einsummable/einsummable.o: src/einsummable/einsummable.cc.o
@@ -1238,8 +1287,8 @@ src/einsummable/einsummable.o: src/einsummable/einsummable.cc.o
 
 # target to build an object file
 src/einsummable/einsummable.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/einsummable.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.o
 .PHONY : src/einsummable/einsummable.cc.o
 
 src/einsummable/einsummable.i: src/einsummable/einsummable.cc.i
@@ -1248,8 +1297,8 @@ src/einsummable/einsummable.i: src/einsummable/einsummable.cc.i
 
 # target to preprocess a source file
 src/einsummable/einsummable.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/einsummable.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.i
 .PHONY : src/einsummable/einsummable.cc.i
 
 src/einsummable/einsummable.s: src/einsummable/einsummable.cc.s
@@ -1258,8 +1307,8 @@ src/einsummable/einsummable.s: src/einsummable/einsummable.cc.s
 
 # target to generate assembly for a file
 src/einsummable/einsummable.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/einsummable.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/einsummable.cc.s
 .PHONY : src/einsummable/einsummable.cc.s
 
 src/einsummable/graph.o: src/einsummable/graph.cc.o
@@ -1268,8 +1317,8 @@ src/einsummable/graph.o: src/einsummable/graph.cc.o
 
 # target to build an object file
 src/einsummable/graph.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/graph.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o
 .PHONY : src/einsummable/graph.cc.o
 
 src/einsummable/graph.i: src/einsummable/graph.cc.i
@@ -1278,8 +1327,8 @@ src/einsummable/graph.i: src/einsummable/graph.cc.i
 
 # target to preprocess a source file
 src/einsummable/graph.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/graph.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.i
 .PHONY : src/einsummable/graph.cc.i
 
 src/einsummable/graph.s: src/einsummable/graph.cc.s
@@ -1288,8 +1337,8 @@ src/einsummable/graph.s: src/einsummable/graph.cc.s
 
 # target to generate assembly for a file
 src/einsummable/graph.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/graph.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.s
 .PHONY : src/einsummable/graph.cc.s
 
 src/einsummable/gwriter.o: src/einsummable/gwriter.cc.o
@@ -1298,8 +1347,8 @@ src/einsummable/gwriter.o: src/einsummable/gwriter.cc.o
 
 # target to build an object file
 src/einsummable/gwriter.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/gwriter.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o
 .PHONY : src/einsummable/gwriter.cc.o
 
 src/einsummable/gwriter.i: src/einsummable/gwriter.cc.i
@@ -1308,8 +1357,8 @@ src/einsummable/gwriter.i: src/einsummable/gwriter.cc.i
 
 # target to preprocess a source file
 src/einsummable/gwriter.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/gwriter.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.i
 .PHONY : src/einsummable/gwriter.cc.i
 
 src/einsummable/gwriter.s: src/einsummable/gwriter.cc.s
@@ -1318,8 +1367,8 @@ src/einsummable/gwriter.s: src/einsummable/gwriter.cc.s
 
 # target to generate assembly for a file
 src/einsummable/gwriter.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/gwriter.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.s
 .PHONY : src/einsummable/gwriter.cc.s
 
 src/einsummable/memgraph.o: src/einsummable/memgraph.cc.o
@@ -1328,8 +1377,8 @@ src/einsummable/memgraph.o: src/einsummable/memgraph.cc.o
 
 # target to build an object file
 src/einsummable/memgraph.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/memgraph.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o
 .PHONY : src/einsummable/memgraph.cc.o
 
 src/einsummable/memgraph.i: src/einsummable/memgraph.cc.i
@@ -1338,8 +1387,8 @@ src/einsummable/memgraph.i: src/einsummable/memgraph.cc.i
 
 # target to preprocess a source file
 src/einsummable/memgraph.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/memgraph.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.i
 .PHONY : src/einsummable/memgraph.cc.i
 
 src/einsummable/memgraph.s: src/einsummable/memgraph.cc.s
@@ -1348,8 +1397,8 @@ src/einsummable/memgraph.s: src/einsummable/memgraph.cc.s
 
 # target to generate assembly for a file
 src/einsummable/memgraph.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/memgraph.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.s
 .PHONY : src/einsummable/memgraph.cc.s
 
 src/einsummable/reference.o: src/einsummable/reference.cc.o
@@ -1358,8 +1407,8 @@ src/einsummable/reference.o: src/einsummable/reference.cc.o
 
 # target to build an object file
 src/einsummable/reference.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/reference.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o
 .PHONY : src/einsummable/reference.cc.o
 
 src/einsummable/reference.i: src/einsummable/reference.cc.i
@@ -1368,8 +1417,8 @@ src/einsummable/reference.i: src/einsummable/reference.cc.i
 
 # target to preprocess a source file
 src/einsummable/reference.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/reference.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.i
 .PHONY : src/einsummable/reference.cc.i
 
 src/einsummable/reference.s: src/einsummable/reference.cc.s
@@ -1378,8 +1427,8 @@ src/einsummable/reference.s: src/einsummable/reference.cc.s
 
 # target to generate assembly for a file
 src/einsummable/reference.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/reference.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.s
 .PHONY : src/einsummable/reference.cc.s
 
 src/einsummable/relation.o: src/einsummable/relation.cc.o
@@ -1388,8 +1437,8 @@ src/einsummable/relation.o: src/einsummable/relation.cc.o
 
 # target to build an object file
 src/einsummable/relation.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/relation.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o
 .PHONY : src/einsummable/relation.cc.o
 
 src/einsummable/relation.i: src/einsummable/relation.cc.i
@@ -1398,8 +1447,8 @@ src/einsummable/relation.i: src/einsummable/relation.cc.i
 
 # target to preprocess a source file
 src/einsummable/relation.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/relation.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.i
 .PHONY : src/einsummable/relation.cc.i
 
 src/einsummable/relation.s: src/einsummable/relation.cc.s
@@ -1408,8 +1457,8 @@ src/einsummable/relation.s: src/einsummable/relation.cc.s
 
 # target to generate assembly for a file
 src/einsummable/relation.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/relation.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.s
 .PHONY : src/einsummable/relation.cc.s
 
 src/einsummable/scalarop.o: src/einsummable/scalarop.cc.o
@@ -1418,8 +1467,8 @@ src/einsummable/scalarop.o: src/einsummable/scalarop.cc.o
 
 # target to build an object file
 src/einsummable/scalarop.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/scalarop.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.o
 .PHONY : src/einsummable/scalarop.cc.o
 
 src/einsummable/scalarop.i: src/einsummable/scalarop.cc.i
@@ -1428,8 +1477,8 @@ src/einsummable/scalarop.i: src/einsummable/scalarop.cc.i
 
 # target to preprocess a source file
 src/einsummable/scalarop.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/scalarop.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.i
 .PHONY : src/einsummable/scalarop.cc.i
 
 src/einsummable/scalarop.s: src/einsummable/scalarop.cc.s
@@ -1438,8 +1487,8 @@ src/einsummable/scalarop.s: src/einsummable/scalarop.cc.s
 
 # target to generate assembly for a file
 src/einsummable/scalarop.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/scalarop.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.s
 .PHONY : src/einsummable/scalarop.cc.s
 
 src/einsummable/taskgraph.o: src/einsummable/taskgraph.cc.o
@@ -1448,8 +1497,8 @@ src/einsummable/taskgraph.o: src/einsummable/taskgraph.cc.o
 
 # target to build an object file
 src/einsummable/taskgraph.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/taskgraph.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o
 .PHONY : src/einsummable/taskgraph.cc.o
 
 src/einsummable/taskgraph.i: src/einsummable/taskgraph.cc.i
@@ -1458,8 +1507,8 @@ src/einsummable/taskgraph.i: src/einsummable/taskgraph.cc.i
 
 # target to preprocess a source file
 src/einsummable/taskgraph.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/taskgraph.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.i
 .PHONY : src/einsummable/taskgraph.cc.i
 
 src/einsummable/taskgraph.s: src/einsummable/taskgraph.cc.s
@@ -1468,8 +1517,8 @@ src/einsummable/taskgraph.s: src/einsummable/taskgraph.cc.s
 
 # target to generate assembly for a file
 src/einsummable/taskgraph.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/taskgraph.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.s
 .PHONY : src/einsummable/taskgraph.cc.s
 
 src/einsummable/touch.o: src/einsummable/touch.cc.o
@@ -1478,8 +1527,8 @@ src/einsummable/touch.o: src/einsummable/touch.cc.o
 
 # target to build an object file
 src/einsummable/touch.cc.o:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.o
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/touch.cc.o
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.o
 .PHONY : src/einsummable/touch.cc.o
 
 src/einsummable/touch.i: src/einsummable/touch.cc.i
@@ -1488,8 +1537,8 @@ src/einsummable/touch.i: src/einsummable/touch.cc.i
 
 # target to preprocess a source file
 src/einsummable/touch.cc.i:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.i
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/touch.cc.i
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.i
 .PHONY : src/einsummable/touch.cc.i
 
 src/einsummable/touch.s: src/einsummable/touch.cc.s
@@ -1498,8 +1547,8 @@ src/einsummable/touch.s: src/einsummable/touch.cc.s
 
 # target to generate assembly for a file
 src/einsummable/touch.cc.s:
-	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.s
 	$(MAKE) -f CMakeFiles/einsummable.dir/build.make CMakeFiles/einsummable.dir/src/einsummable/touch.cc.s
+	$(MAKE) -f CMakeFiles/cpu_execution_engine.dir/build.make CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.s
 .PHONY : src/einsummable/touch.cc.s
 
 src/engine/channel_manager.o: src/engine/channel_manager.cc.o
@@ -2021,19 +2070,20 @@ help:
 	@echo "... all (the default if no target is provided)"
 	@echo "... clean"
 	@echo "... depend"
-	@echo "... cpu_execution_engine"
-	@echo "... llama_exp03"
-	@echo "... rebuild_cache"
-	@echo "... inference_exp"
-	@echo "... llama_cpu"
-	@echo "... autodiff_test"
-	@echo "... edit_cache"
-	@echo "... run_graph_on_cpu_engine"
-	@echo "... test_two_layer_graph"
-	@echo "... llama_exp02"
-	@echo "... scalarop"
 	@echo "... llama_autodiff_test"
+	@echo "... scalarop"
+	@echo "... llama_exp02"
+	@echo "... test_two_layer_graph"
+	@echo "... run_graph_on_cpu_engine"
+	@echo "... rebuild_cache"
+	@echo "... edit_cache"
+	@echo "... autodiff_test"
+	@echo "... llama_cpu"
+	@echo "... inference_exp"
+	@echo "... llama_main"
 	@echo "... einsummable"
+	@echo "... llama_exp03"
+	@echo "... cpu_execution_engine"
 	@echo "... proto"
 	@echo "... exps/autodiff_test.o"
 	@echo "... exps/autodiff_test.i"
@@ -2065,6 +2115,9 @@ help:
 	@echo "... llama/inference_exp.o"
 	@echo "... llama/inference_exp.i"
 	@echo "... llama/inference_exp.s"
+	@echo "... llama/main.o"
+	@echo "... llama/main.i"
+	@echo "... llama/main.s"
 	@echo "... llama/misc.o"
 	@echo "... llama/misc.i"
 	@echo "... llama/misc.s"

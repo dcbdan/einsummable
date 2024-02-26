@@ -24,6 +24,7 @@ CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o: ../src/einsummab
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/autoplace/alocate.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../src/autoplace/apart.cc
@@ -43,6 +44,7 @@ CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../src/einsummable
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/autoplace/apart.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/locsetter.cc.o: ../src/autoplace/locsetter.cc
@@ -65,6 +67,7 @@ CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o: ../src/eins
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/autoplace/relationwise.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../src/autoplace/twolayer.cc
@@ -84,6 +87,7 @@ CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../src/einsumma
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../src/einsummable/taskgraph.h
 CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/autoplace/twolayer.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/base/buffer.cc.o: ../src/base/buffer.cc
@@ -99,6 +103,7 @@ CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o: ../src/base/partit
 CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o: ../src/base/partition_.h
 CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o: ../src/base/setup.h
 CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o: ../src/base/vtensor.h
+CMakeFiles/cpu_execution_engine.dir/src/base/copyregion.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/base/hrect.cc.o: ../src/base/hrect.cc
@@ -123,6 +128,7 @@ CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o: ../src/base/partiti
 CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o: ../src/base/partition_.h
 CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o: ../src/base/setup.h
 CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o: ../src/base/vtensor.h
+CMakeFiles/cpu_execution_engine.dir/src/base/partition.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/base/permute.cc.o: ../src/base/permute.cc
@@ -139,6 +145,7 @@ CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o: ../src/base/placeme
 CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o: ../src/base/placement.h
 CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o: ../src/base/setup.h
 CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o: ../src/base/vtensor.h
+CMakeFiles/cpu_execution_engine.dir/src/base/placement.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/base/setup.cc.o: ../src/base/setup.cc
@@ -168,6 +175,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o: ../src/einsum
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/backprop.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/dbuffer.cc.o: ../src/base/buffer.h
@@ -197,6 +205,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o: ../src/einsummab
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/graph.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../src/base/indexer.h
@@ -213,6 +222,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../src/einsumm
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/gwriter.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../src/base/indexer.h
@@ -230,6 +240,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../src/einsum
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../src/einsummable/taskgraph.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/memgraph.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../src/base/buffer.h
@@ -251,6 +262,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../src/einsu
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../src/einsummable/scalarop.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../src/einsummable/taskgraph.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/reference.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../src/base/indexer.h
@@ -263,6 +275,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../src/base/v
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../src/einsummable/relation.cc
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../src/einsummable/relation.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: ../src/einsummable/scalarop.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/relation.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/scalarop.cc.o: ../src/base/setup.h
@@ -286,6 +299,7 @@ CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o: ../src/einsu
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o: ../src/einsummable/taskgraph.cc
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o: ../src/einsummable/taskgraph.h
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o: ../src/einsummable/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/einsummable/taskgraph.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/einsummable/touch.cc.o: ../src/base/setup.h
@@ -389,6 +403,7 @@ CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/exec_graph.cc.o: ../src/engin
 CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/exec_graph.cc.o: ../src/engine/resource_manager.h
 CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/exec_graph.cc.o: ../src/engine/threadpool.h
 CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/exec_graph.cc.o: ../src/engine/touch.h
+CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/exec_graph.cc.o: src/proto/einsummable.pb.h
 
 CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/kernel_executor.cc.o: ../thirdparty/half-2.2.0/include/half.hpp
 CMakeFiles/cpu_execution_engine.dir/src/engine/cpu/kernel_executor.cc.o: ../src/base/permute.h

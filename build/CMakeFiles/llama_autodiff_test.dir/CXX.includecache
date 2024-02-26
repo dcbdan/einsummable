@@ -66,18 +66,6 @@ modules.h
 ../src/einsummable/relation.h
 /home/ubuntu/einsummable/src/einsummable/relation.h
 
-/home/ubuntu/einsummable/llama/misc.cc
-misc.h
-/home/ubuntu/einsummable/llama/misc.h
-cctype
--
-
-/home/ubuntu/einsummable/llama/misc.h
-../src/base/setup.h
-/home/ubuntu/einsummable/src/base/setup.h
-../src/einsummable/dbuffer.h
-/home/ubuntu/einsummable/src/einsummable/dbuffer.h
-
 /home/ubuntu/einsummable/llama/modules.cc
 modules.h
 /home/ubuntu/einsummable/llama/modules.h
