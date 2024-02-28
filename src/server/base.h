@@ -50,7 +50,7 @@ public:
   void execute(taskgraph_t const& taskgraph, map<int, relation_t> const& new_gid_map);
 
   // create a taskgraph and execute the graph.
-  void execute_graph(
+  float execute_graph(
     graph_t const& graph,
     vector<placement_t> const& placements);
 

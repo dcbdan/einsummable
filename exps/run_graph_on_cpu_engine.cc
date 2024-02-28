@@ -8,6 +8,17 @@
 #include "../src/base/placement.h"
 #include <fstream>
 #include "../src/server/cpu/server.h"
+#include <sys/types.h>  
+#include <stdio.h>   
+#include <stdlib.h>   
+#include <string.h>   
+#include <unistd.h>   
+#include <sys/wait.h>
+
+#define STDIN_FILENO    0       /* Standard input.  */ 
+#define STDOUT_FILENO   1       /* Standard output.  */ 
+#define STDERR_FILENO   2       /* Standard error output.  */ 
+#define MAXLINE 4096 
 
 using tensor_t     = graph_writer_t::tensor_t;
 
@@ -83,72 +94,24 @@ buffer_t make_data(vector<uint64_t> const& shape) {
   return ret;
 }
 
-void main_rank_zero(server_base_t* server, args_t& args, int world_size)
-{
-  // TODO:
+
+float execute_einsummable(server_base_t* server, args_t& args, int world_size, vector<int> rl_placements){
+
+  std::cout << "world_size: " << world_size << std::endl;
+
   // 1. create a graph
-  int num_threads_per = 2; // 
-  DOUT("world_size*num_threads_per: " << world_size*num_threads_per);
+  int num_threads_per = 4;
   uint64_t batch = 1000;
   uint64_t hidden = 1000;
   uint64_t dim = 1000;
+
   graph_t const& graph = make_graph_ff_simple(batch,hidden,dim);
 
-  std::ofstream f("my_graph.gv");
-  graph.print_graphviz(f);
   vector<partition_t> parts = apart01(graph,world_size*num_threads_per);
-  // vector<placement_t> placements = alocate01(graph, parts,world_size,1000);
+  vector<placement_t> placements = alocate01(graph, parts,world_size,1000);
 
-  int num_devices;
-  vector<int> rl_placements;
-  // Open the input file
-  std::ifstream inputFile("input.txt");
 
-  if (!inputFile) {
-      std::cerr << "Failed to open the file." << std::endl;
-  }
-
-  std::string line;
-  // Read each line from the file
-  std::getline(inputFile, line);
-  std::istringstream iss(line);
-  // Read the first integer from the line
-  if (!(iss >> num_devices)) {
-      std::cerr << "Failed to read the number of devices." << std::endl;
-  }
-  std::cout << "num_devices: " << num_devices << std::endl;
-
-  while(std::getline(inputFile, line)){
-    std::istringstream iss1(line);
-    int num;
-    // Read the remaining integers and store them in the vector
-    while (iss1 >> num) {
-      rl_placements.push_back(num);
-    }
-  }
-  
-
-  // // Open the file in write mode, which clears its contents
-  // std::ofstream outputFile("input.txt", std::ios::out | std::ios::trunc);
-
-  // if (!outputFile) {
-  //     std::cerr << "Failed to open the file." << std::endl;
-  // }
-
-  // // Close the file
-  // outputFile.close();
-
-  std::cout << "Text file cleared successfully." << std::endl;
-  
-  // Print the values read
-  std::cout << "Number of devices: " << num_devices << std::endl;
-  std::cout << "Placements:" << std::endl;
-  for (int placement : rl_placements) {
-      std::cout << placement << " ";
-  }
-  std::cout << std::endl;
-  
-  std::vector<placement_t> placements = pre_assign_loc(parts, num_devices, rl_placements, graph);
+  // std::vector<placement_t> placements = pre_assign_loc(parts, world_size, rl_placements, graph);
 
 
   // 2. insert the input tensors
@@ -163,7 +126,97 @@ void main_rank_zero(server_base_t* server, args_t& args, int world_size)
   server->insert_tensor(3,placements[3],dbuffer_t(dtype_t::f32, w3));
 
   // 3. execute the graph
-  server->execute_graph(graph, placements);
+  return server->execute_graph(graph, placements);
+
+
+}
+
+std::vector<int> stringToIntVector(const std::string& str) {
+    std::vector<int> result;
+    std::stringstream ss(str);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        try {
+            result.push_back(std::stoi(item));
+        } catch (const std::invalid_argument& e) {
+            // Handle the case where stoi could not convert item to an integer
+            std::cerr << "Invalid argument: " << item << std::endl;
+        } catch (const std::out_of_range& e) {
+            // Handle the case where the converted integer is out of int's range
+            std::cerr << "Out of range: " << item << std::endl;
+        }
+    }
+    return result;
+}
+
+int main_rank_zero(server_base_t* server, args_t& args, int world_size)
+{
+
+  int num_episodes = 3; // Total number of episodes
+  int parent_child_pipe[2], child_parent_pipe[2];
+  pid_t pid;
+  char rl_str[MAXLINE];
+  int rv;
+  float running_time = 0.0;
+
+  if (pipe(parent_child_pipe) < 0 || pipe(child_parent_pipe) < 0) {
+      std::cerr << "Error creating pipes...\n";
+      return 1;
+  }
+
+  pid = fork();
+
+  if (pid < 0) { // fork failed
+      std::cerr << "Error forking...\n";
+      return 1;
+  } 
+  else if (pid > 0) { /* PARENT */
+    close(parent_child_pipe[0]); // Close unused read end
+    close(child_parent_pipe[1]); // Close unused write end
+
+    for (int episode = 0; episode < num_episodes; ++episode) {
+      // Send current episode number to child
+      std::string episode_command = std::to_string(running_time) + "," + std::to_string(episode) + "," + std::to_string(num_episodes) + "\n";
+      write(parent_child_pipe[1], episode_command.c_str(), episode_command.length());
+
+      // Receiving data from child
+      ssize_t n = read(child_parent_pipe[0], rl_str, MAXLINE);
+      if (n < 0) {
+          std::cerr << "read error from pipe...\n";
+          return 1;
+      }
+      rl_str[n] = '\0'; // null terminate
+      std::cout << rl_str << std::endl;
+      std::vector<int> rl_placements = stringToIntVector(rl_str);
+    
+      running_time = execute_einsummable(server, args, world_size, rl_placements);
+      std::cout << "Running time: " << running_time << " miliseconds " << std::endl;
+    }
+
+    // Close pipes
+    close(parent_child_pipe[1]); // Close write end
+    close(child_parent_pipe[0]); // Close read end
+
+    // Wait for child to finish
+    wait(NULL);
+  } 
+  else { /* CHILD */
+    close(parent_child_pipe[1]); // Close unused write end
+    close(child_parent_pipe[0]); // Close unused read end
+
+    dup2(parent_child_pipe[0], STDIN_FILENO);
+    dup2(child_parent_pipe[1], STDOUT_FILENO);
+    close(parent_child_pipe[0]); // Close original read end
+    close(child_parent_pipe[1]); // Close original write end
+
+    // Replace child process with train.py
+    if (execl("./../../Reinforcement-Learning-for-Systems/train.py", "./train.py", (char *)0) < 0) {
+    // if (execl("./../exps/hello_parent.py", "./../exps/hello_parent.py", (char *)0) < 0) {
+        std::cerr << "execl error...\n";
+        return 1;
+    }
+  }
+  return 0;
 }
 
 int main(int argc, char** argv) {

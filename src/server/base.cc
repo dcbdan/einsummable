@@ -11,7 +11,7 @@ void server_base_t::insert_gid_without_data(int gid, relation_t const& relation)
   gid_map.insert({gid, relation});
 }
 
-void server_base_t::execute_graph(
+float server_base_t::execute_graph(
   graph_t const& graph,
   vector<placement_t> const& placements)
 {
@@ -65,7 +65,6 @@ void server_base_t::execute_graph(
   auto end = clock_now();
   
   std::chrono::duration<double, std::milli> duration = end - start;
-  std::cout << "Running time: " << duration.count() << " miliseconds" << std::endl;
 
   // Open the file in write mode
   std::ofstream outputFile("input.txt");
@@ -84,6 +83,8 @@ void server_base_t::execute_graph(
   for(auto const& [gid, tids]: out_g_to_t) {
     gid_map.insert({gid, make_relation(gid, tids)});
   }
+
+  return duration.count();
 }
 
 void server_base_t::execute(
