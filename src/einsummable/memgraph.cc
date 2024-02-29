@@ -1473,18 +1473,18 @@ memgraph_t::make_(
     // }
     // std::cout << std::endl;
     state.process(core_tg_ops);
-    DOUT("tensors_on_storage: ");
-    for (auto it = state.tensors_on_storage.begin(); it != state.tensors_on_storage.end(); ++it) {
-      std::cout << *it << ": " << state.task_tensor_to_mem_node[*it] << std::endl;
-    }
-    DOUT("tensors_on_memory: ");
-    for (auto ita = state.tensors_on_memory.begin(); ita != state.tensors_on_memory.end(); ++ita) {
-      std::cout << ita->first << ": ";
-      for (auto inn = ita->second.begin(); inn != ita->second.end(); ++inn){
-        std::cout << *inn << " ";
-      }
-      std::cout << std::endl;
-    }
+    // DOUT("tensors_on_storage: ");
+    // for (auto it = state.tensors_on_storage.begin(); it != state.tensors_on_storage.end(); ++it) {
+    //   std::cout << *it << ": " << state.task_tensor_to_mem_node[*it] << std::endl;
+    // }
+    // DOUT("tensors_on_memory: ");
+    // for (auto ita = state.tensors_on_memory.begin(); ita != state.tensors_on_memory.end(); ++ita) {
+    //   std::cout << ita->first << ": ";
+    //   for (auto inn = ita->second.begin(); inn != ita->second.end(); ++inn){
+    //     std::cout << *inn << " ";
+    //   }
+    //   std::cout << std::endl;
+    // }
   }
   else
   {
@@ -1656,7 +1656,7 @@ allocator_t::allocate_multiple(vector<uint64_t> sizes)
 {
   // sort sizes from largest to smallest so that the largest things
   // get allocated first
-  std::sort(sizes.begin(), sizes.end(), std::greater<uint64_t>());
+  // std::sort(sizes.begin(), sizes.end(), std::greater<uint64_t>());
 
   // remove any sizes that are zero; this is unlikely
   while (sizes.size() > 0 && sizes.back() == 0)
@@ -3214,8 +3214,10 @@ optional<vector<int>> memgraph_make_state_t2::allocate_multiple_without_evict(
   {
     auto const &[offsets, vector_deps] = maybe.value();
     // std::cout << "offsets: " << offsets << std::endl;
+    // std::cout << "sizes: " << sizes << std::endl;
     for (int i = 0; i < offsets.size(); ++i)
     {
+      // std::cout << offsets.at(i);
       alloc_t alloc{
           .loc = loc,
           .offset = offsets.at(i),
@@ -3320,7 +3322,6 @@ bool memgraph_make_state_t2::load_multiple_without_evict(vector<int> tids, bool 
   auto const &node = taskgraph.nodes[tids.at(tids.size()-1)];
   int loc = node.op.out_loc();
   // sizes_to_alloc.emplace_back(node.op.out_size());
-  // std::cout << "sizes_to_alloc: " << sizes_to_alloc << std::endl;
 
   auto maybe_alloc_mids = allocate_multiple_without_evict(loc, sizes_to_alloc);
   if (maybe_alloc_mids)
