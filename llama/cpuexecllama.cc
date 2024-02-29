@@ -63,15 +63,26 @@ int feed_forward_main(int argc, char** argv){
   args.set_default("batch_size", uint64_t(1));
   args.set_default("seq_len", uint64_t(512));
 
-  model_args_t model_args = model_args_t {
-    .dim             = 4096, //was 4096
+  // model_args_t model_args = model_args_t {
+  //   .dim             = 4096, //was 4096
+  //   .n_layers        = 1,
+  //   .n_heads         = 32, //32
+  //   .multiple_of     = 256, //256
+  //   .norm_eps        = 1e-6,
+  //   .batch_size      = args.get<uint64_t>("batch_size"),
+  //   .max_seq_len     = 2048, //was 2048
+  //   .vocab_size      = 32000,
+  // };
+
+    model_args_t model_args = model_args_t {
+    .dim             = 256, //was 4096
     .n_layers        = 1,
-    .n_heads         = 32, //32
-    .multiple_of     = 256, //256
+    .n_heads         = 4, //32
+    .multiple_of     = 64, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
     .max_seq_len     = 2048, //was 2048
-    .vocab_size      = 32000,
+    .vocab_size      = 1024,
   };
 
   graph_writer_t writer;
@@ -159,14 +170,14 @@ int llama_main(int argc, char** argv) {
 
   /* Create the llama first token graph using builder_t */
   model_args_t model_args = model_args_t {
-    .dim             = 1024, //was 4096
+    .dim             = 256, //was 4096
     .n_layers        = 1,
-    .n_heads         = 32, //32
-    .multiple_of     = 2, //256
+    .n_heads         = 4, //32
+    .multiple_of     = 64, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
     .max_seq_len     = 2048, //was 2048
-    .vocab_size      = 256, //was 32000
+    .vocab_size      = 1024,
   };
 
   builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
@@ -183,8 +194,6 @@ int llama_main(int argc, char** argv) {
   for (int input_id: inputs){
     dtype_t dtype = graph.out_dtype(input_id);
     auto shape = graph.out_shape(input_id);
-    DOUT(shape);
-    DOUT(dtype);
     dbuffer_t d = make_dbuffer(dtype, product(shape));
     if (dtype == dtype_t::c64) {
       d.random();
@@ -201,8 +210,9 @@ int llama_main(int argc, char** argv) {
   /* Initializing some input data*/
   communicator_t communicator("0.0.0.0", true, 1);
 
-  map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args); 
   map<int, dbuffer_t> tg_tensor_results = run(communicator, graph, "tg", input_data, args);
+  map<int, dbuffer_t> mg_tensor_results = run(communicator, graph, "mg", input_data, args); 
+
 
   if (tg_tensor_results == mg_tensor_results) {
     std::cout << "The maps are equal." << std::endl;
@@ -210,23 +220,23 @@ int llama_main(int argc, char** argv) {
     std::cout << "The maps are not equal." << std::endl;
   }
 
-  std::cout << "size of tensor_results: " << mg_tensor_results.size() << std::endl;
+  // std::cout << "size of tensor_results: " << mg_tensor_results.size() << std::endl;
 
-  for (int idx=0; idx < mg_tensor_results.size(); ++idx) {
-    auto mg_it = mg_tensor_results.begin();
-    std::advance(mg_it, idx);
-    dbuffer_t mg_buffer = mg_it->second;
-    auto tg_it = tg_tensor_results.begin();
-    std::advance(tg_it, idx);
-    dbuffer_t tg_buffer = tg_it->second;
-    if (tg_buffer == mg_buffer){
-      std::cout << "idx: " << idx << " maps are equal." << std::endl;
-    } else {
-      std::cout << "idx: " << idx << " maps are not equal." << std::endl;
-      DOUT(tg_buffer);
-      DOUT(mg_buffer);
-    }
-  }
+  // for (int idx=0; idx < mg_tensor_results.size(); ++idx) {
+  //   auto mg_it = mg_tensor_results.begin();
+  //   std::advance(mg_it, idx);
+  //   dbuffer_t mg_buffer = mg_it->second;
+  //   auto tg_it = tg_tensor_results.begin();
+  //   std::advance(tg_it, idx);
+  //   dbuffer_t tg_buffer = tg_it->second;
+  //   if (tg_buffer == mg_buffer){
+  //     std::cout << "idx: " << idx << " maps are equal." << std::endl;
+  //   } else {
+  //     std::cout << "idx: " << idx << " maps are not equal." << std::endl;
+  //     DOUT(tg_buffer);
+  //     DOUT(mg_buffer);
+  //   }
+  // }
   // DOUT("mg_tensor_results: ")
   // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
   //   auto buffer = iter->second;
@@ -247,14 +257,14 @@ int attention_main(int argc, char** argv){
   args.set_default("seq_len", uint64_t(128));
 
   model_args_t model_args = model_args_t {
-    .dim             = 128, //was 4096
+    .dim             = 256, //was 4096
     .n_layers        = 1,
     .n_heads         = 4, //32
-    .multiple_of     = 32, //256
+    .multiple_of     = 64, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
-    .max_seq_len     = 128, //was 2048
-    .vocab_size      = 32000,
+    .max_seq_len     = 2048, //was 2048
+    .vocab_size      = 1024,
   };
 
   graph_writer_t writer;
@@ -443,19 +453,19 @@ int partial_attention_main(int argc, char** argv){
     std::cout << "The maps are not equal." << std::endl;
   }
 
-  DOUT("mg_tensor_results: ")
-  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(iter->first);
-    DOUT(buffer);
-  }
+  // DOUT("mg_tensor_results: ")
+  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(iter->first);
+  //   DOUT(buffer);
+  // }
   
-  DOUT("tg_tensor_results: ")
-  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(iter->first);
-    DOUT(buffer);
-  }
+  // DOUT("tg_tensor_results: ")
+  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(iter->first);
+  //   DOUT(buffer);
+  // }
 
   DOUT("Done");
 
@@ -465,10 +475,10 @@ int partial_attention_main(int argc, char** argv){
 
 
 int main(int argc, char** argv) {
-  // return llama_main(argc, argv);
+  return llama_main(argc, argv);
   // feed_forward_main(argc, argv);
   // return attention_main(argc, argv);
-  return partial_attention_main(argc, argv);
+  // return partial_attention_main(argc, argv);
   DOUT("print");
   return(1);
 }

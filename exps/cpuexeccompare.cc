@@ -110,15 +110,15 @@ int main(int argc, char** argv) {
   } else {
     std::cout << "The maps are not equal." << std::endl;
   }
-  DOUT("mg_tensor_results: ")
-  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(buffer);
-  }
+  // DOUT("mg_tensor_results: ")
+  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(buffer);
+  // }
   
-  DOUT("tg_tensor_results: ")
-  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-    auto buffer = iter->second;
-    DOUT(buffer);
-  }
+  // DOUT("tg_tensor_results: ")
+  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+  //   auto buffer = iter->second;
+  //   DOUT(buffer);
+  // }
 }
