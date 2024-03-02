@@ -381,6 +381,8 @@ std::complex<float> const& scalar_t::c64() const {
   return *reinterpret_cast<std::complex<float> const*>(data);
 }
 
+void const* scalar_t::raw() const { return reinterpret_cast<void const*>(data); }
+
 namespace scalar_ns {
 
 op_t op_t::make_constant(scalar_t value) {
@@ -1823,196 +1825,6 @@ optional<scalar_t> scalarop_t::get_scale_from_scale() const {
   return lhs.op.get_constant();
 }
 
-optional<cutensor_scalarop_t::arg_t> scalarop_t::set_up_arg(node_t node) {
-  // TODO: review this
-  if(node.op.is_hole()){
-    if(node.dtype==dtype_t::c64){
-      cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),cutensor_scalarop_t::cop_t::identity};
-      return arg64;
-    }
-    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.dtype),cutensor_scalarop_t::cop_t::identity};
-    return arg;
-  }else if(node.op.num_inputs()==1){ //so unary op
-    cutensor_scalarop_t::cop_t op;
-    if(node.op.is_exp()){
-      op = cutensor_scalarop_t::cop_t::exp;
-    } else if(node.op.is_log()) {
-      throw std::runtime_error("not implemented set_up_arg log");
-    }else if(node.op.is_power()){
-      op = cutensor_scalarop_t::cop_t::pow;
-    }else{
-      return std::nullopt;
-    }
-    if(node.children[0].dtype==dtype_t::c64){
-      cutensor_scalarop_t::arg_t arg64 {scalar_t(std::complex<float>(1.0f, 0.0f)),op};
-      return arg64;
-    }
-    cutensor_scalarop_t::arg_t arg {scalar_t::one(node.children[0].dtype),op};
-    return arg;
-  }else if(node.op.num_inputs()==2){ //so binary op
-    node = node.simplify();
-
-    vector<node_t> children = node.children;
-    node_t& lhs = children[0];
-    node_t& rhs = children[1];
-
-    scalar_t value = lhs.op.get_constant();
-
-    if(rhs.op.is_hole()){
-      cutensor_scalarop_t::arg_t arg {value,cutensor_scalarop_t::cop_t::identity};
-      return arg;
-    }else if(rhs.op.num_inputs()==1){ //so unary op
-      cutensor_scalarop_t::cop_t op;
-      if(rhs.op.is_exp()){
-        op = cutensor_scalarop_t::cop_t::exp;
-      }else if(rhs.op.is_power()){
-        op = cutensor_scalarop_t::cop_t::pow;
-      }
-      else{
-        return std::nullopt;
-      }
-      cutensor_scalarop_t::arg_t arg {value,op};
-      return arg;
-    }else{
-      return std::nullopt;
-    }
-  }else{
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-
-
-optional<cutensor_scalarop_t> scalarop_t::compile_cutensor_scalarop() {
-  if(num_inputs()==1){
-    auto potential_arg = set_up_arg(node);
-    if(!potential_arg){
-      return std::nullopt;
-    }
-    cutensor_scalarop_t::arg_t arg = *potential_arg;
-
-    cutensor_scalarop_t::unary_t unary_op{arg};
-
-    cutensor_scalarop_t unary_scalarop;
-    unary_scalarop.op = unary_op;
-    return unary_scalarop;
-
-  }else if(num_inputs()==2){
-    if(node.op.num_inputs()!=2){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t::cop_t op_0_1;
-
-    if(node.op.is_add()){
-      op_0_1 = cutensor_scalarop_t::cop_t::add;
-    }else if(node.op.is_mul()){
-      op_0_1 = cutensor_scalarop_t::cop_t::mul;
-    }else{
-      return std::nullopt;
-    }
-
-    node = node.simplify();
-
-    vector<node_t> node_children = node.children;
-    node_t& h0 = node_children[0];
-    node_t& h1 = node_children[1];
-
-    auto potential_a0 = set_up_arg(h0);
-    auto potential_a1 = set_up_arg(h1);
-
-    if(!potential_a0||!potential_a1){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t::arg_t a0 = *potential_a0;
-    cutensor_scalarop_t::arg_t a1 = *potential_a1;
-
-    cutensor_scalarop_t::binary_t bi_op{
-      op_0_1,
-      a0,
-      a1
-    };
-
-    cutensor_scalarop_t binary_scalarop;
-    binary_scalarop.op = bi_op;
-    return binary_scalarop;
-
-  }else if(num_inputs()==3){
-    if(node.op.num_inputs()!=2){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t::cop_t op_01_2;
-
-    if(node.op.is_add()){
-      op_01_2 = cutensor_scalarop_t::cop_t::add;
-    }else if(node.op.is_mul()){
-      op_01_2 = cutensor_scalarop_t::cop_t::mul;
-    }else{
-      return std::nullopt;
-    }
-
-    node = node.simplify();
-
-    vector<node_t> children = node.children;
-    node_t& lhs = children[0];
-    node_t& rhs = children[1];
-
-    auto potential_a2= set_up_arg(rhs);
-    if(!potential_a2){
-      return std::nullopt;
-    }
-    cutensor_scalarop_t::arg_t a2 = *potential_a2;
-
-    if(lhs.op.num_inputs()!=2){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t::cop_t op_0_1;
-
-    if(lhs.op.is_add()){
-      op_0_1 = cutensor_scalarop_t::cop_t::add;
-    }else if(lhs.op.is_mul()){
-      op_0_1 = cutensor_scalarop_t::cop_t::mul;
-    }else{
-      return std::nullopt;
-    }
-
-    lhs = lhs.simplify();
-
-    vector<node_t> lhs_children = lhs.children;
-    node_t& h0 = lhs_children[0];
-    node_t& h1 = lhs_children[1];
-
-    auto potential_a0 = set_up_arg(h0);
-    auto potential_a1 = set_up_arg(h1);
-
-    if(!potential_a0||!potential_a1){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t::arg_t a0 = *potential_a0;
-    cutensor_scalarop_t::arg_t a1 = *potential_a1;
-
-    cutensor_scalarop_t::ternary_t ter_op{
-      op_01_2,
-      op_0_1,
-      a0,
-      a1,
-      a2
-    };
-
-    cutensor_scalarop_t ternary_scalarop;
-    ternary_scalarop.op = ter_op;
-    return ternary_scalarop;
-  }else{
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
 bool scalarop_t::is_constant_of(scalar_t val) const {
   return node.op.is_constant() && node.op.get_constant() == val;
 }
@@ -2094,6 +1906,20 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
   return combining_op.simplify();
 }
 
+scalarop_t scalarop_t::replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops){
+  if(top.num_inputs() != bottom_ops.size()) {
+    throw std::runtime_error("cannot replace arguments");
+  }
+
+  if(top.num_inputs() == 0) {
+    return top;
+  }
+
+  vector<node_t> bottom_nodes = vector_from_each_member(bottom_ops, node_t, node);
+  top.node.replace_at_holes(bottom_nodes);
+  return top.simplify();
+}
+
 scalarop_t scalarop_t::from_string(string const& str) {
   return parse_with_ss<scalarop_t>(str);
 }
@@ -2150,13 +1976,6 @@ scalarop_t scalarop_t::make_div(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   string h1 = op_t::h_str(1, dtype);
   return parse_with_ss<scalarop_t>("*["+h0+",power{-1}["+h1+"]]");
-}
-// 1 / x0
-scalarop_t scalarop_t::make_rcp(dtype_t dtype) {
-  return combine(make_div(dtype), {
-    make_constant(scalar_t::one(dtype)),
-    make_identity(dtype)
-  });
 }
 
 // min(x0, x1)
@@ -2241,23 +2060,9 @@ scalarop_t scalarop_t::make_increment(scalar_t val) {
   return parse_with_ss<scalarop_t>("+["+h0+"," + constant + "]");
 }
 
-// e^x0
 scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
-}
-
-// 1 / (1 + e^x0)
-scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {
-  scalar_t n_one = scalar_t::negative_one(dtype);
-  scalar_t one   = scalar_t::one(dtype);
-
-  scalarop_t ret = make_scale(n_one);            // -1*x0
-  ret = combine(make_exp(dtype), { ret });       // e^(-1*x0)
-  ret = combine(make_increment(one), { ret });   // 1 + e^(-1*x0)
-  ret = combine(make_rcp(dtype), { ret });       // 1 / (1 + e^(-1*x0))
-
-  return ret;
 }
 
 scalarop_t scalarop_t::make_log(dtype_t dtype) {
@@ -2506,6 +2311,15 @@ bool operator==(scalarop_t const& lhs, scalarop_t const& rhs) {
 bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs) {
   return !(lhs == rhs);
 }
+
+bool operator==(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs) {
+  return write_with_ss(lhs) == write_with_ss(rhs);
+}
+
+bool operator!=(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs) {
+  return !(lhs == rhs);
+}
+
 
 std::ostream& operator<<(std::ostream& out, dtype_t const& dtype) {
   if(dtype == dtype_t::f16) {
@@ -2947,4 +2761,8 @@ std::istream& operator>>(std::istream& inn, optional<castable_t>& castable) {
   }
 
   return inn;
+}
+
+scalarop_t::node_t const* scalarop_t::get_node() const {
+  return &node;
 }
