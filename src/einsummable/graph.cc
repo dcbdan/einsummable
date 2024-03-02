@@ -768,6 +768,7 @@ void graph_t::print_graphviz(
     if(op.is_input()) {
       label = "input" + write_with_ss(id);
       label += "\n" + write_with_ss(op.shape());
+      color = "green";
     } else if(op.is_formation()) {
       label = "form" + write_with_ss(id);
       label += "\n" + write_with_ss(op.out_shape());
@@ -792,8 +793,8 @@ void graph_t::print_graphviz(
     } else {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
-    //label += "\n" + write_with_ss(parts[id].block_shape());
-    label += "\n" + write_with_ss(parts[id].total_shape()) + ":" + write_with_ss(out_dtype(id));
+    label += "\n" + write_with_ss(parts[id].block_shape());
+    //label += "\n" + write_with_ss(parts[id].total_shape()) + ":" + write_with_ss(out_dtype(id));
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";
