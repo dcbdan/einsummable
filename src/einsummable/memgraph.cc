@@ -32,7 +32,7 @@ void memloc_t::to_proto(es_proto::MemLoc& m) const {
   m.set_loc(loc);
 }
 
-mem_t const &memsto_t::get_mem() const {
+mem_t const& memsto_t::get_mem() const {
   if(!_is_mem)
   {
     throw std::runtime_error("cannot get mem");
@@ -40,7 +40,7 @@ mem_t const &memsto_t::get_mem() const {
   return info.mem;
 }
 
-int const &memsto_t::get_sto() const {
+int const& memsto_t::get_sto() const {
   if(_is_mem)
   {
     throw std::runtime_error("cannot get sto");
@@ -61,12 +61,12 @@ allocator_settings_t allocator_settings_t::gpu_alignment_settings() {
 }
 
 memgraph_t::memgraph_t(
-  int nl, int nc, vector<int> const &cs, bool pe)
+  int nl, int nc, vector<int> const& cs, bool pe)
   : num_compute_locs(nl), num_storage_locs(nc), storage_locs(cs), prune_edges(pe)
 {}
 
 memgraph_t::memgraph_t(
-  memgraph_t const &mg)
+  memgraph_t const& mg)
   : num_compute_locs(mg.num_compute_locs),
     num_storage_locs(mg.num_storage_locs),
     storage_locs(mg.storage_locs),
@@ -91,8 +91,8 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
   out << "digraph {" << endl;
 
   for(int id = 0; id != nodes.size(); ++id) {
-    node_t const &node = nodes[id];
-    op_t const &op = node.op;
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
 
     string label;
     string color = "";
@@ -106,12 +106,12 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         color = colors[input.loc];
       }
     } else if(op.is_inputsto()) {
-      auto const &input = op.get_inputsto();
+      auto const& input = op.get_inputsto();
       // std::cout << "Label is: " + label << std::endl;
       // label = "input " + write_with_ss(id);
       label = "inputsto@sto_id=" + write_with_ss(input.storage_id);
     } else if(op.is_constant()) {
-      memloc_t const &data = op.get_constant().as_memloc();
+      memloc_t const& data = op.get_constant().as_memloc();
       string data_str = write_with_ss(data);
       label = "constant@" + data_str;
       if(data.loc < colors.size())
@@ -119,14 +119,14 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         color = colors[data.loc];
       }
     } else if(op.is_apply()) {
-      apply_t const &apply = op.get_apply();
-      auto const &aop = apply.op;
+      apply_t const& apply = op.get_apply();
+      auto const& aop = apply.op;
       string header;
       string aopstr;
       if(std::holds_alternative<einsummable_t>(aop))
       {
         header = "apply";
-        auto const &e = std::get<einsummable_t>(aop);
+        auto const& e = std::get<einsummable_t>(aop);
         aopstr = write_with_ss(e) + "," + write_with_ss(e.out_dtype());
       }
       else if(std::holds_alternative<touch_t>(aop))
@@ -140,7 +140,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         throw std::runtime_error("parint graphviz should not reach");
       }
       label = header + "@loc" + write_with_ss(apply.loc) + "." + aopstr;
-      for(mem_t const &mem : apply.mems)
+      for(mem_t const& mem: apply.mems)
       {
         label += "|" + write_with_ss(mem);
       }
@@ -150,11 +150,11 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         color = colors[apply.loc];
       }
     } else if(op.is_move()) {
-      move_t const &move = op.get_move();
+      move_t const& move = op.get_move();
 
-      auto const &[src_loc, src_offset] = move.src;
-      auto const &[dst_loc, dst_offset] = move.dst;
-      auto const &size = move.size;
+      auto const& [src_loc, src_offset] = move.src;
+      auto const& [dst_loc, dst_offset] = move.dst;
+      auto const& size = move.size;
 
       label = "move@" +
               write_with_ss(memloc_t{src_offset, size, src_loc}) +
@@ -163,7 +163,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
       // label = "move " + write_with_ss(id);
       color = "pink";
     } else if(op.is_evict()) {
-      auto const &[memloc, stoloc] = node.op.get_evict();
+      auto const& [memloc, stoloc] = node.op.get_evict();
       label = "evict@" +
               write_with_ss(memloc) +
               "->sto_id" +
@@ -174,7 +174,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
       }
       color = "pink";
     } else if(op.is_load()) {
-      auto const &[stoloc, memloc] = node.op.get_load();
+      auto const& [stoloc, memloc] = node.op.get_load();
       label = string("load@") +
               "sto_id" + write_with_ss(stoloc.id) + "->" +
               write_with_ss(memloc);
@@ -184,7 +184,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
       }
       color = "pink";
     } else if(op.is_partialize()) {
-      partialize_t const &par = op.get_partialize();
+      partialize_t const& par = op.get_partialize();
       string memloc = write_with_ss(
           memloc_t{par.offset, par.size, par.loc});
       label = "partialize@" + memloc;
@@ -194,7 +194,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         color = colors[par.loc];
       }
     } else if(op.is_alloc()) {
-      alloc_t const &alloc = op.get_alloc();
+      alloc_t const& alloc = op.get_alloc();
       string memloc = write_with_ss(alloc.as_memloc());
       label = "alloc@" + memloc;
       // label = "alloc " + write_with_ss(id);
@@ -203,7 +203,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
         color = colors[alloc.loc];
       }
     } else if(op.is_del()) {
-      del_t const &del = op.get_del();
+      del_t const& del = op.get_del();
       string memloc = write_with_ss(del.as_memloc());
       label = "del@" + memloc;
       // label = "del " + write_with_ss(id);
@@ -259,7 +259,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
     }
     out << "]" << endl;
 
-    for(int const &inn_id : node.inns) {
+    for(int const& inn_id: node.inns) {
       out << tab << "n" << inn_id << " -> "
           << "n" << id << endl;
     }
@@ -270,9 +270,9 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
 vector<uint64_t> memgraph_t::mem_sizes() const
 {
   vector<uint64_t> ret(num_compute_locs, 0);
-  for(auto const &node : nodes)
+  for(auto const& node: nodes)
   {
-    for(auto const &memloc : node.op.get_memlocs())
+    for(auto const& memloc : node.op.get_memlocs())
     {
       ret[memloc.loc] = std::max(ret[memloc.loc], memloc.offset + memloc.size);
     }
@@ -293,45 +293,45 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
 {
   mg.set_num_compute_locs(num_compute_locs);
   mg.set_num_storage_locs(num_storage_locs);
-  for(auto const &cl : storage_locs) {
+  for(auto const& cl: storage_locs) {
     mg.add_storage_locs(cl);
   }
 
-  for(auto const &node : nodes) {
+  for(auto const& node: nodes) {
     es_proto::MemGraphNode *n = mg.add_nodes();
 
     if(node.op.is_inputmem()) {
-      auto const &input = node.op.get_inputmem();
+      auto const& input = node.op.get_inputmem();
       es_proto::MGInputMem *i = n->mutable_inputmem();
       i->set_loc(input.loc);
       i->set_offset(input.offset);
       i->set_size(input.size);
     } else if(node.op.is_inputsto()) {
-      auto const &input = node.op.get_inputsto();
+      auto const& input = node.op.get_inputsto();
       es_proto::MGInputSto *i = n->mutable_inputsto();
       i->set_storage_loc(input.storage_loc);
       i->set_storage_id(input.storage_id);
       i->set_size(input.size);
     } else if(node.op.is_constant()) {
-      auto const &constant = node.op.get_constant();
+      auto const& constant = node.op.get_constant();
       es_proto::MGConstant *c = n->mutable_constant();
       c->set_loc(constant.loc);
       c->set_offset(constant.offset);
       es_proto::Fill *f = c->mutable_fill();
       f->set_value(write_with_ss(constant.fill.value));
-      for(auto const &dim : constant.fill.shape)
+      for(auto const& dim: constant.fill.shape)
       {
         f->add_shape(dim);
       }
     } else if(node.op.is_apply()) {
-      auto const &apply = node.op.get_apply();
-      auto const &[loc, mems, _, group] = apply;
+      auto const& apply = node.op.get_apply();
+      auto const& [loc, mems, _, group] = apply;
 
       es_proto::MGApply *a = n->mutable_apply();
 
       a->set_loc(loc);
 
-      for(auto const &[offset, size] : mems)
+      for(auto const& [offset, size]: mems)
       {
         a->add_mems_offset(offset);
         a->add_mems_size(size);
@@ -355,9 +355,9 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
 
       a->set_group(group);
     } else if(node.op.is_move()) {
-      auto const &[src, dst, size] = node.op.get_move();
-      auto const &[src_loc, src_offset] = src;
-      auto const &[dst_loc, dst_offset] = dst;
+      auto const& [src, dst, size] = node.op.get_move();
+      auto const& [src_loc, src_offset] = src;
+      auto const& [dst_loc, dst_offset] = dst;
       es_proto::MGMove *m = n->mutable_move();
       m->set_src_loc(src_loc);
       m->set_src_offset(src_offset);
@@ -365,7 +365,7 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       m->set_dst_offset(dst_offset);
       m->set_size(size);
     } else if(node.op.is_evict()) {
-      auto const &[memloc, stoloc] = node.op.get_evict();
+      auto const& [memloc, stoloc] = node.op.get_evict();
       es_proto::MGEvict *e = n->mutable_evict();
       e->set_storage_loc(stoloc.loc);
       e->set_storage_id(stoloc.id);
@@ -373,7 +373,7 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       e->set_offset(memloc.offset);
       e->set_size(memloc.size);
     } else if(node.op.is_load()) {
-      auto const &[stoloc, memloc] = node.op.get_load();
+      auto const& [stoloc, memloc] = node.op.get_load();
       es_proto::MGLoad *l = n->mutable_load();
       l->set_storage_loc(stoloc.loc);
       l->set_storage_id(stoloc.id);
@@ -381,32 +381,32 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       l->set_offset(memloc.offset);
       l->set_size(memloc.size);
     } else if(node.op.is_partialize()) {
-      auto const &[loc, offset, size] = node.op.get_partialize();
+      auto const& [loc, offset, size] = node.op.get_partialize();
       es_proto::MGPartialize *p = n->mutable_partialize();
       p->set_loc(loc);
       p->set_offset(offset);
       p->set_size(size);
     } else if(node.op.is_alloc()) {
-      auto const &[loc, offset, size] = node.op.get_alloc();
+      auto const& [loc, offset, size] = node.op.get_alloc();
       es_proto::MGAlloc *a = n->mutable_alloc();
       a->set_loc(loc);
       a->set_offset(offset);
       a->set_size(size);
     } else if(node.op.is_del()) {
-      auto const &[loc, offset, size] = node.op.get_del();
+      auto const& [loc, offset, size] = node.op.get_del();
       es_proto::MGDel *d = n->mutable_del();
       d->set_loc(loc);
       d->set_offset(offset);
       d->set_size(size);
     }
 
-    for(auto const &inn : node.inns) {
+    for(auto const& inn: node.inns) {
       n->add_inns(inn);
     }
   }
 }
 
-memgraph_t memgraph_t::from_wire(string const &str)
+memgraph_t memgraph_t::from_wire(string const& str)
 {
   es_proto::MemGraph mg;
   if(!mg.ParseFromString(str)) {
@@ -415,7 +415,7 @@ memgraph_t memgraph_t::from_wire(string const &str)
   return from_proto(mg);
 }
 
-memgraph_t memgraph_t::from_proto(es_proto::MemGraph const &mg)
+memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
 {
   auto cls = mg.storage_locs();
   vector<int> storage_locs(cls.begin(), cls.end());
@@ -426,24 +426,24 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const &mg)
       storage_locs);
 
   for(int id = 0; id != mg.nodes_size(); ++id) {
-    es_proto::MemGraphNode const &n = mg.nodes(id);
+    es_proto::MemGraphNode const& n = mg.nodes(id);
 
     optional<op_t> op;
     if(n.has_inputmem()) {
-      auto const &i = n.inputmem();
+      auto const& i = n.inputmem();
       op = op_t(inputmem_t{
           .loc = i.loc(),
           .offset = i.offset(),
           .size = i.size()});
     } else if(n.has_inputsto()) {
-      auto const &i = n.inputsto();
+      auto const& i = n.inputsto();
       op = op_t(inputsto_t{
           .storage_loc = i.storage_loc(),
           .storage_id = i.storage_id(),
           .size = i.size()});
     } else if(n.has_constant()) {
-      auto const &c = n.constant();
-      auto const &f = c.fill();
+      auto const& c = n.constant();
+      auto const& f = c.fill();
 
       fill_t fill;
       fill.value = parse_with_ss<scalar_t>(f.value());
@@ -455,7 +455,7 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const &mg)
           .offset = c.offset(),
           .fill = fill});
     } else if(n.has_apply()) {
-      auto const &a = n.apply();
+      auto const& a = n.apply();
 
       vector<mem_t> mems;
       int nmem = a.mems_offset_size();
@@ -493,13 +493,13 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const &mg)
           .op = aop,
           .group = a.group()});
     } else if(n.has_move()) {
-      auto const &m = n.move();
+      auto const& m = n.move();
       op = op_t(move_t{
           .src = {m.src_loc(), m.src_offset()},
           .dst = {m.dst_loc(), m.dst_offset()},
           .size = m.size()});
     } else if(n.has_evict()) {
-      auto const &e = n.evict();
+      auto const& e = n.evict();
       op = op_t(evict_t{
           .src = memloc_t{
               .offset = e.offset(),
@@ -507,26 +507,26 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const &mg)
               .loc = e.loc()},
           .dst = stoloc_t{.loc = e.storage_loc(), .id = e.storage_id()}});
     } else if(n.has_load()) {
-      auto const &l = n.load();
+      auto const& l = n.load();
       op = op_t(load_t{
           .src = stoloc_t{
               .loc = l.storage_loc(),
               .id = l.storage_id()},
           .dst = memloc_t{.offset = l.offset(), .size = l.size(), .loc = l.loc()}});
     } else if(n.has_partialize()) {
-      auto const &p = n.partialize();
+      auto const& p = n.partialize();
       op = op_t(partialize_t{
           .loc = p.loc(),
           .offset = p.offset(),
           .size = p.size()});
     } else if(n.has_alloc()) {
-      auto const &a = n.alloc();
+      auto const& a = n.alloc();
       op = op_t(alloc_t{
           .loc = a.loc(),
           .offset = a.offset(),
           .size = a.size()});
     } else if(n.has_del()) {
-      auto const &d = n.del();
+      auto const& d = n.del();
       op = op_t(del_t{
           .loc = d.loc(),
           .offset = d.offset(),
@@ -562,7 +562,7 @@ memgraph_t::get_locs_from_storage_loc(int sto_loc) const
   return ret;
 }
 
-int memgraph_t::insert(memgraph_t::op_t op, set<int> const &deps)
+int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps)
 {
   // Note that deps may include dependencies that are shadowed
   // by other dependencies.
@@ -590,11 +590,11 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const &deps)
       std::sort(deps_vec.begin(), deps_vec.end(), std::greater<int>());
       set<int> unnec;
       for(int i = 0; i != deps_vec.size(); ++i) {
-        int const &id = deps_vec[i];
+        int const& id = deps_vec[i];
         if(unnec.count(id) == 0) {
           if(i != deps_vec.size() - 1) {
             for(int j = i + 1; j != deps_vec.size(); ++j) {
-              int const &jd = deps_vec[j];
+              int const& jd = deps_vec[j];
               if(depends_on(id, jd))
               {
                 unnec.insert(jd);
@@ -619,7 +619,7 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const &deps)
 
   int ret = nodes.size() - 1;
 
-  for(auto const &inn : inns) {
+  for(auto const& inn: inns) {
     nodes[inn].outs.insert(ret);
   }
 
@@ -627,7 +627,7 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const &deps)
     all_deps.emplace_back(ret, 0);
 
     vector<char> &ret_deps = all_deps.back();
-    for(int const &inn : inns) {
+    for(int const& inn : inns) {
       ret_deps[inn] = 1;
 
       vector<char> &inn_deps = all_deps[inn];
@@ -746,9 +746,9 @@ void memgraph_t::op_t::check_constant() const {}
 void memgraph_t::op_t::check_apply()    const {}
 void memgraph_t::op_t::check_move() const
 {
-  move_t const &move = get_move();
-  auto const &[src, _0] = move.src;
-  auto const &[dst, _1] = move.dst;
+  move_t const& move = get_move();
+  auto const& [src, _0] = move.src;
+  auto const& [dst, _1] = move.dst;
   if(src == dst)
   {
     throw std::runtime_error("move cannot be to same location; that's an apply");
@@ -763,46 +763,46 @@ void memgraph_t::op_t::check_del()        const {}
 vector<memloc_t> memgraph_t::op_t::get_memlocs() const
 {
   if(is_inputmem()) {
-    auto const &input = get_inputmem();
+    auto const& input = get_inputmem();
     return {input.as_memloc()};
   } else if(is_inputsto()) {
     return {};
   } else if(is_constant()) {
-    auto const &constant = get_constant();
+    auto const& constant = get_constant();
     return {constant.as_memloc()};
   } else if(is_apply()) {
-    auto const &apply = get_apply();
+    auto const& apply = get_apply();
     vector<memloc_t> ret;
-    for(mem_t const &mem : apply.mems)
+    for(mem_t const& mem: apply.mems)
     {
       ret.push_back(mem.as_memloc(apply.loc));
     }
     return ret;
   } else if(is_move()) {
-    auto const &move = get_move();
-    auto const &[src_loc, src_offset] = move.src;
-    auto const &[dst_loc, dst_offset] = move.dst;
+    auto const& move = get_move();
+    auto const& [src_loc, src_offset] = move.src;
+    auto const& [dst_loc, dst_offset] = move.dst;
     return {
         memloc_t{.offset = src_offset, .size = move.size, .loc = src_loc},
         memloc_t{.offset = dst_offset, .size = move.size, .loc = dst_loc}};
   } else if(is_evict()) {
-    auto const &evict = get_evict();
+    auto const& evict = get_evict();
     return {
         evict.src};
   } else if(is_load()) {
-    auto const &load = get_load();
+    auto const& load = get_load();
     return {
         load.dst};
   } else if(is_partialize()) {
-    auto const &par = get_partialize();
+    auto const& par = get_partialize();
     return {
         par.as_memloc()};
   } else if(is_alloc()) {
-    auto const &alloc = get_alloc();
+    auto const& alloc = get_alloc();
     return {
         alloc.as_memloc()};
   } else if(is_del()) {
-    auto const &del = get_del();
+    auto const& del = get_del();
     return {
         del.as_memloc()};
   } else {
@@ -819,12 +819,12 @@ memstoloc_t memgraph_t::op_t::get_output_memstoloc() const
   } else if(is_constant()) {
     return get_constant().as_memloc();
   } else if(is_apply()) {
-    auto const &apply = get_apply();
-    auto const &out_mem = apply.mems[0];
+    auto const& apply = get_apply();
+    auto const& out_mem = apply.mems[0];
     return out_mem.as_memloc(apply.loc);
   } else if(is_move()) {
-    auto const &move = get_move();
-    auto const &[dst_loc, dst_offset] = move.dst;
+    auto const& move = get_move();
+    auto const& [dst_loc, dst_offset] = move.dst;
     return memloc_t{
         .offset = dst_offset,
         .size = move.size,
@@ -883,12 +883,12 @@ stoloc_t memgraph_t::op_t::get_stoloc() const
 
 bool memgraph_t::is_local_to(int id, int loc) const
 {
-  node_t const &node = nodes[id];
+  node_t const& node = nodes[id];
   if(node.op.is_inputsto()) {
     // Input storage nodes are special in that they don't map to
     // a single location. We determine if this inputsto occurs here if
     // any of its outgoing edges occur here.
-    for(int const &out_id : node.outs) {
+    for(int const& out_id : node.outs) {
       if(is_local_to(out_id, loc))
       {
         return true;
@@ -913,7 +913,7 @@ bool memgraph_t::op_t::is_local_to(int loc) const
   } else if(is_apply()) {
     return loc == get_apply().loc;
   } else if(is_move()) {
-    auto const &move = get_move();
+    auto const& move = get_move();
     return loc == move.get_src_loc() || loc == move.get_dst_loc();
   } else if(is_evict()) {
     return loc == get_evict().src.loc;
@@ -940,13 +940,13 @@ bool memgraph_t::apply_t::is_touch() const
   return std::holds_alternative<touch_t>(op);
 }
 
-einsummable_t const &
+einsummable_t const&
 memgraph_t::apply_t::get_einsummable() const
 {
   return std::get<einsummable_t>(op);
 }
 
-touch_t const &
+touch_t const&
 memgraph_t::apply_t::get_touch() const
 {
   return std::get<touch_t>(op);
@@ -964,12 +964,12 @@ memgraph_t::apply_t::out_dtype() const
   throw std::runtime_error("should not reach");
 }
 
-std::ostream &operator<<(std::ostream &out, mem_t const &mem)
+std::ostream &operator<<(std::ostream &out, mem_t const& mem)
 {
   out << "[" << mem.offset << "," << mem.offset + mem.size << ")";
   return out;
 }
-std::ostream &operator<<(std::ostream &out, memloc_t const &memloc)
+std::ostream &operator<<(std::ostream &out, memloc_t const& memloc)
 {
   out << "loc" << memloc.loc << memloc.as_mem();
   return out;
