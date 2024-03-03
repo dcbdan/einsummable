@@ -76,12 +76,64 @@ struct memgraph_make_state_t {
   // for eviction and loading
   void process(vector<_which_op_t> const& all_ops);
 
+  // Allocate memory for the provided op. If memory wasn't allocated,
+  // return false. If force is true, memory will be allocated and
+  // may use evict. If force is false, memory may not be allocated and
+  // and evict will not be used.
   bool allocate_op(
     _which_op_t const& which_op,
     bool force = false);
+  // > get's the required tensors in memory, calling load if necc
+  //   > if force: evict tensors as necc
+  //   > if not force: don't evict anything
+  // > return whether or not the op at oid could be allocated for
+  //   > if force, then this must return true or throw an error
 
+  // Do the provided op. Return whether or not any tensors
+  // are delteted
   bool add_op(
     _which_op_t const& which_op);
+  // > assumption: allocate_op(oid) was called and successful for oid
+  // > insert memgraph-op into the memgraph
+  // > register usage for all input tensors
+  // > return whether or not a delete occurred in one of the register usages
+
+  // return whether or not we can bring all of these tids into memory
+  bool allocate_tids_without_evict(vector<int> const& tids);
+  // TODO: implement
+
+  // make sure that all of these tids are on memory
+  void force_allocate_tids(vector<int> const& tids);
+
+  // Insert an allocate node and return the alloc_t mem id
+  int allocate_with_evict(
+    int loc, uint64_t size,
+    vector<int> cannot_evict = {});
+
+  // Try to insert an allocate note and return the alloc_t mem id
+  optional<int> 
+  allocate_without_evict(int loc, uint64_t size);
+
+  // find the tid that
+  // 1. is bigger than size and
+  // 2. not in `cannot_evict` and
+  // 3. will be used latest into the future among tids that
+  //    satisfy 1 and 2
+  optional<int> find_victim(
+    int loc, 
+    uint64_t size, 
+    vector<int> cannot_evict = {});
+  // If not tensors satisfy 1 and 2, return None.
+
+  // load tid on storage into memory, possibly evicting tensors.
+  // Don't evict any items in cannot_evict
+  void load_tensor_with_evict(
+    int tid, 
+    vector<int> cannot_evict = {});
+
+  void _load_tensor_helper(int tid, int alloc_mid);
+
+  ////////////////////
 
   vector<tuple<int, mem_t>> 
   get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
@@ -105,21 +157,6 @@ struct memgraph_make_state_t {
   // hint, stop.
   void load_tensors_until(int loc, uint64_t hint);
 
-  // find the tid that
-  // 1. is bigger than size and
-  // 2. not in `cannot_evict` and
-  // 3. will be used latest into the future among tids that
-  //    satisfy 1 and 2
-  optional<int> find_victim(int loc, uint64_t size, vector<int> cannot_evict = {});
-  // If not tensors satisfy 1 and 2, return None.
-
-  // Insert an allocate node and return the alloc_t mem id
-  int allocate_with_evict(
-    int loc, uint64_t size,
-    vector<int> cannot_evict = {});
-
-  optional<int> allocate_without_evict(int loc, uint64_t size);
-
   optional<vector<int>> allocate_multiple_without_evict(
     int loc, 
     vector<uint64_t> sizes);
@@ -127,16 +164,11 @@ struct memgraph_make_state_t {
   // push this tensor onto memory
   void evict_tensor(int tid);
 
-  // load tid into memory, possibly evicting tensors.
-  // Don't evict any items in cannot_evict
-  void load_tensor_with_evict(int tid, vector<int> cannot_evict = {});
-
   // if this cannot allocate memory, will return false
   bool load_tensor_without_evict(int tid);
 
-  bool load_multiple_without_evict(vector<int> tids, bool has_output_in_tids);
-
-  void _load_tensor_helper(int tid, int alloc_mid);
+  // TODO: why has_output_in_tids needed?
+  bool load_multiple_without_evict(vector<int> const& tids);
 
   // TODO: where should tensor donation occur?
 
