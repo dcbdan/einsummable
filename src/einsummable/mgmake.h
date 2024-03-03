@@ -140,8 +140,10 @@ struct memgraph_make_state_t {
 
   // TODO: where should tensor donation occur?
 
-  void print_task_node_to_mem_node(map<_which_node_t, int> task_node_to_mem_node);
-  void print_task_touch_to_mem_node(map<_which_touch_t, int> task_touch_to_mem_node);
+  void print_task_node_to_mem_node(
+    map<_which_node_t, int> task_node_to_mem_node);
+  void print_task_touch_to_mem_node(
+    map<_which_touch_t, int> task_touch_to_mem_node);
 
   // this tensor was used, see if you can free the memory
   bool register_usage(int task_id);

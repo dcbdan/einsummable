@@ -1,13 +1,13 @@
 #include "mgmake.h"
 
 tuple<
-    map<int, mem_t>, // input -> mem
-    map<int, mem_t>, // save -> mem
-    memgraph_t>
+  map<int, mem_t>, // input -> mem
+  map<int, mem_t>, // save -> mem
+  memgraph_t>
 memgraph_t::make_without_evict(
-    taskgraph_t const& taskgraph,
-    vector<uint64_t> mem_sizes,
-    allocator_settings_t settings)
+  taskgraph_t const& taskgraph,
+  vector<uint64_t> mem_sizes,
+  allocator_settings_t settings)
 {
   int const n_compute_locs = taskgraph.num_locs();
 
@@ -33,20 +33,20 @@ memgraph_t::make_without_evict(
 }
 
 tuple<
-    map<int, memstoloc_t>,
-    map<int, memstoloc_t>,
-    memgraph_t>
+  map<int, memstoloc_t>,
+  map<int, memstoloc_t>,
+  memgraph_t>
 memgraph_t::make(
-    taskgraph_t const& graph,
-    vector<int> which_storage,
-    vector<uint64_t> mem_sizes,
-    map<int, memstoloc_t> init_input_tid_to_data,
-    allocator_settings_t settings,
-    bool use_storage)
+  taskgraph_t const& graph,
+  vector<int> which_storage,
+  vector<uint64_t> mem_sizes,
+  map<int, memstoloc_t> init_input_tid_to_data,
+  allocator_settings_t settings,
+  bool use_storage)
 {
-  auto &&[i, o, a_nullopt, m] = make_(
-      graph, which_storage, mem_sizes,
-      init_input_tid_to_data, settings, use_storage, false);
+  auto && [i, o, a_nullopt, m] = make_(
+    graph, which_storage, mem_sizes,
+    init_input_tid_to_data, settings, use_storage, false);
   return {std::move(i), std::move(o), std::move(m)};
 }
 
@@ -68,16 +68,17 @@ memgraph_make_state_t::pop_memgraph()
   //
   // also update the allocators to not depend on the ret mid's
 
-  for(auto iter = task_tensor_to_mem_node.begin();
-       iter != task_tensor_to_mem_node.end();
-       ++iter)
+  for(
+    auto iter = task_tensor_to_mem_node.begin();
+    iter != task_tensor_to_mem_node.end();
+    ++iter)
   {
     int const& tid = iter->first;
 
     int ret_mid = iter->second;
     auto const& ret_op = ret.nodes[ret_mid].op;
 
-    int &new_mid = iter->second;
+    int& new_mid = iter->second;
     if(tensors_on_storage.count(tid) > 0)
     {
       // insert on storage
@@ -87,8 +88,7 @@ memgraph_make_state_t::pop_memgraph()
       if(ret_op.is_inputsto())
       {
         sto = ret_op.get_inputsto();
-      }
-      else if(ret_op.is_evict())
+      } else if(ret_op.is_evict()) 
       {
         auto const& evict = ret_op.get_evict();
         sto.storage_loc = evict.dst.loc;
@@ -99,9 +99,7 @@ memgraph_make_state_t::pop_memgraph()
       new_mid = memgraph.insert(op_t(sto), set<int>{});
 
       // tensors_on_storage does not change
-    }
-    else
-    {
+    } else {
       // insert on memory
       inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
       new_mid = memgraph.insert(op_t(mem), set<int>{});
@@ -111,8 +109,7 @@ memgraph_make_state_t::pop_memgraph()
     }
   }
 
-  for(allocator_t &allocator : allocators)
-  {
+  for(allocator_t& allocator: allocators) {
     allocator.clear_dependencies();
   }
 
@@ -124,52 +121,47 @@ memgraph_make_state_t::pop_memgraph()
 }
 
 tuple<
-    map<int, memstoloc_t>, // input -> data
-    map<int, memstoloc_t>, // save  -> data
-    optional<memgraph_t>,
-    memgraph_t>
+  map<int, memstoloc_t>, // input -> data
+  map<int, memstoloc_t>, // save  -> data
+  optional<memgraph_t>,
+  memgraph_t>
 memgraph_t::make_(
-    taskgraph_t const& taskgraph,
-    vector<int> which_storage,
-    vector<uint64_t> mem_sizes,
-    map<int, memstoloc_t> input_tid_to_data,
-    allocator_settings_t settings,
-    bool use_storage,
-    bool split_off_inputs)
+  taskgraph_t const& taskgraph,
+  vector<int> which_storage,
+  vector<uint64_t> mem_sizes,
+  map<int, memstoloc_t> input_tid_to_data,
+  allocator_settings_t settings,
+  bool use_storage,
+  bool split_off_inputs)
 {
   int n_compute_locs = taskgraph.num_locs();
-  if(mem_sizes.size() > n_compute_locs)
-  {
+  if(mem_sizes.size() > n_compute_locs) {
     n_compute_locs = mem_sizes.size();
   }
 
-  if(which_storage.size() == 0)
-  {
+  if(which_storage.size() == 0) {
     which_storage = vector<int>(n_compute_locs);
     std::iota(which_storage.begin(), which_storage.end(), 0);
   }
 
-  if(which_storage.size() != n_compute_locs)
-  {
-    throw std::runtime_error("incorrect which storage length: memgraph_t::make");
+  if(which_storage.size() != n_compute_locs) {
+    throw std::runtime_error(
+      "incorrect which storage length: memgraph_t::make");
   }
 
   int n_storage_locs = 0;
-  for(int const& storage_loc : which_storage)
-  {
-    if(storage_loc < 0)
-    {
+  for(int const& storage_loc : which_storage) {
+    if(storage_loc < 0) {
       throw std::runtime_error("invalid storage loc");
     }
     n_storage_locs = std::max(n_storage_locs, storage_loc + 1);
   }
 
-  for(int i = 0; i != n_storage_locs; ++i)
-  {
+  for(int i = 0; i != n_storage_locs; ++i) {
     auto iter = std::find(which_storage.begin(), which_storage.end(), i);
-    if(iter == which_storage.end())
-    {
-      throw std::runtime_error("storage locs must have 0, ..., n_storage_locs-1; no missing");
+    if(iter == which_storage.end()) {
+      throw std::runtime_error(
+        "storage locs must have 0, ..., n_storage_locs-1; no missing");
     }
   }
 
@@ -181,37 +173,25 @@ memgraph_t::make_(
     allocators = vector<allocator_t>(
         n_compute_locs,
         allocator_t(std::numeric_limits<uint64_t>::max(), settings));
-  }
-  else
-  {
-    if(mem_sizes.size() != n_compute_locs)
-    {
+  } else {
+    if(mem_sizes.size() != n_compute_locs) {
       throw std::runtime_error("must have mem sizes for each device");
     }
     allocators.reserve(mem_sizes.size());
-    for(auto const& m: mem_sizes)
-    {
+    for(auto const& m: mem_sizes) {
       allocators.emplace_back(m, settings);
     }
   }
 
-  // memgraph_make_state_t state(
-  //   taskgraph,
-  //   which_storage,
-  //   allocators,
-  //   input_tid_to_data,
-  //   n_compute_locs, n_storage_locs,
-  //   use_storage);
-
   memgraph_make_state_t state(
-      taskgraph,
-      which_storage,
-      allocators,
-      input_tid_to_data,
-      n_compute_locs, n_storage_locs,
-      use_storage);
+    taskgraph,
+    which_storage,
+    allocators,
+    input_tid_to_data,
+    n_compute_locs, n_storage_locs,
+    use_storage);
 
-  if(!use_storage)
+  if(!use_storage) 
   {
     // Without storage, it makes more sense to allocate all the inputs
     // before proceeding
@@ -263,10 +243,11 @@ memgraph_t::make_(
   }
 
   return {
-      input_tid_to_data,
-      save_to_data,
-      input_memgraph,
-      state.memgraph};
+    input_tid_to_data,
+    save_to_data,
+    input_memgraph,
+    state.memgraph
+  };
 }
 
 vector<_which_op_t>
@@ -321,8 +302,8 @@ order_split_taskgraph(taskgraph_t const& taskgraph)
 }
 
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
-    taskgraph_t const& taskgraph,
-    int out)
+  taskgraph_t const& taskgraph,
+  int out)
 {
   vector<tuple<int, _which_touch_t>> ret;
 
@@ -342,10 +323,11 @@ vector<tuple<int, _which_touch_t>> get_which_touches_from(
     for(int which_inn = 0; which_inn != unit.inputs.size(); ++which_inn)
     {
       auto const& inn = unit.inputs[which_inn].id;
-      ret.push_back({inn, _which_touch_t{
-                              .task_id = out,
-                              .unit_id = which_unit,
-                              .touch_id = which_inn}});
+      ret.push_back({inn, _which_touch_t {
+        .task_id = out,
+        .unit_id = which_unit,
+        .touch_id = which_inn}
+      });
     }
   }
 
@@ -353,9 +335,9 @@ vector<tuple<int, _which_touch_t>> get_which_touches_from(
 }
 
 vector<_which_touch_t> get_which_touches_from_to(
-    taskgraph_t const& tg,
-    int out,
-    int inn)
+  taskgraph_t const& tg,
+  int out,
+  int inn)
 {
   vector<_which_touch_t> ret;
   for(auto const& [inn_, w]: get_which_touches_from(tg, out))
@@ -370,19 +352,19 @@ vector<_which_touch_t> get_which_touches_from_to(
 
 
 memgraph_make_state_t::memgraph_make_state_t(
-    taskgraph_t const& tg,
-    vector<int> const& which_storage,
-    vector<allocator_t> const& as,
-    map<int, memstoloc_t> &ittd,
-    int num_compute,
-    int num_storage,
-    bool use_storage)
-    : taskgraph(tg),
-      memgraph(num_compute, num_storage, which_storage),
-      allocators(as),
-      _group(0),
-      use_storage(use_storage),
-      input_tid_to_data(ittd)
+  taskgraph_t const& tg,
+  vector<int> const& which_storage,
+  vector<allocator_t> const& as,
+  map<int, memstoloc_t> &ittd,
+  int num_compute,
+  int num_storage,
+  bool use_storage)
+  : taskgraph(tg),
+    memgraph(num_compute, num_storage, which_storage),
+    allocators(as),
+    _group(0),
+    use_storage(use_storage),
+    input_tid_to_data(ittd)
 {
   _sto_id = 0;
   remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
@@ -1041,18 +1023,35 @@ int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
 // }
 
 /* Helper to print out what is inside the mapping task_node_to_mem_node(task apply/move node to memid) */
-void memgraph_make_state_t::print_task_node_to_mem_node(map<_which_node_t, int> task_node_to_mem_node){
+void 
+memgraph_make_state_t::print_task_node_to_mem_node(
+  map<_which_node_t, int> task_node_to_mem_node)
+{
   DOUT("Printing task_node_to_mem_node:");
-  for(auto iter = task_node_to_mem_node.begin(); iter != task_node_to_mem_node.end(); ++iter){
-    std::cout << "apply/move id: " << iter->first.task_id << "; memid: " << iter->second;
+  for(
+    auto iter = task_node_to_mem_node.begin(); 
+    iter != task_node_to_mem_node.end(); 
+    ++iter)
+  {
+    std::cout << "apply/move id: " << iter->first.task_id << 
+      "; memid: " << iter->second;
   }
   std::cout << std::endl;
 }
 
-void memgraph_make_state_t::print_task_touch_to_mem_node(map<_which_touch_t, int> task_touch_to_mem_node){
+void 
+memgraph_make_state_t::print_task_touch_to_mem_node(
+  map<_which_touch_t, int> task_touch_to_mem_node)
+{
   DOUT("Printing task_touch_to_mem_node:");
-  for(auto iter = task_touch_to_mem_node.begin(); iter != task_touch_to_mem_node.end(); ++iter){
-    std::cout << "partialize task id: " << iter->first.task_id << "unit id: " << iter->first.unit_id << "touch id: " << iter->first.touch_id << "; memid:" << iter->second;
+  for(
+    auto iter = task_touch_to_mem_node.begin(); 
+    iter != task_touch_to_mem_node.end(); 
+    ++iter)
+  {
+    std::cout << "partialize task id: " << iter->first.task_id << 
+      "unit id: " << iter->first.unit_id << "touch id: " << 
+      iter->first.touch_id << "; memid:" << iter->second;
   }
   std::cout << std::endl;
 }
@@ -1085,7 +1084,6 @@ bool memgraph_make_state_t::register_usage(int task_id)
     int completing_memnode = task_tensor_to_mem_node.at(task_id);
     auto const& memnode = memgraph.nodes[completing_memnode];
     memstoloc_t data = memnode.op.get_output_memstoloc();
-    // std::cout << "Line 2792, task_id = " << task_id << " memid = " << completing_memnode << "data offset: " << data.get_memloc().offset << std::endl;
 
     if(data.is_stoloc())
     {
@@ -1133,8 +1131,6 @@ bool memgraph_make_state_t::register_usage(int task_id)
     }
     int del_id = memgraph.insert(op_t(del), del_deps);
 
-    // std::cout << "Free offset " << memloc.offset << " for taskid: " << task_id << std::endl;
-    // allocators[0].print();
     allocators[memloc.loc].free(memloc.offset, del_id);
 
     task_tensor_to_mem_node_erase_on_memory(task_id);
@@ -1163,7 +1159,6 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
 {
   if(task_tensor_to_mem_node.count(tid) > 0)
   {
-    // std::cout << "tid " << tid << " exist in task_tensor_to_mem_node" << std::endl; 
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
   task_tensor_to_mem_node.insert({tid, mid});
@@ -1219,7 +1214,8 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_update(int tid, int mid)
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter == task_tensor_to_mem_node.end())
   {
-    throw std::runtime_error("when updating: tid is not in task_tensor_to_mem_node");
+    throw std::runtime_error(
+      "when updating: tid is not in task_tensor_to_mem_node");
   }
   iter->second = mid;
 }
@@ -1566,13 +1562,13 @@ bool memgraph_make_state_t::load_multiple_without_evict(vector<int> tids, bool h
     return true;
   }
 
-
   // inns then out in sizes_to_alloc and alloc_mids
   for(int &tid : tids)
   {
     auto const& node = taskgraph.nodes[tid];
     sizes_to_alloc.emplace_back(node.op.out_size());
   }
+
   //Here we assume that the last one in tids are the output one
   auto const& node = taskgraph.nodes[tids.at(tids.size()-1)];
   int loc = node.op.out_loc();
@@ -1666,12 +1662,14 @@ memgraph_make_state_t::get_tensors_in_memory_without_alloc(
       }
       else
       {
-        throw std::runtime_error("get_tensors_in_memory_without_alloc: tid not in memory, tid is on storage. ");
+        throw std::runtime_error(
+          "get_tensors_in_memory_without_alloc: tid not in memory, tid is on storage. ");
       }
     }
     else
     {
-      throw std::runtime_error("get_tensors_in_memory_without_alloc: tid not exist yet. ");
+      throw std::runtime_error(
+        "get_tensors_in_memory_without_alloc: tid not exist yet. ");
     }
   }
   return ret;
