@@ -219,7 +219,9 @@ void cpu_mg_server_t::local_insert_tensors(
   for(auto const& [id, memsto]: data_locs) {
     if(memsto.is_mem()) {
       mem_t const& mem = memsto.get_mem();
-      allocator.allocate_at_without_deps(mem.offset, mem.size);
+      if(!allocator.allocate_at_without_deps(mem.offset, mem.size)) {
+        throw std::runtime_error("could not setup allocator");
+      }
     }
   }
 
