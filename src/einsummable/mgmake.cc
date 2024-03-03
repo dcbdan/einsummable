@@ -269,12 +269,12 @@ memgraph_t::make_(
       state.memgraph};
 }
 
-vector<std::variant<_which_node_t, _which_touch_t>>
+vector<_which_op_t>
 build_tg_ops(
   taskgraph_t const& taskgraph,
   vector<int> const& tids_in_order)
 {
-  vector<std::variant<_which_node_t, _which_touch_t>> ret;
+  vector<_which_op_t> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
   for(auto const& id: tids_in_order) {
@@ -302,15 +302,15 @@ build_tg_ops(
   return ret;
 }
 
-vector<std::variant<_which_node_t, _which_touch_t>>
+vector<_which_op_t>
 order_taskgraph(taskgraph_t const& taskgraph)
 {
   return build_tg_ops(taskgraph, taskgraph.get_order());
 }
 
 tuple<
-  vector<std::variant<_which_node_t, _which_touch_t>> ,
-  vector<std::variant<_which_node_t, _which_touch_t>> >
+  vector<_which_op_t> ,
+  vector<_which_op_t> >
 order_split_taskgraph(taskgraph_t const& taskgraph)
 {
   auto [inn_order, core_order] = taskgraph.get_input_core_order();
@@ -531,7 +531,7 @@ bool memgraph_make_state_t::input_has_been_initialized(int inn)
   > return whether or not a delete occurred in one of the register usages
 */
 bool memgraph_make_state_t::allocate_op(
-  std::variant<_which_node_t, _which_touch_t> const& which_op, 
+  _which_op_t const& which_op, 
   bool force)
 {
   /* Note to myself: should be looping through the used_tensor for current oid.
@@ -677,7 +677,7 @@ bool memgraph_make_state_t::allocate_op(
 
 bool 
 memgraph_make_state_t::add_op(
-  std::variant<_which_node_t, _which_touch_t> const& which_op)
+  _which_op_t const& which_op)
 {
   int id;
   if(std::holds_alternative<_which_node_t>(which_op))
@@ -894,7 +894,7 @@ memgraph_make_state_t::add_op(
 }
 
 void memgraph_make_state_t::process(
-  vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops)
+  vector<_which_op_t> const& all_ops)
 {
   // Since storage may be used, setup a structure containing info on
   // when something will be used next.

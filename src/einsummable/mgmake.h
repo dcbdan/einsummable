@@ -13,6 +13,8 @@ struct _which_touch_t {
   int touch_id;
 };
 
+using _which_op_t = std::variant<_which_node_t, _which_touch_t>;
+
 bool operator==(_which_node_t const& lhs, _which_node_t const& rhs);
 bool operator< (_which_node_t const& lhs, _which_node_t const& rhs);
 
@@ -21,27 +23,25 @@ bool operator< (_which_touch_t const& lhs, _which_touch_t const& rhs);
 
 // Get all (inn, which_touch_t) from partialize node out
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
-    taskgraph_t const &taskgraph,
-    int out);
+  taskgraph_t const &taskgraph,
+  int out);
 
 vector<_which_touch_t> get_which_touches_from_to(
-    taskgraph_t const &tg,
-    int out,
-    int inn);
+  taskgraph_t const &tg,
+  int out,
+  int inn);
 
-vector<std::variant<_which_node_t, _which_touch_t>>
+vector<_which_op_t>
 order_taskgraph(taskgraph_t const &taskgraph);
 // ^ TODO: This ordering should be "wide" for parallelism,
 //         but not too wide for full breadth-first search.
 //         At the moment, this guys is built off of
 //         taskgraph.get_order()
 
-tuple<
-    vector<std::variant<_which_node_t, _which_touch_t>>,
-    vector<std::variant<_which_node_t, _which_touch_t>>>
+tuple<vector<_which_op_t>, vector<_which_op_t>>
 order_split_taskgraph(taskgraph_t const &taskgraph);
 
-vector<std::variant<_which_node_t, _which_touch_t>>
+vector<_which_op_t>
 build_tg_ops(
   taskgraph_t const& taskgraph,
   vector<int> const& tids_in_order);
@@ -72,21 +72,23 @@ struct memgraph_make_state_t {
 
   bool input_has_been_initialized(int inn);
 
-  // void add_to_memgraph(
-  //   std::variant<_which_node_t, _which_touch_t> const& which_op);
-
   // This calls add to memgraph for every op, but also sets up all metadata
   // for eviction and loading
-  void process(
-    vector<std::variant<_which_node_t, _which_touch_t>> const& all_ops);
+  void process(vector<_which_op_t> const& all_ops);
 
-  bool allocate_op(std::variant<_which_node_t, _which_touch_t> const& which_op, bool force=false);
-  bool add_op(std::variant<_which_node_t, _which_touch_t> const& which_op);
-  vector<tuple<int, mem_t>> get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
+  bool allocate_op(
+    _which_op_t const& which_op,
+    bool force = false);
 
+  bool add_op(
+    _which_op_t const& which_op);
+
+  vector<tuple<int, mem_t>> 
+  get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
 
   int get_group_at(int task_id, int unit_id);
 
+  // TODO
   // At the end of this call, these tensors should be in memory. If they can't
   // all be in memory, then an error is thrown. If the tensor isn't yet created,
   // a tensor of the correct size is allocated.
@@ -119,7 +121,8 @@ struct memgraph_make_state_t {
   optional<int> allocate_without_evict(int loc, uint64_t size);
 
   optional<vector<int>> allocate_multiple_without_evict(
-  int loc, vector<uint64_t> sizes);
+    int loc, 
+    vector<uint64_t> sizes);
 
   // push this tensor onto memory
   void evict_tensor(int tid);

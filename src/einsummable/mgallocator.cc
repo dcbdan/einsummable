@@ -208,14 +208,14 @@ allocator_t::allocate_impl(uint64_t size_without_rem, bool no_deps)
     // vector<block_t> before_blocks(beg, end);
 
     auto iter = blocks.erase(beg, end);
-    auto occupied_iter = blocks.insert(iter, block_t{
+    auto occupied_iter = blocks.insert(iter, block_t {
       .beg = offset,
       .end = offset + size,
       .dep = optional<int>()
     });
     if(size != sz)
     {
-      blocks.insert(occupied_iter + 1, block_t{
+      blocks.insert(occupied_iter + 1, block_t {
         .beg = offset + size,
         .end = last_block_copy.end,
         .dep = last_block_copy.dep
