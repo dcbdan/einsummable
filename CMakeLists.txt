@@ -173,6 +173,7 @@ if(${CPU_EXECUTION_ENGINE})
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
+  add_cpu_llama_application("llama_first_token" "first_token")
 
   # For some reason sentencepiece + protocolbuffers + this application
   # isn't cooperating well. Something to do with symbols + protocol
