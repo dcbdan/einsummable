@@ -14,7 +14,8 @@
 void main_rank_zero(
   std::unique_ptr<server_base_t>& server,
   tensor_reader_t& model_loader,
-  args_t& pargs);
+  args_t& pargs,
+  int world_size);
 
 int main(int argc, char** argv) {
   set_default_dtype(dtype_t::f32);
@@ -94,7 +95,7 @@ int main(int argc, char** argv) {
   }
 
   args_t args(argc-(expected_argc-1), argv+(expected_argc-1));
-  args.set_default<string>("filename", argv[0]);
+  args.set_default<string>("data_filename", argv[0]);
 
   //args.set_default("config_threads", 8);
   //int num_config_threads_per_machine = args.get<int>("config_threads");
@@ -104,15 +105,49 @@ int main(int argc, char** argv) {
   //autoplace_config_t config = autoplace_config_t::make_default01(
   //  world_size, num_config_threads_per_machine);
 
-  main_rank_zero(server, reader, args);
+  main_rank_zero(server, reader, args, world_size);
 
   server->shutdown();
+}
+
+struct layer_ids_t {
+  int w1;
+  int w2;
+  int w3;
+  int wq;
+  int wk;
+  int wv;
+  int wo;
+  int fn;
+  int an;
+};
+
+template <typename T>
+void vector_repeat_resize(vector<T>& ret, int n) {
+  if(ret.size() > n) {
+    ret.resize(n);
+    return;
+  }
+  if(ret.size() == n) {
+    return;
+  }
+
+  if(ret.size() == 0) {
+    throw std::runtime_error("cannot repeat; nothing in there");
+  }
+
+  ret.reserve(n);
+  int i = 0;
+  while(ret.size() < n) {
+    ret.push_back(ret[i++]);
+  }
 }
 
 void main_rank_zero(
   std::unique_ptr<server_base_t>& server,
   tensor_reader_t& model_loader,
-  args_t& pargs)
+  args_t& pargs,
+  int world_size)
 {
   //
   pargs.set_default("simplify_tg", true);
@@ -152,15 +187,39 @@ void main_rank_zero(
 
   string register_cmd = server->get_registered_cmd();
 
-  dbuffer_t embedding_matrix;
-  vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
+  // fill out embeddings by reading the contents of data_filename
+  // and creating a batchsize by embed size matrix
   {
+    dbuffer_t embedding_matrix;
+    vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
+
     relation_t rel = model_loader(
       register_cmd,
       "tok_embeddings.weight",
       embedding_matrix_shape,
       server->get_max_tid() + 1);
     embedding_matrix = server->get_tensor(rel);
+
+    string tokenizer_file = pargs.get<string>("tokenizer");
+    just_tokenizer_t tokenizer(tokenizer_file);
+
+    vector<vector<int>> tokens;
+    {
+      std::ifstream t(pargs.get<string>("data_filename"));
+      std::stringstream buffer;
+      buffer << t.rdbuf();
+      tokens.push_back(tokenizer(buffer.str()));
+      vector_repeat_resize(tokens[0], margs.max_seq_len);
+      vector_repeat_resize(tokens, margs.batch_size);
+    }
+
+    server->insert_tensor(
+      embeddings.get_id(),
+      embeddings.get_shape().full(),
+      make_embedding(
+        tokenizer.vocab_size(),
+        embedding_matrix,
+        vector_flatten(tokens)));
   }
 
   // Load the permanant weights and the lora weights
@@ -178,14 +237,110 @@ void main_rank_zero(
   server->insert_tensor(
     full_freqs_cis.get_id(),
     full_freqs_cis.get_shape().full(),
-    //transformer_t::form_full_freqs_cis(margs));
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
 
-  string tokenizer_file = pargs.get<string>("tokenizer");
+  graph_t const& graph = writer.get_graph();
 
-  just_tokenizer_t tokenizer(tokenizer_file);
+  vector<placement_t> pls;
+  {
+    int num_config = pargs.get<int>("config_threads");
 
-  // TODO: need to insert the embeddings data, though...
+    pargs.set_default<string>("partitioner", "auto");
+    string which = pargs.get<string>("partitioner");
+    vector<partition_t> parts;
+
+    if(which == "auto") {
+      parts = apart01(graph, world_size * num_config, 1);
+    } else if(which == "data" || which == "dim" || which == "seq") {
+      // w1: hidden_dim, args.full_dim()
+      // w2: args.full_dim(), hidden_dim
+      // w3: hidden_dim, args.full_dim()
+      //
+      // wq: args.full_dim(), args.full_dim()
+      // wk: args.full_dim(), args.full_dim()
+      // wv: args.full_dim(), args.full_dim()
+      // wo: args.full_dim(), args.full_dim()
+      //
+      // fn, an: args.full_dim()
+      vector<layer_ids_t> layer_ids;
+      for(auto const& layer: model.layers) {
+        auto const& ff = layer.feedforward;
+        auto const& aa = layer.attention;
+        layer_ids.push_back(layer_ids_t {
+          .w1 = ff.w1.get_id(),
+          .w2 = ff.w2.get_id(),
+          .w3 = ff.w3.get_id(),
+          .wq = aa.wq.get_id(),
+          .wk = aa.wk.get_id(),
+          .wv = aa.wv.get_id(),
+          .wo = aa.wo.get_id(),
+          .fn = layer.attention_norm.weight.get_id(),
+          .an = layer.feedforward_norm.weight.get_id()
+        });
+      }
+
+      map<tuple<int, int>, partdim_t> pds;
+      if(which == "data") {
+        int id = embeddings.get_id();
+        pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_config) });
+      } else if(which == "dim") {
+        int split_a = num_config;
+        int split_b = 1;
+        while(split_a > margs.n_heads) {
+          if(split_a % 2 != 0) {
+            throw std::runtime_error("make num config more even..");
+          }
+          split_a /= 2;
+          split_b *= 2;
+        }
+
+        partdim_t pda = partdim_t::split(margs.n_heads, split_a);
+        partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
+
+        pds.insert({ {embeddings.get_id(), 2}, pda });
+        pds.insert({ {embeddings.get_id(), 3}, pdb });
+        pds.insert({ {model.norm.weight.get_id(), 0}, pda });
+        pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
+        pds.insert({ {model.w_vocab.get_id(), 1}, pda });
+        pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
+        for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
+          pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
+          pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
+          pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
+
+          pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
+          pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
+          pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
+          pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
+
+          pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
+          pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
+          pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
+          pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
+
+          pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
+          pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
+        }
+      } else if(which == "seq") {
+        partdim_t pd = partdim_t::split(margs.max_seq_len, num_config);
+        pds.insert({ { embeddings.get_id(), 1 }, pd });
+        pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 1 }, pd});
+      } else {
+        throw std::runtime_error("missing case");
+      }
+
+      parts = apart03(graph, pds);
+    } else {
+      throw std::runtime_error("missing partitioner");
+    }
+
+    uint64_t flops_per_byte_moved = 1000;
+    pls = alocate01(graph, parts, world_size, flops_per_byte_moved);
+  }
+
+  server->execute_graph(graph, pls);
 }
 
 

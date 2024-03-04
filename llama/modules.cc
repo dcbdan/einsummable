@@ -512,7 +512,7 @@ transformer_t::transformer_t(
   }
 
   full_freqs_cis = writer->input(
-    { 2*args.max_seq_len, uint64_div(args.head_dim(), 2) },
+    { args.max_seq_len, uint64_div(args.head_dim(), 2) },
     dtype_t::c64);
 
   norm = rms_norm_t(writer, "norm.", args.full_dim(), args.norm_eps);

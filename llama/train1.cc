@@ -225,7 +225,8 @@ void main_rank_zero(
         vector<vector<int>> data_tokens;
         vector<int> label_tokens;
         for(auto const& which_datum: which_data) {
-          auto [datum_tokens, label_token] = data_loader.datum(which_datum, margs.max_seq_len);
+          auto [datum_tokens, label_token] = 
+            data_loader.datum(which_datum, margs.max_seq_len);
           data_tokens.push_back(datum_tokens);
           label_tokens.push_back(label_token);
         }

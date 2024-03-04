@@ -38,6 +38,11 @@ int main() {
 
   auto const& graph = writer.get_graph();
 
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("printed g.gv");
+  }
   vector<layer_ids_t> layer_ids;
   for(auto const& layer: model.layers) {
     auto const& ff = layer.feedforward;
@@ -85,35 +90,44 @@ int main() {
   {
     map<tuple<int, int>, partdim_t> pds;
 
-    partdim_t pd = partdim_t::split(margs.n_heads, 8);
+    //partdim_t pd = partdim_t::split(margs.n_heads, 8);
 
-    pds.insert({ {embeddings.get_id(), 2}, pd });
-    pds.insert({ {model.norm.weight.get_id(), 0}, pd });
-    pds.insert({ {model.w_vocab.get_id(), 1}, pd });
+    //pds.insert({ {embeddings.get_id(), 2}, pd });
+    //pds.insert({ {model.norm.weight.get_id(), 0}, pd });
+    //pds.insert({ {model.w_vocab.get_id(), 1}, pd });
 
-    for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
-      pds.insert({ {w1,1}, pd });
-      pds.insert({ {w2,0}, pd });
-      pds.insert({ {w3,1}, pd });
+    //for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
+    //  pds.insert({ {w1,1}, pd });
+    //  pds.insert({ {w2,0}, pd });
+    //  pds.insert({ {w3,1}, pd });
 
-      pds.insert({ {wq,0}, pd });
-      pds.insert({ {wk,0}, pd });
-      pds.insert({ {wv,0}, pd });
-      pds.insert({ {wo,0}, pd });
+    //  pds.insert({ {wq,0}, pd });
+    //  pds.insert({ {wk,0}, pd });
+    //  pds.insert({ {wv,0}, pd });
+    //  pds.insert({ {wo,0}, pd });
 
-      pds.insert({ {wq,2}, pd });
-      pds.insert({ {wk,2}, pd });
-      pds.insert({ {wv,2}, pd });
-      pds.insert({ {wo,2}, pd });
+    //  pds.insert({ {wq,2}, pd });
+    //  pds.insert({ {wk,2}, pd });
+    //  pds.insert({ {wv,2}, pd });
+    //  pds.insert({ {wo,2}, pd });
 
-      pds.insert({ {fn,0}, pd });
-      pds.insert({ {an,0}, pd });
-    }
+    //  pds.insert({ {fn,0}, pd });
+    //  pds.insert({ {an,0}, pd });
+    //}
+
+    partdim_t pd = partdim_t::split(margs.max_seq_len, 8);
+    pds.insert({ { embeddings.get_id(), 1 }, pd });
+    pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
+    pds.insert({ { model.mask.value().get_id(), 0 }, pd});
+    pds.insert({ { model.mask.value().get_id(), 1 }, pd});
+    DLINEOUT("model mask is " << model.mask.value().get_id());
 
     parts = apart03(graph, pds);
   }
 
-  std::ofstream f("g.gv");
-  graph.print_graphviz(f, parts);
-  DOUT("printed g.gv");
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f, parts);
+    DOUT("printed g.gv");
+  }
 }

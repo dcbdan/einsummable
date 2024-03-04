@@ -955,7 +955,7 @@ vector<partition_t> apart03(
 
   for(int const& gid: graph.get_order()) {
     auto const& node = graph.nodes[gid];
-    if(node.op.is_input()) {
+    if(node.op.is_input() || node.op.is_fill()) {
       vector<uint64_t> shape = node.op.out_shape();
       vector<partdim_t> pds;
       for(int which = 0; which != shape.size(); ++which) {
@@ -1026,8 +1026,6 @@ vector<partition_t> apart03(
         }
       }
       ret[gid] = partition_t(out_pds);
-    } else if(node.op.is_fill()) {
-      ret[gid] = partition_t::singleton(node.op.out_shape());
     } else if(node.op.is_select()) {
       // For this one, just compute the refinement partition as that
       // is easier to implement than some scheme that verifies everything
@@ -1037,7 +1035,7 @@ vector<partition_t> apart03(
       for(uint64_t const& sz: select.out_shape) {
         out_pds.push_back(partdim_t::singleton(sz));
       }
-      for(auto const& [inn_gid, inn_region]: 
+      for(auto const& [inn_gid, inn_region]:
         vector_zip(node.inns, select.inn_regions))
       {
         auto const& inn_pds = ret[inn_gid].partdims;
@@ -1045,7 +1043,7 @@ vector<partition_t> apart03(
           auto const& inn_pd = inn_pds[d];
           auto const& selectdim = inn_region[d];
           partdim_t part_portion_pd = inn_pd.subset(
-            selectdim.offset_inn, 
+            selectdim.offset_inn,
             selectdim.offset_inn + selectdim.size);
 
           vector<uint64_t> portion_sizes;
