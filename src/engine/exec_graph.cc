@@ -78,6 +78,7 @@ exec_graph_t::notify_recv_ready_t::launch(
 
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
+  auto gremlin = get_timetracker().make_totals_gremlin("notify_recv_ready");
   // TODO: should this be done in another thread or here?
   notifier->notify_recv_ready(this->dst, this->id);
 
@@ -92,6 +93,7 @@ exec_graph_t::wait_recv_ready_t::launch(
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(resource);
 
+  auto gremlin = get_timetracker().make_totals_gremlin("wait_recv_ready");
   notifier_t* notifier = notifier_t::get_resource(resources[0]).self;
 
   notifier->wait_recv_ready(this->id, callback);
@@ -116,6 +118,7 @@ exec_graph_t::send_t::launch(
   auto& thread_resource = threadpool_manager_t::get_resource(resources[3]);
 
   thread_resource.launch([this, callback, notifier, wire, ptr] {
+    auto gremlin = get_timetracker().make_totals_gremlin("send");
     notifier->notify_send_ready(this->dst, this->id, wire.channel);
 
     wire.send(ptr, this->mem.size);
@@ -141,6 +144,7 @@ exec_graph_t::recv_t::launch(
   auto& thread_resource = threadpool_manager_t::get_resource(resources[2]);
 
   thread_resource.launch([this, callback, wire, ptr] {
+    auto gremlin = get_timetracker().make_totals_gremlin("recv");
     wire.recv(ptr, this->mem.size);
     // std::this_thread::sleep_for(std::chrono::duration<double>(double(mem.size) * 5e-8));
     callback();

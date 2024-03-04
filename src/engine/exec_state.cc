@@ -109,6 +109,8 @@ exec_state_t::exec_state_t(
 }
 
 void exec_state_t::event_loop() {
+  get_timetracker().clear();
+
   vector<int> processing;
   while(true) {
     while(processing.size() > 0) {
@@ -170,6 +172,8 @@ void exec_state_t::event_loop() {
       }
     });
   }
+
+  get_timetracker().print_totals();
 }
 
 void exec_state_t::decrement_outs(int id) {

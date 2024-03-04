@@ -240,6 +240,7 @@ void cpu_einsummable_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
+      auto gremlin = get_timetracker().make_totals_gremlin("einsummable");
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
       callback();
     });
@@ -295,6 +296,7 @@ void cpu_touch_t::launch(
 
   thread_resource.launch(
     [this, callback, this_touch, out_mem, inn_mem] {
+      auto gremlin = get_timetracker().make_totals_gremlin("touch");
       cpu_executor(this_touch, out_mem, inn_mem);
       callback();
     }
@@ -327,6 +329,7 @@ void cpu_evict_t::launch(
     cpu_storage_manager_t::get_resource(resources[1]).ptr;
 
   std::thread thread([this, callback, storage, ptr] {
+    auto gremlin = get_timetracker().make_totals_gremlin("evict");
     buffer_t data = make_buffer_reference(
       static_cast<uint8_t*>(ptr), mem.size);
     storage->write(data, id);
@@ -362,6 +365,7 @@ void cpu_load_t::launch(
     cpu_storage_manager_t::get_resource(resources[1]).ptr;
 
   std::thread thread([this, callback, storage, ptr] {
+    auto gremlin = get_timetracker().make_totals_gremlin("load");
     buffer_t data = make_buffer_reference(
       static_cast<uint8_t*>(ptr), mem.size);
     storage->load(data, id);
