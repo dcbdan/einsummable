@@ -15,7 +15,7 @@ memgraph_t::make_without_evict(
   std::iota(which_storage.begin(), which_storage.end(), 0);
 
   auto [inn_to_memdata, save_to_memdata, memgraph] =
-      make(taskgraph, which_storage, mem_sizes, {}, settings, false);
+    make(taskgraph, which_storage, mem_sizes, {}, settings, false);
 
   map<int, mem_t> inn_to_mem;
   for(auto const& [tid, memdata]: inn_to_memdata)
@@ -962,7 +962,8 @@ int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
   }
 }
 
-/* Helper to print out what is inside the mapping task_node_to_mem_node(task apply/move node to memid) */
+// Helper to print out what is inside the mapping 
+// task_node_to_mem_node(task apply/move node to memid) 
 void 
 memgraph_make_state_t::print_task_node_to_mem_node(
   map<_which_node_t, int> task_node_to_mem_node)
