@@ -100,7 +100,6 @@ struct memgraph_make_state_t {
 
   // return whether or not we can bring all of these tids into memory
   bool allocate_tids_without_evict(vector<int> const& tids);
-  // TODO: implement
 
   // make sure that all of these tids are on memory
   void force_allocate_tids(vector<int> const& tids);
@@ -146,28 +145,13 @@ struct memgraph_make_state_t {
   // a tensor of the correct size is allocated.
   // vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
 
-  // Load as many tensors as possible, with a maximum number of bytes
-  // loaded at hint.
-  // The algorihtm is:
-  //   1. find all tensors in storage less than size hint and will
-  //      be used again
-  //   2. load the tensor that is used earliest
-  //   3. decrement hint and recurse
-  // If allocation fails or there are no tensors smaller than
-  // hint, stop.
-  void load_tensors_until(int loc, uint64_t hint);
-
-  optional<vector<int>> allocate_multiple_without_evict(
-    int loc, 
-    vector<uint64_t> sizes);
-
   // push this tensor onto memory
   void evict_tensor(int tid);
 
   // if this cannot allocate memory, will return false
   bool load_tensor_without_evict(int tid);
 
-  // TODO: why has_output_in_tids needed?
+  // TODO
   bool load_multiple_without_evict(vector<int> const& tids);
 
   // TODO: where should tensor donation occur?

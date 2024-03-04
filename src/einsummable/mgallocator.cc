@@ -19,36 +19,22 @@ allocator_t::allocate_multiple(vector<uint64_t> sizes)
   // Note, it may be best to allocate the largest items first,
   // but we need to return the deps in order so we aren't bothering
 
-  // Record the status of the blocks before anything
-  // and on failure, just revert.
-  vector<block_t> original_blocks = blocks;
-
-  bool fail = false;
-  vector<tuple<uint64_t, set<int>>> alloced_info;
+  save_t save = checkpoint();
+  vector<tuple<uint64_t, set<int>>> ret;
   for(uint64_t const& size: sizes) {
-    auto const& maybe_info = allocate(size);
-    if(maybe_info) {
-      auto const& [offset, deps_] = maybe_info.value();
-
-      set<int> deps;
-      for(int const& d: deps_) {
-        if(d != -1) {
-          deps.insert(d);
-        }
-      }
-
-      alloced_info.emplace_back(offset, deps);
+    auto maybe = allocate(size);
+    if(maybe) {
+      ret.emplace_back(maybe.value());
     } else {
-      fail = true;
       break;
     }
   }
 
-  if(fail) {
-    blocks = original_blocks;
+  if(ret.size() != sizes.size()) {
+    reset(save);
     return std::nullopt;
   } else {
-    return alloced_info;
+    return ret;
   }
 }
 
@@ -418,5 +404,22 @@ void allocator_t::clear_dependencies()
   }
 
   blocks = new_blocks;
+}
+
+allocator_t::save_t::save_t(): blocks(nullptr) {}
+
+allocator_t::save_t::save_t(vector<block_t> const& bs)
+  : blocks(std::make_unique<vector<block_t>>(bs))
+{}
+
+allocator_t::save_t::operator bool() const {
+  return bool(blocks);
+}
+
+vector<allocator_t::block_t> const& allocator_t::save_t::operator()() const {
+  if(!blocks) {
+    throw std::runtime_error("invalid save_t state");
+  }
+  return *blocks;
 }
 

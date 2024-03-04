@@ -84,5 +84,34 @@ private:
 
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_first_available(uint64_t size);
+
+public:
+  ///////////////////////////////////////////////////////////////////
+  // A naive implementation to restore the
+  // state of an allocator to before a bunch of changes
+
+  // save is a maybe type of either blocks or nothing,
+  // but the blocks cannot be changed since it's private
+  struct save_t {
+    save_t();
+
+    save_t(vector<block_t> const& bs);
+
+    explicit operator bool() const;
+
+    vector<block_t> const& operator()() const;
+
+  private:
+    std::unique_ptr<vector<block_t>> blocks;
+  };
+
+  save_t checkpoint() {
+    return save_t(blocks);
+  }
+
+  void reset(save_t const& save) {
+    blocks = save(); 
+  }
+  ///////////////////////////////////////////////////////////////////
 };
 
