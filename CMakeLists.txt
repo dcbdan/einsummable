@@ -85,9 +85,9 @@ if(${CPU_EXECUTION_ENGINE})
   #  this helps empirically)
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  set(MKL_DIR "/opt/intel/oneapi/mkl/2024.0/lib/cmake/mkl/")
+  set(MKL_DIR "/opt/intel/oneapi/mkl/2023.2.0/lib/cmake/mkl/")
   find_package(MKL REQUIRED)
-  SET(UCX_PATH "/opt/ucx")
+  SET(UCX_PATH "/home/xin/ucx_builds/ucx_1.16")
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
@@ -148,6 +148,8 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("test_partialize"           "exps" "test_partialize")
   add_cpu_application("test_two_layer_graph"           "exps" "test_two_layer_graph")
   add_cpu_application("run_graph_on_cpu_engine"      "exps" "run_graph_on_cpu_engine")
+  add_cpu_application("make_lots_of_sends"      "exps" "make_lots_of_sends")
+  add_cpu_application("execute_memgraph_debug"      "exps" "execute_memgraph_debug")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc

@@ -228,7 +228,6 @@ int server_mg_base_t::get_max_tid() {
 void server_mg_base_t::execute(taskgraph_t const& taskgraph)
 {
   broadcast_cmd(cmd_t::execute_tg);
-
   execute_tg_server(taskgraph);
 }
 
@@ -429,25 +428,27 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const& taskgraph) {
       full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
   //delete gremlin;
 
-  //{
-  //std::ofstream f("mg.gv");
-  //core_mg.print_graphviz(f);
-  //DOUT("printed mg.gv");
-  //}
+  {
+  // std::ofstream f("mg.gv");
+  // core_mg.print_graphviz(f);
+  // DOUT("printed mg.gv");
+  }
+  {
+    // std::ofstream f("mg.proto");
+    // f << core_mg.to_wire();
+    // DOUT("printed mg.proto");
+  }
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
   vector<vector<std::array<int, 2>>> storage_remaps =
     create_storage_remaps(comm.get_world_size(), full_data_locs, inn_tg_to_loc);
-
   // this is not needed anymore
   full_data_locs.clear();
 
   storage_remap_server(storage_remaps);
-
   int n_mg = bool(inputs_everywhere_mg_) ? 2 : 1;
   comm.broadcast_contig_obj(n_mg);
-
   if(inputs_everywhere_mg_) {
     auto const& mg = inputs_everywhere_mg_.value();
     comm.broadcast_string(mg.to_wire());

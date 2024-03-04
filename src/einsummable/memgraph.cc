@@ -1016,7 +1016,6 @@ memgraph_t::make_(
   if(which_storage.size() != n_compute_locs) {
     throw std::runtime_error("incorrect which storage length: memgraph_t::make");
   }
-
   int n_storage_locs = 0;
   for(int const& storage_loc: which_storage) {
     if(storage_loc < 0) {
@@ -1056,7 +1055,6 @@ memgraph_t::make_(
     input_tid_to_data,
     n_compute_locs, n_storage_locs,
     use_storage);
-
   if(!use_storage) {
     // Without storage, it makes more sense to allocate all the inputs
     // before proceeding
@@ -1074,11 +1072,10 @@ memgraph_t::make_(
         // It could be the case that the used initialized the input
         if(!state.input_has_been_initialized(id)) {
           state.initialize_input(id);
-        }
+        } 
       }
     }
   }
-
   optional<memgraph_t> input_memgraph;
   if(split_off_inputs) {
     auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);

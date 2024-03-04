@@ -2,6 +2,9 @@
 
 #include <fstream>
 int _filecnt = 0;
+// #define EXEC_STATE_PRINT
+
+std::ofstream out;
 
 exec_state_t::exec_state_t(
   exec_graph_t const& g,
@@ -130,7 +133,7 @@ void exec_state_t::event_loop() {
     if(num_remaining == 0) {
       return;
     }
-    if(this_rank == 0 && num_remaining % 1000 == 0) {
+    if(num_remaining % 1000 == 0) {
       DOUT("num_remaining on rank 0: " << num_remaining);
     }
 

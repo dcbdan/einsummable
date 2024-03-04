@@ -22,7 +22,7 @@
 
 using tensor_t     = graph_writer_t::tensor_t;
 
-vector<placement_t> pre_assign_loc(vector<partition_t> const& parts, int num_locs, vector<int> placement, graph_t const& graph)
+vector<placement_t> pre_assign_loc(vector<partition_t> const& parts, int num_locs, vector<int> placement, graph_t const& graph, int episode)
 {
   vector<placement_t> ret;
   ret.reserve(parts.size());
@@ -34,7 +34,7 @@ vector<placement_t> pre_assign_loc(vector<partition_t> const& parts, int num_loc
       i+=1;
     }
   }
-  std::cout << "Total number of nodes: " << i << std::endl;
+  // std::cout << "Total number of nodes: " << i << std::endl;
   return ret;
 }
 
@@ -95,23 +95,23 @@ buffer_t make_data(vector<uint64_t> const& shape) {
 }
 
 
-float execute_einsummable(server_base_t* server, args_t& args, int world_size, vector<int> rl_placements){
+float execute_einsummable(server_base_t* server, args_t& args, int world_size, vector<int> rl_placements, int episode){
 
-  std::cout << "world_size: " << world_size << std::endl;
+  // std::cout << "world_size: " << world_size << std::endl;
 
   // 1. create a graph
   int num_threads_per = 4;
-  uint64_t batch = 1000;
-  uint64_t hidden = 1000;
-  uint64_t dim = 1000;
+  uint64_t batch = 10000;
+  uint64_t hidden = 10000;
+  uint64_t dim = 3000;
 
   graph_t const& graph = make_graph_ff_simple(batch,hidden,dim);
 
   vector<partition_t> parts = apart01(graph,world_size*num_threads_per);
-  vector<placement_t> placements = alocate01(graph, parts,world_size,1000);
+  // vector<placement_t> placements = alocate01(graph, parts,world_size,1000);
 
 
-  // std::vector<placement_t> placements = pre_assign_loc(parts, world_size, rl_placements, graph);
+  std::vector<placement_t> placements = pre_assign_loc(parts, world_size, rl_placements, graph, episode);
 
 
   // 2. insert the input tensors
@@ -119,6 +119,7 @@ float execute_einsummable(server_base_t* server, args_t& args, int world_size, v
   buffer_t w1 = make_data({hidden, dim});
   buffer_t w2 = make_data({dim, hidden});
   buffer_t w3 = make_data({hidden, dim});
+
 
   server->insert_tensor(0,placements[0],dbuffer_t(dtype_t::f32, x));
   server->insert_tensor(1,placements[1],dbuffer_t(dtype_t::f32, w1));
@@ -152,7 +153,7 @@ std::vector<int> stringToIntVector(const std::string& str) {
 int main_rank_zero(server_base_t* server, args_t& args, int world_size)
 {
 
-  int num_episodes = 3; // Total number of episodes
+  int num_episodes = 1000; // Total number of episodes
   int parent_child_pipe[2], child_parent_pipe[2];
   pid_t pid;
   char rl_str[MAXLINE];
@@ -177,7 +178,7 @@ int main_rank_zero(server_base_t* server, args_t& args, int world_size)
     for (int episode = 0; episode < num_episodes; ++episode) {
       // Send current episode number to child
       std::string episode_command = std::to_string(running_time) + "," + std::to_string(episode) + "," + std::to_string(num_episodes) + "\n";
-      write(parent_child_pipe[1], episode_command.c_str(), episode_command.length());
+      ssize_t m = write(parent_child_pipe[1], episode_command.c_str(), episode_command.length());
 
       // Receiving data from child
       ssize_t n = read(child_parent_pipe[0], rl_str, MAXLINE);
@@ -186,10 +187,26 @@ int main_rank_zero(server_base_t* server, args_t& args, int world_size)
           return 1;
       }
       rl_str[n] = '\0'; // null terminate
-      std::cout << rl_str << std::endl;
-      std::vector<int> rl_placements = stringToIntVector(rl_str);
-    
-      running_time = execute_einsummable(server, args, world_size, rl_placements);
+      // std::cout << rl_str << std::endl;f
+      // std::vector<int> rl_placements = stringToIntVector(rl_str);
+      // std::vector<int> rl_placements = {0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 0, 0, 
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+      //                   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,};
+      
+      std::vector<int> rl_placements = {0, 0, 2, 3, 0, 0, 3, 1, 3, 0, 0, 3, 0, 0, 0, 1, 3, 3, 1, 0, 2, 0, 2, 0, 1, 0, 1, 3, 2, 0,
+3, 0, 1, 1, 2, 3, 1, 3, 3, 0, 3, 0, 1, 3, 0, 0, 3, 3, 3, 1, 0, 3, 0, 3, 1, 3, 1, 3, 1, 0,
+0, 1, 3, 3, 0, 0, 3, 1, 1, 0, 1, 3, 0, 1, 3, 1, 3, 0, 1, 0, 3, 2, 0, 3, 2, 0, 0, 0, 2, 3,
+2, 3, 3, 0, 0, 0, 0, 0, 0, 3, 0, 1, 3, 0, 3, 3, 3, 0, 0, 1, 0, 0, 3, 3, 2, 2, 3, 3, 1, 0,
+2, 1, 1, 0, 0, 3, 3, 0, 0, 2, 0, 3, 3, 1, 2, 2, 0, 3, 3, 2, 0, 3, 2, 1, 0, 3, 0};
+
+                        
+      running_time = execute_einsummable(server, args, world_size, rl_placements, episode);
       std::cout << "Running time: " << running_time << " miliseconds " << std::endl;
     }
 
@@ -210,7 +227,7 @@ int main_rank_zero(server_base_t* server, args_t& args, int world_size)
     close(child_parent_pipe[1]); // Close original write end
 
     // Replace child process with train.py
-    if (execl("./../../Reinforcement-Learning-for-Systems/train.py", "./train.py", (char *)0) < 0) {
+    if (execl("./../../Reinforcement-Learning-for-Systems-real-execution/train.py", "./train.py", (char *)0) < 0) {
     // if (execl("./../exps/hello_parent.py", "./../exps/hello_parent.py", (char *)0) < 0) {
         std::cerr << "execl error...\n";
         return 1;

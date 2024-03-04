@@ -119,7 +119,7 @@ exec_graph_t::send_t::launch(
     notifier->notify_send_ready(this->dst, this->id, wire.channel);
 
     wire.send(ptr, this->mem.size);
-
+    // std::this_thread::sleep_for(std::chrono::duration<double>(double(mem.size) * 5e-8));
     callback();
   });
 }
@@ -142,7 +142,7 @@ exec_graph_t::recv_t::launch(
 
   thread_resource.launch([this, callback, wire, ptr] {
     wire.recv(ptr, this->mem.size);
-
+    // std::this_thread::sleep_for(std::chrono::duration<double>(double(mem.size) * 5e-8));
     callback();
   });
 }

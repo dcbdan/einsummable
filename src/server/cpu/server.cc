@@ -18,7 +18,6 @@ void cpu_mg_server_t::execute_memgraph(
   if(n_threads == 1) {
     throw std::runtime_error("must have more than one thread in the threadpool");
   }
-
   int this_rank = comm.get_this_rank();
 
   exec_graph_t graph =
@@ -45,6 +44,7 @@ void cpu_mg_server_t::execute_memgraph(
   ));
 
   exec_state_t state(graph, resource_manager, priority_type, this_rank);
+
 
   if(for_remap) {
     if(this_rank == 0) {
@@ -244,6 +244,7 @@ void cpu_mg_server_t::local_insert_tensors(
         .size = tensor->size
       });
     } else {
+      throw std::runtime_error("could not insert local data without using storage");
       int id = 1 + storage.get_max_id();
 
       storage.write(tensor, id);
@@ -278,7 +279,6 @@ void cpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
 }
 
 void cpu_mg_server_t::print() {
-  DLINEOUT("data_locs size is " << data_locs.size());
   for(auto const& [tid, loc]: data_locs) {
     DOUT(tid << ": " << dbuffer_t(default_dtype(), local_copy_data(tid)));
   }

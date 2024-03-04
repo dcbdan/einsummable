@@ -3,7 +3,7 @@
 notifier_t::notifier_t(communicator_t& cm, recv_channel_manager_t& rcm)
   : comm(cm), recv_channel_manager(rcm)
 {
-  bool constant_poll = false;
+  bool constant_poll = true;
   comm.start_listen_notify(
     sizeof(msg_t),
     [this](vector<uint8_t> data) {

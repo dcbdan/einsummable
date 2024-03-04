@@ -123,18 +123,18 @@ int main(){
     graph.print_graphviz(f);
 
     vector<partition_t> parts = apart01(graph,nlocs);
-    // vector<int> rl_place = {1, 7, 2, 6, 3, 2, 4, 1, 5, 6, 7, 2, 5, 3, 7, 3, 2, 0, 7, 1, 7, 2, 6, 3,
-    //     2, 4, 1, 5, 6, 7, 2, 3, 3, 7, 3, 1, 6, 2, 1, 3, 0, 4, 1, 5, 6, 7, 0, 3,
-    //     3, 7, 3, 1, 6, 3, 6, 3, 0, 4, 1, 5, 6, 7, 2, 5, 3, 7, 3, 1, 6, 3, 1, 3,
-    //     0, 3, 1, 5, 6, 7, 0, 5, 3, 7, 3, 1, 6, 3, 5, 3, 0, 3, 0, 5, 6, 7, 0, 5,
-    //     5, 7, 3};
-    std::vector<placement_t> placements = create_same_loc_placements(parts,nlocs);
+    vector<int> rl_place = {2, 1, 3, 3, 3, 1, 1, 3, 3, 1, 3, 3, 2, 1, 2, 0, 1, 1, 3, 1, 3, 1, 0, 3, 2, 3, 3, 1, 0, 1,
+                                        3, 1, 2, 1, 2, 2, 1, 1, 2, 1, 1, 3, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3, 3, 3, 1, 1,
+                                        1, 1, 1, 3, 2, 1, 3, 2, 2, 1, 2, 3, 1, 1, 1, 1, 3, 3, 3, 1, 3, 1, 2, 3, 3, 1, 3, 3, 2, 3,
+                                        3, 1, 1, 2, 3, 2, 3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 2, 3, 3, 0, 3, 3, 0, 3, 3,
+                                        3, 1, 3, 1, 3, 3, 1, 3, 1, 1, 3, 3, 2, 1, 3, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 1, 3};
+    // std::vector<placement_t> placements = create_same_loc_placements(parts,nlocs);
     // // vector<placement_t> placements = alocate01(graph, parts,8,100);
     // // for(auto const& p: placements){
     // //   const vtensor_t i = p.locations;
     // //   std::cout << i << std::endl;
     // // }
-    // vector<placement_t> placements = pre_assign_loc(parts, 8, rl_place, graph);
+    vector<placement_t> placements = pre_assign_loc(parts, 4, rl_place, graph);
     
     
     
@@ -193,7 +193,7 @@ int main(){
         }
     }
 
-    // gwise.print_info();
+    gwise.print_info();
     
     int cnt = 0;
     for(auto const&[key, _]: key_node_idx_dict){
@@ -207,7 +207,7 @@ int main(){
           int output_idx = key_node_idx_dict[val];
           input_list.push_back(node_idx);
           output_list.push_back(output_idx);
-          std::cout << key << ":" << node_idx << " --> " << val << ":" << output_idx << std::endl;
+          // std::cout << key << ":" << node_idx << " --> " << val << ":" << output_idx << std::endl;
         }
     }
   
@@ -233,7 +233,7 @@ int main(){
       if(part_shape.size() < 3){
         part_shape.push_back(1);
       }
-      std::cout << part_shape <<  std::endl;
+      // std::cout << part_shape <<  std::endl;
       graph_feature_file << part_shape << std::endl;
     }
   }

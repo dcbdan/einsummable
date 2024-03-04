@@ -131,8 +131,8 @@ struct server_mg_base_t : server_base_t {
     allocator_settings_t s = allocator_settings_t::default_settings())
     : comm(c), alloc_settings(s),
       make_parallel_partialize_groups_(false),
-      use_storage_(true),
-      split_off_inputs_(true)
+      use_storage_(false),
+      split_off_inputs_(false)
   {}
 
   void set_parallel_partialize(bool new_val) {
