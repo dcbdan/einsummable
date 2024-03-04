@@ -62,12 +62,15 @@ add_base_application("scalarop"         "exps" "scalarop")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
 add_base_application("tgsimplify"       "exps" "tgsimplify")
+add_base_application("simplescalarop"   "exps" "simplescalarop")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
   llama/modules.cc llama/misc.cc llama/builder.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
+
+add_llama_application("exp_apart03" "exp_apart03")
 
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")

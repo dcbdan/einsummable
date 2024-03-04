@@ -42,7 +42,8 @@ struct scalar_t {
   float                const& f32() const;
   double               const& f64() const;
   std::complex<float>  const& c64() const;
-
+  
+  void const* raw() const;
   // return a string of the number;
   // this removes dtype information
   string str() const;
@@ -246,6 +247,7 @@ struct node_t {
   map<int, dtype_t> hole_types() const;
 
   bool type_check() const;
+
 private:
   node_t simplify_once() const;
 
@@ -258,40 +260,13 @@ private:
 
 } // scalar_ns
 
-struct cutensor_scalarop_t {
-  // list out cutensor elementwise ops that
-  // may be discovered
-  enum cop_t { add, mul, min, max, exp, pow, identity, relu};
-  // TODO: add log
-
-  struct arg_t {
-    scalar_t scale;
-    cop_t op;
-  };
-  struct unary_t {
-    arg_t arg;
-  };
-  struct binary_t {
-    cop_t op;
-    arg_t lhs;
-    arg_t rhs;
-  };
-  struct ternary_t {
-    cop_t op_01_2;
-    cop_t op_0_1;
-    arg_t a0;
-    arg_t a1;
-    arg_t a2;
-  };
-  std::variant<unary_t, binary_t, ternary_t> op;
-};
-
-
 dtype_t const& default_dtype();
 void set_default_dtype(dtype_t);
 
 dtype_t const& default_complex_dtype();
 void set_default_complex_dtype(dtype_t);
+
+class simple_scalarop_t;
 
 struct scalarop_t {
   using op_t       = scalar_ns::op_t;
@@ -357,10 +332,6 @@ struct scalarop_t {
   // If this is *[constant,hole0], return the constant
   optional<scalar_t> get_scale_from_scale() const;
 
-  // TODO: These methods should be const
-  optional<cutensor_scalarop_t::arg_t> set_up_arg(node_t node);
-  optional<cutensor_scalarop_t> compile_cutensor_scalarop();
-
   bool is_constant_of(scalar_t val) const;
 
   string to_cppstr() const;
@@ -372,6 +343,8 @@ struct scalarop_t {
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)
   static scalarop_t combine(scalarop_t op, vector<scalarop_t> const& ops);
+
+  static scalarop_t replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops); 
 
   static scalarop_t from_string(string const& str);
 
@@ -391,9 +364,6 @@ struct scalarop_t {
 
   // x0 / x1
   static scalarop_t make_div(dtype_t d = default_dtype());
-
-  // 1 / x0
-  static scalarop_t make_rcp(dtype_t d = default_dtype());
 
   // min(x0, x1);
   static scalarop_t make_min(dtype_t d = default_dtype());
@@ -424,11 +394,7 @@ struct scalarop_t {
   // x0 + val
   static scalarop_t make_increment(scalar_t val);
 
-  // e^x0
   static scalarop_t make_exp(dtype_t d = default_dtype());
-
-  // 1 / (1 + e^(-1*x0))
-  static scalarop_t make_sigmoid(dtype_t d = default_dtype());
 
   static scalarop_t make_log(dtype_t d = default_dtype());
 
@@ -464,7 +430,11 @@ struct scalarop_t {
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
+
+  node_t const* get_node() const;
 private:
+  friend class list_simple_scalarop_t;
+
   node_t node;
   map<int, dtype_t> arg_types;
 };
@@ -487,6 +457,9 @@ bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
 
 bool operator==(scalarop_t const& lhs, scalarop_t const& rhs);
 bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs);
+
+bool operator==(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs);
+bool operator!=(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, compare_t const& c);
 std::istream& operator>>(std::istream& inn, compare_t& c);

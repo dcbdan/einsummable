@@ -1,0 +1,100 @@
+#pragma once
+#include "../base/setup.h"
+
+#include "scalarop.h"
+
+struct simple_scalarop_t {
+  // list of simple elementwise ops
+  enum uop_t {
+    identity,
+    neg,           // negation
+    sqrt,
+    conj,          // conjugate
+    rcp,           // reciprocol
+    sigmoid,       // 1 / (1 + e^{-x})
+    log,
+    exp,
+    relu
+  };
+
+  enum bop_t {
+    add,
+    mul,
+    min,
+    max
+  };
+
+  // bop(arg, scale)
+  struct scale_t {
+    bop_t bop;
+    scalar_t scale;
+  };
+
+  // scale * f(arg)
+  struct unary_t {
+    scalar_t scale;
+    uop_t op;
+  };
+
+  // op(
+  //   lhs.scale * lhs.op(arg0), 
+  //   rhs.scale * rhs.op(arg1))
+  struct binary_t {
+    bop_t op;
+    unary_t lhs;
+    unary_t rhs;
+  };
+
+  std::variant<scale_t, unary_t, binary_t> op;
+
+  bool is_scale()  const { return std::holds_alternative<scale_t>(op);  }
+  bool is_unary()  const { return std::holds_alternative<unary_t>(op);  }
+  bool is_binary() const { return std::holds_alternative<binary_t>(op); }
+
+  int num_inns() const;
+
+  dtype_t get_inn_dtype(int which) const;
+
+  scale_t  const& get_scale()  const { return std::get<scale_t>(op);  }
+  unary_t  const& get_unary()  const { return std::get<unary_t>(op);  }
+  binary_t const& get_binary() const { return std::get<binary_t>(op); }
+
+  scalarop_t to_scalarop() const;
+
+  static scalarop_t unary_to_scalarop(unary_t u);
+  static scalarop_t uop_to_scalarop(uop_t uop, dtype_t dtype);
+  static scalarop_t bop_to_scalarop(bop_t bop, dtype_t dtype);
+};
+
+struct list_simple_scalarop_t {
+  // For n-ary op, the first n args are set
+  // args < 0 are temporary and not inputs..
+  // An arg of -i is the result of ops[i-1].
+  struct op_t {
+    simple_scalarop_t op;
+    int args[2];
+  };
+
+  vector<op_t> ops;
+
+  static
+  optional<list_simple_scalarop_t>
+  make(scalarop_t const& scalarop);
+
+  scalarop_t to_scalarop() const;
+  
+  void print(std::ostream& out) const;
+};
+
+namespace scalar_ns {
+  optional<tuple<
+    simple_scalarop_t,
+    vector<node_t const*>>>
+  pop_to_simple_scalarop(node_t const* node);
+}
+
+std::ostream& operator<<(std::ostream& out, simple_scalarop_t const& op);
+std::ostream& operator<<(std::ostream& out, simple_scalarop_t::uop_t const& op);
+std::ostream& operator<<(std::ostream& out, simple_scalarop_t::bop_t const& op);
+
+

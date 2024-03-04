@@ -57,3 +57,11 @@ vector<partition_t> apart02(
   int n_compute,
   map<int, partition_t> const& fixed_parts,
   vector<tuple<int,int>> const& equal_parts);
+
+// Here is a hueristic partitioner. A user provides 
+// A list of partitions for (input, which_dim) and those are
+// propagated throughout the graph. All unspecified partitions
+// are unset.
+vector<partition_t> apart03(
+  graph_t const& graph,
+  map<tuple<int, int>, partdim_t> const& init_parts);
