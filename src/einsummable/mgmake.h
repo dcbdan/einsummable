@@ -132,18 +132,14 @@ struct memgraph_make_state_t {
 
   void _load_tensor_helper(int tid, int alloc_mid);
 
-  ////////////////////
-
   vector<tuple<int, mem_t>> 
   get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
 
-  int get_group_at(int task_id, int unit_id);
 
-  // TODO
-  // At the end of this call, these tensors should be in memory. If they can't
-  // all be in memory, then an error is thrown. If the tensor isn't yet created,
-  // a tensor of the correct size is allocated.
-  // vector<tuple<int, mem_t>> get_tensors_in_memory(vector<int> const& task_ids);
+  // this tensor was used, see if you can free the memory
+  bool register_usage(int task_id);
+
+  int get_group_at(int task_id, int unit_id);
 
   // push this tensor onto memory
   void evict_tensor(int tid);
@@ -151,18 +147,12 @@ struct memgraph_make_state_t {
   // if this cannot allocate memory, will return false
   bool load_tensor_without_evict(int tid);
 
-  // TODO
-  bool load_multiple_without_evict(vector<int> const& tids);
-
   // TODO: where should tensor donation occur?
 
   void print_task_node_to_mem_node(
     map<_which_node_t, int> task_node_to_mem_node);
   void print_task_touch_to_mem_node(
     map<_which_touch_t, int> task_touch_to_mem_node);
-
-  // this tensor was used, see if you can free the memory
-  bool register_usage(int task_id);
 
   memgraph_t pop_memgraph();
 
