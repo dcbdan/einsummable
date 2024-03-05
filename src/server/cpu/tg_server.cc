@@ -91,6 +91,8 @@ void cpu_tg_server_t::execute_tg_server(
   taskgraph_t const& taskgraph,
   map<string, scalar_t> const& scalar_vars)
 {
+  DLINEOUT("execute_tg_server start");
+  gremlin_t gremlin("execute_tg_server");
   comm.broadcast_string(taskgraph.to_wire());
   comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
   _execute_tg(taskgraph, scalar_vars);

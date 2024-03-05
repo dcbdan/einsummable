@@ -20,6 +20,10 @@ void main_rank_zero(
 int main(int argc, char** argv) {
   set_default_dtype(dtype_t::f32);
 
+  for(int i = 0; i != argc; ++i) {
+    DOUT(i << ": " << argv[i]);
+  }
+
   int expected_argc = 12;
   if(argc < expected_argc) {
     return 1;
@@ -64,7 +68,7 @@ int main(int argc, char** argv) {
         communicator, mem_size, num_threads, num_contraction_threads));
     DOUT("using tg server and ignoring num_channels_per_move");
   } else {
-    throw std::runtime_error("invalid server arg");
+    throw std::runtime_error("invalid server arg: " + which_server);
   }
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
@@ -96,14 +100,6 @@ int main(int argc, char** argv) {
 
   args_t args(argc-(expected_argc-1), argv+(expected_argc-1));
   args.set_default<string>("data_filename", argv[0]);
-
-  //args.set_default("config_threads", 8);
-  //int num_config_threads_per_machine = args.get<int>("config_threads");
-  //DOUT("num config threads per machine " << num_config_threads_per_machine);
-  ////autoplace_config_t config = autoplace_config_t::make_default02(
-  ////  world_size, num_config_threads_per_machine);
-  //autoplace_config_t config = autoplace_config_t::make_default01(
-  //  world_size, num_config_threads_per_machine);
 
   main_rank_zero(server, reader, args, world_size);
 
@@ -200,17 +196,21 @@ void main_rank_zero(
       server->get_max_tid() + 1);
     embedding_matrix = server->get_tensor(rel);
 
+    DLINE;
     string tokenizer_file = pargs.get<string>("tokenizer");
+    DLINEOUT(tokenizer_file);
     just_tokenizer_t tokenizer(tokenizer_file);
+    DLINE;
 
-    vector<vector<int>> tokens;
+    vector<int> tokens;
     {
-      std::ifstream t(pargs.get<string>("data_filename"));
+      string filename = pargs.get<string>("data_filename");
+      std::ifstream t(filename);
       std::stringstream buffer;
       buffer << t.rdbuf();
-      tokens.push_back(tokenizer(buffer.str()));
-      vector_repeat_resize(tokens[0], margs.max_seq_len);
-      vector_repeat_resize(tokens, margs.batch_size);
+      tokens = tokenizer(buffer.str());
+      DLINEOUT("total number of tokens in " << filename << " is " << tokens.size());
+      vector_repeat_resize(tokens, margs.max_seq_len * margs.batch_size);
     }
 
     server->insert_tensor(
@@ -219,7 +219,7 @@ void main_rank_zero(
       make_embedding(
         tokenizer.vocab_size(),
         embedding_matrix,
-        vector_flatten(tokens)));
+        tokens));
   }
 
   // Load the permanant weights and the lora weights
@@ -240,6 +240,11 @@ void main_rank_zero(
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
 
   graph_t const& graph = writer.get_graph();
+  {
+    std::ofstream f("g.gv");
+    graph.print_graphviz(f);
+    DOUT("g.gv");
+  }
 
   vector<placement_t> pls;
   {
@@ -297,6 +302,9 @@ void main_rank_zero(
         partdim_t pda = partdim_t::split(margs.n_heads, split_a);
         partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
 
+        partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
+        pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
+
         pds.insert({ {embeddings.get_id(), 2}, pda });
         pds.insert({ {embeddings.get_id(), 3}, pdb });
         pds.insert({ {model.norm.weight.get_id(), 0}, pda });
@@ -342,5 +350,4 @@ void main_rank_zero(
 
   server->execute_graph(graph, pls);
 }
-
 
