@@ -65,3 +65,11 @@ vector<partition_t> apart02(
 vector<partition_t> apart03(
   graph_t const& graph,
   map<tuple<int, int>, partdim_t> const& init_parts);
+
+// The algorithm:
+// 1. partition all the contraction nodes by recursively splitting the largest
+//    dimension of the node.
+// 2. recurse where all other nodes are deduced from inputs and outputs
+vector<partition_t> apart04(
+  graph_t const& graph,
+  uint64_t cutoff);

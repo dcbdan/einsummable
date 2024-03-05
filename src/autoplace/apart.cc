@@ -1099,3 +1099,120 @@ vector<partition_t> apart03(
 
   return ret;
 }
+
+static
+partition_t cutoff_part(vector<uint64_t> shape, uint64_t cutoff) {
+  vector<uint64_t> splits(shape.size(), 1);
+
+  auto block_size = [&] {
+    uint64_t ret = 1;
+    for(auto const& [dim, split]: vector_zip(shape, splits)) {
+      ret *= (dim - split + 1) / split;
+    }
+    return ret;
+  };
+
+  auto split = [&] {
+    int which = -1;
+    uint64_t bestm = 0;
+    for(int i = 0; i != shape.size(); ++i) {
+      uint64_t const& dim = shape[i];
+      uint64_t const& split = splits[i];
+      if(split * 2 < dim) {
+        uint64_t m = (dim - split + 1) / split;
+        if(which < 0 || m < bestm) {
+          which = i;
+          bestm = m;
+        }
+      }
+    }
+    if(which >= 0) {
+      splits[which] *= 2;
+      return true;
+    } else {
+      return false;
+    }
+  };
+
+  while(block_size() > cutoff) {
+    if(!split()) {
+      break;
+    }
+  }
+
+  vector<partdim_t> pds;
+  for(auto const& [dim, split]: vector_zip(shape, splits)) {
+    pds.push_back(partdim_t::split(dim, int(split)));
+  }
+  return partition_t(pds);
+}
+
+vector<partition_t> apart04(
+  graph_t const& graph,
+  uint64_t cutoff)
+{
+  // ugh, no default constructor for partition.. Just gonna do this
+  partition_t dummy(vector<partdim_t>(1, partdim_t::singleton(1)));
+  vector<partition_t> ret(graph.nodes.size(), dummy);
+
+  set<int> remaining;
+  {
+    vector<int> gids = vector_iota<int>(graph.nodes.size());
+    remaining = set<int>(gids.begin(), gids.end());
+  }
+
+  vector<int> pending;
+  auto add_to_pending = [&](int gid) {
+    auto const& node = graph.nodes[gid];
+    for(auto const& inn_gid: node.get_inns_set()) {
+      pending.push_back(inn_gid);
+    }
+    for(auto const& out_gid: node.outs) {
+      pending.push_back(out_gid);
+    }
+  };
+
+  auto set_partition = [&](int gid, partition_t const& part) {
+    ret[gid] = part;
+    add_to_pending(gid);
+    remaining.erase(gid);
+  };
+
+  auto deduce_partition = [&](int gid) -> optional<partition_t> {
+    if(remaining.count(gid) > 0) {
+      return std::nullopt;
+    }
+
+    // TODO an actual implementation
+
+    auto const& node = graph.nodes[gid]; 
+    vector<uint64_t> shape = node.op.out_shape();
+    return cutoff_part(shape, cutoff);
+  };
+
+  // Step 1: partition all contractions
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_einsummable()) {
+      auto const& e = node.op.get_einsummable();
+      if(e.is_contraction()) {
+        set_partition(gid, cutoff_part(e.join_shape, cutoff));
+      }
+    }
+  }
+
+  while(remaining.size() > 0) {
+    if(pending.size() == 0) {
+      throw std::runtime_error("oops... apart04 has nodes to process but nothing in penidng");
+    }
+    int gid = pending.back();
+    pending.pop_back();
+
+    optional<partition_t> part = deduce_partition(gid);
+    if(part) {
+      set_partition(gid, part.value());
+    }
+  }
+
+  return ret;
+}
