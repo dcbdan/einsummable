@@ -1104,10 +1104,14 @@ static
 partition_t cutoff_part(vector<uint64_t> shape, uint64_t cutoff) {
   vector<uint64_t> splits(shape.size(), 1);
 
+  auto div = [](uint64_t a, uint64_t b) {
+    return (a + b - 1) / b;
+  };
+
   auto block_size = [&] {
     uint64_t ret = 1;
     for(auto const& [dim, split]: vector_zip(shape, splits)) {
-      ret *= (dim - split + 1) / split;
+      ret *= div(dim, split);
     }
     return ret;
   };
@@ -1119,8 +1123,8 @@ partition_t cutoff_part(vector<uint64_t> shape, uint64_t cutoff) {
       uint64_t const& dim = shape[i];
       uint64_t const& split = splits[i];
       if(split * 2 < dim) {
-        uint64_t m = (dim - split + 1) / split;
-        if(which < 0 || m < bestm) {
+        uint64_t m = div(dim, split);
+        if(which < 0 || m > bestm) {
           which = i;
           bestm = m;
         }
@@ -1151,15 +1155,8 @@ vector<partition_t> apart04(
   graph_t const& graph,
   uint64_t cutoff)
 {
-  // ugh, no default constructor for partition.. Just gonna do this
   partition_t dummy(vector<partdim_t>(1, partdim_t::singleton(1)));
-  vector<partition_t> ret(graph.nodes.size(), dummy);
-
-  set<int> remaining;
-  {
-    vector<int> gids = vector_iota<int>(graph.nodes.size());
-    remaining = set<int>(gids.begin(), gids.end());
-  }
+  vector<optional<partition_t>> ret(graph.nodes.size(), std::nullopt);
 
   vector<int> pending;
   auto add_to_pending = [&](int gid) {
@@ -1172,21 +1169,70 @@ vector<partition_t> apart04(
     }
   };
 
+  int count = 0;
   auto set_partition = [&](int gid, partition_t const& part) {
+    count++;
     ret[gid] = part;
     add_to_pending(gid);
-    remaining.erase(gid);
   };
 
   auto deduce_partition = [&](int gid) -> optional<partition_t> {
-    if(remaining.count(gid) > 0) {
+    if(ret[gid]) {
       return std::nullopt;
     }
 
-    // TODO an actual implementation
-
     auto const& node = graph.nodes[gid]; 
-    vector<uint64_t> shape = node.op.out_shape();
+
+    // formation nodes are exclusively computed from inputs
+    if(node.op.is_formation()) {
+      int rank = node.op.out_shape().size();
+      int inn_gid = node.inns[0];
+      auto const& inn_part = ret[inn_gid];
+      if(inn_part) {
+        auto const& inn_pds = inn_part.value().partdims;
+        return partition_t(vector<partdim_t>(
+          inn_pds.begin(), inn_pds.begin() + rank));
+      } else {
+        return std::nullopt;
+      }
+    } 
+
+    if(node.op.is_einsummable()) {
+      auto const& e = node.op.get_einsummable();
+      if(e.is_broadcast()) {
+        return std::nullopt;
+      }
+      if(e.is_contraction()) {
+        return std::nullopt;
+      }
+      map<int, partdim_t> pds;
+      for(auto const& [inn_gid, inns]: vector_zip(node.inns, e.inns)) {
+        auto maybe = ret[inn_gid];
+        if(!maybe) {
+          continue;
+        }
+        auto const& inn_pds = maybe.value().partdims;
+        for(auto const& [d, pd]: vector_zip(inns, inn_pds)) {
+          pds.insert({d, pd});
+        }
+      }
+
+      vector<partdim_t> xs;
+      for(int i = 0; i != e.join_shape.size(); ++i) {
+        auto iter = pds.find(i);
+        if(iter == pds.end()) {
+          break;
+        }
+        xs.push_back(iter->second);
+      }
+      if(xs.size() == e.join_shape.size()) {
+        return partition_t(xs);
+      }
+    }
+
+    // TODO
+
+    vector<uint64_t> shape = node.op.shape();
     return cutoff_part(shape, cutoff);
   };
 
@@ -1201,18 +1247,26 @@ vector<partition_t> apart04(
     }
   }
 
-  while(remaining.size() > 0) {
+  while(count != graph.nodes.size()) {
     if(pending.size() == 0) {
       throw std::runtime_error("oops... apart04 has nodes to process but nothing in penidng");
     }
-    int gid = pending.back();
-    pending.pop_back();
-
-    optional<partition_t> part = deduce_partition(gid);
-    if(part) {
-      set_partition(gid, part.value());
+    vector<int> old_pending = pending;
+    pending.resize(0);
+    for(auto const& gid: old_pending) {
+      optional<partition_t> part = deduce_partition(gid);
+      if(part) {
+        set_partition(gid, part.value());
+      } else {
+        pending.push_back(gid);
+      }
     }
   }
 
-  return ret;
+  //return ret;
+  vector<partition_t> ps;
+  for(auto const& p: ret) {
+    ps.push_back(p.value());
+  }
+  return ps;
 }
