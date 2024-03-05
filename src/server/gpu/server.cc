@@ -314,7 +314,9 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
       auto const& [offset, size, global_gpu] = memstoloc.get_memloc();
       int local_gpu = which_local_gpu(global_gpu);
       auto& allocator = allocators[local_gpu];
-      allocator.allocate_at_without_deps(offset, size);
+      if(!allocator.allocate_at_without_deps(offset, size)) {
+        throw std::runtime_error("could not setup allocator");
+      }
     }
   }
 
