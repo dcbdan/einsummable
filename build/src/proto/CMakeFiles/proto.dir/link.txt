@@ -1,2 +1,0 @@
-/usr/bin/ar qc libproto.a  CMakeFiles/proto.dir/einsummable.pb.cc.o
-/usr/bin/ranlib libproto.a
