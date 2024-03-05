@@ -5,6 +5,7 @@
 
 // for allocator_t
 #include "../../../einsummable/memgraph.h"
+#include "../../../einsummable/mgallocator.h"
 
 #include <mutex>
 #include <fstream>

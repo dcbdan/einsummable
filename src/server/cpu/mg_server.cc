@@ -233,7 +233,7 @@ void cpu_mg_server_t::local_insert_tensors(
 
     memsto_t memsto;
 
-    auto maybe_offset = allocator.try_to_allocate_without_deps(tensor->size);
+    auto maybe_offset = allocator.allocate_without_deps(tensor->size);
 
     // 1. copy the data over
     // 2. fill out memsto with where the copied data is
