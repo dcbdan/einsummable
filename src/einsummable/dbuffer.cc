@@ -489,7 +489,6 @@ std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer)
 {
   auto const& dtype = dbuffer.dtype;
   uint64_t n = dbuffer.nelem();
-  n = (n > 500) ? 500 : n;
   out << "dbuffer[" << dtype << "|" << n << "]{";
   if(dtype == dtype_t::f16) {
     _print_elems(out, dbuffer.f16(), n);

@@ -170,14 +170,14 @@ int llama_main(int argc, char** argv) {
 
   /* Create the llama first token graph using builder_t */
   model_args_t model_args = model_args_t {
-    .dim             = 256, //was 4096
+    .dim             = 4096, //was 4096
     .n_layers        = 1,
-    .n_heads         = 4, //32
-    .multiple_of     = 64, //256
+    .n_heads         = 32, //32
+    .multiple_of     = 256, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
     .max_seq_len     = 2048, //was 2048
-    .vocab_size      = 1024,
+    .vocab_size      = 32000,
   };
 
   builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
@@ -199,7 +199,7 @@ int llama_main(int argc, char** argv) {
       d.random();
     } else {
       d.rnorm();
-      d.scale(scalar_t(dtype, "0.01"));
+      d.scale(scalar_t(dtype, "0.1"));
     }
     input_data.insert({input_id, d});
   }
@@ -237,17 +237,17 @@ int llama_main(int argc, char** argv) {
   //     DOUT(mg_buffer);
   //   }
   // }
-  // DOUT("mg_tensor_results: ")
-  // for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  DOUT("mg_tensor_results: ")
+  for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
   
-  // DOUT("tg_tensor_results: ")
-  // for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
-  //   auto buffer = iter->second;
-  //   DOUT(buffer);
-  // }
+  DOUT("tg_tensor_results: ")
+  for (auto iter = tg_tensor_results.begin(); iter != tg_tensor_results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
   return(1);
 }
 

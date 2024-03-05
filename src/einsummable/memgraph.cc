@@ -1251,10 +1251,14 @@ memgraph_t::make(
     allocator_settings_t settings,
     bool use_storage)
 {
+  auto make_start = std::chrono::high_resolution_clock::now();
   auto &&[i, o, a_nullopt, m] = make_(
       graph, which_storage, mem_sizes,
       init_input_tid_to_data, settings, use_storage, false);
   return {std::move(i), std::move(o), std::move(m)};
+  auto make_end = std::chrono::high_resolution_clock::now();
+  auto make_duration = std::chrono::duration_cast<std::chrono::microseconds>(make_end - make_start);
+    std::cout << "Time taken by memgraph make overall: " << make_duration.count() << " microseconds" << std::endl;
 }
 
 memgraph_t
@@ -1620,6 +1624,8 @@ vector<_which_touch_t> get_which_touches_from_to(
   }
   return ret;
 }
+
+// allocator_t::check_fragmentation();
 
 allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
     : strat(s.strat), alignment_power(s.alignment_power)
