@@ -53,6 +53,190 @@ cpu_kernel_executor_t::cpu_kernel_executor_t()
   };
 }
 
+optional<cpu_kernel_executor_t::binary_subdiv_ew_t>
+cpu_kernel_executor_t::build_subdiv(
+  dtype_t dtype,
+  bool is_sub,
+  vector<uint64_t> const& out_shape,
+  string const& estr)
+{
+  using op_t = cpu_kernel_executor_t::binary_subdiv_ew_t;
+
+  if(estr == "a,a->a") { 
+    // treat it as b,b->b
+    return op_t {
+      .dtype = dtype,
+      .lhs_stride_a = 0,
+      .lhs_stride_b = 1,
+      .rhs_stride_a = 0,
+      .rhs_stride_b = 1,
+      .na = 1,
+      .nb = out_shape[0],
+      .is_sub = is_sub
+    };
+  } else if(estr == "ab,a->ab") {
+    return op_t {
+      .dtype = dtype,
+      .lhs_stride_a = out_shape[1],
+      .lhs_stride_b = 1,
+      .rhs_stride_a = 1,
+      .rhs_stride_b = 0,
+      .na = out_shape[0],
+      .nb = out_shape[1],
+      .is_sub = is_sub
+    };
+  } else if(estr == "ab,b->ab") {
+    return op_t {
+      .lhs_stride_a = out_shape[1],
+      .lhs_stride_b = 1,
+      .rhs_stride_a = 0,
+      .rhs_stride_b = 1,
+      .na = out_shape[0],
+      .nb = out_shape[1],
+      .is_sub = is_sub
+    };
+  } else if(estr == "a,ab->ab") {
+    return op_t {
+      .lhs_stride_a = 1,
+      .lhs_stride_b = 0,
+      .rhs_stride_a = out_shape[1],
+      .rhs_stride_b = 1,
+      .na = out_shape[0],
+      .nb = out_shape[1],
+      .is_sub = is_sub
+    };
+  } else if(estr == "b,ab->ab") {
+    return op_t {
+      .lhs_stride_a = 0, 
+      .lhs_stride_b = 1,
+      .rhs_stride_a = out_shape[1],
+      .rhs_stride_b = 1,
+      .na = out_shape[0],
+      .nb = out_shape[1],
+      .is_sub = is_sub
+    };
+  } else {
+    return std::nullopt;
+  }
+}
+
+template <typename T>
+void _execute_sub(
+  T* out, T const* lhs, T const* rhs,
+  uint64_t lhs_stride_a,
+  uint64_t lhs_stride_b,
+  uint64_t rhs_stride_a,
+  uint64_t rhs_stride_b,
+  uint64_t na,
+  uint64_t nb)
+{
+  for(uint64_t i = 0; i != na; ++i) {
+    T const* l = lhs;
+    T const* r = rhs;
+    for(uint64_t j = 0; j != nb; ++j) {
+      *out++ = *lhs - *rhs;
+      l += lhs_stride_b; 
+      r += rhs_stride_b;
+    }
+    lhs += lhs_stride_a;
+    rhs += rhs_stride_b;
+  }
+}
+
+template <typename T>
+void _execute_div(
+  T* out, T const* lhs, T const* rhs,
+  uint64_t lhs_stride_a,
+  uint64_t lhs_stride_b,
+  uint64_t rhs_stride_a,
+  uint64_t rhs_stride_b,
+  uint64_t na,
+  uint64_t nb)
+{
+  for(uint64_t i = 0; i != na; ++i) {
+    T const* l = lhs;
+    T const* r = rhs;
+    for(uint64_t j = 0; j != nb; ++j) {
+      *out++ = *lhs / *rhs;
+      l += lhs_stride_b; 
+      r += rhs_stride_b;
+    }
+    lhs += lhs_stride_a;
+    rhs += rhs_stride_b;
+  }
+}
+
+static
+inline void execute_subdiv(
+  void* out,
+  void const* lhs,
+  void const* rhs,
+  dtype_t dtype,
+  bool is_sub,
+  uint64_t lhs_stride_a,
+  uint64_t lhs_stride_b,
+  uint64_t rhs_stride_a,
+  uint64_t rhs_stride_b,
+  uint64_t na,
+  uint64_t nb)
+{
+  if(is_sub) {
+    if(dtype == dtype_t::f16) {
+      return _execute_sub(
+        reinterpret_cast<float16_t*>(out),
+        reinterpret_cast<float16_t const*>(lhs),
+        reinterpret_cast<float16_t const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    } else if(dtype == dtype_t::f32) {
+      return _execute_sub(
+        reinterpret_cast<float*>(out),
+        reinterpret_cast<float const*>(lhs),
+        reinterpret_cast<float const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    } else if(dtype == dtype_t::f64) {
+      return _execute_sub(
+        reinterpret_cast<double*>(out),
+        reinterpret_cast<double const*>(lhs),
+        reinterpret_cast<double const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    }
+  } else {
+    if(dtype == dtype_t::f16) {
+      return _execute_div(
+        reinterpret_cast<float16_t*>(out),
+        reinterpret_cast<float16_t const*>(lhs),
+        reinterpret_cast<float16_t const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    } else if(dtype == dtype_t::f32) {
+      return _execute_div(
+        reinterpret_cast<float*>(out),
+        reinterpret_cast<float const*>(lhs),
+        reinterpret_cast<float const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    } else if(dtype == dtype_t::f64) {
+      return _execute_div(
+        reinterpret_cast<double*>(out),
+        reinterpret_cast<double const*>(lhs),
+        reinterpret_cast<double const*>(rhs),
+        lhs_stride_a, lhs_stride_b,
+        rhs_stride_a, rhs_stride_b,
+        na, nb);
+    }  
+  }
+
+  throw std::runtime_error("should not reach: execute_subdiv");
+}
+
 optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
 {
   if(e_.join.has_variables()) {
@@ -60,6 +244,7 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
   }
 
   auto einsummable = e_.merge_adjacent_dims();
+  auto estr = einsummable.str();
 
   if(kernels.count(einsummable) > 0) {
     return workspace_size(einsummable);
@@ -79,6 +264,20 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
       }
     });
     return 0;
+  }
+
+  // try to match binary_subdiv_ew
+  if(!einsummable.has_aggregation()) {
+    bool is_sub = einsummable.join.is_sub();
+    bool is_div = einsummable.join.is_div();
+    if(is_sub || is_div) {
+      auto maybe = build_subdiv(
+        einsummable.out_dtype(), is_sub, einsummable.out_shape(), estr);
+      if(maybe) {
+        kernels.insert({ einsummable, maybe.value() });
+        return 0;
+      }
+    }
   }
 
   if(einsummable.is_straight_elementwise()) {
@@ -133,14 +332,20 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
     }
   }
 
-  auto estr = einsummable.str();
-
   if(estr == "ab,a->ab" || estr == "ab,b->ab" ||
      estr == "a,ab->ab" || estr == "b,ab->ab")
   {
     bool is_ab_a   = estr == "ab,a->ab" || estr == "a,ab->ab";
     bool swap_args = estr == "a,ab->ab" || estr == "b,ab->ab";
-    auto maybe = lookup_binary_212_ew_kernel(einsummable.join, is_ab_a);
+
+    scalarop_t join = einsummable.join;
+    if(swap_args) {
+      // for castables, this won't do anything, but for subtraction and div,
+      // this is required!
+      join.remap_inputs({ {0, 1}, {1, 0} });
+    }
+
+    auto maybe = lookup_binary_212_ew_kernel(join, is_ab_a);
     if(maybe) {
       auto const& [data,f] = maybe.value();
       kernels.insert({einsummable,
@@ -381,6 +586,8 @@ string cpu_kernel_executor_t::as_str(einsummable_t const& e) const
     return "straight_bew";
   } else if(holds_alternative<ternary_straight_ew_t>(kernel)) {
     return "straight_tew";
+  } else if(holds_alternative<binary_subdiv_ew_t>(kernel)) {
+    return "subdiv";
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     return "b212";
   } else if(holds_alternative<ternary_2112_ew_t>(kernel)) {
@@ -419,6 +626,8 @@ vector<int> cpu_kernel_executor_t::donatables(einsummable_t const& e) const
     maybe.push_back(0);
     maybe.push_back(1);
     maybe.push_back(2);
+  } else if(std::holds_alternative<binary_subdiv_ew_t>(kernel)) {
+    // TODO
   } else if(std::holds_alternative<binary_212_ew_t>(kernel)) {
     bool const& swapargs = std::get<binary_212_ew_t>(kernel).swapargs;
     if(swapargs) {
@@ -540,6 +749,12 @@ void cpu_kernel_executor_t::call(
     assert_num_inputs(3);
     auto const& [n,data,f] = get<ternary_straight_ew_t>(kernel);
     f(data.data(), n, out, inns[0], inns[1], inns[2]);
+  } else if(holds_alternative<binary_subdiv_ew_t>(kernel)) {
+    assert_num_inputs(2);
+    auto const& [dtype, is_sub, la, lb, ra, rb, na, nb] = 
+      get<binary_subdiv_ew_t>(kernel);
+    execute_subdiv(
+      out, inns[0], inns[1], dtype, is_sub, la, lb, ra, rb, na, nb);
   } else if(holds_alternative<binary_212_ew_t>(kernel)) {
     //auto gremlin = cpu_kernel_timetracker.make_totals_gremlin("es:b212");
     assert_num_inputs(2);
@@ -749,7 +964,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
 }
 
 #define _unary_ew_loop(name, TO, T, op) \
-  void name( \
+  inline void name( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -766,7 +981,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
 // ab,a->ab
 // ab,b->ab
 #define _binary_ew_loop(name1, name2, name3, TO, T0, T1, op) \
-  void name1( \
+  inline void name1( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -783,7 +998,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
       out[iO] = op; \
     } \
   } \
-  void name2( \
+  inline void name2( \
     uint8_t const* d, \
     uint64_t n1, \
     uint64_t n2, \
@@ -802,7 +1017,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
       out[iO] = op; \
     }} \
   } \
-  void name3( \
+  inline void name3( \
     uint8_t const* d, \
     uint64_t n1, \
     uint64_t n2, \
@@ -825,7 +1040,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
 // a,a,a->a
 // ab,a,a->ab
 #define _ternary_ew_loop(name1, name2, TO, T0, T1, T2, op) \
-  void name1( \
+  inline void name1( \
     uint8_t const* d, \
     uint64_t n, \
     void* _out, \
@@ -845,7 +1060,7 @@ inline std::complex<T> _complex(T const& x, T const& y) {
       out[iO] = op; \
     } \
   } \
-  void name2( \
+  inline void name2( \
     uint8_t const* d, \
     uint64_t n1, \
     uint64_t n2, \

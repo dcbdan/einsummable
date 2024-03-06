@@ -50,6 +50,26 @@ private:
     void (*f)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
   };
 
+  // ab,ab->ab with strides on the lhs and rhs
+  struct binary_subdiv_ew_t {
+    dtype_t dtype;
+    uint64_t lhs_stride_a;
+    uint64_t lhs_stride_b;
+    uint64_t rhs_stride_a;
+    uint64_t rhs_stride_b;
+    uint64_t na;
+    uint64_t nb;
+    bool is_sub;
+  };
+
+  static
+  optional<cpu_kernel_executor_t::binary_subdiv_ew_t>
+  build_subdiv(
+    dtype_t dtype,
+    bool is_sub,
+    vector<uint64_t> const& out_shape,
+    string const& estr);
+
   struct binary_212_ew_t {
     uint64_t na;
     uint64_t nb;
@@ -144,7 +164,7 @@ public:
   using kernel_info_t = std::variant<
     batch_matmul_t, contraction_t,
     unary_straight_ew_t, binary_straight_ew_t, ternary_straight_ew_t,
-    binary_212_ew_t, ternary_2112_ew_t, tensor_permute_t,
+    binary_subdiv_ew_t, binary_212_ew_t, ternary_2112_ew_t, tensor_permute_t,
     reduction_ab_a_t, sum_then_scale_ab_a_t, broadcast_b_ab_t, broadcast_a_ab_t,
     kernel_t>;
 

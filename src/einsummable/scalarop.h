@@ -329,6 +329,10 @@ struct scalarop_t {
   bool is_min() const;
   bool is_add() const;
 
+  bool is_sub() const;
+  bool is_div() const;
+  bool is_exp() const;
+
   // If this is *[constant,hole0], return the constant
   optional<scalar_t> get_scale_from_scale() const;
 

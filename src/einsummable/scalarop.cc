@@ -1820,6 +1820,30 @@ bool scalarop_t::is_max() const {
   return *this == make_max(node.dtype);
 }
 
+bool scalarop_t::is_sub() const {
+  if(dtype_is_complex(out_dtype())) {
+    return false;
+    // TODO: remove this incorrect case..
+    //       removing these lines would force a parse 
+    //       on a complex number which isn't supported
+  }
+  return *this == scalarop_t::make_sub(out_dtype());
+}
+
+bool scalarop_t::is_div() const {
+  if(dtype_is_complex(out_dtype())) {
+    return false;
+    // TODO: remove this incorrect case..
+    //       removing these lines would force a parse 
+    //       on a complex number which isn't supported
+  }
+  return *this == scalarop_t::make_div(out_dtype());
+}
+
+bool scalarop_t::is_exp() const {
+  return *this == scalarop_t::make_exp(out_dtype());
+}
+
 optional<scalar_t> scalarop_t::get_scale_from_scale() const {
   if(!node.op.is_mul()) {
     return std::nullopt;
@@ -2072,9 +2096,19 @@ scalarop_t scalarop_t::make_scale(string var, dtype_t dtype) {
   return make_scale_which(var, 0, dtype);
 }
 
+static scalar_t _subone(dtype_t dtype) {
+  if(dtype_is_real(dtype)) {
+    return scalar_t::negative_one(dtype);
+  } else if(dtype == dtype_t::c64) {
+    return scalar_t(std::complex<float>(-1.0, -1.0));
+  } else {
+    throw std::runtime_error("missing complex dtype case");
+  }
+}
+
 // x0 - x1
 scalarop_t scalarop_t::make_sub(dtype_t dtype) {
-  string negate = write_with_ss(make_scale_which(scalar_t::negative_one(dtype), 1));
+  string negate = write_with_ss(make_scale_which(_subone(dtype), 1));
   string h0 = op_t::h_str(0, dtype);
   string op = "+["+h0+"," + negate + "]";
   return parse_with_ss<scalarop_t>(op);
