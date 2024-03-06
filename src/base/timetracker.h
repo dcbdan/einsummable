@@ -42,6 +42,7 @@ private:
 
   std::mutex m;
 
+  map<string, int> counts;
   map<string, duration_t> totals;
   map<string, vector<interval_t>> intervals;
 

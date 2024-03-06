@@ -17,12 +17,12 @@ timetracker_t::gremlin_t::gremlin_t(
 
 timetracker_t::gremlin_t::~gremlin_t() {
   auto end = now();
-  std::unique_lock lk(self.m);
-  if(is_interval) {
-    self._insert_interval(name, start, end);
-  }
-  if(is_total) {
-    self._insert_total(name, start, end);
+  if(is_interval && is_total) {
+    self.insert_full(name, start, end);
+  } else if(is_interval) {
+    self.insert_interval(name, start, end);
+  } else if(is_total) {
+    self.insert_total(name, start, end);
   }
 }
 
@@ -36,6 +36,7 @@ void timetracker_t::insert_interval(
   timetracker_t::timestamp_t end)
 {
   std::unique_lock lk(m);
+  counts[name]++;
   _insert_interval(name, start, end);
 }
 void timetracker_t::_insert_interval(
@@ -59,6 +60,7 @@ void timetracker_t::insert_total(
   timetracker_t::timestamp_t end)
 {
   std::unique_lock lk(m);
+  counts[name]++;
   _insert_total(name, start, end);
 }
 
@@ -68,6 +70,7 @@ void timetracker_t::insert_full(
   timetracker_t::timestamp_t end)
 {
   std::unique_lock lk(m);
+  counts[name]++;
   _insert_interval(name, start, end);
   _insert_total(name, start, end);
 }
@@ -112,7 +115,7 @@ void timetracker_t::print_intervals(std::ostream& out)
       duration_t beg = beg_ - world_start;
       duration_t end = end_ - world_start;
 
-      std::cout << key << " " << beg.count() << " " << end.count();
+      out << key << " " << beg.count() << " " << end.count();
     }
   }
 }
@@ -122,7 +125,9 @@ void timetracker_t::print_totals(std::ostream& out)
   int max_msg_size = _get_max_msg_size(totals);
   for(auto const& [key_, duration]: totals) {
     string key = _fix_msg(key_, max_msg_size);
-    std::cout << key << " " << duration.count() << std::endl;
+    string dur = _fix_msg(write_with_ss(duration.count()), 20);
+    int cnt = counts.at(key_);
+    out << key << " " << dur << " " << cnt << std::endl;
   }
 }
 
