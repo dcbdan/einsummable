@@ -375,7 +375,18 @@ void cpu_tg_einsummable_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, inn_mems, maybe_workspace]
     {
-      cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
+      string s;
+      if(einsummable.is_contraction()) {
+        s = "contraction";
+      } else if(einsummable.has_aggregation()) {
+        s = "reduction";
+      } else {
+        s = "elementwise:" + write_with_ss(einsummable.join);
+      }
+      {
+        auto g = get_timetracker().make_totals_gremlin(s);
+        cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
+      }
       callback();
     }
   );
@@ -409,14 +420,17 @@ void cpu_tg_batchmatmul_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, lhs_mem, rhs_mem]
     {
-      batch_matrix_multiply(dtype,
-        offset_b, size_b,
-        true, true, true,
-        ni, offset_i, size_i,
-        nj, nk,
-        trans_lhs, trans_rhs,
-        out_mem, lhs_mem, rhs_mem,
-        false);
+      {
+        auto g = get_timetracker().make_totals_gremlin("batchmatmul");
+        batch_matrix_multiply(dtype,
+          offset_b, size_b,
+          true, true, true,
+          ni, offset_i, size_i,
+          nj, nk,
+          trans_lhs, trans_rhs,
+          out_mem, lhs_mem, rhs_mem,
+          false);
+      }
       callback();
     }
   );
@@ -447,7 +461,10 @@ void cpu_tg_permute_t::launch(
   thread_resource.launch(
     [this, callback, out_mem, inn_mem]
     {
-      permute_kernel(dtype, 1024, inn_shape, out_perm, out_mem, inn_mem);
+      { 
+        auto g = get_timetracker().make_totals_gremlin("permute");
+        permute_kernel(dtype, 1024, inn_shape, out_perm, out_mem, inn_mem);
+      }
       callback();
     }
   );
@@ -477,7 +494,10 @@ void cpu_tg_fill_constant_t::launch(
   thread_resource.launch(
     [this, callback, out_mem]
     {
-      initialize_fill(this->fill, out_mem);
+      { 
+        auto g = get_timetracker().make_totals_gremlin("fill");
+        initialize_fill(this->fill, out_mem);
+      }
       callback();
     });
 }
@@ -581,7 +601,10 @@ void tg_touch_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
   }
 
   thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
-    execute_touch(this_touch, out_mem, inn_mem);
+    {
+      auto g = get_timetracker().make_totals_gremlin("touch");
+      execute_touch(this_touch, out_mem, inn_mem);
+    }
     callback();
   });
 }

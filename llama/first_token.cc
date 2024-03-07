@@ -196,11 +196,8 @@ void main_rank_zero(
       server->get_max_tid() + 1);
     embedding_matrix = server->get_tensor(rel);
 
-    DLINE;
     string tokenizer_file = pargs.get<string>("tokenizer");
-    DLINEOUT(tokenizer_file);
     just_tokenizer_t tokenizer(tokenizer_file);
-    DLINE;
 
     vector<int> tokens;
     {

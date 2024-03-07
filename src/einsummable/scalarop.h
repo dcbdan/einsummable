@@ -258,6 +258,9 @@ private:
   optional<node_t> normalize_order() const;
 };
 
+optional<map<int, node_t const*>>
+_pop_match(node_t const* skeleton, node_t const* node);
+
 } // scalar_ns
 
 dtype_t const& default_dtype();
@@ -334,8 +337,11 @@ struct scalarop_t {
 
   bool is_constant_of(scalar_t val) const;
 
+	// TODO: to_cppstr do not find square, sqrt, (-) or (/) like to_cpp_bytes does !
+
   string to_cppstr() const;
   string to_cppstr(std::function<string(int)> write_hole) const;
+
   tuple<string, vector<uint8_t>> to_cpp_bytes() const;
 
   string type_signature() const;
