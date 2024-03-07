@@ -12,6 +12,73 @@
 #include "../llama/builder.h"
 
 map<int, dbuffer_t>
+main_rank_zero(
+  std::unique_ptr<server_base_t>& server,
+  args_t& args)
+{
+
+  args.set_default("seed", int(-1));
+  int seed = args.get<int>("seed");
+  if(seed >= 0) {
+    set_seed(args.get<int>("seed"));
+  }
+
+  /* Create the llama first token graph using builder_t */
+  model_args_t model_args = model_args_t {
+    .dim             = 4096, //was 4096
+    .n_layers        = 1,
+    .n_heads         = 32, //32
+    .multiple_of     = 256, //256
+    .norm_eps        = 1e-6,
+    .batch_size      = args.get<uint64_t>("batch_size"),
+    .max_seq_len     = 2048, //was 2048
+    .vocab_size      = 32000,
+  };
+
+  builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
+  graph_t graph = builder.graph;
+
+  vector<int> inputs = graph.get_inputs();
+  map<int, dbuffer_t> input_data;
+  for (int input_id: inputs){
+    dtype_t dtype = graph.out_dtype(input_id);
+    auto shape = graph.out_shape(input_id);
+    dbuffer_t d = make_dbuffer(dtype, product(shape));
+    if (dtype == dtype_t::c64) {
+      d.random();
+    } else {
+      d.rnorm();
+      d.scale(scalar_t(dtype, "0.1"));
+    }
+    input_data.insert({input_id, d});
+  }
+
+  std::cout << "Inputs: " << inputs << std::endl;
+
+  vector<placement_t> placements = autoplace01(
+    graph,
+    autoplace_config_t::make_default01(1, args.get<int>("num_threads")));
+
+  for(auto const& id: graph.get_inputs()) {
+    server->insert_tensor(id, placements[id], input_data.at(id));
+  }
+
+  server->execute_graph(graph, placements);
+
+  map<int, dbuffer_t> output_data;
+  for(int id = 0; id != graph.nodes.size(); ++id) {
+    auto const& node = graph.nodes[id];
+    if(node.op.is_save()) {
+      dbuffer_t d = server->get_tensor_from_gid(id);
+      output_data.insert({id, d});
+    }
+  }
+
+  return output_data;
+}
+
+
+map<int, dbuffer_t>
 run(
   communicator_t& communicator,
   graph_t const& graph,
@@ -220,23 +287,6 @@ int llama_main(int argc, char** argv) {
     std::cout << "The maps are not equal." << std::endl;
   }
 
-  // std::cout << "size of tensor_results: " << mg_tensor_results.size() << std::endl;
-
-  // for (int idx=0; idx < mg_tensor_results.size(); ++idx) {
-  //   auto mg_it = mg_tensor_results.begin();
-  //   std::advance(mg_it, idx);
-  //   dbuffer_t mg_buffer = mg_it->second;
-  //   auto tg_it = tg_tensor_results.begin();
-  //   std::advance(tg_it, idx);
-  //   dbuffer_t tg_buffer = tg_it->second;
-  //   if (tg_buffer == mg_buffer){
-  //     std::cout << "idx: " << idx << " maps are equal." << std::endl;
-  //   } else {
-  //     std::cout << "idx: " << idx << " maps are not equal." << std::endl;
-  //     DOUT(tg_buffer);
-  //     DOUT(mg_buffer);
-  //   }
-  // }
   DOUT("mg_tensor_results: ")
   for (auto iter = mg_tensor_results.begin(); iter != mg_tensor_results.end(); ++iter) {
     auto buffer = iter->second;
@@ -473,12 +523,59 @@ int partial_attention_main(int argc, char** argv){
 
 }
 
+int llama_world_size_main(int argc, char** argv) {
+  // To run this function:
+  // ./cpuexecllama mem_size_tg 100000 mem_size_mg 6000 rank n world_size n
+
+  args_t args(argc, argv);
+  args.set_default("batch_size", uint64_t(1));
+  args.set_default("seq_len", uint64_t(512));
+  args.set_default("addr_zero", "0.0.0.0");
+  bool is_rank_zero = args.get<int>("rank") == 0;
+  int world_size = args.get<int>("world_size");
+  string which_server = args.get<string>("which");
+  int num_threads = args.get<int>("num_threads");
+  int num_channels = 4;
+  int num_channels_per_move = 1;
+  DOUT("n_locs " << world_size << " | num_threads_per_loc " << num_threads);
+
+  communicator_t communicator(args.get<string>("addr_zero"), is_rank_zero, world_size);
+  int this_rank = communicator.get_this_rank();
+
+  uint64_t mem_size;
+  std::unique_ptr<server_base_t> server;
+  if(which_server == "mg") {
+    mem_size = args.get<uint64_t>("mem_size_mg");
+    server = std::unique_ptr<server_base_t>(
+      new cpu_mg_server_t(communicator, mem_size, num_threads));
+  } else if(which_server == "tg") {
+    mem_size = args.get<uint64_t>("mem_size_tg");
+    server = std::unique_ptr<server_base_t>(
+      new cpu_tg_server_t(communicator, mem_size, num_threads));
+  } else {
+    throw std::runtime_error("invalid server arg");
+  }
+
+  if(!is_rank_zero) {
+    server->listen();
+    return 0;
+  }
+
+  map<int, dbuffer_t> results = main_rank_zero(server, args);
+  DOUT("results: ")
+  for (auto iter = results.begin(); iter != results.end(); ++iter) {
+    auto buffer = iter->second;
+    DOUT(buffer);
+  }
+
+  server->shutdown();
+  return(1);
+}
 
 int main(int argc, char** argv) {
-  return llama_main(argc, argv);
+  return llama_world_size_main(argc, argv);
   // feed_forward_main(argc, argv);
   // return attention_main(argc, argv);
   // return partial_attention_main(argc, argv);
-  DOUT("print");
   return(1);
 }
