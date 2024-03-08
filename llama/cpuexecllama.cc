@@ -13,6 +13,9 @@
 
 map<int, dbuffer_t>
 main_rank_zero(
+  // graph_t graph,
+  // model_args_t model_args,
+  // map<int, dbuffer_t> input_data,
   std::unique_ptr<server_base_t>& server,
   args_t& args)
 {
@@ -23,16 +26,17 @@ main_rank_zero(
     set_seed(args.get<int>("seed"));
   }
 
+
   /* Create the llama first token graph using builder_t */
   model_args_t model_args = model_args_t {
-    .dim             = 4096, //was 4096
+    .dim             = 128, //was 4096
     .n_layers        = 1,
-    .n_heads         = 32, //32
-    .multiple_of     = 256, //256
+    .n_heads         = 4, //32
+    .multiple_of     = 8, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
-    .max_seq_len     = 2048, //was 2048
-    .vocab_size      = 32000,
+    .max_seq_len     = 256, //was 2048
+    .vocab_size      = 512,
   };
 
   builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
@@ -56,12 +60,17 @@ main_rank_zero(
   std::cout << "Inputs: " << inputs << std::endl;
 
   vector<placement_t> placements = autoplace01(
-    graph,
-    autoplace_config_t::make_default01(1, args.get<int>("num_threads")));
+  graph,
+  autoplace_config_t::make_default01(args.get<int>("world_size"), args.get<int>("num_threads")));
+
+  std::cout << "input size: " << graph.get_inputs().size() << std::endl;
 
   for(auto const& id: graph.get_inputs()) {
+    std::cout << "id: " << id << "  placements: " << placements[id].locations << std::endl;
     server->insert_tensor(id, placements[id], input_data.at(id));
+    DOUT("finish inserting?");
   }
+
 
   server->execute_graph(graph, placements);
 
@@ -107,6 +116,7 @@ run(
     autoplace_config_t::make_default01(1, num_threads));
 
   for(auto const& id: graph.get_inputs()) {
+
     server->insert_tensor(id, placements[id], input_data.at(id));
   }
 
@@ -557,10 +567,13 @@ int llama_world_size_main(int argc, char** argv) {
   }
 
   if(!is_rank_zero) {
+    DOUT("befire listen");
     server->listen();
+    DOUT("after listen");
     return 0;
   }
 
+  DOUT("before calling main_rank_zero");
   map<int, dbuffer_t> results = main_rank_zero(server, args);
   DOUT("results: ")
   for (auto iter = results.begin(); iter != results.end(); ++iter) {
