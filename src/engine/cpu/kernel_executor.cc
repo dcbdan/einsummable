@@ -849,6 +849,55 @@ inline std::complex<T> _complex(T const& x, T const& y) {
       out[iO] = op; \
     }} \
   }
+#define _binary_ew_loop_mkl(name1, name2, name3, T, vecop) \
+  void name1( \
+    uint8_t const* d, \
+    uint64_t n, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    T* out     = reinterpret_cast<T*>(_out); \
+    T const* x0 = reinterpret_cast<T const*>(_x0); \
+    T const* x1 = reinterpret_cast<T const*>(_x1); \
+    vecop(n, x0, 1, x1, 1, out, 1); \
+  } \
+  void name2( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    T* out     = reinterpret_cast<T*>(_out); \
+    T const* x0 = reinterpret_cast<T const*>(_x0); \
+    T const* x1 = reinterpret_cast<T const*>(_x1); \
+    for(uint64_t _i = 0; _i != n1; ++_i) { \
+      vecop(n2, \
+        x0 + n2*_i,  1,  \
+        x1 + _i,     0,  \
+        out + n2*_i, 1); \
+    } \
+  } \
+  void name3( \
+    uint8_t const* d, \
+    uint64_t n1, \
+    uint64_t n2, \
+    void* _out, \
+    void const* _x0, \
+    void const* _x1) \
+  { \
+    T* out     = reinterpret_cast<T*>(_out); \
+    T const* x0 = reinterpret_cast<T const*>(_x0); \
+    T const* x1 = reinterpret_cast<T const*>(_x1); \
+    for(uint64_t _i = 0; _i != n1; ++_i) { \
+      vecop(n2, \
+        x0 + n2*_i,  1,  \
+        x1,          1,  \
+        out + n2*_i, 1); \
+    } \
+  }
 
 // a,a,a->a
 // ab,a,a->ab
@@ -896,19 +945,105 @@ inline std::complex<T> _complex(T const& x, T const& y) {
     }} \
   }
 
-_unary_ew_loop(u0,float,float,((*((float*)(d+0)))*x0[i0]))
+//_unary_ew_loop(u0,float,float,((*((float*)(d+0)))*x0[i0]))
+inline void u0( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0)
+{
+  // fill the output memory with zero
+  std::memset(_out, 0, sizeof(float)*n);
+
+  // out = alpha*x0 + out
+  float const& alpha = *((float*)d);
+  cblas_saxpy(n, alpha, 
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float      *>(_out), 1);
+}
+
 _unary_ew_loop(u1,float,float,(x0[i0]/((*((float*)(d+0)))+_exp(((*((float*)(d+4)))*x0[i0])))))
-_unary_ew_loop(u2,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0])))
-_unary_ew_loop(u3,float,float,_exp(x0[i0]))
-_unary_ew_loop(u4,float,float,x0[i0])
-_unary_ew_loop(u5,float,float,_invsqrt(x0[i0]))
-_unary_ew_loop(u6,float,float,_square(x0[i0]))
+
+//_unary_ew_loop(u2,float,float,((*((float*)(d+0)))+((*((float*)(d+4)))*x0[i0])))
+inline void u2( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0) 
+{
+  // compute alpha + beta*x
+  float const& alpha = *((float*)(d+0));
+  float const& beta  = *((float*)(d+4));
+
+  float* out = reinterpret_cast<float*>(_out);
+  std::fill(out, out + n, alpha);
+
+  float const* inn = reinterpret_cast<float const*>(_x0);
+  cblas_saxpy(n, beta, inn, 1, out, 1);
+}
+
+//_unary_ew_loop(u3,float,float,_exp(x0[i0]))
+inline void u3( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0) 
+{
+  vsExpI(n, 
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float      *>(_out), 1);
+}
+
+//_unary_ew_loop(u4,float,float,x0[i0])
+inline void u4( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0) 
+{
+  cblas_scopy(n, 
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float      *>(_out), 1);
+}
+
+//_unary_ew_loop(u5,float,float,_invsqrt(x0[i0]))
+inline void u5( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0) 
+{
+  vsInvSqrtI(n, 
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float      *>(_out), 1);
+}
+
+//_unary_ew_loop(u6,float,float,_square(x0[i0]))
+inline void u6( 
+  uint8_t const* d, 
+  uint64_t n, 
+  void* _out, 
+  void const* _x0) 
+{
+  vsMulI(n, 
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float const*>(_x0),  1,
+    reinterpret_cast<float      *>(_out), 1);
+}
 
 _binary_ew_loop(b0,c0,d0,std::complex<float>,std::complex<float>,std::complex<float>,(x0[i0]*x1[i1]))
-_binary_ew_loop(b1,c1,d1,float,float,float,(x0[i0]*x1[i1]))
-_binary_ew_loop(b2,c2,d2,float,float,float,(x0[i0]/x1[i1]))
-_binary_ew_loop(b3,c3,d3,float,float,float,(x0[i0]-x1[i1]))
-_binary_ew_loop(b4,c4,d4,float,float,float,(x0[i0]+x1[i1]))
+
+//_binary_ew_loop(b1,c1,d1,float,float,float,(x0[i0]*x1[i1]))
+_binary_ew_loop_mkl(b1,c1,d1,float,vsMulI);
+
+//_binary_ew_loop(b2,c2,d2,float,float,float,(x0[i0]/x1[i1]))
+_binary_ew_loop_mkl(b2,c2,d2,float,vsDivI);
+
+//_binary_ew_loop(b3,c3,d3,float,float,float,(x0[i0]-x1[i1]))
+_binary_ew_loop_mkl(b3,c3,d3,float,vsSubI);
+
+//_binary_ew_loop(b4,c4,d4,float,float,float,(x0[i0]+x1[i1]))
+_binary_ew_loop_mkl(b4,c4,d4,float,vsAddI);
 
 optional<
   tuple<vector<uint8_t>,
