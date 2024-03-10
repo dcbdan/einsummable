@@ -384,7 +384,7 @@ void cpu_tg_einsummable_t::launch(
         s = "elementwise:" + write_with_ss(einsummable.join);
       }
       {
-        auto g = get_timetracker().make_totals_gremlin(s);
+        auto g = get_timetracker().make_totals_gremlin(s, product(einsummable.join_shape));
         cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
       }
       callback();
@@ -602,7 +602,8 @@ void tg_touch_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
 
   thread_resource.launch([this, callback, this_touch, out_mem, inn_mem] {
     {
-      auto g = get_timetracker().make_totals_gremlin("touch");
+      auto g = get_timetracker().make_totals_gremlin("touch", 
+        product(vector_from_each_member(this_touch.selection, uint64_t, d_out)));
       execute_touch(this_touch, out_mem, inn_mem);
     }
     callback();
