@@ -53,6 +53,16 @@ cpu_kernel_executor_t::cpu_kernel_executor_t()
   };
 }
 
+static
+void reduce_exp_sub(
+  uint64_t na, uint64_t nb,
+  void* out_, void const* lhs_, void const* rhs_);
+
+static
+void reduce_exp_subscale(
+  uint64_t na, uint64_t nb, float const& alpha,
+  void* out_, void const* lhs_, void const* rhs_);
+
 optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
 {
   if(e_.join.has_variables()) {
@@ -163,6 +173,43 @@ optional<uint64_t> cpu_kernel_executor_t::build(einsummable_t const& e_)
       return 0;
     } else {
       return std::nullopt;
+    }
+  }
+
+  if(estr == "ab,a->a") {
+    dtype_t dtype = dtype_t::f32;
+    scalarop_t sub_then_exp = scalarop_t::combine(
+      scalarop_t::make_exp(dtype),
+      { scalarop_t::make_sub(dtype) });
+    if(einsummable.join == sub_then_exp && 
+       einsummable.castable.value() == castable_t::add)
+    {
+      uint64_t na = einsummable.join_shape[0];
+      uint64_t nb = einsummable.join_shape[1];
+      kernels.insert({einsummable, 
+        [na,nb](void* out, vector<void const*> inns) {
+          reduce_exp_sub(na,nb,out,inns[0],inns[1]);
+        }
+      });
+      return 0; 
+    } 
+
+   string match_key = "f32,f32->f32|_exp(((*((float*)(d+0)))*(x0[i0]-x1[i1])))";
+   auto const& join = einsummable.join;
+   auto [_cpp, bytes] = join.to_cpp_bytes();
+   string key = join.type_signature() + "|" + _cpp;
+   if(match_key == key &&
+      einsummable.castable.value() == castable_t::add)
+    {
+      uint64_t na = einsummable.join_shape[0];
+      uint64_t nb = einsummable.join_shape[1];
+      kernels.insert({einsummable, 
+        [na,nb,bytes](void* out, vector<void const*> inns) {
+          float const& alpha = *reinterpret_cast<float const*>(bytes.data());
+          reduce_exp_subscale(na,nb,alpha,out,inns[0],inns[1]);
+        }
+      });
+      return 0; 
     }
   }
 
@@ -1045,6 +1092,11 @@ _binary_ew_loop_mkl(b3,c3,d3,float,vsSubI);
 //_binary_ew_loop(b4,c4,d4,float,float,float,(x0[i0]+x1[i1]))
 _binary_ew_loop_mkl(b4,c4,d4,float,vsAddI);
 
+_binary_ew_loop(b5,c5,d5,float,float,float,_exp((x0[i0]-x1[i1])));
+
+_ternary_ew_loop(t0,u0,float,float,float,float,(_exp((x0[i0]-x1[i1]))/x2[i2]));
+_ternary_ew_loop(t1,u1,float,float,float,float,(_exp(((*((float*)(d+0)))*(x0[i0]-x1[i1])))/x2[i2]));
+
 optional<
   tuple<vector<uint8_t>,
   void(*)(uint8_t const*, uint64_t, void*, void const*)> >
@@ -1102,7 +1154,8 @@ lookup_binary_straight_ew_kernel(
     { "f32,f32->f32|(x0[i0]*x1[i1])", b1 },
     { "f32,f32->f32|(x0[i0]/x1[i1])", b2 },
     { "f32,f32->f32|(x0[i0]-x1[i1])", b3 },
-    { "f32,f32->f32|(x0[i0]+x1[i1])", b4 }
+    { "f32,f32->f32|(x0[i0]+x1[i1])", b4 },
+    { "f32,f32->f32|_exp((x0[i0]-x1[i1]))", b5 },
   };
 
   auto iter = kernels.find(key);
@@ -1132,6 +1185,8 @@ lookup_ternary_straight_ew_kernel(
     void(*)(uint8_t const*, uint64_t, void*, void const*, void const*, void const*);
 
   static map<string, kernel_t> kernels = {
+    { "f32,f32,f32->f32|(_exp((x0[i0]-x1[i1]))/x2[i2])", t0 },
+    { "f32,f32,f32->f32|(_exp(((*((float*)(d+0)))*(x0[i0]-x1[i1])))/x2[i2])", t1 }
   };
 
   auto iter = kernels.find(key);
@@ -1166,7 +1221,8 @@ lookup_binary_212_ew_kernel(
     { "f32,f32->f32|(x0[i0]*x1[i1])", { c1, d1} },
     { "f32,f32->f32|(x0[i0]/x1[i1])", { c2, d2} },
     { "f32,f32->f32|(x0[i0]-x1[i1])", { c3, d3} },
-    { "f32,f32->f32|(x0[i0]+x1[i1])", { c4, d4} }
+    { "f32,f32->f32|(x0[i0]+x1[i1])", { c4, d4} },
+    { "f32,f32->f32|_exp((x0[i0]-x1[i1]))", { c5, d5 } }
   };
 
   auto iter = kernels.find(key);
@@ -1200,6 +1256,8 @@ lookup_ternary_2112_ew_kernel(
     void(*)(uint8_t const*, uint64_t, uint64_t, void*, void const*, void const*, void const*);
 
   static map< string, kernel_t > kernels = {
+    { "f32,f32,f32->f32|(_exp((x0[i0]-x1[i1]))/x2[i2])", u0 },
+    { "f32,f32,f32->f32|(_exp(((*((float*)(d+0)))*(x0[i0]-x1[i1])))/x2[i2])", u1 }
   };
 
   auto iter = kernels.find(key);
@@ -1821,4 +1879,44 @@ void initialize_fill(fill_t const& fill, void* out)
     throw std::runtime_error("initialize_fill: should not reach");
   }
 }
+
+void reduce_exp_sub(
+  uint64_t na, uint64_t nb,
+  void* out_, void const* lhs_, void const* rhs_)
+{
+  float*       out = reinterpret_cast<float      *>(out_);
+  float const* lhs = reinterpret_cast<float const*>(lhs_);
+  float const* rhs = reinterpret_cast<float const*>(rhs_);
+
+  // exceute "ab,a->a" with castable = add, join = exp(lhs-rhs)
+  for(uint64_t i = 0; i != na; ++i) {
+    float const* l = lhs + (i*nb);
+    float const& r = rhs[i];
+    out[i] = _exp(l[0]-r);
+    for(uint64_t j = 1; j != nb; ++j) {
+      out[i] += _exp(l[j]-r);
+    }
+  }
+}
+
+static
+void reduce_exp_subscale(
+  uint64_t na, uint64_t nb, float const& alpha,
+  void* out_, void const* lhs_, void const* rhs_)
+{
+  float*       out = reinterpret_cast<float      *>(out_);
+  float const* lhs = reinterpret_cast<float const*>(lhs_);
+  float const* rhs = reinterpret_cast<float const*>(rhs_);
+
+  // exceute "ab,a->a" with castable = add, join = exp(alpha*(lhs-rhs))
+  for(uint64_t i = 0; i != na; ++i) {
+    float const* l = lhs + (i*nb);
+    float const& r = rhs[i];
+    out[i] = _exp(alpha*(l[0]-r));
+    for(uint64_t j = 1; j != nb; ++j) {
+      out[i] += _exp(alpha*(l[j]-r));
+    }
+  }
+}
+
 

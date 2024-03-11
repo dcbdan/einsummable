@@ -289,7 +289,14 @@ struct graph_writer_t {
     tensor_t const& inn);
 
   // take the softmax over the last dimension
-  tensor_t softmax(
+  tensor_t softmax_v1(
+    tensor_t const& inn);
+  tensor_t softmax_v2(
+    tensor_t const& inn);
+  tensor_t softmax_v3(
+    tensor_t const& inn);
+  tensor_t softmax_v3_scale(
+    scalar_t alpha,
     tensor_t const& inn);
 
   // convert j->ij

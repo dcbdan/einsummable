@@ -917,8 +917,69 @@ graph_writer_t::exp(
     inn);
 }
 
+// (Version 1)
+// 1: c  = the maximum
+// 2: y  = x - c
+// 3: ex = exp(y)
+// 4: sum_ex = sum(ex)
+// 5: z = ex / sum_ex
+// Total new memory: O(3*N^2)
+//
+// (Version 2)
+// Fuse with ex = exp(x-c)
+// Total new memory: O(2*N^2)
+
+// (Version 3)
+// c = the maximum
+// sum_ex = sum(exp(x-c))
+// z = exp(x-c) / sum_ex
+// Total new memory: O(1*N^2)
+
 graph_writer_t::tensor_t
-graph_writer_t::softmax(
+graph_writer_t::softmax_v1(
+  graph_writer_t::tensor_t const& inn)
+{
+  dtype_t dtype = inn.get_dtype();
+
+  int n = inn.rank() - 1;
+
+  string h(n, ' ');
+  std::iota(h.begin(), h.end(), 'b');
+  string ha = h + "a";
+  string redstr    = ha + "->" + h;
+  string ewbstr    = ha + "," + h + "->" + ha;
+
+  tensor_t x = inn;
+
+  tensor_t c = reduction(
+    redstr,
+    castable_t::max,
+    x);
+
+  // y = x - c
+  x = ew(
+    ewbstr,
+    scalarop_t::make_sub(dtype),
+    x, c);
+
+  // ex = exp(y)
+  tensor_t ex = ew(
+    scalarop_t::make_exp(dtype),
+    x);
+
+  tensor_t sum_ex = reduction(
+    redstr,
+    castable_t::add,
+    ex);
+
+  return ew(
+    ewbstr,
+    scalarop_t::make_div(dtype),
+    ex, sum_ex);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::softmax_v2(
   graph_writer_t::tensor_t const& inn)
 {
   dtype_t dtype = inn.get_dtype();
@@ -938,16 +999,14 @@ graph_writer_t::softmax(
     castable_t::max,
     x);
 
-  // x = x - c
-  x = ew(
-    ewbstr,
-    scalarop_t::make_sub(dtype),
-    x, c);
-
-  // ex = exp(x)
-  tensor_t ex = ew(
+  // ex = exp(x-c)
+  scalarop_t sub_then_exp = scalarop_t::combine(
     scalarop_t::make_exp(dtype),
-    x);
+    { scalarop_t::make_sub(dtype) });
+  tensor_t ex = ew(
+    ewbstr,
+    sub_then_exp,
+    x, c);
 
   tensor_t sum_ex = reduction(
     redstr,
@@ -958,6 +1017,82 @@ graph_writer_t::softmax(
     ewbstr,
     scalarop_t::make_div(dtype),
     ex, sum_ex);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::softmax_v3(
+  graph_writer_t::tensor_t const& inn)
+{
+  return softmax_v3_scale(
+    scalar_t::one(inn.get_dtype()),
+    inn);
+}
+
+graph_writer_t::tensor_t
+graph_writer_t::softmax_v3_scale(
+  scalar_t alpha,
+  graph_writer_t::tensor_t const& inn)
+{
+  dtype_t dtype = inn.get_dtype();
+
+  int n = inn.rank() - 1;
+
+  string h(n, ' ');
+  std::iota(h.begin(), h.end(), 'b');
+  string ha = h + "a";
+  string redstr = ha + "->" + h;
+
+  tensor_t x = inn;
+
+  tensor_t c = reduction(
+    redstr,
+    castable_t::max,
+    x);
+
+  scalarop_t subscale = scalarop_t::combine(
+    scalarop_t::make_scale(alpha),
+    { scalarop_t::make_sub(dtype) });
+  scalarop_t subscale_then_exp = scalarop_t::combine(
+    scalarop_t::make_exp(dtype),
+    { subscale });
+
+  tensor_t sum_ex;
+  {
+    auto maybe = make_einsummable_info(
+      ha + "," + h + "->" + h,
+      {x, c});
+    if(!maybe) {
+      throw std::runtime_error("could not build sum_ex for softmax");
+    }
+    auto const& info = maybe.value();
+
+    int out_id = graph.insert_einsummable(
+      info.build_einsummable(subscale_then_exp, castable_t::add),
+      { x.get_id(), c.get_id() });
+    out_id = graph.insert_formation(out_id, false);
+
+    sum_ex = tensor_t(info.get_out_shape(), out_id, this);
+  }
+
+  {
+    auto maybe = make_einsummable_info(
+      ha + "," + h + "," + h + "->" + ha,
+      {x, c, sum_ex});
+    if(!maybe) {
+      throw std::runtime_error("could not build ret for softmax");
+    }
+    auto const& info = maybe.value();
+
+    scalarop_t with_div = scalarop_t::combine(
+      scalarop_t::make_div(dtype),
+      { subscale_then_exp, scalarop_t::make_identity(dtype) });
+
+    int out_id = graph.insert_einsummable(
+      info.build_einsummable(with_div),
+      { x.get_id(), c.get_id(), sum_ex.get_id() });
+
+    return tensor_t(info.get_out_shape(), out_id, this);
+  }
 }
 
 graph_writer_t::tensor_t
