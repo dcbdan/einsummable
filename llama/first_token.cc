@@ -181,60 +181,63 @@ void main_rank_zero(
   tensor_t predictions = model.forward(embeddings);
   predictions.save_inplace();
 
-  string register_cmd = server->get_registered_cmd();
+  bool actually_run = false;
+  if(actually_run) {
+    string register_cmd = server->get_registered_cmd();
 
-  // fill out embeddings by reading the contents of data_filename
-  // and creating a batchsize by embed size matrix
-  {
-    dbuffer_t embedding_matrix;
-    vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
-
-    relation_t rel = model_loader(
-      register_cmd,
-      "tok_embeddings.weight",
-      embedding_matrix_shape,
-      server->get_max_tid() + 1);
-    embedding_matrix = server->get_tensor(rel);
-
-    string tokenizer_file = pargs.get<string>("tokenizer");
-    just_tokenizer_t tokenizer(tokenizer_file);
-
-    vector<int> tokens;
+    // fill out embeddings by reading the contents of data_filename
+    // and creating a batchsize by embed size matrix
     {
-      string filename = pargs.get<string>("data_filename");
-      std::ifstream t(filename);
-      std::stringstream buffer;
-      buffer << t.rdbuf();
-      tokens = tokenizer(buffer.str());
-      DLINEOUT("total number of tokens in " << filename << " is " << tokens.size());
-      vector_repeat_resize(tokens, margs.max_seq_len * margs.batch_size);
+      dbuffer_t embedding_matrix;
+      vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
+
+      relation_t rel = model_loader(
+        register_cmd,
+        "tok_embeddings.weight",
+        embedding_matrix_shape,
+        server->get_max_tid() + 1);
+      embedding_matrix = server->get_tensor(rel);
+
+      string tokenizer_file = pargs.get<string>("tokenizer");
+      just_tokenizer_t tokenizer(tokenizer_file);
+
+      vector<int> tokens;
+      {
+        string filename = pargs.get<string>("data_filename");
+        std::ifstream t(filename);
+        std::stringstream buffer;
+        buffer << t.rdbuf();
+        tokens = tokenizer(buffer.str());
+        DLINEOUT("total number of tokens in " << filename << " is " << tokens.size());
+        vector_repeat_resize(tokens, margs.max_seq_len * margs.batch_size);
+      }
+
+      server->insert_tensor(
+        embeddings.get_id(),
+        embeddings.get_shape().full(),
+        make_embedding(
+          tokenizer.vocab_size(),
+          embedding_matrix,
+          tokens));
     }
 
+    // Load the permanant weights and the lora weights
+    auto weight_map = model.weight_map();
+    for(auto const& [name, tensor]: weight_map) {
+      int next_tid = server->get_max_tid() + 1;
+      relation_t relation = model_loader(
+        register_cmd, name, tensor.get_shape().full(), next_tid);
+      server->insert_gid_without_data(tensor.get_id(), relation);
+    }
+
+    model_loader.shutdown(register_cmd);
+
+    tensor_t full_freqs_cis = model.full_freqs_cis;
     server->insert_tensor(
-      embeddings.get_id(),
-      embeddings.get_shape().full(),
-      make_embedding(
-        tokenizer.vocab_size(),
-        embedding_matrix,
-        tokens));
+      full_freqs_cis.get_id(),
+      full_freqs_cis.get_shape().full(),
+      transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
   }
-
-  // Load the permanant weights and the lora weights
-  auto weight_map = model.weight_map();
-  for(auto const& [name, tensor]: weight_map) {
-    int next_tid = server->get_max_tid() + 1;
-    relation_t relation = model_loader(
-      register_cmd, name, tensor.get_shape().full(), next_tid);
-    server->insert_gid_without_data(tensor.get_id(), relation);
-  }
-
-  model_loader.shutdown(register_cmd);
-
-  tensor_t full_freqs_cis = model.full_freqs_cis;
-  server->insert_tensor(
-    full_freqs_cis.get_id(),
-    full_freqs_cis.get_shape().full(),
-    transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
 
   graph_t const& graph = writer.get_graph();
   {
@@ -345,6 +348,28 @@ void main_rank_zero(
     pls = alocate01(graph, parts, world_size, flops_per_byte_moved);
   }
 
-  server->execute_graph(graph, pls);
+  if(actually_run) {
+    server->execute_graph(graph, pls);
+  } else {
+    auto const& [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+
+    map<string, einsummable_t> es;
+    cpu_kernel_executor_t ke;
+    for(auto const& node: taskgraph.nodes) {
+      if(node.op.is_apply()) {
+        auto const& e = node.op.get_apply().einsummable;
+        auto maybe = ke.build(e);
+        if(!maybe) {
+          es.insert({write_with_ss(e), e});
+        }
+      }
+    }
+    DOUT("MISSING KERNELS:");
+    for(auto const& [_, e]: es) {
+      DOUT("  " << e);
+      DOUT("  " << std::get<0>(e.join.to_cpp_bytes()));
+      DOUT("");
+    }
+  }
 }
 
