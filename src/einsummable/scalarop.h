@@ -247,6 +247,7 @@ struct node_t {
   map<int, dtype_t> hole_types() const;
 
   bool type_check() const;
+
 private:
   node_t simplify_once() const;
 
@@ -265,6 +266,7 @@ void set_default_dtype(dtype_t);
 dtype_t const& default_complex_dtype();
 void set_default_complex_dtype(dtype_t);
 
+class simple_scalarop_t;
 class list_simple_scalarop_t;
 
 struct scalarop_t {
@@ -342,6 +344,8 @@ struct scalarop_t {
   // Example: op = *, ops = (x0 + x1, x0 + x1), this returns
   //   (x0 + x1) * (x2 + x3)
   static scalarop_t combine(scalarop_t op, vector<scalarop_t> const& ops);
+
+  static scalarop_t replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops); 
 
   static scalarop_t from_string(string const& str);
 
@@ -427,6 +431,8 @@ struct scalarop_t {
 
   friend std::ostream& operator<<(
     std::ostream& out, scalarop_t const& op);
+
+  node_t const* get_node() const;
 private:
   friend class list_simple_scalarop_t;
 
@@ -452,6 +458,9 @@ bool operator!=(scalar_ns::node_t const& lhs, scalar_ns::node_t const& rhs);
 
 bool operator==(scalarop_t const& lhs, scalarop_t const& rhs);
 bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs);
+
+bool operator==(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs);
+bool operator!=(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, compare_t const& c);
 std::istream& operator>>(std::istream& inn, compare_t& c);

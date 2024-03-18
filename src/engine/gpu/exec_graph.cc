@@ -95,10 +95,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           throw std::runtime_error("only allowing touches to have a group");
         }
 
-        if (mid == 131){
-          printf("mid: %d\n", mid);
-        }
-
         einsummable_t einsum = apply
           .get_einsummable()
           .replace_scalar_variables(scalar_vars)
@@ -115,10 +111,13 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
+          DOUT("Einsummable: " << einsum);
+          DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
           throw std::runtime_error("GPU KM could not compile the kernel");
         }
         auto workspace_info = maybe_built.value();
         if (workspace_info.known()){
+          // DOUT(einsum << " workspace size: " << workspace_info.value());
           op->workspace_size = workspace_info.value();
         }
         else{
@@ -135,6 +134,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           }
           // get the workspace size
           op->workspace_size = gpu_kms[loc].known_workspace_size(einsum, out_mem, inn_mems);
+          // DOUT("calling known_workspace_size; value:" << op->workspace_size);
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
@@ -232,6 +232,7 @@ void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching einsummable: " << einsummable);
   // DOUT("gpu_einsummable_t::launch: getting resources")
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);

@@ -109,8 +109,8 @@ void gpu_mg_server_t::execute_memgraph(
     }
   ));
 
+  // exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
   exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
-  // exec_state_t state(graph, resource_manager);
 
   DOUT("Executing...");
   // print the execution time of event_loop()

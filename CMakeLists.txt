@@ -60,6 +60,7 @@ add_base_application("scalarop"         "exps" "scalarop")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
 add_base_application("tgsimplify"       "exps" "tgsimplify")
+add_base_application("op" "exps" "simple_scalar_test")
 
 add_executable(tests_base tests/base.cc tests/test.cc)
 target_link_libraries(tests_base einsummable proto ${Protobuf_LIBRARIES})

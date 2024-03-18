@@ -8,6 +8,7 @@
 
 #include <cuda_runtime.h>
 #include <cutensor.h>
+#include <library_types.h>
 
 #include "utility.h"
 
@@ -103,16 +104,6 @@ make_cutensor_elementwise_op(
   einsummable_t const& e);
 
 
-
-// Straight elementwise means:
-//   for(int i = 0; i != size; ++i) {
-//     out[i] = op(inn0[i], ..., innN[i]);
-//   }
-cutensor_kernel_t
-build_straight_elementwise(
-  scalarop_t op,
-  uint64_t size);
-
 cutensor_elementwise_kernel_t
 build_cutensor_type_conversion(einsummable_t const& e);
 
@@ -125,4 +116,6 @@ cutensor_elementwise_op_t make_mul_op(
 cudaDataType_t dtype_to_cudatype(dtype_t type);
 
 cutensorComputeType_t dtype_to_computetype(dtype_t type);
+
+cudaDataType_t dtype_to_elementwise_computetype(dtype_t type);
 

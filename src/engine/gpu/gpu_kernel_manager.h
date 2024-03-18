@@ -1,7 +1,7 @@
 #pragma once
 #include "../../base/setup.h"
 
-#include "../../einsummable/scalarop.h"
+#include "../../einsummable/simplescalarop.h"
 
 #include "../../einsummable/taskgraph.h" // touch_t
 
@@ -71,13 +71,72 @@ private:
     void* work,
     uint64_t given_worksize) const;
 
-  struct reduction_t{
-    cutensor_kernel_t kernel;
+  struct reduction_t {
+    // TODO
+    cutensorTensorDescriptor_t descA;
+    cutensorTensorDescriptor_t descC;
+    cutensorOperator_t opReduce;
+    dtype_t dtype;
+    std::vector<int32_t> modeA;
+    std::vector<int32_t> modeC;
   };
 
-  struct power_t{
-    double power;
-    cuda_kernel_t kernel;
+  reduction_t make_reduction(einsummable_t const& e);
+
+  void execute_reduction(
+    reduction_t const& r,
+    cudaStream_t stream,
+    void* out,
+    vector<void const*> inns,
+    void* work,
+    uint64_t given_worksize) const;
+
+  struct elementwise_t {
+    list_simple_scalarop_t sops;    
+    vector<uint64_t> join_shape;
+    vector<vector<int>> inns;
+    int out_rank;
+  };
+
+  uint64_t elementwise_workspace_size(elementwise_t const& e) const;
+
+  void execute_sop_scale(
+    simple_scalarop_t::scale_t const& op,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* inn_mem,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  void execute_sop_unary(
+    simple_scalarop_t::unary_t const& op,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* inn_mem,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  void execute_sop_binary(
+    simple_scalarop_t::binary_t const& op,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* lhs_mem,
+    void const* rhs_mem,
+    vector<int> const& lhs_idxs,
+    vector<int> const& rhs_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  void execute_elementwise(
+    elementwise_t const& op,
+    cudaStream_t stream,
+    void* out,
+    vector<void const*> inns,
+    void* work_mem,
+    uint64_t given_worksize) const;
+
+  // special kernel struct here
+  struct type_conversion_t{
+    cutensor_elementwise_kernel_t kernel;
   };
 
   struct scale_t{
@@ -85,18 +144,15 @@ private:
     cuda_kernel_t kernel;
   };
 
+  struct power_t{
+    double power;
+    cuda_kernel_t kernel;
+  };
+
   struct pow_and_elementwise_t{
     cutensor_kernel_t kernel;
     uint64_t worksize;
     uint64_t a_size;
-  };
-
-  struct type_conversion_t{
-    cutensor_elementwise_kernel_t kernel;
-  };
-
-  struct elementwise_t{
-    cutensor_elementwise_kernel_t kernel;
   };
 
   struct custom_kernel_1_t{
@@ -107,6 +163,16 @@ public:
   kernel_manager_t();
   kernel_manager_t(int device);
   ~kernel_manager_t();
+
+  // special kernel identification here
+  static bool is_power_elementwise(einsummable_t e);
+  static bool is_type_conversion(einsummable_t e);
+  static bool is_elementwise_with_pow(einsummable_t e);
+  static bool is_custom_kernel1(einsummable_t e);
+  static bool is_c64_elementwise_multiply(einsummable_t e);
+  static double get_power(einsummable_t e);
+  static bool is_scale_and_increment(einsummable_t e);
+  static tuple<float, float> get_increment_scale(einsummable_t e);
 
   optional<workspace_info_t> build(einsummable_t const& e);
 
@@ -130,14 +196,20 @@ public:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
+  void operator()(
+    list_simple_scalarop_t const& sop,
+    cudaStream_t stream,
+    void* out,
+    void const* inns,
+    optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+
   void lowerTri_fill(fill_t::lowertri_t const& l, cudaStream_t stream, void* out) const;
   void constant_fill(fill_t::constant_t const& c, cudaStream_t stream, void* out) const;
 
 private:
-  using kernel_info_t = std::variant<
-    matmul_t, contraction_t, cutensor_kernel_t, scale_t, pow_and_elementwise_t,
-    custom_kernel_1_t, void_cuda_kernel_t, type_conversion_t,
-    touch_kernel_t, elementwise_t, power_t, reduction_t>;
+  using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
+                                      type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
+                                      power_t, scale_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;
@@ -151,21 +223,6 @@ private:
     vector<void const*> inns,
     optional<tuple<void*, uint64_t>> maybe_workspace) const;
 
-  static bool is_power_elementwise(einsummable_t e);
-
-  static bool is_type_conversion(einsummable_t e);
-
-  static bool is_elementwise_with_pow(einsummable_t e);
-
-  static bool is_custom_kernel1(einsummable_t e);
-
-  static bool is_c64_elementwise_multiply(einsummable_t e);
-
-  static double get_power(einsummable_t e);
-
-  static bool is_scale_and_increment(einsummable_t e);
-
-  static tuple<float, float> get_increment_scale(einsummable_t e);
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
   cutensorHandle_t* cutensor_handle;

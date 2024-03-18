@@ -47,10 +47,12 @@ exec_state_t::exec_state_t(
 
   priorities.reserve(num_nodes);
   if(p == priority_t::given) {
+    DOUT("using given priorities");
     for(auto const& node: exec_graph.nodes) {
       priorities.push_back(node.priority);
     }
   } else if(p == priority_t::bfs) {
+    DOUT("using bfs priorities");
     vector<int> deps = num_deps_remaining;
     vector<int> order = ready_to_run_;
     order.reserve(num_nodes); // this prevents iterators from being invalidated
@@ -74,6 +76,7 @@ exec_state_t::exec_state_t(
       priorities[id] = idx;
     }
   } else if(p == priority_t::dfs) {
+    DOUT("using dfs priorities");
     int cnt = 0;
     priorities.resize(num_nodes);
     vector<int> deps = num_deps_remaining;
@@ -94,6 +97,7 @@ exec_state_t::exec_state_t(
       }
     }
   } else if(p == priority_t::random) {
+    DOUT("using random priorities");
     for(int id = 0; id != num_nodes; ++id) {
       priorities.push_back(runif(1000));
     }

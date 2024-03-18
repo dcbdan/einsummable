@@ -117,62 +117,6 @@ touch_kernel_t build_touch(touch_t const& touch_)
   throw std::runtime_error("touch kernel not implemented");
 }
 
-/**
-cutensor_kernel_t
-build_einsummable(einsummable_t const& e_)
-{
-  einsummable_t e = e_.merge_adjacent_dims();
-
-  if(e.is_contraction()) {
-    throw std::runtime_error("build_einsummable must not be given a constraction");
-  }
-
-  string err_msg =
-    "could not build a kernel for einsummable_t: " + write_with_ss(e);
-
-  if(e.has_aggregation()) {
-    if(e.inns.size() != 1) {
-      throw std::runtime_error(err_msg);
-    }
-
-    if(e.castable.value() == castable_t::add) {
-      // this is something cutensor reduction should be able to do
-      vector<int> const& inn_modes = e.inns[0];
-
-      auto inn_shape = e.inn_shapes()[0];
-
-      vector<int> out_modes(e.out_rank);
-      std::iota(out_modes.begin(), out_modes.end(), 0);
-
-      // TODO: this is incorrect: also need to check that the join op
-      //       is the identity!
-
-      auto out_shape = e.out_shape();
-
-      return build_cutensor_reduction(
-        inn_modes, inn_shape,
-        out_modes, out_shape,e.castable.value(),e.inn_dtype(0));
-    }
-
-    throw std::runtime_error(err_msg);
-  }
-
-  // is this something that cutensor elementwise can do?
-  auto maybe_cutensor_ew = make_cutensor_elementwise_op(e);
-  if(maybe_cutensor_ew) {
-    return build_cutensor_elementwise(maybe_cutensor_ew.value());
-  }
-
-  // is this straight elementwise?
-  if(e.is_straight_elementwise()) {
-    return build_straight_elementwise(e.join, product(e.join_shape));
-  }
-
-  throw std::runtime_error(err_msg);
-}
-
-*/
-
 cudaDataType_t dtype_to_cudatype(dtype_t type){
   if(type == dtype_t::f16){
     return CUDA_R_16F;
@@ -222,143 +166,144 @@ cudaDataType_t dtype_to_elementwise_computetype(dtype_t type){
 }
 
 
-cutensor_kernel_t
-build_cutensor_reduction(
-  vector<int> inn_modes, vector<uint64_t> inn_shape,
-  vector<int> out_modes, vector<uint64_t> out_shape,
-  castable_t castable,dtype_t type)
-{
-  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
-  std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
-  int32_t nmodeA = modeA.size();
-  int32_t nmodeC = modeC.size();
 
-  std::reverse(modeA.begin(), modeA.end());
+// cutensor_kernel_t
+// build_cutensor_reduction(
+//   vector<int> inn_modes, vector<uint64_t> inn_shape,
+//   vector<int> out_modes, vector<uint64_t> out_shape,
+//   castable_t castable,dtype_t type)
+// {
+//   std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+//   std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
+//   int32_t nmodeA = modeA.size();
+//   int32_t nmodeC = modeC.size();
 
-  std::vector<int64_t> extent_A;
-  extent_A.reserve(inn_shape.size());
-  for (const auto& element : inn_shape) {
-    extent_A.push_back(static_cast<int64_t>(element));
-  }
+//   std::reverse(modeA.begin(), modeA.end());
 
-  std::vector<int64_t> extent_C;
-  extent_C.reserve(out_shape.size());
-  for (const auto& element : out_shape) {
-    extent_C.push_back(static_cast<int64_t>(element));
-  }
+//   std::vector<int64_t> extent_A;
+//   extent_A.reserve(inn_shape.size());
+//   for (const auto& element : inn_shape) {
+//     extent_A.push_back(static_cast<int64_t>(element));
+//   }
 
-  std::reverse(extent_A.begin(), extent_A.end());
+//   std::vector<int64_t> extent_C;
+//   extent_C.reserve(out_shape.size());
+//   for (const auto& element : out_shape) {
+//     extent_C.push_back(static_cast<int64_t>(element));
+//   }
 
-  cutensorOperator_t opReduce;
-  if(castable == castable_t::add) {
-    opReduce = CUTENSOR_OP_ADD;
-  } else if(castable == castable_t::mul) {
-    opReduce = CUTENSOR_OP_MUL;
-  } else if(castable == castable_t::min) {
-    opReduce = CUTENSOR_OP_MIN;
-  } else if(castable == castable_t::max) {
-    opReduce = CUTENSOR_OP_MAX;
-  } else {
-    throw std::runtime_error("should not reach: missing castable");
-  }
+//   std::reverse(extent_A.begin(), extent_A.end());
 
-  size_t elementsA = 1;
-  for (int i=0;i<inn_shape.size();++i){
-    elementsA *= inn_shape[i];
-  }
-  size_t elementsC = 1;
-  for (int i=0;i<out_shape.size();++i){
-    elementsC *= out_shape[i];
-  }
+//   cutensorOperator_t opReduce;
+//   if(castable == castable_t::add) {
+//     opReduce = CUTENSOR_OP_ADD;
+//   } else if(castable == castable_t::mul) {
+//     opReduce = CUTENSOR_OP_MUL;
+//   } else if(castable == castable_t::min) {
+//     opReduce = CUTENSOR_OP_MIN;
+//   } else if(castable == castable_t::max) {
+//     opReduce = CUTENSOR_OP_MAX;
+//   } else {
+//     throw std::runtime_error("should not reach: missing castable");
+//   }
 
-  size_t sizeA = sizeof(float) * elementsA;
-  size_t sizeC = sizeof(float) * elementsC;
+//   size_t elementsA = 1;
+//   for (int i=0;i<inn_shape.size();++i){
+//     elementsA *= inn_shape[i];
+//   }
+//   size_t elementsC = 1;
+//   for (int i=0;i<out_shape.size();++i){
+//     elementsC *= out_shape[i];
+//   }
+
+//   size_t sizeA = sizeof(float) * elementsA;
+//   size_t sizeC = sizeof(float) * elementsC;
   
-  cudaDataType_t typeA = dtype_to_cudatype(type);
-  cudaDataType_t typeC = dtype_to_cudatype(type);
-  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
+//   cudaDataType_t typeA = dtype_to_cudatype(type);
+//   cudaDataType_t typeC = dtype_to_cudatype(type);
+//   cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
-  return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC,type,typeA,typeC,typeCompute](
-    cudaStream_t stream,
-    cutensorHandle_t const* handle,
-    void* out,
-    vector<void const*> inns, void* work, uint64_t worksize)
-  {
+//   return [modeA,modeC,nmodeA,nmodeC,extent_A,extent_C,opReduce,sizeA,sizeC,type,typeA,typeC,typeCompute](
+//     cudaStream_t stream,
+//     cutensorHandle_t const* handle,
+//     void* out,
+//     vector<void const*> inns, void* work, uint64_t worksize)
+//   {
     
 
-    //typedef float floatTypeCompute;
-    //floatTypeCompute alpha = (floatTypeCompute)1.0f;
-    //floatTypeCompute beta  = (floatTypeCompute)0.0f;
+//     //typedef float floatTypeCompute;
+//     //floatTypeCompute alpha = (floatTypeCompute)1.0f;
+//     //floatTypeCompute beta  = (floatTypeCompute)0.0f;
 
     
 
-    void* ptr1;
-    void* ptr2;
-    float16_t alpha1, beta1;
-    float alpha2, beta2;
-    double alpha3, beta3;
-    std::complex<float> alpha4(1.0f, 0.0f);
-    std::complex<float> beta4(0.0f, 0.0f);
+//     void* ptr1;
+//     void* ptr2;
+//     float16_t alpha1, beta1;
+//     float alpha2, beta2;
+//     double alpha3, beta3;
+//     std::complex<float> alpha4(1.0f, 0.0f);
+//     std::complex<float> beta4(0.0f, 0.0f);
 
-    if(type == dtype_t::f16){
-      //alpha1 = float16_t(1.0f);
-      //ptr1 = static_cast<void*>(&alpha1);
-      //beta1 = float16_t(0.0f);
-      //ptr2 = static_cast<void*>(&beta1);
-      alpha2 = 1.0f;
-      ptr1 = static_cast<void*>(&alpha2);
-      beta2 = 0.0f;
-      ptr2 = static_cast<void*>(&beta2);
-    }
-    else if(type == dtype_t::f32){
-      alpha2 = 1.0f;
-      ptr1 = static_cast<void*>(&alpha2);
-      beta2 = 0.0f;
-      ptr2 = static_cast<void*>(&beta2);
-    }
-    else if(type == dtype_t::f64){
-      alpha3 = 1.0;
-      ptr1 = static_cast<void*>(&alpha3);
-      beta3 = 0.0;
-      ptr2 = static_cast<void*>(&beta3);
-    }
-    else if(type == dtype_t::c64){
-      ptr1 =  static_cast<void*>(&alpha4);
-      ptr2 =  static_cast<void*>(&beta4);
-    }
+//     if(type == dtype_t::f16){
+//       //alpha1 = float16_t(1.0f);
+//       //ptr1 = static_cast<void*>(&alpha1);
+//       //beta1 = float16_t(0.0f);
+//       //ptr2 = static_cast<void*>(&beta1);
+//       alpha2 = 1.0f;
+//       ptr1 = static_cast<void*>(&alpha2);
+//       beta2 = 0.0f;
+//       ptr2 = static_cast<void*>(&beta2);
+//     }
+//     else if(type == dtype_t::f32){
+//       alpha2 = 1.0f;
+//       ptr1 = static_cast<void*>(&alpha2);
+//       beta2 = 0.0f;
+//       ptr2 = static_cast<void*>(&beta2);
+//     }
+//     else if(type == dtype_t::f64){
+//       alpha3 = 1.0;
+//       ptr1 = static_cast<void*>(&alpha3);
+//       beta3 = 0.0;
+//       ptr2 = static_cast<void*>(&beta3);
+//     }
+//     else if(type == dtype_t::c64){
+//       ptr1 =  static_cast<void*>(&alpha4);
+//       ptr2 =  static_cast<void*>(&beta4);
+//     }
 
-    void const* alpha = ptr1; 
-    void const* beta = ptr2; 
+//     void const* alpha = ptr1; 
+//     void const* beta = ptr2; 
 
-    cutensorTensorDescriptor_t descA;
-    handle_cutensor_error(
-        cutensorInitTensorDescriptor(handle,
-                  &descA,
-                  nmodeA,
-                  extent_A.data(),
-                  NULL /* stride */,
-                  typeA, CUTENSOR_OP_IDENTITY));
+//     cutensorTensorDescriptor_t descA;
+//     handle_cutensor_error(
+//         cutensorInitTensorDescriptor(handle,
+//                   &descA,
+//                   nmodeA,
+//                   extent_A.data(),
+//                   NULL /* stride */,
+//                   typeA, CUTENSOR_OP_IDENTITY));
 
-    cutensorTensorDescriptor_t descC;
-    handle_cutensor_error(
-      cutensorInitTensorDescriptor(handle,
-                  &descC,
-                  nmodeC,
-                  extent_C.data(),
-                  NULL /* stride */,
-                  typeC, CUTENSOR_OP_IDENTITY));
+//     cutensorTensorDescriptor_t descC;
+//     handle_cutensor_error(
+//       cutensorInitTensorDescriptor(handle,
+//                   &descC,
+//                   nmodeC,
+//                   extent_C.data(),
+//                   NULL /* stride */,
+//                   typeC, CUTENSOR_OP_IDENTITY));
 
-    cutensorStatus_t err;
-    err = cutensorReduction(handle, 
-                alpha, inns[0], &descA, modeA.data(),
-                beta,  out, &descC, modeC.data(), 
-                       out, &descC, modeC.data(), 
-                opReduce, typeCompute, work, worksize,stream);
+//     cutensorStatus_t err;
+//     err = cutensorReduction(handle, 
+//                 alpha, inns[0], &descA, modeA.data(),
+//                 beta,  out, &descC, modeC.data(), 
+//                        out, &descC, modeC.data(), 
+//                 opReduce, typeCompute, work, worksize,stream);
 
-    if(err != CUTENSOR_STATUS_SUCCESS)
-            printf("ERROR: %s\n", cutensorGetErrorString(err) );
-  };
-}
+//     if(err != CUTENSOR_STATUS_SUCCESS)
+//             printf("ERROR: %s\n", cutensorGetErrorString(err) );
+//   };
+// }
 
 uint64_t reduction_worksize(einsummable_t einsummable, void* out, vector<void const*> inns, cutensorHandle_t const* handle)
 {
@@ -854,36 +799,6 @@ cutensor_silu_elementwise(uint64_t size)
 
 }
 
-cutensor_elementwise_op_t::arg_t convert_arg(cutensor_scalarop_t::arg_t arg, vector<int> modes){
-  scalar_t scale = arg.scale;
-  cutensorOperator_t op;
-  if(arg.op==cutensor_scalarop_t::cop_t::exp){
-    op = CUTENSOR_OP_EXP;
-  }else if(arg.op==cutensor_scalarop_t::cop_t::identity){
-    op = CUTENSOR_OP_IDENTITY;
-  }else if(arg.op==cutensor_scalarop_t::cop_t::relu){
-    op = CUTENSOR_OP_RELU;
-  }else{
-    throw std::runtime_error("Unary op not found");
-  }
-  cutensor_elementwise_op_t::arg_t new_arg {scale,op,modes};
-  return new_arg;
-}
-
-cutensorOperator_t convert_op(cutensor_scalarop_t::cop_t op){
-  cutensorOperator_t new_op;
-  if(op==cutensor_scalarop_t::cop_t::add){
-    new_op = CUTENSOR_OP_ADD;
-  }else if(op==cutensor_scalarop_t::cop_t::mul){
-    new_op = CUTENSOR_OP_MUL;
-  }else{
-    throw std::runtime_error("Binary op not found");
-  }
-
-
-  return new_op;
-}
-
 bool isVectorSequential(const std::vector<int>& vec, int n) {
     if (vec.size() != n) {
         return false;  
@@ -918,151 +833,6 @@ cutensor_elementwise_op_t make_mul_op(
   op.op = bi_op;
 
   return op;
-}
-
-optional<cutensor_elementwise_op_t>
-make_cutensor_elementwise_op(
-  einsummable_t const& e)
-{
-  // TODO
-  cutensor_elementwise_op_t op;
-  op.join_shape = e.join_shape;
-
-  if(e.inns.size()==1){
-    scalarop_t join = e.join;
-
-    // TODO: cheat to make relu work on GPU
-    for (auto const& d : {dtype_t::f16, dtype_t::f32, dtype_t::f64}) {
-      if (join == scalarop_t::make_relu(d)){
-        
-        cutensor_scalarop_t::arg_t arg {scalar_t::one(join.out_dtype()),cutensor_scalarop_t::cop_t::relu};
-
-        cutensor_scalarop_t::unary_t unary_op_inter{arg};
-
-        cutensor_scalarop_t unary_scalarop;
-        unary_scalarop.op = unary_op_inter;
-
-        auto unary = std::get<cutensor_scalarop_t::unary_t>(unary_scalarop.op);
-
-        cutensor_elementwise_op_t::unary_t unary_op {convert_arg(unary.arg,e.inns[0])};
-
-        op.op = unary_op;
-
-        // DOUT("RELU Detected and Built");
-        return op;
-      }
-    }
-
-    auto potential_scalarop = join.compile_cutensor_scalarop();
-
-    if(!potential_scalarop){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
-
-    auto unary = std::get<cutensor_scalarop_t::unary_t>(cutensor_scalarop.op);
-
-    cutensor_elementwise_op_t::unary_t unary_op {convert_arg(unary.arg,e.inns[0])};
-
-    op.op = unary_op;
-
-    return op;
-
-  }else if(e.inns.size()==2){
-    scalarop_t join = e.join;
-
-    auto potential_scalarop = join.compile_cutensor_scalarop();
-
-    if(!potential_scalarop){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
-
-    auto binary = std::get<cutensor_scalarop_t::binary_t>(cutensor_scalarop.op);
-
-    cutensor_elementwise_op_t::arg_t a0 = convert_arg(binary.lhs, e.inns[0]);
-    cutensor_elementwise_op_t::arg_t a1 = convert_arg(binary.rhs, e.inns[1]);
-    
-    //if a0 is the same as output shape, that swap a0 to the a1 spot
-    //if(isVectorSequential(e.inns[0],e.out_rank)){
-    //  std::swap(a0, a1);
-    //}
-    
-    cutensorOperator_t op_0_1 = convert_op(binary.op);
-
-    cutensor_elementwise_op_t::binary_t bi_op{
-      op_0_1,
-      a0,
-      a1
-    };
-
-    op.op = bi_op;
-
-    return op;
-
-  }else if(e.inns.size()==3){
-    scalarop_t join = e.join;
-
-    auto potential_scalarop = join.compile_cutensor_scalarop();
-
-    if(!potential_scalarop){
-      return std::nullopt;
-    }
-
-    cutensor_scalarop_t cutensor_scalarop = *potential_scalarop;
-    
-    auto ternary = std::get<cutensor_scalarop_t::ternary_t>(cutensor_scalarop.op);
-
-    cutensor_elementwise_op_t::arg_t a0 = convert_arg(ternary.a0, e.inns[0]);
-    cutensor_elementwise_op_t::arg_t a1 = convert_arg(ternary.a1, e.inns[1]);
-    cutensor_elementwise_op_t::arg_t a2 = convert_arg(ternary.a2, e.inns[2]);
-    cutensorOperator_t op_01_2 = convert_op(ternary.op_01_2);
-    cutensorOperator_t op_0_1 = convert_op(ternary.op_0_1);
-
-    cutensor_elementwise_op_t::ternary_t ter_op{
-      op_01_2,
-      op_0_1,
-      a0,
-      a1,
-      a2
-    };
-
-    op.op = ter_op;
-
-    return op;
-    
-    //op.op = cutensor_elementwise_op_t::ternary_t{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}};
-
-    //cutensor_elementwise_op_t op = {e.joinshape,{e.castable,e.castable,{,,e.inns[0]},{,,e.inns[1]},{,,e.inns[2]}}}
-    //return op;
-
-  }else{
-    throw std::runtime_error("Invalid einsummable input.");
-  }
-
-  //(arg0 - val * arg1)
-  // op.op = cutensor_elementwise_op_t::binary_t{/*/,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{val,CUTENSOR_OP_IDENTITY,e.inns[1]}}
-
-  //(relu(arg0))
-  // op.op = cutensor_elementwise_op_t::unary_t{{1.0f,CUTENSOR_OP_RELU,e.inns[1]}}
-
-  // max(arg0, arg1)
-  // op.op = cutensor_elementwise_op_t::binary_t{CUTENSOR_OP_MAX,{1.0f,CUTENSOR_OP_IDENTITY,e.inns[0]},{1.0f,CUTENSOR_OP_IDENTITY,e.inns[1]}}
-  //
-
-  return std::nullopt;
-}
-
-cutensor_kernel_t
-build_straight_elementwise(
-  scalarop_t op,
-  uint64_t size)
-{
-  // TODO: dispatch to canned elementwise kernels here
-  throw std::runtime_error("build_straight_elementwise not implemented");
-  return {};
 }
 
 cudaDataType_t dtypes_to_scalartype(dtype_t src, dtype_t dst){

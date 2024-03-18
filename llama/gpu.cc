@@ -421,7 +421,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(12lu * 1024lu * 1024lu * 1024lu);
+    buffer_sizes.push_back(15lu * 1024lu * 1024lu * 1024lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);

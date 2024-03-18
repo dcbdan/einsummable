@@ -279,9 +279,10 @@ scalar_t scalar_t::inf(dtype_t dtype) {
 }
 
 scalar_t scalar_t::one(dtype_t dtype) {
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("no one provided for c64");
-  }
+  // TODO: check if we should modify so it returns for c64
+  // if(dtype == dtype_t::c64) {
+  //   throw std::runtime_error("no one provided for c64");
+  // }
 
   switch(dtype) {
     case dtype_t::f16:
@@ -290,14 +291,16 @@ scalar_t scalar_t::one(dtype_t dtype) {
       return scalar_t(float(1.0));
     case dtype_t::f64:
       return scalar_t(double(1.0));
+    case dtype_t::c64:
+      return scalar_t(std::complex<float>(1.0, 0.0));
   }
   throw std::runtime_error("should not reach");
 }
 
 scalar_t scalar_t::negative_one(dtype_t dtype) {
-  if(dtype == dtype_t::c64) {
-    throw std::runtime_error("no negative one provided for c64");
-  }
+  // if(dtype == dtype_t::c64) {
+  //   throw std::runtime_error("no negative one provided for c64");
+  // }
 
   switch(dtype) {
     case dtype_t::f16:
@@ -306,6 +309,8 @@ scalar_t scalar_t::negative_one(dtype_t dtype) {
       return scalar_t(float(-1.0));
     case dtype_t::f64:
       return scalar_t(double(-1.0));
+    case dtype_t::c64:
+      return scalar_t(std::complex<float>(-1.0, 0.0));
   }
   throw std::runtime_error("should not reach");
 }
@@ -1906,6 +1911,20 @@ scalarop_t scalarop_t::combine(scalarop_t combining_op, vector<scalarop_t> const
   return combining_op.simplify();
 }
 
+scalarop_t scalarop_t::replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops){
+  if(top.num_inputs() != bottom_ops.size()) {
+    throw std::runtime_error("cannot replace arguments");
+  }
+
+  if(top.num_inputs() == 0) {
+    return top;
+  }
+
+  vector<node_t> bottom_nodes = vector_from_each_member(bottom_ops, node_t, node);
+  top.node.replace_at_holes(bottom_nodes);
+  return top.simplify();
+}
+
 scalarop_t scalarop_t::from_string(string const& str) {
   return parse_with_ss<scalarop_t>(str);
 }
@@ -2297,6 +2316,15 @@ bool operator==(scalarop_t const& lhs, scalarop_t const& rhs) {
 bool operator!=(scalarop_t const& lhs, scalarop_t const& rhs) {
   return !(lhs == rhs);
 }
+
+bool operator==(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs) {
+  return write_with_ss(lhs) == write_with_ss(rhs);
+}
+
+bool operator!=(scalar_ns::op_t const& lhs, scalar_ns::op_t const& rhs) {
+  return !(lhs == rhs);
+}
+
 
 std::ostream& operator<<(std::ostream& out, dtype_t const& dtype) {
   if(dtype == dtype_t::f16) {
@@ -2738,4 +2766,8 @@ std::istream& operator>>(std::istream& inn, optional<castable_t>& castable) {
   }
 
   return inn;
+}
+
+scalarop_t::node_t const* scalarop_t::get_node() const {
+  return &node;
 }

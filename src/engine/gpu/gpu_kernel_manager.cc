@@ -1,14 +1,16 @@
 #include "gpu_kernel_manager.h"
 
+#include "kernels.h"
 #include "utility.h"
+#include <cstdint>
 #include <cuda_runtime_api.h>
+#include <map>
 #include <stdexcept>
 
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
 {
   DOUT("!!! Note: Creating kernel manager without a device id !!!")
-  
 }
 
 kernel_manager_t::kernel_manager_t(int device): device(device) {
@@ -42,10 +44,163 @@ kernel_manager_t::~kernel_manager_t() {
     "cublas destroy in kernel_manager destructor");
 }
 
+// ----- special case kernels -----
+
+bool kernel_manager_t::is_type_conversion(einsummable_t e){
+  scalarop_t op = e.join;
+
+  op = op.simplify();
+
+  auto op_str = op.to_cppstr();
+
+  if(op_str=="float16_t(x0)"||op_str=="float(x0)"||op_str=="double(x0)"){
+    // DOUT("Found type conversion: " << e);
+    return true;
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_power_elementwise(einsummable_t e){
+  if(e.inns.size()==1){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+    size_t endIndex = op_str.find(")");
+
+
+    if(op_str.substr(0,8)=="_pow(x0,"&&endIndex==op_str.size() - 1){
+      // DOUT("Found power elementwise: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_scale_and_increment(einsummable_t e){
+  if(e.inns.size()==1){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+    size_t endIndex = op_str.find("*x0))");
+
+    if(op_str.substr(0,16)=="(f32|1e-05+(f32|"&&endIndex==op_str.size() - 5){
+      // DOUT("Found scale and increment: " << e);
+      return true;
+    }
+
+    if(op_str.substr(0,16)=="(f32|1e-06+(f32|"&&endIndex==op_str.size() - 5){
+      // DOUT("Found scale and increment: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_elementwise_with_pow(einsummable_t e){
+  if(e.inns.size()==2){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+
+    if(op_str=="(x0*_pow(x1,-1))"){
+      // DOUT("Found elementwise with pow: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_custom_kernel1(einsummable_t e){
+  if(e.inns.size()==1){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+
+    if(op_str=="(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))"){
+      // DOUT("Found custom kernel 1: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_c64_elementwise_multiply(einsummable_t e){
+   if(e.inns.size()==2){
+    scalarop_t op = e.join;
+
+    op = op.simplify();
+
+    auto op_str = op.to_cppstr();
+
+
+    if(op_str=="(x0*x1)"&&e.inn_dtype(0)==dtype_t::c64&&e.inn_dtype(1)==dtype_t::c64){
+      // DOUT("Found c64 elementwise multiply: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
+double kernel_manager_t::get_power(einsummable_t e){
+  scalarop_t op = e.join;
+
+  op = op.simplify();
+
+  auto op_str = op.to_cppstr();
+
+  size_t start_index = 8;
+  
+  size_t end_index = op_str.find(")");
+
+  std::string number_str = op_str.substr(start_index, end_index - start_index);
+  
+  
+  return std::stod(number_str);
+
+}
+
+
+tuple<float, float> kernel_manager_t::get_increment_scale(einsummable_t e){
+  scalarop_t op = e.join;
+
+  op = op.simplify();
+
+  auto op_str = op.to_cppstr();
+
+  size_t start_index = 16;
+  
+  size_t end_index = op_str.find("*x0))");
+
+  std::string number_str = op_str.substr(start_index, end_index - start_index);
+  
+  float increment = 1e-06;
+
+  if(op_str.substr(5,10)=="1e-05"){
+    increment = 1e-05;
+  }
+
+  return std::make_tuple(std::stof(number_str),increment);
+}
+
+// ----- end special case kernels -----
+
 optional<workspace_info_t> 
 kernel_manager_t::build(einsummable_t const& e_)
 {
   cudaSetDevice(device);
+  // DOUT("Building kernel for " << e_);
   auto einsummable = e_.merge_adjacent_dims();
 
   auto iter = kernels.find(einsummable);
@@ -67,14 +222,21 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(c.worksize);
   }
 
-  // Check for Reudctions
+  // Check for Reductions
   if(einsummable.has_aggregation()) {
     if(einsummable.inns.size() != 1) {
+      DOUT("Warning: Reduction with more than one input tensor");
+      return std::nullopt;
+    }
+
+    if (!einsummable.join.is_identity()){
+      DOUT("Warning: Reduction with non-identity join");
       return std::nullopt;
     }
 
     if(einsummable.castable.value() == castable_t::add ||
-        einsummable.castable.value() == castable_t::max) {
+        einsummable.castable.value() == castable_t::max) 
+    {
       // this is something cutensor reduction should be able to do
       vector<int> const& inn_modes = einsummable.inns[0];
 
@@ -85,23 +247,21 @@ kernel_manager_t::build(einsummable_t const& e_)
 
       auto out_shape = einsummable.out_shape();
 
-      auto reduct = build_cutensor_reduction(
-        inn_modes, inn_shape,
-        out_modes, out_shape,
-        einsummable.castable.value(),
-        einsummable.inn_dtype(0));
-      
-      reduction_t reduct_kernel {reduct};
+      reduction_t reduct = make_reduction(einsummable);
 
-      kernels.insert({einsummable, reduct_kernel});
+      kernels.insert({einsummable, reduct});
 
+      // we are not returning a workspace size here because we don't know yet
+      // see known_workspace_size
       return workspace_info_t();
     }
 
     return std::nullopt;
   }
+    // TODO: special case kernels here
 
   if(is_power_elementwise(einsummable)) {
+    // DOUT("Building power kernel");
     double pow = get_power(einsummable);
     uint64_t size = einsummable.join_shape[0];
     auto lambda = [pow, size](cudaStream_t stream, float* out, const float* in) 
@@ -117,6 +277,7 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(is_type_conversion(einsummable)){
+    // DOUT("Building type conversion kernel");
     auto f = build_cutensor_type_conversion(einsummable);
 
     type_conversion_t conversion_kernel {f};
@@ -141,7 +302,9 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(0);
   }
 
+
   if(is_custom_kernel1(einsummable)){
+    // DOUT("Building custom kernel 1");
     uint64_t size = einsummable.join_shape[0];
 
     auto lambda = cutensor_silu_elementwise(size);
@@ -154,6 +317,7 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(is_elementwise_with_pow(einsummable)){
+    // DOUT("Building elementwise with pow kernel");
     uint64_t a_size = einsummable.join_shape[0];
     cutensor_elementwise_op_t op_ele = make_mul_op(einsummable);
     auto func_elem = build_elementwise_and_pow(op_ele, a_size);
@@ -168,6 +332,7 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(is_c64_elementwise_multiply(einsummable)){
+    // DOUT("Building c64 elementwise multiply kernel");
     auto c = make_contraction(einsummable);
 
     kernels.insert({einsummable,c});
@@ -175,30 +340,26 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(c.worksize);
   }
 
+  // Assumption: We can execute all simple scalarops
+  // trying to build list of elewise after we tried all the special kernels
+  optional<list_simple_scalarop_t> maybe_sops =
+    list_simple_scalarop_t::make(einsummable.join);
+  if (maybe_sops) {
+    list_simple_scalarop_t const& sops = maybe_sops.value(); 
+    
+    elementwise_t kernel {
+      .sops = sops,
+      .join_shape = einsummable.join_shape,
+      .inns = einsummable.inns,
+      .out_rank = einsummable.out_rank
+    };
 
-  auto maybe = make_cutensor_elementwise_op(einsummable); 
+    kernels.insert({einsummable, kernel});
 
-  if(maybe&&einsummable.out_dtype()!=dtype_t::c64){
-
-    cutensor_elementwise_op_t op = *maybe;
-
-    auto func = build_cutensor_elementwise(op);
-
-    elementwise_t elementwise_kernel {func};
-
-    kernels.insert({einsummable, elementwise_kernel});
-
-    return workspace_info_t(0);
+    return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
-  DOUT("Warning: kernel manager could not find einsummable in build: " << einsummable.str());
   return std::nullopt;
-}
-
-workspace_info_t kernel_manager_t::workspace_size(
-  einsummable_t const& e) const
-{
-  return workspace_size(get_built_kernel_info(e));
 }
 
 workspace_info_t kernel_manager_t::workspace_size(
@@ -206,10 +367,12 @@ workspace_info_t kernel_manager_t::workspace_size(
 {
   if(std::holds_alternative<contraction_t>(kernel)) {
     return workspace_info_t(std::get<contraction_t>(kernel).worksize);
-  }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
-    return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
+  }else if(std::holds_alternative<elementwise_t>(kernel)) {
+    return workspace_info_t(elementwise_workspace_size(std::get<elementwise_t>(kernel)));
   }else if(std::holds_alternative<reduction_t>(kernel)) {
     return workspace_info_t();
+  }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
+    return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
   }else {
     return workspace_info_t(0);
   }
@@ -225,6 +388,7 @@ uint64_t kernel_manager_t::known_workspace_size(
   auto const& kernel = get_built_kernel_info(e);
 
   if(std::holds_alternative<reduction_t>(kernel)) {
+    // DOUT("getting the reduction worksize");
     return reduction_worksize(e, out, inns, cutensor_handle);
   } else {
     return workspace_size(kernel).value();
@@ -350,10 +514,9 @@ void kernel_manager_t::call(
   } else if(holds_alternative<reduction_t>(kernel)) {
     assert_num_inputs(1);
 
-    auto const& [f] = get<reduction_t>(kernel);
+    auto r = get<reduction_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
-
-    f(stream,cutensor_handle,out,inns,workspace,wsz);
+    execute_reduction(r, stream, out, inns, workspace, wsz);
   } else if(holds_alternative<power_t>(kernel)) {
     assert_num_inputs(1);
 
@@ -362,14 +525,24 @@ void kernel_manager_t::call(
     f(stream,(float*)out,(float*)inns[0]);
   } else if(holds_alternative<type_conversion_t>(kernel)) {
     assert_num_inputs(1);
+    // DOUT("Calling type conversion");
 
     auto const& [f] = get<type_conversion_t>(kernel);
 
     f(stream,cutensor_handle,out,inns);
   } else if(holds_alternative<elementwise_t>(kernel)) {
-    auto const& [f] = get<elementwise_t>(kernel);
-
-    f(stream,cutensor_handle,out,inns);
+    auto e = get<elementwise_t>(kernel);
+    void* workspace = nullptr;
+    uint64_t wsz = 0;
+    if (workspace_size(kernel).value() != 0) {
+      if(maybe_workspace) {
+        workspace = std::get<0>(maybe_workspace.value());  
+        wsz       = std::get<1>(maybe_workspace.value());  
+      } else {
+        // DOUT("NOTE: running a elementwise kernel with no workspace");
+      }
+    }
+    execute_elementwise(e, stream, out, inns, workspace, wsz);
 
   } else if(holds_alternative<scale_t>(kernel)) {
     assert_num_inputs(1);
@@ -696,12 +869,6 @@ void kernel_manager_t::execute_contraction(
   void* work,
   uint64_t given_worksize) const
 {
-  //// TODO: remove
-  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
-  //cudaStream_t s01;
-  //handle_cuda_error(cudaStreamCreate(&s01), "ec " + write_with_ss(__LINE__));
-  //handle_cuda_error(cudaStreamDestroy(s01), "ec " + write_with_ss(__LINE__));
-  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
 
   if(given_worksize < c.worksize) {
     throw std::runtime_error("not enough workspace given for this contraction");
@@ -727,160 +894,502 @@ void kernel_manager_t::execute_contraction(
       given_worksize, 
       stream),
     "contraction operator");
-
-  //// TODO: remove
-  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
-  //cudaStream_t s02;
-  //handle_cuda_error(cudaStreamCreate(&s02), "ec " + write_with_ss(__LINE__));
-  //handle_cuda_error(cudaStreamDestroy(s02), "ec " + write_with_ss(__LINE__));
-  //handle_cuda_error(cudaDeviceSynchronize(), "sync " + write_with_ss(__LINE__));
 }
 
-bool kernel_manager_t::is_power_elementwise(einsummable_t e){
-  if(e.inns.size()==1){
-    scalarop_t op = e.join;
+kernel_manager_t::reduction_t
+kernel_manager_t::make_reduction(einsummable_t const& e)
+{
+  vector<int> const& inn_modes = e.inns[0];
+  auto inn_shape = e.inn_shapes()[0];
+  vector<int> out_modes(e.out_rank);
+  std::iota(out_modes.begin(), out_modes.end(), 0);
+  // TODO: this is incorrect: also need to check that the join op
+  //       is the identity! (old one, may not apply)
+  auto out_shape = e.out_shape();
 
-    op = op.simplify();
+  auto type = e.inn_dtype(0);
+  cudaDataType_t typeA = dtype_to_cudatype(type);
+  cudaDataType_t typeC = dtype_to_cudatype(type);
+  cutensorComputeType_t typeCompute = dtype_to_computetype(type);
 
-    auto op_str = op.to_cppstr();
+  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+  std::vector<int32_t> modeC(out_modes.begin(),out_modes.end());
+  int32_t nmodeA = modeA.size();
+  int32_t nmodeC = modeC.size();
 
-    size_t endIndex = op_str.find(")");
+  std::reverse(modeA.begin(), modeA.end());
 
-
-    if(op_str.substr(0,8)=="_pow(x0,"&&endIndex==op_str.size() - 1){
-      return true;
-    }
-  }
-  return false;
-}
-
-bool kernel_manager_t::is_scale_and_increment(einsummable_t e){
-  if(e.inns.size()==1){
-    scalarop_t op = e.join;
-
-    op = op.simplify();
-
-    auto op_str = op.to_cppstr();
-
-    size_t endIndex = op_str.find("*x0))");
-
-    if(op_str.substr(0,16)=="(f32|1e-05+(f32|"&&endIndex==op_str.size() - 5){
-      return true;
-    }
-
-    if(op_str.substr(0,16)=="(f32|1e-06+(f32|"&&endIndex==op_str.size() - 5){
-      return true;
-    }
-  }
-  return false;
-}
-
-bool kernel_manager_t::is_elementwise_with_pow(einsummable_t e){
-  if(e.inns.size()==2){
-    scalarop_t op = e.join;
-
-    op = op.simplify();
-
-    auto op_str = op.to_cppstr();
-
-
-    if(op_str=="(x0*_pow(x1,-1))"){
-      return true;
-    }
-  }
-  return false;
-}
-
-bool kernel_manager_t::is_custom_kernel1(einsummable_t e){
-  if(e.inns.size()==1){
-    scalarop_t op = e.join;
-
-    op = op.simplify();
-
-    auto op_str = op.to_cppstr();
-
-
-    if(op_str=="(x0*_pow((f16|1+_exp((f16|-1*x0))),-1))"){
-      return true;
-    }
-  }
-  return false;
-}
-
-
-bool kernel_manager_t::is_type_conversion(einsummable_t e){
-  scalarop_t op = e.join;
-
-  op = op.simplify();
-
-  auto op_str = op.to_cppstr();
-
-  if(op_str=="float16_t(x0)"||op_str=="float(x0)"||op_str=="double(x0)"){
-    return true;
+  std::vector<int64_t> extent_A;
+  extent_A.reserve(inn_shape.size());
+  for (const auto& element : inn_shape) {
+    extent_A.push_back(static_cast<int64_t>(element));
   }
 
+  std::vector<int64_t> extent_C;
+  extent_C.reserve(out_shape.size());
+  for (const auto& element : out_shape) {
+    extent_C.push_back(static_cast<int64_t>(element));
+  }
 
-  return false;
+  std::reverse(extent_A.begin(), extent_A.end());
 
+  cutensorOperator_t opReduce;
+  if(e.castable == castable_t::add) {
+    opReduce = CUTENSOR_OP_ADD;
+  } else if(e.castable == castable_t::mul) {
+    opReduce = CUTENSOR_OP_MUL;
+  } else if(e.castable == castable_t::min) {
+    opReduce = CUTENSOR_OP_MIN;
+  } else if(e.castable == castable_t::max) {
+    opReduce = CUTENSOR_OP_MAX;
+  } else {
+    throw std::runtime_error("should not reach: missing castable");
+  }
 
+  cutensorTensorDescriptor_t descA;
+  handle_cutensor_error(
+      cutensorInitTensorDescriptor(cutensor_handle,
+                &descA,
+                nmodeA,
+                extent_A.data(),
+                NULL /* stride */,
+                typeA, CUTENSOR_OP_IDENTITY));
+
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(cutensor_handle,
+                &descC,
+                nmodeC,
+                extent_C.data(),
+                NULL /* stride */,
+                typeC, CUTENSOR_OP_IDENTITY));
+
+  // uint64_t worksize = 0;
+  // handle_cutensor_error(cutensorReductionGetWorkspaceSize(handle, 
+  //               inns[0], &descA, modeA.data(),
+  //               out, &descC, modeC.data(),
+  //               out, &descC, modeC.data(),
+  //               opReduce, typeCompute, &worksize));
+
+  return reduction_t {
+    .descA = descA,
+    .descC = descC,
+    .opReduce = opReduce,
+    .dtype = type,
+    .modeA = modeA,
+    .modeC = modeC
+  };
 }
 
-bool kernel_manager_t::is_c64_elementwise_multiply(einsummable_t e){
-   if(e.inns.size()==2){
-    scalarop_t op = e.join;
+void kernel_manager_t::execute_reduction(
+  kernel_manager_t::reduction_t const& r,
+  cudaStream_t stream,
+  void* out,
+  vector<void const*> inns,
+  void* work,
+  uint64_t given_worksize) const
+{
+  void* ptr1;
+  void* ptr2;
+  float16_t alpha1, beta1;
+  float alpha2, beta2;
+  double alpha3, beta3;
+  std::complex<float> alpha4(1.0f, 0.0f);
+  std::complex<float> beta4(0.0f, 0.0f);
+  auto dtype = r.dtype;
+  cutensorComputeType_t typeCompute = dtype_to_computetype(dtype);
 
-    op = op.simplify();
+  if(dtype == dtype_t::f16){
+    //alpha1 = float16_t(1.0f);
+    //ptr1 = static_cast<void*>(&alpha1);
+    //beta1 = float16_t(0.0f);
+    //ptr2 = static_cast<void*>(&beta1);
+    alpha2 = 1.0f;
+    ptr1 = static_cast<void*>(&alpha2);
+    beta2 = 0.0f;
+    ptr2 = static_cast<void*>(&beta2);
+  }
+  else if(dtype == dtype_t::f32){
+    alpha2 = 1.0f;
+    ptr1 = static_cast<void*>(&alpha2);
+    beta2 = 0.0f;
+    ptr2 = static_cast<void*>(&beta2);
+  }
+  else if(dtype == dtype_t::f64){
+    alpha3 = 1.0;
+    ptr1 = static_cast<void*>(&alpha3);
+    beta3 = 0.0;
+    ptr2 = static_cast<void*>(&beta3);
+  }
+  else if(dtype == dtype_t::c64){
+    ptr1 =  static_cast<void*>(&alpha4);
+    ptr2 =  static_cast<void*>(&beta4);
+  }
 
-    auto op_str = op.to_cppstr();
+  void const* alpha = ptr1; 
+  void const* beta = ptr2; 
 
+  cutensorStatus_t err;
+  err = cutensorReduction(cutensor_handle, 
+              alpha, inns[0], &r.descA, r.modeA.data(),
+              beta, out, &r.descC, r.modeC.data(), 
+              out, &r.descC, r.modeC.data(), 
+              r.opReduce, typeCompute, work, given_worksize, stream);
 
-    if(op_str=="(x0*x1)"&&e.inn_dtype(0)==dtype_t::c64&&e.inn_dtype(1)==dtype_t::c64){
-      return true;
+  if(err != CUTENSOR_STATUS_SUCCESS)
+          printf("ERROR: %s\n", cutensorGetErrorString(err) );
+}
+
+static 
+vector<int> _which_ew_memory(list_simple_scalarop_t const& sops)
+{
+  // Here is the idea: for each scalarop, where does the output memory
+  // need to be set at?
+  // -1     : the output memory
+  //  i >= 0: workspace at memory i
+  // We assume that every workspace tensor has the same number of output elements
+  // N. We assume that the largest dtype used is D. Then the maximum size that
+  // any temporary or the output can be is S = dtype_size(D)*N
+  // The total amount of workspace memory used by
+  // this scheme is S*(1 + max(ret)).
+  //
+  // TODO: We are assuming that mixed dtype scalarops that use workspace memory
+  //       is unlikely. As in, we expect that the only list_simple_scalarop 
+  //       that converts between dtypes is writes directly to the output memory.
+  //       If this assumption does not hold, maybe it is worthwhile to come up
+  //       with a better memory scheme.
+
+  vector<int> avail;
+  int next_avail = 0; // this always equals max(ret) + 1, 
+                      // except when ret.size() == 0, then it is 0
+
+  // Always reuse memory in avail, otherwise use next_avail.
+  // Update state(= avail,next_avail) accordingly
+  auto next_workspace = [&] {
+    if(avail.size() > 0) {
+      int x = avail.back();
+      avail.pop_back();
+      return x;
+    } else {
+      int x = next_avail;
+      next_avail++;
+      return x;
+    }
+  };
+
+  // Figure out where the last usage of each temporary is,
+  // used for deleting later.
+  vector<int> last_usage(sops.ops.size()-1, -1);
+  for(int i = 0; i != sops.ops.size(); ++i) {
+    // TODO: check all auto const& [op, args] = sops.ops
+    auto const& [op, args] = sops.ops[i];
+    for(int which = 0; which != op.num_inns(); ++which) {
+      int const& arg = args[which];
+      if(arg < 0) {
+        int tmp = -1*arg - 1;
+        last_usage[tmp] = std::max(i, last_usage.at(tmp));
+      }
     }
   }
-  return false;
+
+  // Fill out the return vector.
+  //   1. "allocate" (via next_workspace)
+  //   2. "free"     (by adding to avail)
+  vector<int> ret;
+  for(int i = 0; i != sops.ops.size() - 1; ++i) {
+    // A workspace is needed for all ops[i], i < sop.ops.size() - 1.
+    ret.push_back(next_workspace());    
+
+    // If ops[i] is using an argument for the last time, then
+    // "free" it by pushing it back into avail so it can be
+    // reused the next time a workspace is needed.
+    auto const& [op, args] = sops.ops[i];
+    for(int which = 0; which != op.num_inns(); ++which) {
+      int const& arg = args[which];
+      if(arg < 0) {
+        int tmp = -1*arg - 1;
+        // ^ tmp was used by the sops[i]. Was it the last usage?
+        // If so, "delete"
+        if(last_usage[tmp] == i) {
+          avail.push_back(ret[tmp]);
+        }
+      }
+    }
+  }
+
+  // the last spot is always the output memory
+  ret.push_back(-1);
+  return ret;
 }
 
-double kernel_manager_t::get_power(einsummable_t e){
-  scalarop_t op = e.join;
+uint64_t kernel_manager_t::elementwise_workspace_size(
+  kernel_manager_t::elementwise_t const& e) const
+{
+  vector<int> usage_mems = _which_ew_memory(e.sops);
+  dtype_t max_dtype = e.sops.max_dtype(); // TODO: need to be able to get max_dtype 
+  uint64_t max_size = product(e.join_shape)*dtype_size(max_dtype);
+  int which_last = *std::max_element(usage_mems.begin(), usage_mems.end());
+  return max_size * (1 + which_last);
+}
 
-  op = op.simplify();
+void kernel_manager_t::execute_elementwise(
+  elementwise_t const& e,
+  cudaStream_t stream,
+  void* out_mem,
+  vector<void const*> inn_mems,
+  void* work_mem,
+  uint64_t given_worksize) const
+{
+  dtype_t max_dtype = e.sops.max_dtype(); // TODO: need to be able to get max_dtype 
+  uint64_t max_size = product(e.join_shape)*dtype_size(max_dtype);
+  vector<int> usage_mems = _which_ew_memory(e.sops);
+  vector<int> out_idxs = vector_iota<int>(e.out_rank);
 
-  auto op_str = op.to_cppstr();
+  // Check we have enough workspace memory
+  {
+    int which_last = *std::max_element(usage_mems.begin(), usage_mems.end());
+    uint64_t required = max_size * (1 + which_last);
+    if(required > given_worksize) {
+      throw std::runtime_error("elementwise: need more workspace");
+    }
+  }
 
-  size_t start_index = 8;
+  auto get_workspace_at = [&](int which_tmp) -> void* {
+    int const& which = usage_mems[which_tmp];
+    return increment_void_ptr(work_mem, which*max_size);
+  };
+  auto get_inn_memory_at = [&](int arg) -> void const* {
+    if(arg < 0) {
+      return get_workspace_at(-1*arg-1);
+    } else {
+      return inn_mems[arg];
+    }
+  };
+  auto get_inn_idxs_at = [&](int arg) -> vector<int> const& {
+    if(arg < 0) {
+      return out_idxs;
+    } else {
+      return e.inns[arg];
+    }
+  };
+
+  for(int which_sop = 0; which_sop != e.sops.ops.size(); ++which_sop) {
+    auto const& [sop, args] = e.sops.ops[which_sop];
+
+    void* this_out_mem = 
+      which_sop == e.sops.ops.size() - 1 ?
+      out_mem                        :
+      get_workspace_at(which_sop)    ;
+
+    for(auto const& [sop, args]: e.sops.ops) {
+      if(sop.is_scale()) {
+        execute_sop_scale(
+          sop.get_scale(), stream, this_out_mem,
+          get_inn_memory_at(args[0]),
+          get_inn_idxs_at(args[0]),
+          e.join_shape);
+      } else if(sop.is_unary()) {
+        execute_sop_unary(
+          sop.get_unary(), stream, this_out_mem, 
+          get_inn_memory_at(args[0]),
+          get_inn_idxs_at(args[0]),
+          e.join_shape);
+      } else if(sop.is_binary()) {
+        execute_sop_binary(
+          sop.get_binary(), stream, this_out_mem,
+          get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
+          get_inn_idxs_at(args[0]),   get_inn_idxs_at(args[1]),
+          e.join_shape);
+      } else {
+        throw std::runtime_error("missing sop case!");
+      }
+    }
+  }
+}
+
+void kernel_manager_t::execute_sop_scale(
+  simple_scalarop_t::scale_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  vector<int> const& inn_idxs,
+  vector<uint64_t> const& out_shape) const
+{
+  scalar_t scale = op.scale;
+  cutensorOperator_t opElementwise = CUTENSOR_OP_IDENTITY;
+  auto typeCompute = dtype_to_cudatype(op.scale.dtype);
+
+
+  vector<int> const& inn_modes = inn_idxs;
+  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+  int32_t nmodeA = modeA.size();
+
+  // TODO: check correctness of this
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(out_shape[mode]);
+  }
+
+  void const* alpha = scale.raw();
+  cutensorTensorDescriptor_t descA;
+  void* output_ptr;
   
-  size_t end_index = op_str.find(")");
-
-  std::string number_str = op_str.substr(start_index, end_index - start_index);
-  
-  
-  return std::stod(number_str);
-
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(cutensor_handle,
+              &descA,
+              nmodeA,
+              extent_A.data(),
+              NULL /* stride */,
+              typeCompute, opElementwise));
+  cutensorStatus_t err;
+  err = cutensorPermutation(cutensor_handle,
+            alpha, inn_mem, &descA, modeA.data(),
+            out_mem, &descA, modeA.data(),
+            typeCompute, stream);
+  if(err != CUTENSOR_STATUS_SUCCESS){
+    printf("EXECUTE SCALE ERROR: %s\n", cutensorGetErrorString(err) );
+  }
 }
 
+void kernel_manager_t::execute_sop_unary(
+  simple_scalarop_t::unary_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  vector<int> const& inn_idxs,
+  vector<uint64_t> const& out_shape) const
+{
+  auto unary = op;
+  auto scale = unary.scale;
+  auto uop = unary.op;
+  auto opElementwise = 
+    simple_scalarop_t::uop_to_cutensorOp(uop);
+  auto typeCompute = dtype_to_cudatype(op.scale.dtype);
+  auto type = op.scale.dtype;
 
-tuple<float, float> kernel_manager_t::get_increment_scale(einsummable_t e){
-  scalarop_t op = e.join;
+  vector<int> const& inn_modes = inn_idxs;
+  std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
+  int32_t nmodeA = modeA.size();
 
-  op = op.simplify();
-
-  auto op_str = op.to_cppstr();
-
-  size_t start_index = 16;
-  
-  size_t end_index = op_str.find("*x0))");
-
-  std::string number_str = op_str.substr(start_index, end_index - start_index);
-  
-  float increment = 1e-06;
-
-  if(op_str.substr(5,10)=="1e-05"){
-    increment = 1e-05;
+  // TODO: check correctness of this
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(out_shape[mode]);
   }
 
-  return std::make_tuple(std::stof(number_str),increment);
+  void const* alpha = scale.raw();
+  cutensorTensorDescriptor_t descA;
+  void* output_ptr;
+  
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(cutensor_handle,
+              &descA,
+              nmodeA,
+              extent_A.data(),
+              NULL /* stride */,
+              typeCompute, opElementwise));
+  cutensorStatus_t err;
+  err = cutensorPermutation(cutensor_handle,
+            alpha, inn_mem, &descA, modeA.data(),
+            out_mem, &descA, modeA.data(),
+            typeCompute, stream);
+  if(err != CUTENSOR_STATUS_SUCCESS){
+    printf("EXECUTE UNARY ERROR: %s\n", cutensorGetErrorString(err) );
+  }
+}
 
+void kernel_manager_t::execute_sop_binary(
+  simple_scalarop_t::binary_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* lhs_mem,
+  void const* rhs_mem,
+  vector<int> const& lhs_idxs,
+  vector<int> const& rhs_idxs,
+  vector<uint64_t> const& out_shape) const
+{
+  auto bop = op.op;
+  auto lhs = op.lhs;
+  auto rhs = op.rhs;
+  cutensorOperator_t opElementwise = 
+    simple_scalarop_t::bop_to_cutensorOp(bop);
+  cutensorOperator_t opElemmentwise_lhs =
+    simple_scalarop_t::uop_to_cutensorOp(lhs.op);
+  cutensorOperator_t opElemmentwise_rhs =
+    simple_scalarop_t::uop_to_cutensorOp(rhs.op);
+
+  std::vector<int> modeA = lhs_idxs;
+  std::vector<int> modeC = rhs_idxs;
+
+  bool swapped = (modeA.size() > modeC.size());
+  if(swapped){
+    std::swap(modeA, modeC);
+    std::swap(lhs, rhs);
+  }
+  int nmodeA = modeA.size();
+  int nmodeC = modeC.size();
+
+  std::reverse(modeA.begin(), modeA.end());
+  std::reverse(modeC.begin(), modeC.end());
+
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(out_shape[mode]);
+  }
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(out_shape[mode]);
+  }
+
+  // should this be true
+  // assert(lhs.scale.dtype == rhs.scale.dtype);
+  auto typeA = dtype_to_cudatype(lhs.scale.dtype);
+  auto typeC = dtype_to_cudatype(rhs.scale.dtype);
+  auto typeCompute = dtype_to_elementwise_computetype(lhs.scale.dtype);
+
+  void* ptr1;
+  void* ptr2;
+  float16_t alpha1, beta1;
+  float alpha2, beta2;
+  double alpha3, beta3;
+  std::complex<float> alpha4(1.0f, 0.0f);
+  std::complex<float> beta4(1.0f, 0.0f);
+  assert(lhs.scale.dtype == rhs.scale.dtype);
+
+  void const* alpha = lhs.scale.raw(); 
+  void const* beta = rhs.scale.raw();
+
+  cutensorTensorDescriptor_t descA;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(cutensor_handle,
+              &descA,
+              nmodeA,
+              extent_A.data(),
+              NULL /* stride */,
+              typeA, opElemmentwise_lhs));
+
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorInitTensorDescriptor(cutensor_handle,
+              &descC,
+              nmodeC,
+              extent_C.data(),
+              NULL /* stride */,
+              typeC, opElemmentwise_rhs));
+
+  if(swapped){
+    handle_cutensor_error(cutensorElementwiseBinary(cutensor_handle,
+              alpha, rhs_mem, &descA, modeA.data(),
+              beta, lhs_mem, &descC, modeC.data(),
+              out_mem, &descC, modeC.data(),
+              opElementwise, typeCompute, stream));
+  }else{
+    handle_cutensor_error(cutensorElementwiseBinary(cutensor_handle,
+              alpha, lhs_mem, &descA, modeA.data(),
+              beta, rhs_mem, &descC, modeC.data(),
+              out_mem, &descC, modeC.data(),
+              opElementwise, typeCompute, stream));
+  }
 }
 
 void const* kernel_manager_t::get_one_ptr(dtype_t dtype) const {
