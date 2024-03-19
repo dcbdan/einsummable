@@ -181,7 +181,7 @@ void main_rank_zero(
   tensor_t predictions = model.forward(embeddings);
   predictions.save_inplace();
 
-  bool actually_run = false;
+  bool actually_run = true;
   if(actually_run) {
     string register_cmd = server->get_registered_cmd();
 
