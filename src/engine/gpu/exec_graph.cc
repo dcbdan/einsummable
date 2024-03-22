@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sys/types.h>
 #include <thread>
+#include <unordered_set>
 
 void print_exec_graph(exec_graph_t exec_graph){
   for (int i = 0; i < exec_graph.nodes.size(); ++i) {
@@ -68,9 +69,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     return false;
   };
 
+  // std::unordered_set<einsummable_t> all_einsums;
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
-     DOUT("Skipping node " << mid << " because it is not local to this gpu")
+    //  DOUT("Skipping node " << mid << " because it is not local to this gpu")
      continue;
     }
 
@@ -99,6 +102,17 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .get_einsummable()
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
+
+        // if (all_einsums.find(einsum) == all_einsums.end()){
+        //   DOUT("einsum: " << einsum);
+        //   DOUT("einsum join shape: " << einsum.join_shape);
+        //   DOUT("einsum inns: " << einsum.inns);
+        //   DOUT("einsum out rank: " << einsum.out_rank);
+        //   DOUT("einsum join: " << einsum.join);
+        //   DOUT("einsum castable: " << einsum.castable);
+        //   DOUT("");
+        //   all_einsums.insert(einsum);
+        // }       
 
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(

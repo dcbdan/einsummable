@@ -708,6 +708,8 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   uint32_t alignmentRequirementB = 16;
   uint32_t alignmentRequirementC = 16;
 
+  // DOUT("einsum: " << e);
+
   // Init Contraction Descriptor need to be in the format of
   // D = alpha * A * B + beta * C
   // so we should probably use a C for both C and D

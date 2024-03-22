@@ -243,7 +243,7 @@ void main_rank_zero(
 {
   int this_rank = 0;
 
-  token_maker_t token_maker = make_default_token_maker();
+  token_maker_t token_maker = make_token_maker_with_shape(1, 1024);
 
   vtensor_t<int> init_tokens = token_maker.get_tokens();
   DOUT(init_tokens.get());
@@ -336,7 +336,7 @@ void main_rank_zero(
 
   {
     auto num_gpus = 4; 
-    autoplace_config_t config = autoplace_config_t::make_default01(1, num_gpus);
+    autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, 4);
     vector<placement_t> pls = autoplace01(builder.graph, config);
     server.execute_graph(builder.graph, pls);
   }
@@ -391,7 +391,7 @@ void main_rank_zero(
 
 int main(int argc, char** argv) {
 
-  set_default_dtype(dtype_t::f16);
+  set_default_dtype(dtype_t::f32);
 
   if(argc < 3) {
     DOUT("argc " << argc);
@@ -443,7 +443,7 @@ int main(int argc, char** argv) {
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
 
-  args.set_default("use_storage", false);
+  args.set_default("use_storage", true);
   server.set_use_storage(args.get<bool>("use_storage"));
 
   if(is_rank_zero) {

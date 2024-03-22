@@ -893,6 +893,7 @@ int main(int argc, char **argv) {
   // mm_graph(argc, argv);
   // mm_part_graph(argc, argv);
   // server_mm_partition(argc, argv);
-  lowerTri_test();
+  // lowerTri_test();
   // constant_test(); 
+  ew_test();
 }

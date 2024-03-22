@@ -141,17 +141,19 @@ _pop_with_unary(node_t const* node_with_scale)
 
   {
     vector<tuple<uop_t, scalarop_t>> ms;
+    ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
+    ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
+    ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
     ms.emplace_back(uop_t::neg, make_neg(node->dtype));
     ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
     ms.emplace_back(uop_t::rcp, make_rcp(node->dtype));
     ms.emplace_back(uop_t::sigmoid, make_sigmoid(node->dtype));
-    ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
-    ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
-    ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
+    
 
     for(auto const& [uop, m]: ms) {
       auto maybe = _pop_match(m.get_node(), node);
       if(maybe) {
+        // DOUT("matched: " << uop);
         auto const& val = maybe.value();
         return value_t {
           unary_t { 
@@ -449,6 +451,7 @@ struct list_maker_t {
   }
 
   bool recurse(info_t info) {
+    // DOUT("recurse");
     auto const& [prev_id, which_arg, node] = info;
 
     // the base case of the recursion
@@ -535,6 +538,20 @@ void list_simple_scalarop_t::print(std::ostream& out) const {
 optional<list_simple_scalarop_t>
 list_simple_scalarop_t::make(scalarop_t const& scalarop)
 {
+  // TODO: we put here to filter out all the identities
+  // check if this is the best place for it
+  if (scalarop.is_identity()){
+    op_t op = op_t {
+      .op = simple_scalarop_t::unary_t {
+        .scale = scalar_t::one(scalarop.out_dtype()),
+        .op = simple_scalarop_t::uop_t::identity
+      },
+    };
+    op.args[0] = 0;
+    return list_simple_scalarop_t {
+      .ops = {op}
+    };
+  }
   scalar_ns::node_t const* node = &scalarop.node;
 
   list_maker_t maker;
