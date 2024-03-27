@@ -43,7 +43,10 @@ struct gpu_mg_server_t : server_mg_base_t
   void local_insert_tensors(map<int, tuple<int, buffer_t>> data);
   void local_erase_tensors(vector<int> const& tids);
 
+  bool is_local_gpu(int global_loc) const;
+
 private:
+// location is to the local gpu, not global
   map<int, memstoloc_t> data_locs;
 
   vector<void*> mems;

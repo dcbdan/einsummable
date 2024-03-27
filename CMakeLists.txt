@@ -300,5 +300,7 @@ if(${GPU_EXECUTION_ENGINE})
   # add_gpu_application("test_alignment"  "exps" "test_alignment")
 
   add_gpu_application("basicTest" "exps" "GPU_test")
+  add_gpu_application("exp1" "exps" "GPU_chain_mul")
+  add_gpu_application("exp2" "exps" "GPU_xtreme")
   add_gpu_llama_application("gpu_llama" "gpu")
 endif()

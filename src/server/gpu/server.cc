@@ -167,12 +167,17 @@ gpu_mg_server_t::recv_make_mg_info()
     .data_locs = data_locs,
     .which_storage = get_which_storage()
   };
+  // Note: ret.data_locs is with respect to global gpu locations
+  // Since this is rank 0, they should be the same 
   auto& all_data_locs = ret.data_locs;
 
   int world_size = comm.get_world_size();
   for(int rank = 1; rank != world_size; ++rank) {
+    // info is local
     for(auto const& info: comm.recv_vector<id_memstoloc_t>(rank)) {
-      data_locs.insert({info.id, info.as_memstoloc()});
+      // TODO: need to convert each location from local to global
+      throw std::runtime_error("not implemented");
+      all_data_locs.insert({info.id, info.as_memstoloc()});
     }
   }
 
@@ -343,6 +348,9 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
 
       memstoloc = memstoloc_t(memloc);
     } else {
+      if (!use_storage_){
+        throw std::runtime_error("could not allocate memory; not using storage");
+      }
       int id = 1 + storage.get_max_id();
 
       // DOUT("Inserting into storage... id: " << id << " size: " << tensor->size);
@@ -392,6 +400,14 @@ int gpu_mg_server_t::get_num_gpus() const {
   }
   return ret;
 }
+
+bool gpu_mg_server_t::is_local_gpu(int global_loc) const {
+  int my_rank = comm.get_this_rank();
+  int my_start = start_gpus_per_node[my_rank];
+  int my_end = my_start + num_gpus_per_node[my_rank];
+  return my_start <= global_loc && global_loc < my_end;
+}
+
 vector<int> gpu_mg_server_t::get_which_storage() const {
   int num_gpus = get_num_gpus();
   vector<int> ret;

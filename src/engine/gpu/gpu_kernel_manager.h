@@ -108,6 +108,22 @@ private:
     vector<int> const& inn_idxs,
     vector<uint64_t> const& out_shape) const;
 
+  void execute_sop_scale_add(
+    scalar_t const& scale,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* inn_mem,
+    vector<int> const& inn_idxs_,
+    vector<uint64_t> const& out_shape_) const;
+
+  void execute_sop_scale_mul(
+    scalar_t const& scale,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* inn_mem,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
   void execute_sop_unary(
     simple_scalarop_t::unary_t const& op,
     cudaStream_t stream,

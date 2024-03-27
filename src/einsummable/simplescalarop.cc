@@ -71,43 +71,6 @@ _pop_match(node_t const* skeleton, node_t const* node)
   return ret;
 }
 
-scalarop_t make_rcp(dtype_t dtype)
-{
-  node_t node;
-  scalarop_t constant = scalarop_t::make_constant(scalar_t::one(dtype));
-  scalarop_t variable = scalarop_t::make_arg(0, dtype);
-  scalarop_t div = scalarop_t::make_div(dtype);
-  return scalarop_t::combine(div, {constant, variable});
-}
-
-scalarop_t make_neg(dtype_t dtype)
-{
-  node_t node;
-  scalarop_t constant = scalarop_t::make_constant(scalar_t::negative_one(dtype));
-  scalarop_t variable = scalarop_t::make_arg(0, dtype);
-  scalarop_t mul = scalarop_t::make_mul(dtype);
-  return scalarop_t::combine(mul, {constant, variable});
-}
-
-scalarop_t make_sigmoid(dtype_t dtype){
-  node_t node;
-  scalarop_t one = scalarop_t::make_constant(scalar_t::one(dtype));
-  scalarop_t neg_one = scalarop_t::make_constant(scalar_t::negative_one(dtype));
-  scalarop_t variable = scalarop_t::make_arg(0, dtype);
-  scalarop_t exp = scalarop_t::make_exp(dtype);
-  scalarop_t add = scalarop_t::make_add(dtype);
-  scalarop_t div = scalarop_t::make_div(dtype);
-  scalarop_t mul = scalarop_t::make_mul(dtype);
-  // -x
-  scalarop_t val = scalarop_t::combine(mul, {neg_one, variable});
-  // e^-x
-  scalarop_t exp_val = scalarop_t::combine(exp, {val});
-  // 1 + e^-x
-  scalarop_t add_val = scalarop_t::combine(add, {one, exp_val});
-  // 1 / (1 + e^-x)
-  return scalarop_t::combine(div, {one, add_val});
-}
-
 static 
 tuple<scalar_t, node_t const*> _pop_mul_scale(node_t const* node)
 {
@@ -141,19 +104,22 @@ _pop_with_unary(node_t const* node_with_scale)
 
   {
     vector<tuple<uop_t, scalarop_t>> ms;
+    // NOTE: sort this from most complicated to least complicated
+    // for example, sigmoid can be matched with rcp. exp
+    ms.emplace_back(uop_t::sigmoid, scalarop_t::make_sigmoid(node->dtype));
     ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
     ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
     ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
-    ms.emplace_back(uop_t::neg, make_neg(node->dtype));
+    ms.emplace_back(uop_t::neg, scalarop_t::make_neg(node->dtype));
     ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
-    ms.emplace_back(uop_t::rcp, make_rcp(node->dtype));
-    ms.emplace_back(uop_t::sigmoid, make_sigmoid(node->dtype));
+    ms.emplace_back(uop_t::rcp, scalarop_t::make_rcp(node->dtype));
+    ms.emplace_back(uop_t::square, scalarop_t::make_square(node->dtype));
     
 
     for(auto const& [uop, m]: ms) {
       auto maybe = _pop_match(m.get_node(), node);
       if(maybe) {
-        // DOUT("matched: " << uop);
+        DOUT("matched: " << uop);
         auto const& val = maybe.value();
         return value_t {
           unary_t { 
@@ -292,13 +258,13 @@ scalarop_t simple_scalarop_t::uop_to_scalarop(uop_t uop, dtype_t dtype) {
  if(uop == uop_t::identity) {
    return scalarop_t::make_identity(dtype);
  } else if(uop == uop_t::neg)  {
-  return scalar_ns::make_neg(dtype);
+  return scalarop_t::make_neg(dtype);
  } else if (uop == uop_t::exp) {
   return scalarop_t::make_exp(dtype);
  } else if (uop == uop_t::log) {
   return scalarop_t::make_log(dtype);
  } else if (uop == uop_t::rcp) {
-  return scalar_ns::make_rcp(dtype);
+  return scalarop_t::make_rcp(dtype);
  } else if (uop == uop_t::conj) {
   return scalarop_t::make_conjugate(dtype);
  } else if (uop == uop_t::sqrt) {
@@ -306,7 +272,7 @@ scalarop_t simple_scalarop_t::uop_to_scalarop(uop_t uop, dtype_t dtype) {
  } else if (uop == uop_t::relu) {
   return scalarop_t::make_relu(dtype);
  } else if (uop == uop_t::sigmoid) {
-  return scalar_ns::make_sigmoid(dtype);
+  return scalarop_t::make_sigmoid(dtype);
  } else {
    throw std::runtime_error("missing uop case...........");
  }
@@ -592,6 +558,10 @@ list_simple_scalarop_t::make(scalarop_t const& scalarop)
     if(op.is_binary()) {
       args[1] = fix(args[1]);
     }
+  }
+
+  for (auto r: ret.ops){
+    DOUT(r.op);
   }
 
   return ret;

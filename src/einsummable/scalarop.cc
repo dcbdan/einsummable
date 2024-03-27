@@ -1983,6 +1983,14 @@ scalarop_t scalarop_t::make_div(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("*["+h0+",power{-1}["+h1+"]]");
 }
 
+scalarop_t scalarop_t::make_neg(dtype_t dtype)
+{
+  scalarop_t constant = scalarop_t::make_constant(scalar_t::negative_one(dtype));
+  scalarop_t variable = scalarop_t::make_arg(0, dtype);
+  scalarop_t mul = scalarop_t::make_mul(dtype);
+  return scalarop_t::combine(mul, {constant, variable});
+}
+
 // min(x0, x1)
 scalarop_t scalarop_t::make_min(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
@@ -2136,6 +2144,28 @@ scalarop_t scalarop_t::make_silu(dtype_t dtype) {
   ret = "*["+x+","+ret+"]";
 
   return parse_with_ss<scalarop_t>(ret);
+}
+
+// 1 / (1 + e^x0)
+scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {
+  scalar_t n_one = scalar_t::negative_one(dtype);
+  scalar_t one   = scalar_t::one(dtype);
+
+  scalarop_t ret = make_scale(n_one);            // -1*x0
+  ret = combine(make_exp(dtype), { ret });       // e^(-1*x0)
+  ret = combine(make_increment(one), { ret });   // 1 + e^(-1*x0)
+  ret = combine(make_rcp(dtype), { ret });       // 1 / (1 + e^(-1*x0))
+
+  return ret;
+}
+
+scalarop_t scalarop_t::make_rcp(dtype_t dtype)
+{
+  node_t node;
+  scalarop_t constant = scalarop_t::make_constant(scalar_t::one(dtype));
+  scalarop_t variable = scalarop_t::make_arg(0, dtype);
+  scalarop_t div = scalarop_t::make_div(dtype);
+  return scalarop_t::combine(div, {constant, variable});
 }
 
 scalarop_t scalarop_t::make_relu_deriv(dtype_t dtype) {

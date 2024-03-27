@@ -15,7 +15,8 @@ struct simple_scalarop_t {
     sigmoid,       // 1 / (1 + e^{-x})
     log,
     exp,
-    relu
+    relu,
+    square
   };
 
   enum bop_t {
@@ -59,6 +60,33 @@ struct simple_scalarop_t {
       case relu: return CUTENSOR_OP_RELU;
       default: throw std::runtime_error("Unknown uop");
     }
+  }
+
+  static void uop_print(uop_t uop){
+    switch (uop){
+      case identity: std::cout << "identity"; break;
+      case neg: std::cout << "neg"; break;
+      case sqrt: std::cout << "sqrt"; break;
+      case conj: std::cout << "conj"; break;
+      case rcp: std::cout << "rcp"; break;
+      case sigmoid: std::cout << "sigmoid"; break;
+      case log: std::cout << "log"; break;
+      case exp: std::cout << "exp"; break;
+      case relu: std::cout << "relu"; break;
+      default: throw std::runtime_error("Unknown uop");
+    }
+    std::cout << std::endl;
+  }
+
+  static void bop_print(bop_t bop){
+    switch (bop){
+      case add: std::cout << "add"; break;
+      case mul: std::cout << "mul"; break;
+      case min: std::cout << "min"; break;
+      case max: std::cout << "max"; break;
+      default: throw std::runtime_error("Unknown bop");
+    }
+    std::cout << std::endl;
   }
 
   static cutensorOperator_t bop_to_cutensorOp(bop_t bop){

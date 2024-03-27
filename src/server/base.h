@@ -66,6 +66,8 @@ public:
 
   dbuffer_t get_tensor_from_gid(int gid);
 
+  vector<int> get_gids() const;
+
   relation_t const& get_relation(int gid) const;
 
   void insert_constant(
@@ -136,7 +138,8 @@ public:
   // if none is given
   virtual threadpool_t* get_cpu_threadpool() { return nullptr; }
 
-private:
+// private:
+public:
   // Note: gid_map only exists at the server
   map<int, relation_t> gid_map;
 };

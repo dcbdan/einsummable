@@ -83,6 +83,15 @@ dbuffer_t server_base_t::get_tensor_from_gid(int gid)
   return get_tensor(get_relation(gid));
 }
 
+vector<int> server_base_t::get_gids() const {
+  vector<int> ret;
+  ret.reserve(gid_map.size());
+  for(auto const& [gid, _]: gid_map) {
+    ret.push_back(gid);
+  }
+  return ret;
+}
+
 relation_t const& server_base_t::get_relation(int gid) const
 {
   return gid_map.at(gid);

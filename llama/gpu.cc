@@ -336,7 +336,8 @@ void main_rank_zero(
 
   {
     auto num_gpus = 4; 
-    autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, 4);
+    auto num_computes_per_loc = 4;
+    autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, num_computes_per_loc);
     vector<placement_t> pls = autoplace01(builder.graph, config);
     server.execute_graph(builder.graph, pls);
   }
@@ -421,7 +422,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(15lu * 1024lu * 1024lu * 1024lu);
+    buffer_sizes.push_back(13lu * 1024lu * 1024lu * 1024lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);

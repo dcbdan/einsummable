@@ -4,7 +4,6 @@
 void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
 {
   auto [remap_gid, g] = create_remap_graph_constructor(remap_relations);
-
   auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
     g.graph, g.get_placements());
 
