@@ -1301,8 +1301,8 @@ void naive_sgemm(
   uint64_t slj = trans_lhs ? ni : 1;
 
   // jk or kj
-  uint64_t srj = trans_lhs ? 1 : nk;
-  uint64_t srk = trans_lhs ? nj : 1;
+  uint64_t srj = trans_rhs ? 1 : nk;
+  uint64_t srk = trans_rhs ? nj : 1;
 
   T tmp;
   for(uint64_t i = 0; i != ni; ++i) {
