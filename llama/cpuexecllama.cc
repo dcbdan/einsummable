@@ -26,21 +26,25 @@ main_rank_zero(
     set_seed(args.get<int>("seed"));
   }
 
+  DOUT("here?");
+
 
   /* Create the llama first token graph using builder_t */
   model_args_t model_args = model_args_t {
-    .dim             = 128, //was 4096
+    .dim             = 256, //was 4096
     .n_layers        = 1,
     .n_heads         = 4, //32
-    .multiple_of     = 8, //256
+    .multiple_of     = 64, //256
     .norm_eps        = 1e-6,
     .batch_size      = args.get<uint64_t>("batch_size"),
-    .max_seq_len     = 256, //was 2048
-    .vocab_size      = 512,
+    .max_seq_len     = 2048, //was 2048
+    .vocab_size      = 1024,
   };
+  DOUT("here2?");
 
   builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
   graph_t graph = builder.graph;
+  DOUT("here3?");
 
   vector<int> inputs = graph.get_inputs();
   map<int, dbuffer_t> input_data;
@@ -56,6 +60,7 @@ main_rank_zero(
     }
     input_data.insert({input_id, d});
   }
+
 
   std::cout << "Inputs: " << inputs << std::endl;
 
@@ -256,6 +261,7 @@ int llama_main(int argc, char** argv) {
     .max_seq_len     = 2048, //was 2048
     .vocab_size      = 32000,
   };
+
 
   builder_t builder = builder_t::make_first_token(model_args, uint64_t(512));
   graph_t graph = builder.graph;
