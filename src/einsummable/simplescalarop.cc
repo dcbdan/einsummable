@@ -119,7 +119,6 @@ _pop_with_unary(node_t const* node_with_scale)
     for(auto const& [uop, m]: ms) {
       auto maybe = _pop_match(m.get_node(), node);
       if(maybe) {
-        DOUT("matched: " << uop);
         auto const& val = maybe.value();
         return value_t {
           unary_t { 
@@ -560,9 +559,9 @@ list_simple_scalarop_t::make(scalarop_t const& scalarop)
     }
   }
 
-  for (auto r: ret.ops){
-    DOUT(r.op);
-  }
+  // for (auto r: ret.ops){
+  //   DOUT(r.op);
+  // }
 
   return ret;
 }

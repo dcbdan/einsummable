@@ -2,7 +2,6 @@
 #include "../base/setup.h"
 
 #include "scalarop.h"
-#include "cutensor.h"
 
 struct simple_scalarop_t {
   // list of simple elementwise ops
@@ -47,21 +46,6 @@ struct simple_scalarop_t {
     unary_t rhs;
   };
 
-  static cutensorOperator_t uop_to_cutensorOp(uop_t uop){
-    switch (uop){
-      case identity: return CUTENSOR_OP_IDENTITY;
-      case neg: return CUTENSOR_OP_NEG;
-      case sqrt: return CUTENSOR_OP_SQRT;
-      case conj: return CUTENSOR_OP_CONJ;
-      case rcp: return CUTENSOR_OP_RCP;
-      case sigmoid: return CUTENSOR_OP_SIGMOID;
-      case log: return CUTENSOR_OP_LOG;
-      case exp: return CUTENSOR_OP_EXP;
-      case relu: return CUTENSOR_OP_RELU;
-      default: throw std::runtime_error("Unknown uop");
-    }
-  }
-
   static void uop_print(uop_t uop){
     switch (uop){
       case identity: std::cout << "identity"; break;
@@ -87,16 +71,6 @@ struct simple_scalarop_t {
       default: throw std::runtime_error("Unknown bop");
     }
     std::cout << std::endl;
-  }
-
-  static cutensorOperator_t bop_to_cutensorOp(bop_t bop){
-    switch (bop){
-      case add: return CUTENSOR_OP_ADD;
-      case mul: return CUTENSOR_OP_MUL;
-      case min: return CUTENSOR_OP_MIN;
-      case max: return CUTENSOR_OP_MAX;
-      default: throw std::runtime_error("Unknown bop");
-    }
   }
 
   std::variant<scale_t, unary_t, binary_t> op;

@@ -45,6 +45,32 @@ kernel_manager_t::~kernel_manager_t() {
     "cublas destroy in kernel_manager destructor");
 }
 
+// we translate simple scalar ops' operators to cutensor operators
+static cutensorOperator_t uop_to_cutensorOp(simple_scalarop_t::uop_t uop){
+  switch (uop){
+    case simple_scalarop_t::uop_t::identity: return CUTENSOR_OP_IDENTITY;
+    case simple_scalarop_t::uop_t::neg: return CUTENSOR_OP_NEG;
+    case simple_scalarop_t::uop_t::sqrt: return CUTENSOR_OP_SQRT;
+    case simple_scalarop_t::uop_t::conj: return CUTENSOR_OP_CONJ;
+    case simple_scalarop_t::uop_t::rcp: return CUTENSOR_OP_RCP;
+    case simple_scalarop_t::uop_t::sigmoid: return CUTENSOR_OP_SIGMOID;
+    case simple_scalarop_t::uop_t::log: return CUTENSOR_OP_LOG;
+    case simple_scalarop_t::uop_t::exp: return CUTENSOR_OP_EXP;
+    case simple_scalarop_t::uop_t::relu: return CUTENSOR_OP_RELU;
+    default: throw std::runtime_error("Unknown uop");
+  }
+}
+
+static cutensorOperator_t bop_to_cutensorOp(simple_scalarop_t::bop_t bop){
+  switch (bop){
+    case simple_scalarop_t::bop_t::add: return CUTENSOR_OP_ADD;
+    case simple_scalarop_t::bop_t::mul: return CUTENSOR_OP_MUL;
+    case simple_scalarop_t::bop_t::min: return CUTENSOR_OP_MIN;
+    case simple_scalarop_t::bop_t::max: return CUTENSOR_OP_MAX;
+    default: throw std::runtime_error("Unknown bop");
+  }
+}
+
 // ----- special case kernels -----
 
 bool kernel_manager_t::is_type_conversion(einsummable_t e){
@@ -634,7 +660,7 @@ kernel_manager_t::make_matmul(einsummable_t const& e)
 }
 
 kernel_manager_t::contraction_t
-kernel_manager_t::make_contraction(einsummable_t const& einsummable)
+kernel_manager_t::make_contraction(einsummable_t const& einsummable, bool is_ttgt)
 {
   auto const& e = einsummable; // an alias
   contraction_t c;
@@ -724,10 +750,17 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
       &c.descC, modeC.data(), alignmentRequirementC,
       typeCompute) );
 
-  handle_cutensor_error(cutensorInitContractionFind(
-    cutensor_handle, 
-    &c.find,
-    CUTENSOR_ALGO_DEFAULT));
+  if (is_ttgt) {
+    handle_cutensor_error(cutensorInitContractionFind(
+      cutensor_handle, 
+      &c.find,
+      CUTENSOR_ALGO_TTGT));
+  } else {
+    handle_cutensor_error(cutensorInitContractionFind(
+      cutensor_handle, 
+      &c.find,
+      CUTENSOR_ALGO_DEFAULT));
+  }
 
   c.worksize = 0;
   
@@ -738,12 +771,17 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
      CUTENSOR_WORKSPACE_RECOMMENDED,
      &c.worksize));
 
-  handle_cutensor_error(cutensorInitContractionPlan(
+  auto err = cutensorInitContractionPlan(
       cutensor_handle,
       &c.plan,
       &c.desc,
       &c.find,
-      c.worksize));
+      c.worksize);
+
+  if (err != CUTENSOR_STATUS_SUCCESS) {
+    // we try to use a different ALGO: TTGT
+    return make_contraction(einsummable, true);
+  }
 
   return c;
 }
@@ -1335,9 +1373,7 @@ void kernel_manager_t::execute_sop_unary(
       inn_mem, inn_idxs, inn_idxs, out_shape);
   }
 
-  auto opElementwise = 
-    simple_scalarop_t::uop_to_cutensorOp(uop);
-  simple_scalarop_t::uop_print(uop);
+  auto opElementwise = uop_to_cutensorOp(uop);
   auto typeCompute = dtype_to_cudatype(op.scale.dtype);
   
 
@@ -1384,13 +1420,9 @@ void kernel_manager_t::execute_sop_binary(
   auto bop = op.op;
   auto lhs = op.lhs;
   auto rhs = op.rhs;
-  simple_scalarop_t::bop_print(bop);
-  cutensorOperator_t opElementwise = 
-    simple_scalarop_t::bop_to_cutensorOp(bop);
-  cutensorOperator_t opElemmentwise_lhs =
-    simple_scalarop_t::uop_to_cutensorOp(lhs.op);
-  cutensorOperator_t opElemmentwise_rhs =
-    simple_scalarop_t::uop_to_cutensorOp(rhs.op);
+  cutensorOperator_t opElementwise = bop_to_cutensorOp(bop);
+  cutensorOperator_t opElemmentwise_lhs = uop_to_cutensorOp(lhs.op);
+  cutensorOperator_t opElemmentwise_rhs = uop_to_cutensorOp(rhs.op);
 
   std::vector<int> modeA = lhs_idxs;
   std::vector<int> modeC = rhs_idxs;
@@ -1493,4 +1525,6 @@ void const* kernel_manager_t::get_zero_ptr(dtype_t dtype) const {
     throw std::runtime_error("should not reach: unknown data type");
   }
 }
+
+
 

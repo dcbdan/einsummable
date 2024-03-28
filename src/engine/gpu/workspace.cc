@@ -4,7 +4,7 @@
 gpu_workspace_manager_t::~gpu_workspace_manager_t() {
   int flag = 0;
   for(int gpu = 0; gpu != data.size(); ++gpu) {
-    DOUT("The number of workspaces for device " << gpu << " is " << data[gpu].size() << "\n");
+    // DOUT("The number of workspaces for device " << gpu << " is " << data[gpu].size() << "\n");
     handle_cuda_error(cudaSetDevice(gpu), "~gpu_workspace_manager_t. set device");
     for(auto const& [mem, size]: data[gpu]) {
       // TODO: for ffnn graph (ffnn_specific), 

@@ -243,6 +243,7 @@ void main_rank_zero(
 {
   int this_rank = 0;
 
+  // set sequence length here (seqlen)
   token_maker_t token_maker = make_token_maker_with_shape(1, 1024);
 
   vtensor_t<int> init_tokens = token_maker.get_tokens();
@@ -335,7 +336,7 @@ void main_rank_zero(
   reader.shutdown(register_cmd);
 
   {
-    auto num_gpus = 4; 
+    auto num_gpus = 1; 
     auto num_computes_per_loc = 4;
     autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, num_computes_per_loc);
     vector<placement_t> pls = autoplace01(builder.graph, config);
@@ -390,9 +391,10 @@ void main_rank_zero(
   // }
 }
 
+// ./gpu_llama 7B 1 max_n_layers n
 int main(int argc, char** argv) {
 
-  set_default_dtype(dtype_t::f32);
+  set_default_dtype(dtype_t::f16);
 
   if(argc < 3) {
     DOUT("argc " << argc);
@@ -422,7 +424,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(13lu * 1024lu * 1024lu * 1024lu);
+    buffer_sizes.push_back(16lu * 1000lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);

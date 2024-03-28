@@ -60,7 +60,7 @@ private:
     uint64_t worksize;
   };
 
-  contraction_t make_contraction(einsummable_t const& e);
+  contraction_t make_contraction(einsummable_t const& e, bool is_ttgt = false);
 
   void execute_contraction(
     contraction_t const& c,
