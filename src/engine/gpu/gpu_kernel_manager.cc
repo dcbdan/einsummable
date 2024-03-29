@@ -533,7 +533,8 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
 
   
   
-  const cutensorAlgo_t algo = CUTENSOR_ALGO_TTGT;
+  //const cutensorAlgo_t algo = CUTENSOR_ALGO_TTGT;
+  const cutensorAlgo_t algo = CUTENSOR_ALGO_DEFAULT;
 
   cutensorPlanPreference_t planPref;
   handle_cutensor_error(
@@ -552,13 +553,48 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
     workspacePref,
     &workspaceSizeEstimate));
 
-  
+  /*
   handle_cutensor_error(
     cutensorCreatePlan(cutensor_handle,
       &c.plan,
       c.desc,
       planPref,
-      workspaceSizeEstimate));
+      workspaceSizeEstimate));*/
+  
+  cutensorStatus_t status = cutensorCreatePlan(cutensor_handle,
+      &c.plan,
+      c.desc,
+      planPref,
+      workspaceSizeEstimate);
+
+  if(status != CUTENSOR_STATUS_SUCCESS){
+    const cutensorAlgo_t algo = CUTENSOR_ALGO_TTGT;
+
+    
+    handle_cutensor_error(
+      cutensorCreatePlanPreference(
+      cutensor_handle,
+      &planPref,
+      algo,
+      CUTENSOR_JIT_MODE_NONE));
+    
+    
+    handle_cutensor_error(
+      cutensorEstimateWorkspaceSize(cutensor_handle,
+      c.desc,
+      planPref,
+      workspacePref,
+      &workspaceSizeEstimate));
+
+    
+    handle_cutensor_error(
+      cutensorCreatePlan(cutensor_handle,
+        &c.plan,
+        c.desc,
+        planPref,
+        workspaceSizeEstimate));
+  }
+  
   
   
   uint64_t actualWorkspaceSize = 0;
