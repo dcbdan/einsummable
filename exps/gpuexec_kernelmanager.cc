@@ -1108,19 +1108,20 @@ void kernel11(dtype_t dtype) {
   //uint64_t j = 6;
   //uint64_t k = 7;
 
-  /*
+  
   uint64_t a = 4;
   uint64_t b = 16;
   uint64_t c = 8;
   uint64_t d = 8;
-  uint64_t e = 16;*/
-
+  uint64_t e = 16;
+   
+  /*
   uint64_t a = 1;
   uint64_t b = 32;
   uint64_t c = 1024;
   uint64_t d = 1024;
   uint64_t e = 128;
-
+  */
 
 
   //einsummable_t matmul = einsummable_t(

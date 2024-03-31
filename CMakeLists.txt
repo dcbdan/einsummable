@@ -161,7 +161,7 @@ endif()
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)
 
-  find_package(CUDA 11.0 REQUIRED)
+  find_package(CUDA 12.1 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
   include_directories(${PROJECT_SOURCE_DIR}/src/engine)
@@ -173,7 +173,6 @@ if(${GPU_EXECUTION_ENGINE})
 
   # add ucx dependency
   # define UCX_PATH below
-  SET(UCX_PATH "/home/jiehui/new_proj")
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
@@ -235,9 +234,9 @@ if(${GPU_EXECUTION_ENGINE})
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    /usr/local/cuda-12.0/lib64/libcudart.so
-    /usr/local/cuda-12.0/lib64/libcublasLt.so
-    /usr/local/cuda-12.0/lib64/libcublas.so
+    /usr/local/cuda-12.1/lib64/libcudart.so
+    /usr/local/cuda-12.1/lib64/libcublasLt.so
+    /usr/local/cuda-12.1/lib64/libcublas.so
     ucx::ucp ucx::ucs)
 
   endfunction()
