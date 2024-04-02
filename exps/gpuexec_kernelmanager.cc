@@ -72,7 +72,7 @@ void kernel23(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   //auto const& [is_built,wsz] = km.build(matmul);
   auto workspace_info = km.build(matmul);
 
@@ -229,7 +229,7 @@ void kernel27(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   //auto const& [is_built,wsz] = km.build(matmul);
   auto workspace_info = km.build(matmul);
 
@@ -378,7 +378,7 @@ void kernel10(dtype_t dtype){
 
   
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(einsummable);
 
   //printf("hereyet?");
@@ -528,7 +528,7 @@ void kernel9(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
   std::cout << "Kernel 9 built successfully" << std::endl; 
 
@@ -687,7 +687,7 @@ void kernel24(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -844,7 +844,7 @@ void kernel28(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -1001,7 +1001,7 @@ void kernel29(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -1168,7 +1168,7 @@ void kernel11(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -1323,7 +1323,7 @@ void kernel21(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -1479,7 +1479,7 @@ void kernel22(dtype_t dtype) {
 
 
     
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(matmul);
 
   //if(!wsz){
@@ -1612,7 +1612,7 @@ void kernel15(dtype_t dtype){
 
   //auto func = build_cutensor_reduction(inn_modes,inn_shape,out_modes,out_shape,castable_t::add,dtype);
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(reduction);
 
   //if(!wsz){
@@ -1706,7 +1706,7 @@ void kernel18(dtype_t dtype){
 
   //auto func = build_cutensor_reduction(inn_modes,inn_shape,out_modes,out_shape,castable_t::add,dtype);
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(reduction);
 
   //if(!wsz){
@@ -1799,7 +1799,7 @@ void kernel3(dtype_t dtype){
 
   //auto func = build_cutensor_reduction(inn_modes,inn_shape,out_modes,out_shape,castable_t::add,dtype);
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(reduction);
 
   //if(!wsz){
@@ -1877,7 +1877,7 @@ void kernel2(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(power_2, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(power_2);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -1947,7 +1947,7 @@ void kernel5(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(power_2, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(power_2);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -2015,7 +2015,7 @@ void kernel1(dtype_t src, dtype_t dst){
   dbuffer_t out_ref = reference_einsummable(convert, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(convert);
 
   dbuffer_t out = make_dbuffer(dst, b);
@@ -2088,7 +2088,7 @@ void kernel7(dtype_t src, dtype_t dst){
   dbuffer_t out_ref = reference_einsummable(convert, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(convert);
 
   dbuffer_t out = make_dbuffer(dst, b);
@@ -2161,7 +2161,7 @@ void kernel14(dtype_t src, dtype_t dst){
   dbuffer_t out_ref = reference_einsummable(convert, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(convert);
 
   dbuffer_t out = make_dbuffer(dst, b);
@@ -2234,7 +2234,7 @@ void kernel20(dtype_t src, dtype_t dst){
   dbuffer_t out_ref = reference_einsummable(convert, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(convert);
 
   dbuffer_t out = make_dbuffer(dst, b);
@@ -2353,7 +2353,7 @@ void kernel13(dtype_t dtype){
   cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
   cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(elementwise);
 
 
@@ -2411,7 +2411,7 @@ void kernel4(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(increment, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(increment);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -2489,7 +2489,7 @@ void kernel19(dtype_t dtype){
   
   //printf("herenot?");
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(einsummable);
 
   //printf("hereyet?");
@@ -2595,7 +2595,7 @@ void kernel26(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(increment, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(increment);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -2669,7 +2669,7 @@ void kernel17(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(increment, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(increment);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -2743,7 +2743,7 @@ void kernel12(dtype_t dtype){
   dbuffer_t out_ref = reference_einsummable(increment, {lhs});
 
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(increment);
 
   dbuffer_t out = make_dbuffer(dtype, b);
@@ -2823,7 +2823,7 @@ void kernel6(dtype_t dtype){
   
   printf("herenot?");
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(einsummable);
 
   std::cout << "Log message7" << std::endl;
@@ -2935,7 +2935,7 @@ void kernel16(dtype_t dtype){
   
   //printf("herenot?");
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(einsummable);
 
   //printf("hereyet?");
@@ -3044,7 +3044,7 @@ void kernel8(dtype_t dtype){
   
   //printf("herenot?");
 
-  kernel_manager_t km;
+  kernel_manager_t km(0);
   auto workspace_info = km.build(einsummable);
 
   //printf("hereyet?");

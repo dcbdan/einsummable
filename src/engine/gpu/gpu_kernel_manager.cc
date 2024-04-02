@@ -8,7 +8,6 @@ kernel_manager_t::kernel_manager_t()
   : kernel_manager_t(0)
 {
   DOUT("!!! Note: Creating kernel manager without a device id !!!")
-  
 }
 
 kernel_manager_t::kernel_manager_t(int device): device(device) {
@@ -466,6 +465,7 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
   std::reverse(modeB.begin(), modeB.end());
   std::reverse(modeC.begin(), modeC.end());
   dtype_t type = e.inn_dtype(0);
+  c.dtype = type;
   cutensorDataType_t typeTensor = dtype_to_cudatype(type);
 
   const cutensorComputeDescriptor_t typeCompute = dtype_to_computetype(type);
