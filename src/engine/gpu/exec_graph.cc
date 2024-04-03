@@ -135,20 +135,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           op->workspace_size = workspace_info.value();
         }
         else{
-          // get the input and output memory ptrs
-          void* out_mem = increment_void_ptr(
-            gpu_mems[loc],
-            apply.mems[0].offset);
-          vector<void const*> inn_mems;
-          inn_mems.reserve(apply.mems.size() - 1);
-          for(int i = 1; i != apply.mems.size(); ++i) {
-            inn_mems.push_back(increment_void_ptr(
-              gpu_mems[loc],
-              apply.mems[i].offset));
-          }
-          // get the workspace size
-          op->workspace_size = gpu_kms[loc].known_workspace_size(einsum, out_mem, inn_mems);
-          // DOUT("calling known_workspace_size; value:" << op->workspace_size);
+          throw std::runtime_error("workspace size is not known; this should not happen in cutensor 2.0");
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);

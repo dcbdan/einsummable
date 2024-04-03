@@ -16,11 +16,11 @@ using touch_kernel_t = std::function<
     void(cudaStream_t, void*, void const*)
   >;
 using cutensor_kernel_t = std::function<
-    void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>, void*, uint64_t)
+    void(cudaStream_t, cutensorHandle_t, void*, vector<void const*>, void*, uint64_t)
   >;
 
 using cutensor_elementwise_kernel_t = std::function<
-  void(cudaStream_t, cutensorHandle_t const*, void*, vector<void const*>)
+  void(cudaStream_t, cutensorHandle_t, void*, vector<void const*>)
 >;
 
 using cuda_kernel_t = std::function<
@@ -42,11 +42,11 @@ touch_kernel_t build_touch(touch_t const& touch);
 //cutensor_kernel_t
 //build_einsummable(einsummable_t const& einsummable);
 
-cutensor_kernel_t
-build_cutensor_reduction(
-  vector<int> inn_modes, vector<uint64_t> inn_shape,
-  vector<int> out_modes, vector<uint64_t> out_shape,
-  castable_t castable,dtype_t type);
+// cutensor_kernel_t
+// build_cutensor_reduction(
+//   vector<int> inn_modes, vector<uint64_t> inn_shape,
+//   vector<int> out_modes, vector<uint64_t> out_shape,
+//   castable_t castable,dtype_t type);
 
 uint64_t reduction_worksize(
   einsummable_t einsummable, void* out,
@@ -91,18 +91,7 @@ struct cutensor_elementwise_op_t {
 };
 
 cutensor_elementwise_kernel_t
-build_cutensor_elementwise(cutensor_elementwise_op_t op);
-
-cutensor_elementwise_kernel_t
 cutensor_silu_elementwise(uint64_t size);
-
-// Attempt to construct a cutensor elementwise op
-// from an einsummable. If the einsummable can't be
-// converted, return none
-optional<cutensor_elementwise_op_t>
-make_cutensor_elementwise_op(
-  einsummable_t const& e);
-
 
 cutensor_elementwise_kernel_t
 build_cutensor_type_conversion(einsummable_t const& e);
@@ -113,9 +102,9 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size);
 cutensor_elementwise_op_t make_mul_op(
   einsummable_t const& e);
 
-cudaDataType_t dtype_to_cudatype(dtype_t type);
+cutensorDataType_t dtype_to_cudatype(dtype_t type);
 
-cutensorComputeType_t dtype_to_computetype(dtype_t type);
+cutensorComputeDescriptor_t dtype_to_computetype(dtype_t type);
 
 cudaDataType_t dtype_to_elementwise_computetype(dtype_t type);
 

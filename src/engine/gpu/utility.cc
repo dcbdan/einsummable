@@ -58,21 +58,6 @@ void init_value(float *ptr, int count, float value) {
   cudaMemcpy(check, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
 }
 
-void checkAlignment(cutensorHandle_t *handle, float *ptr,
-                    cutensorTensorDescriptor_t desc) {
-  uint32_t alignmentRequirement;
-  handle_cutensor_error(
-    cutensorGetAlignmentRequirement(
-    handle, ptr, &desc,
-    &alignmentRequirement));
-
-  if (alignmentRequirement != 16) {
-    // print the alignment requirement
-    std::cout << "*** Alignment requirement mismatch; alignment: "
-              << alignmentRequirement << std::endl;
-  }
-}
-
 void handle_cutensor_error(cutensorStatus_t error, string msg) {
   if(error != CUTENSOR_STATUS_SUCCESS){ 
     if(msg == "") {

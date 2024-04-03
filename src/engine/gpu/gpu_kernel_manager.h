@@ -3,11 +3,10 @@
 
 #include "../../einsummable/simplescalarop.h"
 
-#include "../../einsummable/taskgraph.h" // touch_t
-
 #include "kernels.h"
 
 #include "cuda_kernels.h"
+#include "../../einsummable/taskgraph.h" // touch_t
 
 #include <cstdint>
 #include <thread>
@@ -52,15 +51,14 @@ private:
   struct contraction_t {
     cutensorTensorDescriptor_t descA;
     cutensorTensorDescriptor_t descB;
-    cutensorTensorDescriptor_t descC;
-    cutensorContractionDescriptor_t desc;
-    cutensorContractionFind_t find;
-    cutensorContractionPlan_t plan;
+    cutensorTensorDescriptor_t descC = nullptr;
+    cutensorOperationDescriptor_t desc;
+    cutensorPlan_t plan;
     dtype_t dtype;
     uint64_t worksize;
   };
 
-  contraction_t make_contraction(einsummable_t const& e, bool is_ttgt = false);
+  contraction_t make_contraction(einsummable_t const& e);
 
   void execute_contraction(
     contraction_t const& c,
@@ -72,13 +70,9 @@ private:
     uint64_t given_worksize) const;
 
   struct reduction_t {
-    // TODO
-    cutensorTensorDescriptor_t descA;
-    cutensorTensorDescriptor_t descC;
-    cutensorOperator_t opReduce;
     dtype_t dtype;
-    std::vector<int32_t> modeA;
-    std::vector<int32_t> modeC;
+    uint64_t worksize;
+    cutensorPlan_t plan;
   };
 
   reduction_t make_reduction(einsummable_t const& e);
@@ -155,15 +149,15 @@ private:
     cutensor_elementwise_kernel_t kernel;
   };
 
-  struct scale_t{
-    float scale;
-    cuda_kernel_t kernel;
-  };
-
   struct power_t{
     double power;
     cuda_kernel_t kernel;
   };
+
+  struct scale_t{
+    float scale;
+    cuda_kernel_t kernel;
+  }; 
 
   struct pow_and_elementwise_t{
     cutensor_kernel_t kernel;
@@ -193,11 +187,6 @@ public:
   optional<workspace_info_t> build(einsummable_t const& e);
 
   workspace_info_t workspace_size(einsummable_t const& e) const;
-
-  uint64_t known_workspace_size(
-    einsummable_t const& e, 
-    void* out, 
-    vector<void const*> inns) const;
 
   void operator()(
     touch_t const& touch,
@@ -241,7 +230,7 @@ private:
 
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
-  cutensorHandle_t* cutensor_handle;
+  cutensorHandle_t cutensor_handle;
   cublasHandle_t cublas_handle; 
 
   float16_t           one_half;
