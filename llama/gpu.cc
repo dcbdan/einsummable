@@ -336,7 +336,7 @@ void main_rank_zero(
   reader.shutdown(register_cmd);
 
   {
-    auto num_gpus = 1; 
+    auto num_gpus = 4; 
     auto num_computes_per_loc = 4;
     autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, num_computes_per_loc);
     vector<placement_t> pls = autoplace01(builder.graph, config);

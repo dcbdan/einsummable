@@ -86,7 +86,8 @@ private:
     uint64_t given_worksize) const;
 
   struct elementwise_t {
-    list_simple_scalarop_t sops;    
+    list_simple_scalarop_t sops;
+    vector<cutensorPlan_t> plans;    
     vector<uint64_t> join_shape;
     vector<vector<int>> inns;
     int out_rank;
@@ -94,37 +95,65 @@ private:
 
   uint64_t elementwise_workspace_size(elementwise_t const& e) const;
 
+  vector<cutensorPlan_t> make_elementwise_plans(
+    list_simple_scalarop_t const& sops,
+    vector<uint64_t> const& join_shape,
+    vector<vector<int>> const& inns,
+    int out_rank) const;
+
+  cutensorPlan_t sop_scale_plan(
+    simple_scalarop_t::scale_t const& op,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  cutensorPlan_t sop_scale_add_plan(
+    scalar_t const& scale,
+    vector<int> const& inn_idxs_,
+    vector<uint64_t> const& out_shape_) const;
+
+  cutensorPlan_t sop_scale_mul_plan(
+    scalar_t const& scale,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  cutensorPlan_t sop_unary_plan(
+    simple_scalarop_t::unary_t const& op,
+    vector<int> const& inn_idxs,
+    vector<uint64_t> const& out_shape) const;
+
+  cutensorPlan_t sop_binary_plan(
+    simple_scalarop_t::binary_t const& op,
+    vector<int> const& lhs_idxs,
+    vector<int> const& rhs_idxs,
+    vector<uint64_t> const& out_shape) const;                    
+
   void execute_sop_scale(
     simple_scalarop_t::scale_t const& op,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,
-    vector<int> const& inn_idxs,
-    vector<uint64_t> const& out_shape) const;
+    cutensorPlan_t plan) const;
 
   void execute_sop_scale_add(
     scalar_t const& scale,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,
-    vector<int> const& inn_idxs_,
-    vector<uint64_t> const& out_shape_) const;
+    cutensorPlan_t plan) const;
 
   void execute_sop_scale_mul(
     scalar_t const& scale,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,
-    vector<int> const& inn_idxs,
-    vector<uint64_t> const& out_shape) const;
+    cutensorPlan_t plan) const;
 
   void execute_sop_unary(
     simple_scalarop_t::unary_t const& op,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,
-    vector<int> const& inn_idxs,
-    vector<uint64_t> const& out_shape) const;
+    cutensorPlan_t plan) const;
 
   void execute_sop_binary(
     simple_scalarop_t::binary_t const& op,
@@ -132,9 +161,8 @@ private:
     void* out_mem,
     void const* lhs_mem,
     void const* rhs_mem,
-    vector<int> const& lhs_idxs,
-    vector<int> const& rhs_idxs,
-    vector<uint64_t> const& out_shape) const;
+    cutensorPlan_t plan,
+    bool swapped) const;
 
   void execute_elementwise(
     elementwise_t const& op,

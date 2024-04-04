@@ -375,6 +375,8 @@ kernel_manager_t::build(einsummable_t const& e_)
     
     elementwise_t kernel {
       .sops = sops,
+      .plans = make_elementwise_plans(sops, einsummable.join_shape,
+                                      einsummable.inns, einsummable.out_rank),
       .join_shape = einsummable.join_shape,
       .inns = einsummable.inns,
       .out_rank = einsummable.out_rank
@@ -916,11 +918,6 @@ void kernel_manager_t::execute_matmul(
   else {
     throw std::runtime_error("not implemented: the other cublas matmul dtypes");
   }
-
-  // handle_cuda_error(cudaDeviceSynchronize());
-  // auto end = std::chrono::high_resolution_clock::now();
-  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
-  // std::cout << "cublasSgemm took " << duration.count() << " ms" << std::endl;
 }
 
 void kernel_manager_t::execute_contraction(
@@ -1265,6 +1262,7 @@ void kernel_manager_t::execute_elementwise(
   };
   for(int which_sop = 0; which_sop != e.sops.ops.size(); ++which_sop) {
     auto const& [sop, args] = e.sops.ops[which_sop];
+    auto plan = e.plans[which_sop];
 
     void* this_out_mem = 
       which_sop == e.sops.ops.size() - 1 ?
@@ -1275,48 +1273,87 @@ void kernel_manager_t::execute_elementwise(
       execute_sop_scale(
         sop.get_scale(), stream, this_out_mem,
         get_inn_memory_at(args[0]),
-        get_inn_idxs_at(args[0]),
-        e.join_shape);
+        plan);
     } else if(sop.is_unary()) {
       execute_sop_unary(
         sop.get_unary(), stream, this_out_mem, 
         get_inn_memory_at(args[0]),
-        get_inn_idxs_at(args[0]),
-        e.join_shape);
+        plan);
     } else if(sop.is_binary()) {
+      // first check if we need to swap the arguments
+      auto lhs = get_inn_idxs_at(args[0]);
+      auto rhs = get_inn_idxs_at(args[1]);
+      bool swap = false;
+      if (rhs.size() > lhs.size()) {
+        swap = true;
+      }
       execute_sop_binary(
         sop.get_binary(), stream, this_out_mem,
         get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
-        get_inn_idxs_at(args[0]),   get_inn_idxs_at(args[1]),
-        e.join_shape);
+        plan, swap);
     } else {
       throw std::runtime_error("missing sop case!");
     }
   }
 }
 
-void kernel_manager_t::execute_sop_scale(
+vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
+  list_simple_scalarop_t const& sops,
+  vector<uint64_t> const& join_shape,
+  vector<vector<int>> const& inns,
+  int out_rank) const
+{
+  vector<cutensorPlan_t> ret;
+  vector<int> out_idxs = vector_iota<int>(out_rank);
+
+  auto get_inn_idxs_at = [&](int arg) -> vector<int> const& {
+    if(arg < 0) {
+      return out_idxs;
+    } else {
+      return inns[arg];
+    }
+  };
+  for(int which_sop = 0; which_sop != sops.ops.size(); ++which_sop) {
+    auto const& [sop, args] = sops.ops[which_sop];
+
+    if(sop.is_scale()) {
+      ret.push_back(
+        sop_scale_plan(
+          sop.get_scale(), get_inn_idxs_at(args[0]), join_shape));
+    }
+    else if(sop.is_unary()) {
+      ret.push_back(
+        sop_unary_plan(
+          sop.get_unary(), get_inn_idxs_at(args[0]), join_shape));
+    }
+    else if(sop.is_binary()) {
+      ret.push_back(
+        sop_binary_plan(
+          sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
+    }
+    else {
+      throw std::runtime_error("missing sop case!");
+    }
+  }
+  return ret;
+}
+
+cutensorPlan_t kernel_manager_t::sop_scale_plan(
   simple_scalarop_t::scale_t const& op,
-  cudaStream_t stream,
-  void* out_mem,
-  void const* inn_mem,
   vector<int> const& inn_idxs,
   vector<uint64_t> const& out_shape) const
 {
   if (op.bop == simple_scalarop_t::bop_t::mul) {
-    execute_sop_scale_mul(op.scale, stream, out_mem, inn_mem, inn_idxs, out_shape);
+    return sop_scale_mul_plan(op.scale, inn_idxs, out_shape);
   } else if (op.bop == simple_scalarop_t::bop_t::add) {
-    execute_sop_scale_add(op.scale, stream, out_mem, inn_mem, inn_idxs, out_shape);
+    return sop_scale_add_plan(op.scale, inn_idxs, out_shape);
   } else {
     throw std::runtime_error("not implemented: sop_scale");
   }
 }
 
-void kernel_manager_t::execute_sop_scale_add(
+cutensorPlan_t kernel_manager_t::sop_scale_add_plan(
   scalar_t const& scale,
-  cudaStream_t stream,
-  void* out_mem,
-  void const* inn_mem,
   vector<int> const& inn_idxs_,
   vector<uint64_t> const& out_shape_) const
 {
@@ -1340,20 +1377,11 @@ void kernel_manager_t::execute_sop_scale_add(
     .rhs = unary
   };
 
-  void* scale_mem = gpu_allocate_memory(dtype_size(scale.dtype), device);
-  cudaMemcpy(scale_mem, scale.raw(), dtype_size(scale.dtype), cudaMemcpyHostToDevice);
-
-  execute_sop_binary(binary, stream, out_mem, inn_mem, scale_mem, 
-    lhs_idxs, rhs_idxs, out_shape);
-
-  cudaFree(scale_mem);
+  return sop_binary_plan(binary, lhs_idxs, rhs_idxs, out_shape);
 }
 
-void kernel_manager_t::execute_sop_scale_mul(
+cutensorPlan_t kernel_manager_t::sop_scale_mul_plan(
   scalar_t const& scale,
-  cudaStream_t stream,
-  void* out_mem,
-  void const* inn_mem,
   vector<int> const& inn_idxs,
   vector<uint64_t> const& out_shape) const
 {
@@ -1409,25 +1437,18 @@ void kernel_manager_t::execute_sop_scale_mul(
                                             &planPref,
                                             algo,
                                             CUTENSOR_JIT_MODE_NONE));
-
-
+  
   cutensorPlan_t plan;
   handle_cutensor_error(cutensorCreatePlan(cutensor_handle,
                                   &plan,
                                   desc,
                                   planPref,
                                   0 /* workspaceSizeLimit */));
-
-  handle_cutensor_error(cutensorPermute(cutensor_handle,
-                        plan,
-                        alpha, inn_mem, out_mem, stream /* stream */));     
+  return plan;
 }
 
-void kernel_manager_t::execute_sop_unary(
+cutensorPlan_t kernel_manager_t::sop_unary_plan(
   simple_scalarop_t::unary_t const& op,
-  cudaStream_t stream,
-  void* out_mem,
-  void const* inn_mem,
   vector<int> const& inn_idxs,
   vector<uint64_t> const& out_shape) const
 {
@@ -1451,15 +1472,14 @@ void kernel_manager_t::execute_sop_unary(
       .rhs = unit_unary
     };
 
-    return execute_sop_binary(
-      new_binary, stream, out_mem, inn_mem, 
-      inn_mem, inn_idxs, inn_idxs, out_shape);
+    return sop_binary_plan(
+      new_binary, inn_idxs, inn_idxs, out_shape);
   }
 
   auto opElementwise = uop_to_cutensorOp(uop);
   auto typeCompute = dtype_to_computetype(type);
   auto typeA = dtype_to_cudatype(type);
-  
+
   vector<int> const& inn_modes = inn_idxs;
   std::vector<int32_t> modeA(inn_modes.begin(),inn_modes.end());
   int32_t nmodeA = modeA.size();
@@ -1506,26 +1526,18 @@ void kernel_manager_t::execute_sop_unary(
                                             &planPref,
                                             algo,
                                             CUTENSOR_JIT_MODE_NONE));
-
-
+  
   cutensorPlan_t plan;
   handle_cutensor_error(cutensorCreatePlan(cutensor_handle,
                                   &plan,
                                   desc,
                                   planPref,
                                   0 /* workspaceSizeLimit */));
-
-  handle_cutensor_error(cutensorPermute(cutensor_handle,
-                        plan,
-                        alpha, inn_mem, out_mem, stream /* stream */));                       
+  return plan;
 }
 
-void kernel_manager_t::execute_sop_binary(
+cutensorPlan_t kernel_manager_t::sop_binary_plan(
   simple_scalarop_t::binary_t const& op,
-  cudaStream_t stream,
-  void* out_mem,
-  void const* lhs_mem,
-  void const* rhs_mem,
   vector<int> const& lhs_idxs,
   vector<int> const& rhs_idxs,
   vector<uint64_t> const& out_shape) const
@@ -1597,7 +1609,7 @@ void kernel_manager_t::execute_sop_binary(
 
   const cutensorAlgo_t algo = CUTENSOR_ALGO_DEFAULT;
 
-  cutensorPlanPreference_t  planPref;
+  cutensorPlanPreference_t planPref;
   handle_cutensor_error(cutensorCreatePlanPreference(cutensor_handle,
                                             &planPref,
                                             algo,
@@ -1605,14 +1617,122 @@ void kernel_manager_t::execute_sop_binary(
 
   
 
-  cutensorPlan_t  plan; 
-  
-  //std::cout << "Log message15" << std::endl;
+  cutensorPlan_t plan; 
   handle_cutensor_error(cutensorCreatePlan(cutensor_handle,
                                   &plan,
                                   desc,
                                   planPref,
                                   0 /* workspaceSizeLimit */));
+
+  return plan;
+}
+
+void kernel_manager_t::execute_sop_scale(
+  simple_scalarop_t::scale_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  cutensorPlan_t plan) const
+{
+  if (op.bop == simple_scalarop_t::bop_t::mul) {
+    execute_sop_scale_mul(op.scale, stream, out_mem, inn_mem, plan);
+  } else if (op.bop == simple_scalarop_t::bop_t::add) {
+    execute_sop_scale_add(op.scale, stream, out_mem, inn_mem, plan);
+  } else {
+    throw std::runtime_error("not implemented: sop_scale");
+  }
+}
+
+void kernel_manager_t::execute_sop_scale_add(
+  scalar_t const& scale,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  cutensorPlan_t plan) const
+{
+  void* scale_mem = gpu_allocate_memory(dtype_size(scale.dtype), device);
+  cudaMemcpy(scale_mem, scale.raw(), dtype_size(scale.dtype), cudaMemcpyHostToDevice);
+
+  simple_scalarop_t::unary_t unary {
+    .scale = scalar_t::one(scale.dtype),
+    .op = simple_scalarop_t::uop_t::identity,
+  };
+
+  simple_scalarop_t::binary_t binary {
+    .op = simple_scalarop_t::bop_t::add,
+    .lhs = unary,
+    .rhs = unary
+  };
+
+  execute_sop_binary(binary, stream, out_mem, inn_mem, scale_mem, plan, false);
+
+  cudaFree(scale_mem);
+}
+
+void kernel_manager_t::execute_sop_scale_mul(
+  scalar_t const& scale,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  cutensorPlan_t plan) const
+{
+  void const* alpha = scale.raw();
+  handle_cutensor_error(cutensorPermute(cutensor_handle,
+                        plan,
+                        alpha, inn_mem, out_mem, stream /* stream */));     
+}
+
+void kernel_manager_t::execute_sop_unary(
+  simple_scalarop_t::unary_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* inn_mem,
+  cutensorPlan_t plan) const
+{
+  uint32_t const kAlignment = 128;
+  auto type = op.scale.dtype;
+  auto unary = op;
+  auto scale = unary.scale;
+  auto uop = unary.op;
+  if (uop == simple_scalarop_t::uop_t::square) {
+    simple_scalarop_t::unary_t unit_unary {
+      .scale = scalar_t::one(type),
+      .op = simple_scalarop_t::uop_t::identity
+    }; 
+    simple_scalarop_t::unary_t scale_unary {
+      .scale = scale,
+      .op = simple_scalarop_t::uop_t::identity
+    };
+    simple_scalarop_t::binary_t new_binary {
+      .op = simple_scalarop_t::bop_t::mul,
+      .lhs = scale_unary,
+      .rhs = unit_unary
+    };
+
+    // for square both sides are the same so we don't need to swap
+    return execute_sop_binary(
+      new_binary, stream, out_mem, inn_mem, inn_mem, plan, false);
+  }
+  void const* alpha = scale.raw();
+  handle_cutensor_error(cutensorPermute(cutensor_handle,
+                        plan,
+                        alpha, inn_mem, out_mem, stream /* stream */));                       
+}
+
+void kernel_manager_t::execute_sop_binary(
+  simple_scalarop_t::binary_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* lhs_mem,
+  void const* rhs_mem,
+  cutensorPlan_t plan,
+  bool swapped) const
+{
+  auto lhs = op.lhs;
+  auto rhs = op.rhs;
+  assert(lhs.scale.dtype == rhs.scale.dtype);
+  void const* alpha = lhs.scale.raw(); 
+  void const* beta = rhs.scale.raw();
 
   if(swapped){
     handle_cutensor_error(cutensorElementwiseBinaryExecute(cutensor_handle,
