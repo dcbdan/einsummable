@@ -596,5 +596,6 @@ int main(int argc, char** argv) {
   // feed_forward_main(argc, argv);
   // return attention_main(argc, argv);
   // return partial_attention_main(argc, argv);
+  // return llama_main(argc, argv);
   return(1);
 }
