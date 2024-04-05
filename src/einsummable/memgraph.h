@@ -233,6 +233,8 @@ public:
     touch_t const& get_touch() const;
     dtype_t out_dtype() const;
   };
+  
+  vector<uint64_t> get_numbyte_on_evict() const;
   // Consider an aggregation Y = X1 + X2 + X3 + X4 + X5
   // where the order that X1, ..., X5 comes available is
   // unknown and may be very different. We don't want to
@@ -428,6 +430,7 @@ public:
 
     bool is_local_to(int loc) const;
     string get_name() const;
+    
 
   private:
     _op_t op;

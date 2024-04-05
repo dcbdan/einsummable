@@ -74,6 +74,9 @@ void server_mg_base_t::execute_tg_server(
       full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
   //delete gremlin;
 
+  vector<uint64_t> io_bytes_each_loc = core_mg.get_numbyte_on_evict();
+
+  std::cout << "Number of bytes involved in I/O: " << io_bytes_each_loc << std::endl;
   {
   std::ofstream f("mg.gv");
   core_mg.print_graphviz(f);
@@ -101,12 +104,17 @@ void server_mg_base_t::execute_tg_server(
     execute_memgraph(mg, true);
   }
 
+  auto start_memgraph_time = std::chrono::high_resolution_clock::now();
+
   {
     comm.broadcast_string(core_mg.to_wire());
     comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
     comm.barrier();
     execute_memgraph(core_mg, false, scalar_vars);
   }
+  auto end_memgraph_time = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> elapsed = end_memgraph_time - start_memgraph_time;
+  std::cout << "Memgraph execution elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   rewrite_data_locs_server(out_tg_to_loc);
 }

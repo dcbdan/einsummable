@@ -61,7 +61,14 @@ void server_base_t::execute_graph(
       make_relation(gid, dst_tids)   // dst relation
     );
   }
+
+  auto remap_start_time = std::chrono::high_resolution_clock::now();
+
   remap(r);
+
+  auto remap_end_time = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> elapsed = remap_end_time - remap_start_time;
+  std::cout << "Remap elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   execute(taskgraph, scalar_vars);
 

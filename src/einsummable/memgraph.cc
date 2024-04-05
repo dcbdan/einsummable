@@ -964,6 +964,32 @@ memgraph_t::apply_t::out_dtype() const
   throw std::runtime_error("should not reach");
 }
 
+vector<uint64_t>
+memgraph_t::get_numbyte_on_evict() const
+{
+  vector<uint64_t> total_each_loc(num_compute_locs, 0);
+  for(int id = 0; id != nodes.size(); ++id) {
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
+    if (op.is_evict()) 
+    {
+      auto evict_node = op.get_evict();
+      int loc = evict_node.src.loc;
+      uint64_t size = evict_node.src.size;
+      total_each_loc[loc] += size;
+      
+    } else if (op.is_load()) 
+    {
+      auto load_node = op.get_load();
+      int loc = load_node.dst.loc;
+      uint64_t size = load_node.dst.size;
+      total_each_loc[loc] += size;
+    }
+  }
+
+  return total_each_loc;
+}
+
 std::ostream &operator<<(std::ostream &out, mem_t const& mem)
 {
   out << "[" << mem.offset << "," << mem.offset + mem.size << ")";
