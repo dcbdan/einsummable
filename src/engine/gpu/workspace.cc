@@ -1,6 +1,26 @@
 #include "workspace.h"
 #include <driver_types.h>
 
+gpu_workspace_manager_t::gpu_workspace_manager_t() {
+  // on each device, preallocate 2 16 MB and 2 32 MB blocks
+  // NOTE: this is hard-coded and we assume that we have enough memory for this
+  auto num_gpus = 4;
+  data.resize(num_gpus);
+  for (int gpu = 0; gpu < num_gpus; ++gpu) {
+    handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
+    for (int i = 0; i < 2; ++i) {
+      void* mem;
+      handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+      data[gpu].emplace_back(mem, 16 * 1024 * 1024);
+    }
+    for (int i = 0; i < num_gpus; ++i) {
+      void* mem;
+      handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+      data[gpu].emplace_back(mem, 32 * 1024 * 1024);
+    }
+  }
+}
+
 gpu_workspace_manager_t::~gpu_workspace_manager_t() {
   int flag = 0;
   for(int gpu = 0; gpu != data.size(); ++gpu) {
@@ -52,6 +72,8 @@ gpu_workspace_manager_t::try_to_acquire_impl(
 
   void* mem;
   handle_cuda_error(cudaMalloc(&mem, size));
+  // print the allocated size in MB
+  DOUT("Allocated " << size / 1024 / 1024 << " MB on device " << device << "\n");
   // TODO: currently not setting device back to wtvr it was
 
   return gpu_workspace_resource_t {

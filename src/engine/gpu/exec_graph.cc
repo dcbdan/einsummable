@@ -122,7 +122,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           node.op.get_apply_loc()
         );
         // Note: op->einsummable and einsum should be the same here
-
+        // DOUT("Einsummable: " << einsum);
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
           DOUT("Einsummable: " << einsum);

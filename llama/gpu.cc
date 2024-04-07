@@ -337,8 +337,9 @@ void main_rank_zero(
 
   {
     auto num_gpus = 4; 
-    auto num_computes_per_loc = 4;
-    autoplace_config_t config = autoplace_config_t::make_default01(num_gpus, num_computes_per_loc);
+    auto num_computes_per_loc = 1;
+    autoplace_config_t config = autoplace_config_t::make_default01(
+      num_gpus, num_computes_per_loc);
     vector<placement_t> pls = autoplace01(builder.graph, config);
     server.execute_graph(builder.graph, pls);
   }
@@ -394,7 +395,7 @@ void main_rank_zero(
 // ./gpu_llama 7B 1 max_n_layers n
 int main(int argc, char** argv) {
 
-  set_default_dtype(dtype_t::f16);
+  set_default_dtype(dtype_t::f32);
 
   if(argc < 3) {
     DOUT("argc " << argc);

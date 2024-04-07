@@ -359,11 +359,43 @@ kernel_manager_t::build(einsummable_t const& e_)
 
   if(is_c64_elementwise_multiply(einsummable)){
     // DOUT("Building c64 elementwise multiply kernel");
-    auto c = make_contraction(einsummable);
+    // this is also an elementwise operation x0 * x1
+    simple_scalarop_t::unary_t unary {
+      .scale = scalar_t::one(dtype_t::c64),
+      .op = simple_scalarop_t::uop_t::identity,
+    };
 
-    kernels.insert({einsummable,c});
+    simple_scalarop_t::binary_t binary {
+      .op = simple_scalarop_t::bop_t::mul,
+      .lhs = unary,
+      .rhs = unary,
+    };
 
-    return workspace_info_t(c.worksize);
+    simple_scalarop_t sop{
+      .op = binary,
+    };
+
+    list_simple_scalarop_t::op_t op {
+      .op = sop,
+      .args = {0, 1},
+    };
+
+    list_simple_scalarop_t list {
+      .ops = {op},
+    };
+
+    elementwise_t kernel {
+      .sops = list,
+      .plans = make_elementwise_plans(list, einsummable.join_shape,
+                                      einsummable.inns, einsummable.out_rank),
+      .join_shape = einsummable.join_shape,
+      .inns = einsummable.inns,
+      .out_rank = einsummable.out_rank
+    };
+
+    kernels.insert({einsummable, kernel});
+
+    return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
   // Assumption: We can execute all simple scalarops
@@ -770,6 +802,7 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
       workspaceSizeEstimate);
 
   if(status != CUTENSOR_STATUS_SUCCESS){
+    DOUT("NOTE: using TTGT instead of default");
     const cutensorAlgo_t algo = CUTENSOR_ALGO_TTGT;
 
     handle_cutensor_error(

@@ -28,7 +28,7 @@ struct gpu_workspace_manager_t
       gpu_workspace_desc_t,
       gpu_workspace_resource_t>
 {
-  gpu_workspace_manager_t() {}
+  gpu_workspace_manager_t();
 
   ~gpu_workspace_manager_t();
 
