@@ -1,3 +1,5 @@
+#ifndef NoDepCpuEngine
+
 #pragma once
 #include "../base/setup.h"
 
@@ -409,4 +411,6 @@ private:
 
   std::mutex notify_mutex; // TODO: is this needed?
 };
+
+#endif
 

@@ -37,7 +37,11 @@ cpu_storage_t::stoalloc_t::stoalloc_t()
 {}
 
 uint64_t cpu_storage_t::stoalloc_t::allocate(uint64_t sz) {
-  return std::get<0>(allocator.allocate(sz));
+  auto maybe = allocator.allocate(sz);
+  if (maybe) {
+    return std::get<0>(maybe.value());
+  }
+  throw std::runtime_error("allocator_t could not allocate in cpu_storage_t::stoalloc_t::allocate()");
 }
 
 void cpu_storage_t::stoalloc_t::free(uint64_t offset) {

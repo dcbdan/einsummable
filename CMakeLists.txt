@@ -59,11 +59,7 @@ add_base_application("scalarop"         "exps" "scalarop")
 #add_base_application("engine"           "exps" "engine")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
-add_base_application("tgsimplify"       "exps" "tgsimplify")
-add_base_application("op" "exps" "simple_scalar_test")
-
-add_executable(tests_base tests/base.cc tests/test.cc)
-target_link_libraries(tests_base einsummable proto ${Protobuf_LIBRARIES})
+add_base_application("mg"               "exps" "mg")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -79,9 +75,9 @@ endfunction()
 
 
 if(${CPU_EXECUTION_ENGINE})
-  if(NOT MKL_THREADING)
-    set(MKL_THREADING sequential)
-  endif()
+  #if(NOT MKL_THREADING)
+  #  set(MKL_THREADING sequential)
+  #endif()
 
   add_compile_definitions(CPU_EXEC)
 
@@ -90,10 +86,11 @@ if(${CPU_EXECUTION_ENGINE})
   # and so on...
   # (MKL is bad at finding the right instruction set and
   #  this helps empirically)
-  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
+  #set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  find_package(MKL REQUIRED)
+  #find_package(MKL REQUIRED)
 
+  
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
@@ -101,7 +98,7 @@ if(${CPU_EXECUTION_ENGINE})
   include_directories(${UCX_PATH}/include)
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
-  include_directories(${MKL_INCLUDE})
+  #include_directories(${MKL_INCLUDE})
 
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
@@ -130,8 +127,9 @@ if(${CPU_EXECUTION_ENGINE})
   add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
-    MKL::MKL
     ucx::ucp ucx::ucs
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
     ${Protobuf_LIBRARIES}
     proto)
   endfunction()
@@ -153,8 +151,9 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
-  add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
-  add_cpu_application("senexp"                "exps" "senexp")
+  #add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  #add_cpu_application("senexp"                "exps" "senexp")
+  add_cpu_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
@@ -164,12 +163,14 @@ if(${CPU_EXECUTION_ENGINE})
       cpu_execution_engine
       proto
       ${Protobuf_LIBRARIES}
-      MKL::MKL
       ucx::ucp ucx::ucs)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
+  add_cpu_llama_application("cpuexecllama" "cpuexecllama")
+  add_cpu_llama_application("mgstate_benchmark" "mgstate_benchmark")
+
 
   # For some reason sentencepiece + protocolbuffers + this application
   # isn't cooperating well. Something to do with symbols + protocol
@@ -178,8 +179,8 @@ if(${CPU_EXECUTION_ENGINE})
   # executable and reads and writes from it.
   # And the tokenizer executable calls sentencepiece.
 
-  add_cpu_llama_application("train1" "train1")
-  add_cpu_llama_application("trainsize" "trainsize")
+  # add_cpu_llama_application("train1" "train1")
+  # add_cpu_llama_application("trainsize" "trainsize")
 
 endif()
 
@@ -193,7 +194,8 @@ if(${SENTENCEPIECE_EXP})
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
   endfunction()
-  add_sp_application("llama_tokenizer" "llama" "tokenizer")
+  # add_sp_application("llama_tokenizer" "llama" "tokenizer")
+
 endif()
 
 if(${GPU_EXECUTION_ENGINE})
@@ -304,4 +306,83 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("exp2" "exps" "GPU_xtreme")
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("gpu_llama" "gpu")
+endif()
+
+
+if(${NO_DEP_CPU_ENGINE})
+
+  add_compile_definitions(NoDepCpuEngine)
+
+  message(STATUS ${SENTENCEPIECE_DIR})
+  include_directories(${SENTENCEPIECE_DIR}/include)
+
+  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
+  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
+  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
+  file(GLOB CPMG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/mg/*.cc)
+  file(GLOB CPTG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/tg/*.cc)
+  file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
+
+  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
+  #       have to be rebuilt?
+  add_library(cpu_execution_engine
+    STATIC
+    ${BA_FILES}
+    ${ES_FILES}
+    ${MG_FILES}
+    ${AP_FILES}
+    ${EG_FILES}
+    ${SE_FILES}
+    ${CP_FILES}
+    ${CPMG_FILES}
+    ${CPTG_FILES}
+    ${CS_FILES}
+  )
+
+  function(add_cpu_nodep_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    cpu_execution_engine
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
+    ${Protobuf_LIBRARIES}
+    proto)
+  endfunction()
+
+  add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
+  add_cpu_nodep_application("cpuexecllama"        "exps" "cpuexecllama")
+
+  # function(add_cpu_llama_application exec filename)
+  #   add_executable(${exec} llama/${filename}.cc
+  #     llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
+  #     llama/dataset_reader.cc llama/piper.cc)
+  #   target_link_libraries(${exec}
+  #     cpu_execution_engine
+  #     proto
+  #     ${Protobuf_LIBRARIES}
+  #     MKL::MKL
+  #     ucx::ucp ucx::ucs)
+  # endfunction()
+
+  #add_cpu_llama_application("llama_cpu" "cpu2")
+  #add_cpu_llama_application("inference_exp" "inference_exp")
+
+  # For some reason sentencepiece + protocolbuffers + this application
+  # isn't cooperating well. Something to do with symbols + protocol
+  # buffers being used in sentence piece and this application. So instead
+  # of using sentence piece directly, train1 launches the tokenizer
+  # executable and reads and writes from it.
+  # And the tokenizer executable calls sentencepiece.
+
+  # add_cpu_llama_application("train1" "train1")
+  # add_cpu_llama_application("trainsize" "trainsize")
+
+  function(add_sp_application exec dir filename)
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec}
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
+  endfunction()
+  add_sp_application("llama_tokenizer" "llama" "tokenizer")
+
 endif()

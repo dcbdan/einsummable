@@ -62,6 +62,10 @@ void server_mg_base_t::execute_tg_server(
   auto [mem_sizes, full_data_locs, which_storage] =
     recv_make_mg_info();
 
+  std::ofstream f("tg.gv");
+  taskgraph.print_graphviz(f);
+  DOUT("printed tg.gv");
+
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
@@ -69,11 +73,14 @@ void server_mg_base_t::execute_tg_server(
       full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
   //delete gremlin;
 
-  //{
-  //std::ofstream f("mg.gv");
-  //core_mg.print_graphviz(f);
-  //DOUT("printed mg.gv");
-  //}
+  vector<uint64_t> io_bytes_each_loc = core_mg.get_numbyte_on_evict();
+
+  std::cout << "Number of bytes involved in I/O: " << io_bytes_each_loc << std::endl;
+  {
+  std::ofstream f("mg.gv");
+  core_mg.print_graphviz(f);
+  DOUT("printed mg.gv");
+  }
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
@@ -96,12 +103,17 @@ void server_mg_base_t::execute_tg_server(
     execute_memgraph(mg, true);
   }
 
+  auto start_memgraph_time = std::chrono::high_resolution_clock::now();
+
   {
     comm.broadcast_string(core_mg.to_wire());
     comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
     comm.barrier();
     execute_memgraph(core_mg, false, scalar_vars);
   }
+  auto end_memgraph_time = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> elapsed = end_memgraph_time - start_memgraph_time;
+  std::cout << "Memgraph execution elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   rewrite_data_locs_server(out_tg_to_loc);
 }

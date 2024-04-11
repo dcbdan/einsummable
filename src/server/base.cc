@@ -45,21 +45,30 @@ void server_base_t::execute_graph(
   }
   //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("printed tg.gv");
-  //}
+  {
+   std::ofstream f("tg.gv");
+   taskgraph.print_graphviz(f);
+   DOUT("printed tg.gv");
+  }
 
+  // inn_g_to_t is input id to taskid in taskgraph 
+  //TODO: this remap(remap_relations_t r) kind of function signature only appear in server_dist_base_t. We need to remove this 
   remap_relations_t r;
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
+    //map the previous gid,relation to new gid,relation after we make taskgraph
     r.insert(
       get_relation(gid),             // src relation
       make_relation(gid, dst_tids)   // dst relation
     );
   }
 
+  auto remap_start_time = std::chrono::high_resolution_clock::now();
+
   remap(r);
+
+  auto remap_end_time = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> elapsed = remap_end_time - remap_start_time;
+  std::cout << "Remap elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   execute(taskgraph, scalar_vars);
 
