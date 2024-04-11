@@ -149,6 +149,25 @@ _pop_unary_success(node_t const* node)
     }
   }
 
+  // check if this op is in the form of -1 * x
+  // if so, we can simplify it to neg(x)
+  {
+    if(node->op.is_mul()) {
+    node_t const* lhs = &(node->children[0]);
+    node_t const* rhs = &(node->children[1]);
+    if(lhs->op.is_constant() && lhs->op.get_constant().str() == "-1") {
+      return {
+        simple_scalarop_t::unary_t {
+          .scale = scalar_t::one(node->dtype),
+          .op = simple_scalarop_t::uop_t::neg
+          },
+        rhs
+        };
+      }
+    }
+  }
+  
+  // DOUT("no unary match, using identity");
   return {
     simple_scalarop_t::unary_t {
       .scale = scalar_t::one(node->dtype),
@@ -187,8 +206,9 @@ _pop_with_binary_simple_scalarop(
   if(lhs->num_inputs() == 0 || rhs->num_inputs() == 0) {
     throw std::runtime_error("lhs or rhs is constant; maybe simplify first!");
   }
-
+  // DOUT("Popping lhs");
   auto [unary_lhs, child_lhs] = _pop_unary_success(lhs);
+  // DOUT("Popping rhs");
   auto [unary_rhs, child_rhs] = _pop_unary_success(rhs);
   simple_scalarop_t::binary_t op {
     .op = bop,

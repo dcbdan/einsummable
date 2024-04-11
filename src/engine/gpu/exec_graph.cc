@@ -70,10 +70,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   };
 
   // std::unordered_set<einsummable_t> all_einsums;
-
+  int dummy_count = 0;
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
-    //  DOUT("Skipping node " << mid << " because it is not local to this gpu")
+     DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
      continue;
     }
 
@@ -90,6 +90,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
       // DOUT("Inserted dummy op for node " << mid);
+      dummy_count++;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       int loc = node.op.get_apply_loc();
@@ -206,6 +207,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   // Debug: print the exec_graph
   // print_exec_graph(graph);
   DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  // DOUT("The number of dummy nodes in the exec_graph is " << dummy_count);
   return graph;
 }
 

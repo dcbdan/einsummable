@@ -245,6 +245,10 @@ kernel_manager_t::build(einsummable_t const& e_)
   if(einsummable.is_contraction()) {
     auto c = make_contraction(einsummable);
     kernels.insert({einsummable,c});
+    // print the einsummable if the contraction workspace size > 100MB
+    if (c.worksize > 100 * 1024 * 1024) {
+      DOUT("NOTE: Contraction workspace size: " << c.worksize << " for " << einsummable);
+    }
     return workspace_info_t(c.worksize);
   }
 
@@ -277,8 +281,10 @@ kernel_manager_t::build(einsummable_t const& e_)
 
       kernels.insert({einsummable, reduct});
 
-      // we are not returning a workspace size here because we don't know yet
-      // see known_workspace_size
+      if (reduct.worksize > 100 * 1024 * 1024) {
+        DOUT("NOTE: Reduction workspace size: " << reduct.worksize << " for " << einsummable);
+      }
+
       return workspace_info_t(reduct.worksize);
     }
 
@@ -354,6 +360,10 @@ kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, pow_ane_ele_kernel});
 
+    if (worksize > 100 * 1024 * 1024) {
+      DOUT("NOTE: Elementwise with pow workspace size: " << worksize << " for " << einsummable);
+    }
+
     return workspace_info_t(worksize);
   }
 
@@ -395,6 +405,10 @@ kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, kernel});
 
+    if (elementwise_workspace_size(kernel) > 100 * 1024 * 1024) {
+      DOUT("NOTE: Elementwise workspace size: " << elementwise_workspace_size(kernel) << " for " << einsummable);
+    }
+
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
@@ -415,6 +429,11 @@ kernel_manager_t::build(einsummable_t const& e_)
     };
 
     kernels.insert({einsummable, kernel});
+
+    if (elementwise_workspace_size(kernel) > 100 * 1024 * 1024) {
+      DOUT("NOTE: Elementwise workspace size: " << elementwise_workspace_size(kernel) << " for " << einsummable);
+      DOUT("Simplified to: " << einsummable.join.simplify());
+    }
 
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
@@ -1202,7 +1221,6 @@ vector<int> _which_ew_memory(list_simple_scalarop_t const& sops)
   // used for deleting later.
   vector<int> last_usage(sops.ops.size()-1, -1);
   for(int i = 0; i != sops.ops.size(); ++i) {
-    // TODO: check all auto const& [op, args] = sops.ops
     auto const& [op, args] = sops.ops[i];
     for(int which = 0; which != op.num_inns(); ++which) {
       int const& arg = args[which];
@@ -1247,7 +1265,7 @@ uint64_t kernel_manager_t::elementwise_workspace_size(
   kernel_manager_t::elementwise_t const& e) const
 {
   vector<int> usage_mems = _which_ew_memory(e.sops);
-  dtype_t max_dtype = e.sops.max_dtype(); // TODO: need to be able to get max_dtype 
+  dtype_t max_dtype = e.sops.max_dtype(); 
   uint64_t max_size = product(e.join_shape)*dtype_size(max_dtype);
   int which_last = *std::max_element(usage_mems.begin(), usage_mems.end());
   return max_size * (1 + which_last);
@@ -1261,7 +1279,7 @@ void kernel_manager_t::execute_elementwise(
   void* work_mem,
   uint64_t given_worksize) const
 {
-  dtype_t max_dtype = e.sops.max_dtype(); // TODO: need to be able to get max_dtype 
+  dtype_t max_dtype = e.sops.max_dtype();
   uint64_t max_size = product(e.join_shape)*dtype_size(max_dtype);
   vector<int> usage_mems = _which_ew_memory(e.sops);
   vector<int> out_idxs = vector_iota<int>(e.out_rank);
