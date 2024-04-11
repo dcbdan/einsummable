@@ -85,7 +85,7 @@ builder_t::make_first_token(
   model_args_t const& args,
   uint64_t seqlen)
 {
-  return _make(args, 0, seqlen, true);
+  return _make(args, 0, seqlen, false);
 }
 
 builder_t

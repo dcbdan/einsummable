@@ -169,7 +169,6 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
   add_cpu_llama_application("cpuexecllama" "cpuexecllama")
-  add_cpu_llama_application("mgstate_benchmark" "mgstate_benchmark")
 
 
   # For some reason sentencepiece + protocolbuffers + this application
@@ -306,83 +305,4 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("exp2" "exps" "GPU_xtreme")
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("gpu_llama" "gpu")
-endif()
-
-
-if(${NO_DEP_CPU_ENGINE})
-
-  add_compile_definitions(NoDepCpuEngine)
-
-  message(STATUS ${SENTENCEPIECE_DIR})
-  include_directories(${SENTENCEPIECE_DIR}/include)
-
-  file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
-  file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
-  file(GLOB CP_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/*.cc)
-  file(GLOB CPMG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/mg/*.cc)
-  file(GLOB CPTG_FILES ${PROJECT_SOURCE_DIR}/src/engine/cpu/tg/*.cc)
-  file(GLOB CS_FILES ${PROJECT_SOURCE_DIR}/src/server/cpu/*.cc)
-
-  # TODO: how do you make it so that not all the ES_FILES and MG_FILES
-  #       have to be rebuilt?
-  add_library(cpu_execution_engine
-    STATIC
-    ${BA_FILES}
-    ${ES_FILES}
-    ${MG_FILES}
-    ${AP_FILES}
-    ${EG_FILES}
-    ${SE_FILES}
-    ${CP_FILES}
-    ${CPMG_FILES}
-    ${CPTG_FILES}
-    ${CS_FILES}
-  )
-
-  function(add_cpu_nodep_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
-  target_link_libraries(${exec}
-    cpu_execution_engine
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
-    ${Protobuf_LIBRARIES}
-    proto)
-  endfunction()
-
-  add_cpu_nodep_application("cpuexeccompare"        "exps" "cpuexeccompare")
-  add_cpu_nodep_application("cpuexecllama"        "exps" "cpuexecllama")
-
-  # function(add_cpu_llama_application exec filename)
-  #   add_executable(${exec} llama/${filename}.cc
-  #     llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
-  #     llama/dataset_reader.cc llama/piper.cc)
-  #   target_link_libraries(${exec}
-  #     cpu_execution_engine
-  #     proto
-  #     ${Protobuf_LIBRARIES}
-  #     MKL::MKL
-  #     ucx::ucp ucx::ucs)
-  # endfunction()
-
-  #add_cpu_llama_application("llama_cpu" "cpu2")
-  #add_cpu_llama_application("inference_exp" "inference_exp")
-
-  # For some reason sentencepiece + protocolbuffers + this application
-  # isn't cooperating well. Something to do with symbols + protocol
-  # buffers being used in sentence piece and this application. So instead
-  # of using sentence piece directly, train1 launches the tokenizer
-  # executable and reads and writes from it.
-  # And the tokenizer executable calls sentencepiece.
-
-  # add_cpu_llama_application("train1" "train1")
-  # add_cpu_llama_application("trainsize" "trainsize")
-
-  function(add_sp_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
-  target_link_libraries(${exec}
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
-    ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
-  endfunction()
-  add_sp_application("llama_tokenizer" "llama" "tokenizer")
-
 endif()

@@ -103,7 +103,7 @@ void server_mg_base_t::execute_tg_server(
     execute_memgraph(mg, true);
   }
 
-  auto start_memgraph_time = std::chrono::high_resolution_clock::now();
+  // auto start_memgraph_time = std::chrono::high_resolution_clock::now();
 
   {
     comm.broadcast_string(core_mg.to_wire());
@@ -111,9 +111,9 @@ void server_mg_base_t::execute_tg_server(
     comm.barrier();
     execute_memgraph(core_mg, false, scalar_vars);
   }
-  auto end_memgraph_time = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double, std::milli> elapsed = end_memgraph_time - start_memgraph_time;
-  std::cout << "Memgraph execution elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
+  // auto end_memgraph_time = std::chrono::high_resolution_clock::now();
+  // std::chrono::duration<double, std::milli> elapsed = end_memgraph_time - start_memgraph_time;
+  // std::cout << "Memgraph execution elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   rewrite_data_locs_server(out_tg_to_loc);
 }
