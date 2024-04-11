@@ -116,11 +116,6 @@ void print_vec(std::ostream& out, vector<T> const& xs)
   out << "}";
 }
 
-template <typename T>
-void print_vec(vector<T> const& xs)
-{
-  print_vec(std::cout, xs);
-}
 
 template <typename T>
 std::ostream& operator<<(std::ostream& out, vector<T> const& ts) {

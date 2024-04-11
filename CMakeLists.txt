@@ -75,9 +75,9 @@ endfunction()
 
 
 if(${CPU_EXECUTION_ENGINE})
-  #if(NOT MKL_THREADING)
-  #  set(MKL_THREADING sequential)
-  #endif()
+  if(NOT MKL_THREADING)
+    set(MKL_THREADING sequential)
+  endif()
 
   add_compile_definitions(CPU_EXEC)
 
@@ -86,9 +86,9 @@ if(${CPU_EXECUTION_ENGINE})
   # and so on...
   # (MKL is bad at finding the right instruction set and
   #  this helps empirically)
-  #set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
+  set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
-  #find_package(MKL REQUIRED)
+  find_package(MKL REQUIRED)
 
   
   if(NOT DEFINED UCX_PATH)
@@ -98,7 +98,7 @@ if(${CPU_EXECUTION_ENGINE})
   include_directories(${UCX_PATH}/include)
   find_package(UCX REQUIRED COMPONENTS ucp uct ucs)
 
-  #include_directories(${MKL_INCLUDE})
+  include_directories(${MKL_INCLUDE})
 
   file(GLOB EG_FILES ${PROJECT_SOURCE_DIR}/src/engine/*.cc)
   file(GLOB SE_FILES ${PROJECT_SOURCE_DIR}/src/server/*.cc)
@@ -127,6 +127,7 @@ if(${CPU_EXECUTION_ENGINE})
   add_executable(${exec} ${dir}/${filename}.cc)
   target_link_libraries(${exec}
     cpu_execution_engine
+    MKL::MKL
     ucx::ucp ucx::ucs
     #${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
     #${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
