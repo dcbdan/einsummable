@@ -329,7 +329,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     auto const& [global_gpu, tensor] = loc_tensor;
     int local_gpu = which_local_gpu(global_gpu);
     auto& allocator = allocators[local_gpu];
-    auto maybe_offset = allocator.try_to_allocate_without_deps(tensor->size);
+    auto maybe_offset = allocator.allocate_without_deps(tensor->size);
 
     memstoloc_t memstoloc;
     if(maybe_offset) {

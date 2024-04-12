@@ -6,6 +6,7 @@
 #include "../einsummable/memgraph.h"
 #include "../einsummable/relation.h"
 #include "../einsummable/dbuffer.h"
+#include "../einsummable/mgmake.h"
 
 #include "../engine/communicator.h"
 #include "../engine/threadpool.h"

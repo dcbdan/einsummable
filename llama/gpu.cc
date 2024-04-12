@@ -243,11 +243,26 @@ void main_rank_zero(
 {
   int this_rank = 0;
 
-  // set sequence length here (seqlen)
-  token_maker_t token_maker = make_token_maker_with_shape(1, 1024);
+  // llama gpu parameters here
+  args.set_default<int>("gpus", 4);
+  args.set_default<int>("computes", 1);
+  args.set_default<int>("nseq", 4096);
+  args.set_default<int>("nbatch", 1);
+  int num_gpus = args.get<int>("gpus");
+  int num_computes_per_loc = args.get<int>("computes");
+  int nseq = args.get<int>("nseq");
+  int nbatch = args.get<int>("nbatch");
+
+  // print parameters
+  DOUT("num_gpus:                        " << num_gpus);
+  DOUT("num_computes_per_loc:            " << num_computes_per_loc);
+  DOUT("nseq:                            " << nseq);
+  DOUT("nbatch:                          " << nbatch);
+
+  token_maker_t token_maker = make_token_maker_with_shape(nbatch, nseq);
 
   vtensor_t<int> init_tokens = token_maker.get_tokens();
-  DOUT(init_tokens.get());
+  // DOUT(init_tokens.get());
 
   uint64_t bsz    = init_tokens.get_shape()[0];
   uint64_t seqlen = init_tokens.get_shape()[1];
@@ -262,7 +277,6 @@ void main_rank_zero(
   string register_cmd = server.get_registered_cmd();
 
   model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
-  // TODO: set the max seq len
 
   args.set_default<int>("max_n_layers", -1);
   {
@@ -336,8 +350,6 @@ void main_rank_zero(
   reader.shutdown(register_cmd);
 
   {
-    auto num_gpus = 4; 
-    auto num_computes_per_loc = 1;
     autoplace_config_t config = autoplace_config_t::make_default01(
       num_gpus, num_computes_per_loc);
     vector<placement_t> pls = autoplace01(builder.graph, config);

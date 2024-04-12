@@ -21,7 +21,7 @@ struct autoplace_config_t {
     autoplace_config_t ret(n_locs, n_compute_per_loc, 1000);
     ret._max_branching = 2;
     ret._discount_input_factor = 1;
-    ret._search_space = parts_space_t::contraction;
+    ret._search_space = parts_space_t::all_range;
     return ret;
   }
 
