@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/autoplace.dir/exps/autoplace.cc.o  -o autoplace  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

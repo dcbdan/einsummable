@@ -1,0 +1,7 @@
+digraph {
+  n0 [style=filled,label="input0@loc0",color="#61B292"]
+  n1 [style=filled,label="apply1@loc[0]es[100,100]: ab->ab | exp[hole|f32@0]",color="#61B292"]
+  n0 -> n1[label="0"]
+  n2 [style=filled,label="apply2@loc[0]es[100,100]: ab->ab | ite_>=[constant{f32|0},hole|f32@0,constant{f32|0},hole|f32@0]",color="#61B292"]
+  n1 -> n2[label="0"]
+}

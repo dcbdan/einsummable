@@ -1,6 +1,62 @@
 #include "graph.h"
 #include "../base/hrect.h"
 
+/////////////////////////////////////////
+void graph_t::removeNode(int nodeId) 
+{
+    // Get the node to remove
+    auto& nodeToRemove = nodes[nodeId];
+
+    // Update the incoming connections of all nodes that nodeToRemove points to
+    for (int child_id : nodeToRemove.outs) {
+        auto& child_node = nodes[child_id];
+
+        // Erase nodeId from the inns of each child node
+        child_node.inns.erase(std::remove(child_node.inns.begin(), child_node.inns.end(), nodeId), child_node.inns.end());
+
+        // Adjust indices in inns that are higher than nodeId to reflect the removal
+        for (int& inn_id : child_node.inns) {
+            if (inn_id > nodeId) {
+                inn_id--;
+            }
+        }
+    }
+
+    // Update the outgoing connections of all nodes that point to nodeToRemove
+    for (int parent_id : nodeToRemove.get_inns_set()) {
+        auto& parent_node = nodes[parent_id];
+
+        // Erase nodeId from the outs of each parent node
+        parent_node.outs.erase(nodeId);
+
+        // Adjust indices in outs that are higher than nodeId to reflect the removal
+        set<int> updatedOuts;
+        for (int out_id : parent_node.outs) {
+            updatedOuts.insert(out_id > nodeId ? out_id - 1 : out_id);
+        }
+        parent_node.outs = std::move(updatedOuts);
+    }
+
+    // Finally, remove the node from the graph
+    nodes.erase(nodes.begin() + nodeId);
+
+    // Adjust all indices in inns and outs of the remaining nodes to account for the removed node
+    for (auto& node : nodes) {
+        for (int& inn_id : node.inns) {
+            if (inn_id > nodeId) {
+                inn_id--;
+            }
+        }
+
+        set<int> updatedOuts;
+        for (int out_id : node.outs) {
+            updatedOuts.insert(out_id > nodeId ? out_id - 1 : out_id);
+        }
+        node.outs = std::move(updatedOuts);
+    }
+}
+////////////////////////////////////////
+
 int graph_constructor_t::insert_input(
   placement_t placement, dtype_t dtype)
 {

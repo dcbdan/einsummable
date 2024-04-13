@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/cpoint.dir/llama/cpoint.cc.o CMakeFiles/cpoint.dir/llama/modules.cc.o CMakeFiles/cpoint.dir/llama/misc.cc.o CMakeFiles/cpoint.dir/llama/builder.cc.o  -o cpoint  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

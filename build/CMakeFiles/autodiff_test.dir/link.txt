@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/autodiff_test.dir/exps/autodiff_test.cc.o  -o autodiff_test  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

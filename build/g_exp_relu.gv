@@ -1,0 +1,13 @@
+digraph {
+  n0 [style=filled,label="input0
+{100,100}
+{1,1}",color="green"]
+  n1 [style=filled,label="einsummable1:ab->ab
+_exp(x0)  |  :
+{1,1}"]
+  n0 -> n1[label="0"]
+  n2 [style=filled,label="einsummable2:ab->ab
+(f32|0>=x0?f32|0:x0)  |  :
+{1,1}"]
+  n1 -> n2[label="0"]
+}

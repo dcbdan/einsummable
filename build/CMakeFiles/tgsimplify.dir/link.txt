@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/tgsimplify.dir/exps/tgsimplify.cc.o  -o tgsimplify  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

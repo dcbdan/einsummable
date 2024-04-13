@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/simplescalarop.dir/exps/simplescalarop.cc.o  -o simplescalarop  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

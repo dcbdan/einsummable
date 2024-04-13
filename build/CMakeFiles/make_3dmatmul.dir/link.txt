@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3  -rdynamic CMakeFiles/make_3dmatmul.dir/exps/make_3dmatmul.cc.o  -o make_3dmatmul  libeinsummable.a src/proto/libproto.a -lprotobuf -lpthread 

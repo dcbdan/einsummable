@@ -155,8 +155,8 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
-  add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
-  add_cpu_application("senexp"                "exps" "senexp")
+  # add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  # add_cpu_application("senexp"                "exps" "senexp")
   add_cpu_application("xtreme"                "exps" "xtreme")
 
   function(add_cpu_llama_application exec filename)
@@ -184,7 +184,9 @@ if(${CPU_EXECUTION_ENGINE})
 
   #add_cpu_llama_application("train1" "train1")
   add_cpu_llama_application("train2" "train2")
-  add_cpu_llama_application("trainsize" "trainsize")
+  # add_cpu_llama_application("trainsize" "trainsize")
+
+  add_cpu_llama_application("ew_fusion" "ew_fusion_00")
 
 endif()
 

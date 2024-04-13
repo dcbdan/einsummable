@@ -427,6 +427,9 @@ bool op_t::is_conj()     const { return std::holds_alternative< conj     >(op); 
 bool op_t::is_real()     const { return std::holds_alternative< real     >(op); }
 bool op_t::is_imag()     const { return std::holds_alternative< imag     >(op); }
 bool op_t::is_cplex()    const { return std::holds_alternative< cplex    >(op); }
+///////////////////////
+// bool op_t::is_exp_relu() const { return std::holds_alternative< exp_relu >(op); }
+//////////////////////
 
 scalar_t op_t::get_constant() const { return std::get<constant>(op).value; }
 
@@ -485,6 +488,11 @@ scalar_t op_t::eval(vector<scalar_t> const& xs) const
   if(is_log()) {
     return _eval_log(xs[0]);
   }
+  /////////////////////
+  // if (is_exp_relu()) {
+  //   return _eval_exp_relu(xs[0]);
+  // }
+  ////////////////////
   if(is_power()) {
     return _eval_power(get_power(), xs[0]);
   }
@@ -606,6 +614,22 @@ scalar_t op_t::_eval_exp(scalar_t inn)
   }
   throw std::runtime_error("_eval_exp: should not reach");
 }
+
+////////////////////////////////////////////
+// scalar_t op_t::_eval_exp_relu(scalar_t inn) {
+//     // First, compute the exponential of the input
+//     scalar_t exp_result = _eval_exp(inn);
+
+//     // Define the zero constant for the comparison in ReLU
+//     scalar_t zero = scalar_t::zero(exp_result.dtype);
+
+//     // ReLU operation: max(exp_result, 0)
+//     // This can be represented as an 'ite' operation: if exp_result > 0 then exp_result else 0
+//     scalar_t relu_result = _eval_ite(compare_t::gt, exp_result, zero, exp_result, zero);
+
+//     return relu_result;
+// }
+///////////////////////////////////////////
 
 scalar_t op_t::_eval_log(scalar_t inn)
 {
@@ -2091,6 +2115,21 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
+
+//////////////////////////////////////////////
+scalarop_t scalarop_t::make_exp_relu(dtype_t dtype) {
+    // Create the exponential operation
+    scalarop_t exp_op = make_exp(dtype);
+
+    // Create the ReLU operation
+    scalarop_t relu_op = make_relu(dtype);
+
+    // Combine the exponential and ReLU operations
+    scalarop_t exp_relu_op = combine(relu_op, { exp_op });
+
+    return exp_relu_op;
+}
+//////////////////////////////////////////////
 
 // 1 / (1 + e^x0)
 scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {

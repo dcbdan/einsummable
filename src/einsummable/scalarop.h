@@ -132,6 +132,10 @@ struct op_t {
   // create a complex from two real inputs
   struct cplex {};
 
+  ////////////////////////////
+  // struct exp_relu {};
+  ////////////////////////////
+
   bool is_constant() const;
   bool is_hole()     const;
   bool is_variable() const;
@@ -146,6 +150,9 @@ struct op_t {
   bool is_real()     const;
   bool is_imag()     const;
   bool is_cplex()    const;
+  //////////////////////
+  // bool is_exp_relu() const;
+  //////////////////////
 
   scalar_t get_constant() const;
 
@@ -171,6 +178,9 @@ struct op_t {
 
   std::variant<
     constant, hole, variable,
+    /////////////////
+    // exp_relu,
+    ////////////////
     add, mul, exp, log, power,
     ite, convert,
     conj, real, imag, cplex> op;
@@ -178,6 +188,9 @@ struct op_t {
   static scalar_t _eval_add(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_mul(scalar_t lhs, scalar_t rhs);
   static scalar_t _eval_exp(scalar_t inn);
+  /////////////////////////////////////////
+  // static scalar_t _eval_exp_relu(scalar_t inn);
+  /////////////////////////////////////////
   static scalar_t _eval_log(scalar_t inn);
   static scalar_t _eval_power(double to_the, scalar_t inn);
   static scalar_t _eval_ite(compare_t compare,
@@ -399,6 +412,10 @@ struct scalarop_t {
 
   // e^x0 
   static scalarop_t make_exp(dtype_t d = default_dtype());
+
+  //////////////////////////////
+  static scalarop_t make_exp_relu(dtype_t dtype = default_dtype());
+  //////////////////////////////
 
   // 1 / (1 + e^(-1*x0))
   static scalarop_t make_sigmoid(dtype_t d = default_dtype());

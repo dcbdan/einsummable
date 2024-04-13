@@ -1,0 +1,3 @@
+mkdir build && cd build
+cmake .. -DCPU_EXECUTION_ENGINE=ON -DUCX_PATH=/opt/ucx -DCMAKE_PREFIX_PATH="/home/sleem/intel/oneapi/mkl/2024.0"
+make -j${nproc}
