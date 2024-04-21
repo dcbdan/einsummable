@@ -67,26 +67,25 @@ allocator_t::find_first_available(uint64_t size)
 {
   using return_t = tuple<iter_t, iter_t, uint64_t>;
 
-  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter)
+  for(iter_t first = blocks.begin(); first != blocks.end(); )
   {
-    if(iter->available())
+    if(first->available())
     {
-      iter_t ret = iter;
+      uint64_t rem = align_to_power_of_two(first->beg, alignment_power) - first->beg;
+
+      iter_t last = first;
       uint64_t sz = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
-      for(; iter != blocks.end() && iter->available(); ++iter)
-      {
-        sz += iter->size();
-        if(rem != 0 && sz > rem)
-        {
-          rem = 0;
-          sz -= rem;
-        }
-        if(rem == 0 && sz >= size)
-        {
-          return optional<return_t>({ret, iter + 1, sz});
+      uint64_t size_with_rem = rem + size;
+
+      for(; last != blocks.end() && last->available(); ++last) {
+        sz += last->size();
+        if(sz >= size_with_rem) {
+          return optional<return_t>({first, last+1, sz});
         }
       }
+      first = last;
+    } else {
+      first++;
     }
   }
 
@@ -208,9 +207,7 @@ allocator_t::allocate_impl(uint64_t size_without_rem, bool no_deps)
       });
     }
     return value_t{aligned_offset, deps};
-  }
-  else
-  {
+  } else {
     return std::nullopt;
   }
 }
@@ -404,6 +401,10 @@ void allocator_t::clear_dependencies()
   }
 
   blocks = new_blocks;
+}
+
+allocator_t::save_t allocator_t::checkpoint() const {
+  return save_t(blocks);
 }
 
 allocator_t::save_t::save_t(): blocks(nullptr) {}

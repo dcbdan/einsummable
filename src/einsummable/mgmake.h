@@ -109,7 +109,7 @@ struct memgraph_make_state_t {
     int loc, uint64_t size,
     vector<int> cannot_evict = {});
 
-  // Try to insert an allocate note and return the alloc_t mem id
+  // Try to insert an allocate node and return the alloc_t mem id
   optional<int> 
   allocate_without_evict(int loc, uint64_t size);
 
@@ -134,7 +134,6 @@ struct memgraph_make_state_t {
 
   vector<tuple<int, mem_t>> 
   get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
-
 
   // this tensor was used, see if you can free the memory
   bool register_usage(int task_id);
@@ -189,7 +188,7 @@ struct memgraph_make_state_t {
   // These objects should tend to be updated together {{{
   // Mappings from the taskgraph tensor to the corresponding
   // mem graph node. This gets updated as tensors get evicted,
-  // and fully computed.
+  // loaded and fully computed.
   map<int, int> task_tensor_to_mem_node;
 
   // these are all the tensors (represented as tids) that are in storage

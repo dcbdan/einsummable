@@ -105,9 +105,7 @@ public:
     std::unique_ptr<vector<block_t>> blocks;
   };
 
-  save_t checkpoint() {
-    return save_t(blocks);
-  }
+  save_t checkpoint() const; 
 
   void reset(save_t const& save) {
     blocks = save(); 

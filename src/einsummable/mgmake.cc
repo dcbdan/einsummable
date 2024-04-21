@@ -59,7 +59,12 @@ memgraph_make_state_t::pop_memgraph()
   }
 
   memgraph_t ret = memgraph;
-  memgraph = memgraph_t();
+
+  memgraph = memgraph_t(
+    ret.num_compute_locs, 
+    ret.num_storage_locs, 
+    ret.storage_locs, 
+    ret.prune_edges);
 
   // update the trio
   //   task_tensor_to_mem_node
@@ -88,8 +93,7 @@ memgraph_make_state_t::pop_memgraph()
       if(ret_op.is_inputsto())
       {
         sto = ret_op.get_inputsto();
-      } else if(ret_op.is_evict()) 
-      {
+      } else if(ret_op.is_evict()) {
         auto const& evict = ret_op.get_evict();
         sto.storage_loc = evict.dst.loc;
         sto.storage_id = evict.dst.id;
@@ -171,8 +175,8 @@ memgraph_t::make_(
     // set up an allocator for each loc,
     // each with a very large amount of available memory
     allocators = vector<allocator_t>(
-        n_compute_locs,
-        allocator_t(std::numeric_limits<uint64_t>::max(), settings));
+      n_compute_locs,
+      allocator_t(std::numeric_limits<uint64_t>::max(), settings));
   } else {
     if(mem_sizes.size() != n_compute_locs) {
       throw std::runtime_error("must have mem sizes for each device");
@@ -227,6 +231,10 @@ memgraph_t::make_(
   } else {
     state.process(order_taskgraph(taskgraph));
   }
+
+  //if(input_memgraph) {
+  //  DOUT(input_memgraph.value().get_numbyte_on_evict());
+  //}
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
@@ -384,14 +392,15 @@ memgraph_make_state_t::memgraph_make_state_t(
     if(memstoloc.is_memloc())
     {
       auto const& [offset, size, loc] = memstoloc.get_memloc();
-      if(!allocators[loc].allocate_at_without_deps(offset, size)) {
+      if(!allocators.at(loc).allocate_at_without_deps(offset, size)) {
         throw std::runtime_error("could not allocate at previously alloced location");
       }
 
       inputmem_t input{
-          .loc = loc,
-          .offset = offset,
-          .size = size};
+        .loc = loc,
+        .offset = offset,
+        .size = size
+      };
 
       int mid = memgraph.insert(op_t(input), {});
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
@@ -405,9 +414,10 @@ memgraph_make_state_t::memgraph_make_state_t(
       _sto_id = std::max(_sto_id, 1 + storage_id);
 
       inputsto_t input{
-          .storage_loc = storage_loc,
-          .storage_id = storage_id,
-          .size = tg.out_size(tid)};
+        .storage_loc = storage_loc,
+        .storage_id = storage_id,
+        .size = tg.out_size(tid)
+      };
 
       int mid = memgraph.insert(op_t(input), {});
       task_tensor_to_mem_node_insert_on_storage(tid, mid);
@@ -457,7 +467,7 @@ void memgraph_make_state_t::initialize_input(int inn)
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
 
-  auto maybe = allocators[loc].allocate_without_deps(size);
+  auto maybe = allocators.at(loc).allocate_without_deps(size);
   if(maybe) {
     // If we are able to allocate without deps on memory, insert a inputmem_t
     auto const& offset = maybe.value();
@@ -565,28 +575,31 @@ bool memgraph_make_state_t::allocate_op(
   }
 }
 
-bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
+bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_tids)
 {
   // Note: it may be the case that these tids do not all belong to the
   //       same memory location!
 
   // All the save states
   vector<allocator_t::save_t> saves(allocators.size());
+  bool failed = false;
 
-  // A quick wrapper to  only form saves as needed;; 
+  // A quick wrapper to only form saves as needed;; 
   // doing this prevents us from calling the naive save 
   // for every allocator
   auto do_allocate = [&](int loc, uint64_t size) {
-    auto& allocator = allocators[loc];
-    auto& save = saves[loc];
+    auto& allocator = allocators.at(loc);
+    auto& save = saves.at(loc);
     if(!save) {
       save = allocator.checkpoint();
     }
-    return allocator.allocate(size);
+    auto ret = allocator.allocate(size);
+    return ret;
   };
 
+  vector<int> tids_need_alloc;
   vector<tuple<uint64_t, set<int>>> allocs;
-  for(int const& tid: tids) {
+  for(int const& tid: used_tids) {
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
     if(iter != task_tensor_to_mem_node.end()) { 
@@ -597,10 +610,14 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
       if(maybe_mem.is_stoloc()) {
         auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
         if(!maybe) {
+          failed = true;
           break;
         } else {
+          tids_need_alloc.push_back(tid);
           allocs.push_back(maybe.value());
         }
+      } else {
+        // that's fine, we don't have to allocate it then
       }
     } else {
       // This is an output tid that needs to be allocated
@@ -610,18 +627,20 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
       }
       auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
       if(!maybe) {
+        failed = true;
         break;
       } else {
+        tids_need_alloc.push_back(tid);
         allocs.push_back(maybe.value());
       }
     }
   }
 
-  if(allocs.size() != tids.size()) {
+  if(failed) {
     for(int loc = 0; loc != allocators.size(); ++loc) {
       auto& save = saves[loc];
       if(save) {
-        allocators[loc].reset(save);
+        allocators.at(loc).reset(save);
       }
     }
     return false;
@@ -632,7 +651,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
 
   vector<int> alloc_mids;
   alloc_mids.reserve(allocs.size());
-  for(auto const& [tid, info]: vector_zip(tids, allocs)) {
+  for(auto const& [tid, info]: vector_zip(tids_need_alloc, allocs)) {
     int loc = taskgraph.out_loc(tid);
     uint64_t size = taskgraph.out_size(tid);
     auto const& [offset, deps] = info;
@@ -645,7 +664,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
     alloc_mids.push_back(mid);
   }
 
-  for(auto const& [tid, alloc_mid]: vector_zip(tids, alloc_mids))
+  for(auto const& [tid, alloc_mid]: vector_zip(tids_need_alloc, alloc_mids))
   {
     auto iter = task_tensor_to_mem_node.find(tid);
     if(iter != task_tensor_to_mem_node.end()) {
@@ -666,7 +685,7 @@ void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
   for(int const& tid: tids) {
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
-    if(iter != task_tensor_to_mem_node.end()) { 
+    if(iter != task_tensor_to_mem_node.end()) {
       // We have this tensor, but it may be on storage,
       // so move it to memory
       int const& memid = iter->second;
@@ -912,7 +931,8 @@ void memgraph_make_state_t::process(
 
     order_state = order_state_t{
         .when_used = usage,
-        .threshold = 0};
+        .threshold = 0
+    };
   }
 
   // Do each op, updating ostate threshold so that items can be compared
@@ -927,7 +947,7 @@ void memgraph_make_state_t::process(
     if(do_alloc)
     {
       // Allocate as many nodes as we can
-      while(alloc_oid < all_ops.size() && allocate_op(all_ops[alloc_oid], false))
+      while(alloc_oid < all_ops.size() && allocate_op(all_ops.at(alloc_oid), false))
       {
         alloc_oid++;
       }
@@ -935,14 +955,16 @@ void memgraph_make_state_t::process(
     if(alloc_oid == done_oid)
     {
       // make sure that the op we're about to do is allocated
-      allocate_op(all_ops[alloc_oid], true);
+      allocate_op(all_ops.at(alloc_oid), true);
       alloc_oid++;
     }
 
     // Do the corresponding op. If anything got deleted,
     // do_alloc will be set to true
-    do_alloc = add_op(all_ops[done_oid]);
+    do_alloc = add_op(all_ops.at(done_oid));
     done_oid++;
+
+    //DLINEOUT(this->memgraph.get_numbyte_on_evict());
   }
 }
 
@@ -1071,7 +1093,7 @@ bool memgraph_make_state_t::register_usage(int task_id)
 
     int del_id = memgraph.insert(op_t(del), del_deps);
 
-    allocators[memloc.loc].free(memloc.offset, del_id);
+    allocators.at(memloc.loc).free(memloc.offset, del_id);
 
     task_tensor_to_mem_node_erase_on_memory(task_id);
 
@@ -1272,8 +1294,8 @@ memgraph_make_state_t::find_victim(
 }
 
 int memgraph_make_state_t::allocate_with_evict(
-    int loc, uint64_t size,
-    vector<int> cannot_evict)
+  int loc, uint64_t size,
+  vector<int> cannot_evict)
 {
   {
     auto maybe = allocate_without_evict(loc, size);
@@ -1281,6 +1303,11 @@ int memgraph_make_state_t::allocate_with_evict(
     {
       return maybe.value();
     }
+  }
+
+  if(!use_storage) {
+    throw std::runtime_error(
+      "allocate_with_evict: would have to use storage but storage is unavailable.");
   }
 
   auto maybe_victim = find_victim(loc, size, cannot_evict);
@@ -1323,15 +1350,16 @@ int memgraph_make_state_t::allocate_with_evict(
 }
 
 optional<int> memgraph_make_state_t::allocate_without_evict(
-    int loc, uint64_t size)
+  int loc, uint64_t size)
 {
-  auto maybe = allocators[loc].allocate(size);
+  auto maybe = allocators.at(loc).allocate(size);
   if(maybe) {
     auto const& [offset, deps] = maybe.value();
-    alloc_t alloc{
-        .loc = loc,
-        .offset = offset,
-        .size = size};
+    alloc_t alloc {
+      .loc = loc,
+      .offset = offset,
+      .size = size
+    };
     int new_memid = memgraph.insert(op_t(alloc), deps);
     return new_memid;
   } else {
@@ -1342,10 +1370,10 @@ optional<int> memgraph_make_state_t::allocate_without_evict(
 void memgraph_make_state_t::evict_tensor(int victim_tid)
 {
   int node_mid = task_tensor_to_mem_node.at(victim_tid);
-  auto const& node = memgraph.nodes[node_mid];
+  auto const& node = memgraph.nodes.at(node_mid);
 
   auto evict_memloc = node.op.get_output_memloc();
-  int const& storage_loc = memgraph.storage_locs[evict_memloc.loc];
+  int const& storage_loc = memgraph.storage_locs.at(evict_memloc.loc);
   evict_t evict {
     .src = evict_memloc,
     .dst = stoloc_t {
@@ -1383,7 +1411,7 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
   int evict_mid = memgraph.insert(evict, evict_deps);
 
   // now free the memory, depending on the eviction having been completed
-  allocators[evict_memloc.loc].free(evict_memloc.offset, evict_mid);
+  allocators.at(evict_memloc.loc).free(evict_memloc.offset, evict_mid);
 
   // update mapping in memgraph_make_state_t
   task_tensor_to_mem_node_update_on_storage(victim_tid, evict_mid);
@@ -1430,8 +1458,8 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
   int const& sto_mid = task_tensor_to_mem_node.at(tid);
 
   load_t load {
-    .src = memgraph.nodes[sto_mid].op.get_stoloc(),
-    .dst = memgraph.nodes[alloc_mid].op.get_output_memloc()
+    .src = memgraph.nodes.at(sto_mid).op.get_stoloc(),
+    .dst = memgraph.nodes.at(alloc_mid).op.get_output_memloc()
   };
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
