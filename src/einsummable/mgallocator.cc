@@ -62,75 +62,73 @@ void allocator_t::block_t::free(int d)
   dep = d;
 }
 
-optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
-allocator_t::find_first_available(uint64_t size)
+optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>> 
+allocator_t::enumerate_t::operator()()
 {
-  using return_t = tuple<iter_t, iter_t, uint64_t>;
+  optional<tuple<iter_t, iter_t, uint64_t>> ret;
 
-  for(iter_t first = blocks.begin(); first != blocks.end(); )
-  {
-    if(first->available())
-    {
-      uint64_t rem = align_to_power_of_two(first->beg, alignment_power) - first->beg;
+  for(; first != self->blocks.end() && !bool(ret);) {
+    if(first->available()) {
+      uint64_t rem = align_to_power_of_two(first->beg, self->alignment_power) - first->beg;
 
       iter_t last = first;
+
       uint64_t sz = 0;
       uint64_t size_with_rem = rem + size;
 
-      for(; last != blocks.end() && last->available(); ++last) {
+      bool success = false;
+      for(; last != self->blocks.end() && last->available(); ++last) {
         sz += last->size();
         if(sz >= size_with_rem) {
-          return optional<return_t>({first, last+1, sz});
+          success = true;
+          ret = {first, last+1, sz};
+          break;
         }
       }
-      first = last;
+
+      if(success) {
+        first++;
+      } else {
+        first = last;
+      }
     } else {
       first++;
     }
   }
 
-  return std::nullopt;
+  return ret;
+}
+
+optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
+allocator_t::find_first_available(uint64_t size)
+{
+  enumerate_t enumerate { .size = size, .first = blocks.begin(), .self = this };
+  return enumerate();
 }
 
 optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>>
 allocator_t::find_lowest_dependency_available(uint64_t size)
 {
-  using return_t = tuple<iter_t, iter_t, uint64_t>;
-  optional<return_t> return_block;
-  int min_dep = std::numeric_limits<int>::max();
-  for(iter_t iter = blocks.begin(); iter != blocks.end(); ++iter)
-  {
-    if(iter->available())
-    {
-      iter_t ret = iter;
-      uint64_t sz = 0;
-      uint64_t rem = align_to_power_of_two(iter->beg, alignment_power) - iter->beg;
-      int inner_max_dep = -1;
-      for(iter_t inner_iter = iter;
-           inner_iter != blocks.end() && inner_iter->available();
-           ++inner_iter)
-      {
-        inner_max_dep = std::max(inner_max_dep, inner_iter->dep.value());
-        if(inner_max_dep >= min_dep)
-        {
-          break;
-        }
-        sz += inner_iter->size();
-        if(rem != 0 && sz > rem)
-        {
-          rem = 0;
-          sz -= rem;
-        }
-        if(rem == 0 && sz >= size)
-        {
-          min_dep = inner_max_dep;
-          return_block = {ret, inner_iter + 1, sz};
-          break;
-        }
+  enumerate_t enumerate { .size = size, .first = blocks.begin(), .self = this };
+  optional<tuple<allocator_t::iter_t, allocator_t::iter_t, uint64_t>> ret = std::nullopt;
+  int min_dep = -2;
+  while(true) {
+    auto maybe = enumerate();
+    if(!maybe) {
+      // we have tried em all, so return the best one if any was found
+      return ret;
+    } else {
+      int dep = -1;      
+      auto const& [beg,end,_] = maybe.value();
+      for(iter_t iter = beg; iter != end; ++iter) {
+        dep = std::max(dep, iter->dep.value());
+      }
+      if(!bool(ret) || dep < min_dep) {
+        ret = maybe;
+        min_dep = dep;
       }
     }
   }
-  return return_block;
 }
 
 optional<tuple<uint64_t, set<int>>>

@@ -43,7 +43,7 @@ void server_base_t::execute_graph(
       num_bytes += node.op.get_move().size;
     }
   }
-  //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
+  DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
   {
    std::ofstream f("tg.gv");

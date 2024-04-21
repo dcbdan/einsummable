@@ -232,10 +232,6 @@ memgraph_t::make_(
     state.process(order_taskgraph(taskgraph));
   }
 
-  //if(input_memgraph) {
-  //  DOUT(input_memgraph.value().get_numbyte_on_evict());
-  //}
-
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
   {
@@ -615,7 +611,6 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
         } else {
           tids_need_alloc.push_back(tid);
           allocs.push_back(maybe.value());
-          tids_need_alloc.push_back(tid);
         }
       } else {
         // that's fine, we don't have to allocate it then
@@ -633,7 +628,6 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
       } else {
         tids_need_alloc.push_back(tid);
         allocs.push_back(maybe.value());
-        tids_need_alloc.push_back(tid);
       }
     }
   }
@@ -965,8 +959,6 @@ void memgraph_make_state_t::process(
     // do_alloc will be set to true
     do_alloc = add_op(all_ops.at(done_oid));
     done_oid++;
-
-    //DLINEOUT(this->memgraph.get_numbyte_on_evict());
   }
 }
 

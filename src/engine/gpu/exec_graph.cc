@@ -254,7 +254,6 @@ void gpu_einsummable_t::launch(
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  // cudaSetDevice(device);
   gpu_km(
     einsummable,
     stream,
@@ -267,6 +266,7 @@ void gpu_einsummable_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+    DOUT("in gpu_einsummable callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -345,6 +345,7 @@ void gpu_touch_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_touch callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -397,23 +398,14 @@ void gpu_copy_t::launch(
 
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
-  // cudaError_t cudaError = cudaMemcpy(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice);
   if (cudaError != cudaSuccess) {
     // print the error code and error string
-    fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
-    // print src and dst loc
-    fprintf(stdout, "src_loc: %d\n", src_loc);
-    fprintf(stdout, "dst_loc: %d\n", dst_loc);
-    // print src and dst buffer
-    fprintf(stdout, "src_buffer: %p\n", src_buffer);
-    fprintf(stdout, "dst_buffer: %p\n", dst_buffer);
-    // print src and dst mem
-    fprintf(stdout, "src_mem: %p\n", src_mem);
-    fprintf(stdout, "dst_mem: %p\n", dst_mem);
-    // print cpy size
-    fprintf(stderr, "cpy size: %zu\n", move.size);
+    DOUT("cudaMemcpy failed with error: " << cudaGetErrorString(cudaError));
+    DOUT("src loc, offset: " << src_loc << " " << src_offset);
+    DOUT("dst loc, offset: " << dst_loc << " " << dst_offset);
+    DOUT("size:    " << move.size);
 
-    throw std::runtime_error("CudaMemcpy failed");
+    throw std::runtime_error("CudaMemcpy failed @ gpu_copy_t");
   }
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
@@ -421,6 +413,7 @@ void gpu_copy_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_copy callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -463,7 +456,9 @@ void gpu_evict_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
   buffer_t buffer = make_buffer(size);
-  cudaMemcpyAsync(buffer->data, gpu_memory, size, cudaMemcpyDeviceToHost, stream);
+  handle_cuda_error(
+    cudaMemcpyAsync(buffer->data, gpu_memory, size, cudaMemcpyDeviceToHost, stream),
+    "cudaMemcpyAsync in gpu_evict_t");
 
   // tell storage that we already have the data inserted
   auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
@@ -475,6 +470,7 @@ void gpu_evict_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_evict callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -520,13 +516,16 @@ void gpu_load_t::launch(
   auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
   // DOUT("gpu_load_t::launch: loading buffer from storage, id = " << storage_id);
   buffer_t buffer = gpu_storage->load(storage_id);
-  cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream);
+  handle_cuda_error(
+    cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
+    "cudaMemcpyAsync in gpu_load_t");
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_load callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -593,6 +592,7 @@ void gpu_constant_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_constant callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -628,6 +628,7 @@ void gpu_lowerTri_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      DOUT("in gpu_lowerTri callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;

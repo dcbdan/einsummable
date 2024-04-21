@@ -50,14 +50,16 @@ int const& memsto_t::get_sto() const {
 
 allocator_settings_t allocator_settings_t::default_settings() {
   return allocator_settings_t{
-      .strat = allocator_strat_t::lowest_dependency,
-      .alignment_power = 0};
+    .strat = allocator_strat_t::lowest_dependency,
+    .alignment_power = 0
+  };
 }
 
 allocator_settings_t allocator_settings_t::gpu_alignment_settings() {
   return allocator_settings_t{
-      .strat = allocator_strat_t::lowest_dependency,
-      .alignment_power = 4};
+    .strat = allocator_strat_t::lowest_dependency,
+    .alignment_power = 4
+  };
 }
 
 memgraph_t::memgraph_t(
@@ -966,12 +968,11 @@ memgraph_t::get_numbyte_on_evict() const
     if (op.is_evict()) 
     {
       auto evict_node = op.get_evict();
+      //DOUT(evict_node.src << " -> " << evict_node.dst);
       int loc = evict_node.src.loc;
       uint64_t size = evict_node.src.size;
       total_each_loc[loc] += size;
-      
-    } else if (op.is_load()) 
-    {
+    } else if (op.is_load()) {
       auto load_node = op.get_load();
       int loc = load_node.dst.loc;
       uint64_t size = load_node.dst.size;
@@ -984,12 +985,17 @@ memgraph_t::get_numbyte_on_evict() const
 
 std::ostream &operator<<(std::ostream &out, mem_t const& mem)
 {
-  out << "[" << mem.offset << "," << mem.offset + mem.size << ")";
+  out << "mem[" << mem.offset << "," << mem.offset + mem.size << ")";
   return out;
 }
 std::ostream &operator<<(std::ostream &out, memloc_t const& memloc)
 {
-  out << "loc" << memloc.loc << memloc.as_mem();
+  out << "memloc[" << memloc.loc << memloc.as_mem() << "]";
+  return out;
+}
+std::ostream& operator<<(std::ostream& out, stoloc_t const& stoloc)
+{
+  out << "storage{loc=" << stoloc.loc << ",id=" << stoloc.id << "}";
   return out;
 }
 

@@ -76,6 +76,14 @@ private:
 
   using iter_t = vector<block_t>::iterator;
 
+  struct enumerate_t {
+    uint64_t size; // without rem
+    iter_t first;
+    allocator_t* self;
+    
+    optional<tuple<iter_t, iter_t, uint64_t>> operator()();
+  };
+
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_lowest_dependency_available(uint64_t size);
 
@@ -84,6 +92,7 @@ private:
 
   optional<tuple<iter_t, iter_t, uint64_t>>
   find_first_available(uint64_t size);
+
 
 public:
   ///////////////////////////////////////////////////////////////////
