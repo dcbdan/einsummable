@@ -615,6 +615,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
         } else {
           tids_need_alloc.push_back(tid);
           allocs.push_back(maybe.value());
+          tids_need_alloc.push_back(tid);
         }
       } else {
         // that's fine, we don't have to allocate it then
@@ -632,6 +633,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
       } else {
         tids_need_alloc.push_back(tid);
         allocs.push_back(maybe.value());
+        tids_need_alloc.push_back(tid);
       }
     }
   }
