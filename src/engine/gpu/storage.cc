@@ -3,16 +3,16 @@
 
 gpu_storage_t::gpu_storage_t() {}
 
-void gpu_storage_t::write(buffer_t data, int id) {
-  buffer_t ret = make_buffer(data->size);
-  std::copy(data->data, data->data + data->size, ret->data);
+void gpu_storage_t::write(buffer_t buffer, int id) {
+  buffer_t ret = make_buffer(buffer->size);
+  std::copy(buffer->data, buffer->data + buffer->size, ret->data);
   insert(id, ret);
 }
 
-void gpu_storage_t::insert(int id, buffer_t data) {
+void gpu_storage_t::insert(int id, buffer_t buffer) {
   std::unique_lock lk(m);
 
-  auto [_, did_insert] = this->data.insert({id, data});
+  auto [_, did_insert] = this->data.insert({id, buffer});
   if(!did_insert) {
     throw std::runtime_error("id already in gpu storage");
   }

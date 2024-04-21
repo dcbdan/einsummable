@@ -11,14 +11,14 @@ struct gpu_storage_t
 {
   gpu_storage_t();
 
-  // inserts a copy of data into the storage
-  void write(buffer_t data, int id);
+  // inserts a copy of d into the storage
+  void write(buffer_t d, int id);
 
-  // inserts id, data into buffer; does not copy the
-  // data object
-  void insert(int id, buffer_t data);
+  // inserts id, d into storage; does not copy the
+  // d object
+  void insert(int id, buffer_t d);
 
-  // gets a copy of the data
+  // gets a copy of the bytes at id
   buffer_t read(int id);
 
   // same as read but removes the id from storage
