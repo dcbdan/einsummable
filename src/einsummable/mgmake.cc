@@ -572,6 +572,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
 
   // All the save states
   vector<allocator_t::save_t> saves(allocators.size());
+  bool failed = false;
 
   // A quick wrapper to  only form saves as needed;; 
   // doing this prevents us from calling the naive save 
@@ -586,6 +587,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
   };
 
   vector<tuple<uint64_t, set<int>>> allocs;
+  vector<int> tids_need_alloc;
   for(int const& tid: tids) {
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
@@ -597,9 +599,11 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
       if(maybe_mem.is_stoloc()) {
         auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
         if(!maybe) {
+          failed = true;
           break;
         } else {
           allocs.push_back(maybe.value());
+          tids_need_alloc.push_back(tid);
         }
       }
     } else {
@@ -610,14 +614,17 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
       }
       auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
       if(!maybe) {
+        failed = true;
         break;
       } else {
         allocs.push_back(maybe.value());
+        tids_need_alloc.push_back(tid);
       }
     }
   }
 
-  if(allocs.size() != tids.size()) {
+  // if(allocs.size() != tids.size()) {
+  if(failed) {
     for(int loc = 0; loc != allocators.size(); ++loc) {
       auto& save = saves[loc];
       if(save) {
@@ -632,7 +639,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
 
   vector<int> alloc_mids;
   alloc_mids.reserve(allocs.size());
-  for(auto const& [tid, info]: vector_zip(tids, allocs)) {
+  for(auto const& [tid, info]: vector_zip(tids_need_alloc, allocs)) {
     int loc = taskgraph.out_loc(tid);
     uint64_t size = taskgraph.out_size(tid);
     auto const& [offset, deps] = info;
@@ -645,7 +652,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& tids)
     alloc_mids.push_back(mid);
   }
 
-  for(auto const& [tid, alloc_mid]: vector_zip(tids, alloc_mids))
+  for(auto const& [tid, alloc_mid]: vector_zip(tids_need_alloc, alloc_mids))
   {
     auto iter = task_tensor_to_mem_node.find(tid);
     if(iter != task_tensor_to_mem_node.end()) {
@@ -943,6 +950,7 @@ void memgraph_make_state_t::process(
     // do_alloc will be set to true
     do_alloc = add_op(all_ops[done_oid]);
     done_oid++;
+    DLINEOUT(this->memgraph.get_numbyte_on_evict());
   }
 }
 
