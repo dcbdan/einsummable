@@ -125,7 +125,13 @@ private:
     simple_scalarop_t::binary_t const& op,
     vector<int> const& lhs_idxs,
     vector<int> const& rhs_idxs,
-    vector<uint64_t> const& out_shape) const;                    
+    vector<uint64_t> const& out_shape) const;   
+
+  cutensorPlan_t sop_binary_plan_different_shape(
+    simple_scalarop_t::binary_t const& op,
+    vector<int> const& lhs_idxs,
+    vector<int> const& rhs_idxs,
+    vector<uint64_t> const& out_shape) const;                  
 
   void execute_sop_scale(
     simple_scalarop_t::scale_t const& op,
@@ -156,6 +162,15 @@ private:
     cutensorPlan_t plan) const;
 
   void execute_sop_binary(
+    simple_scalarop_t::binary_t const& op,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* lhs_mem,
+    void const* rhs_mem,
+    cutensorPlan_t plan,
+    bool swapped) const;
+
+  void execute_sop_binary_different_shape(
     simple_scalarop_t::binary_t const& op,
     cudaStream_t stream,
     void* out_mem,

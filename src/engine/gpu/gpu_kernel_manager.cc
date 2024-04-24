@@ -1313,17 +1313,25 @@ void kernel_manager_t::execute_elementwise(
         get_inn_memory_at(args[0]),
         plan);
     } else if(sop.is_binary()) {
-      // first check if we need to swap the arguments
-      auto lhs = get_inn_idxs_at(args[0]);
-      auto rhs = get_inn_idxs_at(args[1]);
-      bool swap = false;
-      if (rhs.size() > lhs.size()) {
-        swap = true;
+      // check if we need to execute a ternary of C = A op B op 0*C 
+      auto lhs_idxs = get_inn_idxs_at(args[0]);
+      auto rhs_idxs = get_inn_idxs_at(args[1]);
+      if (lhs_idxs == out_idxs && rhs_idxs != out_idxs){
+        execute_sop_binary(
+          sop.get_binary(), stream, this_out_mem,
+          get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
+          plan, true);
+      } else if (rhs_idxs == out_idxs){
+        execute_sop_binary(
+          sop.get_binary(), stream, this_out_mem,
+          get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
+          plan, false);
+      } else {
+        DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        execute_sop_binary_different_shape(sop.get_binary(), stream, this_out_mem,
+          get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
+          plan, false);
       }
-      execute_sop_binary(
-        sop.get_binary(), stream, this_out_mem,
-        get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
-        plan, swap);
     } else {
       throw std::runtime_error("missing sop case!");
     }
@@ -1360,9 +1368,18 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
           sop.get_unary(), get_inn_idxs_at(args[0]), join_shape));
     }
     else if(sop.is_binary()) {
-      ret.push_back(
-        sop_binary_plan(
-          sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
+      auto lhs_idxs = get_inn_idxs_at(args[0]);
+      auto rhs_idxs = get_inn_idxs_at(args[1]);
+      if (lhs_idxs == out_idxs || rhs_idxs == out_idxs){
+        ret.push_back(
+          sop_binary_plan(
+            sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
+      } else {
+        DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        ret.push_back(
+          sop_binary_plan_different_shape(
+            sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
+      }
     }
     else {
       throw std::runtime_error("missing sop case!");
@@ -1660,6 +1677,99 @@ cutensorPlan_t kernel_manager_t::sop_binary_plan(
   return plan;
 }
 
+cutensorPlan_t kernel_manager_t::sop_binary_plan_different_shape(
+  simple_scalarop_t::binary_t const& op,
+  vector<int> const& lhs_idxs,
+  vector<int> const& rhs_idxs,
+  vector<uint64_t> const& out_shape) const
+{
+  // NOTE: C is just the output, so the shape need to match
+  uint32_t const kAlignment = 128;
+  auto bop = op.op;
+  auto lhs = op.lhs;
+  auto rhs = op.rhs;
+  cutensorOperator_t opElementwise = bop_to_cutensorOp(bop);
+  cutensorOperator_t opElemmentwise_lhs = uop_to_cutensorOp(lhs.op);
+  cutensorOperator_t opElemmentwise_rhs = uop_to_cutensorOp(rhs.op);
+
+  std::vector<int> modeA = lhs_idxs;
+  std::vector<int> modeB = rhs_idxs;
+  std::vector<int> modeC = vector_iota<int>(out_shape.size());
+  int nmodeA = modeA.size();
+  int nmodeB = modeB.size();
+  int nmodeC = out_shape.size();
+
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(out_shape[mode]);
+  }
+  vector<int64_t> extent_B;
+  for(auto const& mode: modeB) {
+    extent_B.push_back(out_shape[mode]);
+  }
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(out_shape[mode]);
+  }
+
+  auto typeA = dtype_to_cudatype(lhs.scale.dtype);
+  auto typeB = dtype_to_cudatype(rhs.scale.dtype);
+  // assume lhs and out have the same data type
+  // TODO: check if assumption is correct
+  auto typeC = dtype_to_cudatype(lhs.scale.dtype);
+  auto typeCompute = dtype_to_computetype(lhs.scale.dtype);
+  
+  cutensorTensorDescriptor_t  descA;
+  handle_cutensor_error(cutensorCreateTensorDescriptor(cutensor_handle,
+                                              &descA, nmodeA, extent_A.data(),
+                                              nullptr /* stride */,
+                                              typeA,
+                                              kAlignment));
+
+  cutensorTensorDescriptor_t  descB;
+  handle_cutensor_error(cutensorCreateTensorDescriptor(cutensor_handle,
+                                              &descB, nmodeB, extent_B.data(),
+                                              nullptr /* stride */,
+                                              typeB,
+                                              kAlignment));
+
+  cutensorTensorDescriptor_t  descC;
+  handle_cutensor_error(cutensorCreateTensorDescriptor(cutensor_handle,
+                                              &descC, nmodeC, extent_C.data(),
+                                              nullptr /* stride */,
+                                              typeC,
+                                              kAlignment));
+  
+  cutensorOperationDescriptor_t desc;
+  handle_cutensor_error(cutensorCreateElementwiseTrinary(cutensor_handle, 
+                                                &desc,
+                                                descA, modeA.data(), /* unary operator A */ opElemmentwise_lhs,
+                                                descB, modeB.data(), /* unary operator B */ opElemmentwise_rhs,
+                                                descC, modeC.data(), /* unary operator C */ CUTENSOR_OP_IDENTITY,
+                                                descC, modeC.data(),
+                                                /* binary operator AC  */ opElementwise,
+                                                /* binary operator ABC */ CUTENSOR_OP_ADD,
+                                                typeCompute));
+  
+  const cutensorAlgo_t algo = CUTENSOR_ALGO_DEFAULT;
+
+  cutensorPlanPreference_t  planPref;
+  handle_cutensor_error(cutensorCreatePlanPreference(cutensor_handle,
+                                            &planPref,
+                                            algo,
+                                            CUTENSOR_JIT_MODE_NONE));
+
+
+  cutensorPlan_t  plan;
+  handle_cutensor_error(cutensorCreatePlan(cutensor_handle,
+                                  &plan,
+                                  desc,
+                                  planPref,
+                                  0 /*workspaceSizeEstimate*/));
+
+  return plan;
+}
+
 void kernel_manager_t::execute_sop_scale(
   simple_scalarop_t::scale_t const& op,
   cudaStream_t stream,
@@ -1764,20 +1874,49 @@ void kernel_manager_t::execute_sop_binary(
   auto lhs = op.lhs;
   auto rhs = op.rhs;
   assert(lhs.scale.dtype == rhs.scale.dtype);
+  if (swapped){
+    std::swap(lhs_mem, rhs_mem);
+    std::swap(lhs, rhs);
+  }
   void const* alpha = lhs.scale.raw(); 
   void const* beta = rhs.scale.raw();
 
-  if(swapped){
-    handle_cutensor_error(cutensorElementwiseBinaryExecute(cutensor_handle,
-              plan, alpha, rhs_mem, 
-              beta, lhs_mem, 
-              out_mem, stream));
-  }else{
-    handle_cutensor_error(cutensorElementwiseBinaryExecute(cutensor_handle,
-              plan, alpha, lhs_mem, 
-              beta, rhs_mem, 
-              out_mem, stream));
+  handle_cutensor_error(cutensorElementwiseBinaryExecute(cutensor_handle,
+            plan, alpha, lhs_mem, 
+            beta, rhs_mem, 
+            out_mem, stream));
+}
+
+// we execute sop binary with different shapes such as 
+// ab,bc->abc, then join op is f(x,y,z) = binary_op(x,y) + 0*
+// here we assume 
+void kernel_manager_t::execute_sop_binary_different_shape(
+  simple_scalarop_t::binary_t const& op,
+  cudaStream_t stream,
+  void* out_mem,
+  void const* lhs_mem,
+  void const* rhs_mem,
+  cutensorPlan_t plan,
+  bool swapped) const
+{
+  auto lhs = op.lhs;
+  auto rhs = op.rhs;
+  assert(lhs.scale.dtype == rhs.scale.dtype);
+  if (swapped){
+    std::swap(lhs_mem, rhs_mem);
+    std::swap(lhs, rhs);
   }
+  void const* alpha = lhs.scale.raw(); 
+  void const* beta = rhs.scale.raw();
+
+  // gamma is 0 with the corresponding dtype
+  auto gamma = scalar_t::zero(lhs.scale.dtype).raw();
+
+  handle_cutensor_error(cutensorElementwiseTrinaryExecute(cutensor_handle, plan,
+                                              alpha,  lhs_mem,
+                                              beta ,  rhs_mem,
+                                              gamma,  out_mem,
+                                              out_mem, stream));
 }
 
 void const* kernel_manager_t::get_one_ptr(dtype_t dtype) const {

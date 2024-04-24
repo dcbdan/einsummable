@@ -266,7 +266,7 @@ void gpu_einsummable_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-    DOUT("in gpu_einsummable callback");
+    // DOUT("in gpu_einsummable callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -345,7 +345,7 @@ void gpu_touch_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_touch callback");
+      // DOUT("in gpu_touch callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -413,7 +413,7 @@ void gpu_copy_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_copy callback");
+      // DOUT("in gpu_copy callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -470,7 +470,7 @@ void gpu_evict_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_evict callback");
+      // DOUT("in gpu_evict callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -525,7 +525,7 @@ void gpu_load_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_load callback");
+      // DOUT("in gpu_load callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -592,7 +592,7 @@ void gpu_constant_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_constant callback");
+      // DOUT("in gpu_constant callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -628,7 +628,7 @@ void gpu_lowerTri_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      DOUT("in gpu_lowerTri callback");
+      // DOUT("in gpu_lowerTri callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
