@@ -30,6 +30,7 @@ file(GLOB BA_FILES ${PROJECT_SOURCE_DIR}/src/base/*.cc)
 file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
 file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
 file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
+file(GLOB MS_FILES ${PROJECT_SOURCE_DIR}/src/misc/*.cc)
 
 add_library(einsummable
   STATIC
@@ -37,6 +38,7 @@ add_library(einsummable
   ${ES_FILES}
   ${MG_FILES}
   ${AP_FILES}
+  ${MS_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -44,7 +46,7 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
 #add_base_application("reference"        "exps" "reference")
 # add_base_application("copyregion"       "exps" "copyregion")
 add_base_application("scalarop"         "exps" "scalarop")
@@ -60,6 +62,7 @@ add_base_application("scalarop"         "exps" "scalarop")
 add_base_application("autodiff_test"    "exps" "autodiff_test")
 add_base_application("autoplace"        "exps" "autoplace")
 add_base_application("mg"               "exps" "mg")
+add_base_application("simplescalarop"   "exps" "simplescalarop")
 
 function(add_llama_application exec filename)
 add_executable(${exec} llama/${filename}.cc
@@ -67,12 +70,14 @@ add_executable(${exec} llama/${filename}.cc
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
+add_llama_application("exp_apart03" "exp_apart03")
+
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
 #add_llama_application("llama_exp02" "exp02")
 #add_llama_application("llama_exp03" "exp03")
 #add_llama_application("llama_autodiff_test" "autodiff_test")
-
+add_llama_application("cpoint"               "cpoint")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
@@ -115,6 +120,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
@@ -140,7 +146,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpuexec_mm"            "exps" "cpuexec_mm")
   #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
   #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
-  #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
+  add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
   add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
   #add_cpu_application("cpumanager"            "exps" "cpumanager")
   #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
@@ -154,6 +160,8 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
   #add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
   #add_cpu_application("senexp"                "exps" "senexp")
+  add_cpu_application("xtreme"                "exps" "xtreme")
+  add_cpu_application("abc"                   "exps" "abc")
   add_cpu_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   function(add_cpu_llama_application exec filename)
@@ -162,15 +170,15 @@ if(${CPU_EXECUTION_ENGINE})
       llama/dataset_reader.cc llama/piper.cc)
     target_link_libraries(${exec}
       cpu_execution_engine
-      proto
+      MKL::MKL
+      ucx::ucp ucx::ucs
       ${Protobuf_LIBRARIES}
-      ucx::ucp ucx::ucs)
+      proto)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
-  add_cpu_llama_application("cpuexecllama" "cpuexecllama")
-
+  add_cpu_llama_application("llama_first_token" "first_token")
 
   # For some reason sentencepiece + protocolbuffers + this application
   # isn't cooperating well. Something to do with symbols + protocol
@@ -179,8 +187,9 @@ if(${CPU_EXECUTION_ENGINE})
   # executable and reads and writes from it.
   # And the tokenizer executable calls sentencepiece.
 
-  # add_cpu_llama_application("train1" "train1")
-  # add_cpu_llama_application("trainsize" "trainsize")
+  #add_cpu_llama_application("train1" "train1")
+  add_cpu_llama_application("train2" "train2")
+  add_cpu_llama_application("trainsize" "trainsize")
 
 endif()
 
@@ -248,6 +257,7 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}

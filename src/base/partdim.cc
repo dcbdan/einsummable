@@ -38,6 +38,9 @@ partdim_t partdim_t::singleton(uint64_t sz) {
 }
 
 partdim_t partdim_t::split(uint64_t total_size, int n_split) {
+  if(total_size < uint64_t(n_split)) {
+    return from_sizes(vector<uint64_t>(total_size, 1));
+  }
   return from_sizes(divide_evenly(n_split, total_size));
 }
 

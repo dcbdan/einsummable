@@ -3,13 +3,29 @@
 #include "../src/einsummable/touch.h"
 #include "../src/engine/touch.h"
 
-dataset_reader_t::dataset_reader_t(string tokenizer_filename, string data_filename)
-  : piper("./llama_tokenizer", tokenizer_filename),
-		file(data_filename, std::ios_base::in | std::ios_base::binary)
+just_tokenizer_t::just_tokenizer_t(string tokenizer_filename)
+  : piper("./llama_tokenizer", tokenizer_filename)
 {
 	vector<int> v = parse_vector<int>(piper.read());
-	pad_id = v[0];
-	vocab_size = v[1];
+	pad_id_ = v[0];
+	vocab_size_ = v[1];
+}
+
+vector<int> just_tokenizer_t::operator()(string const& msg) {
+  uint64_t sz = msg.size();
+  char const* raw = reinterpret_cast<char const*>(&sz);
+  string msgsz(raw, raw + sizeof(sz));
+  piper.write(msgsz);
+	piper.write(msg);
+  return parse_vector<int>(piper.read());
+}
+
+dataset_reader_t::dataset_reader_t(string tokenizer_filename, string data_filename)
+  : tokenizer(tokenizer_filename),
+		file(data_filename, std::ios_base::in | std::ios_base::binary)
+{
+  pad_id = tokenizer.pad_id();
+  vocab_size = tokenizer.vocab_size();
 
   while(file) {
     pos_type offset = file.tellg();
@@ -36,14 +52,9 @@ vector<int> dataset_reader_t::read(int which) {
   file.read(reinterpret_cast<char*>(&sz), sizeof(int32_t));
   string str(sz, ' ');
   file.read(str.data(), sz);
-	{
-		char const* raw = reinterpret_cast<char const*>(&sz);
-		string msgsz(raw, raw + sizeof(sz));
-	  piper.write(msgsz);
-		piper.write(str);
-	}
 
-	vector<int> ret = parse_vector<int>(piper.read());
+  vector<int> ret = tokenizer(str);
+
   if(ret.size() == 0) {
     throw std::runtime_error("empty number of tokens!");
   }
@@ -104,6 +115,34 @@ dataset_reader_t::make_embedding(
   dbuffer_t const& embedding_matrix,
   vector<int> const& tokens)
 {
+  return ::make_embedding(vocab_size, embedding_matrix, tokens);
+}
+
+dbuffer_t dataset_reader_t::one_hot_encode(
+  dtype_t dtype,
+  vector<int> const& tokens)
+{
+  uint64_t seqlen = tokens.size();
+  dbuffer_t ret = make_dbuffer(dtype, seqlen*vocab_size);
+  ret.zeros();
+  scalar_t one = scalar_t::one(dtype);
+  for(uint64_t s = 0; s != seqlen; ++s) {
+    uint64_t token = tokens[s];
+    if(token >= 0) {
+      if(token >= vocab_size) {
+        throw std::runtime_error("invalid token value");
+      }
+      ret.set(s * vocab_size + token, one);
+    }
+  }
+  return ret;
+}
+
+dbuffer_t make_embedding(
+  uint64_t vocab_size,
+  dbuffer_t const& embedding_matrix, // (vocab size, embed size)
+  vector<int> const& tokens)
+{
   if(tokens.size() == 0) {
     throw std::runtime_error("make_embedding: cannot have empty tokens");
   }
@@ -152,22 +191,3 @@ dataset_reader_t::make_embedding(
   return ret;
 }
 
-dbuffer_t dataset_reader_t::one_hot_encode(
-  dtype_t dtype,
-  vector<int> const& tokens)
-{
-  uint64_t seqlen = tokens.size();
-  dbuffer_t ret = make_dbuffer(dtype, seqlen*vocab_size);
-  ret.zeros();
-  scalar_t one = scalar_t::one(dtype);
-  for(uint64_t s = 0; s != seqlen; ++s) {
-    uint64_t token = tokens[s];
-    if(token >= 0) {
-      if(token >= vocab_size) {
-        throw std::runtime_error("invalid token value");
-      }
-      ret.set(s * vocab_size + token, one);
-    }
-  }
-  return ret;
-}

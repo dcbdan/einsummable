@@ -247,7 +247,6 @@ struct node_t {
   map<int, dtype_t> hole_types() const;
 
   bool type_check() const;
-
 private:
   node_t simplify_once() const;
 
@@ -257,6 +256,9 @@ private:
   // at the top level node
   optional<node_t> normalize_order() const;
 };
+
+optional<map<int, node_t const*>>
+_pop_match(node_t const* skeleton, node_t const* node);
 
 } // scalar_ns
 
@@ -335,8 +337,11 @@ struct scalarop_t {
 
   bool is_constant_of(scalar_t val) const;
 
+	// TODO: to_cppstr do not find square, sqrt, (-) or (/) like to_cpp_bytes does !
+
   string to_cppstr() const;
   string to_cppstr(std::function<string(int)> write_hole) const;
+
   tuple<string, vector<uint8_t>> to_cpp_bytes() const;
 
   string type_signature() const;
@@ -397,7 +402,11 @@ struct scalarop_t {
   // x0 + val
   static scalarop_t make_increment(scalar_t val);
 
+  // e^x0 
   static scalarop_t make_exp(dtype_t d = default_dtype());
+
+  // 1 / (1 + e^(-1*x0))
+  static scalarop_t make_sigmoid(dtype_t d = default_dtype());
 
   static scalarop_t make_log(dtype_t d = default_dtype());
 

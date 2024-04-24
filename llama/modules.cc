@@ -328,15 +328,8 @@ tensor_t attention_t::forward(
   keys = keys.transpose(1, 2);
   values = values.transpose(1, 2);
 
-  scalarop_t scale = scalarop_t::make_scale(
-    scalar_t(dtype, write_with_ss(
-      1.0 / (std::sqrt(double(1.0) * args.head_dim()))
-    ))
-  );
-
   tensor_t scores;
   scores = writer->matmul(xq, keys.transpose(2, 3));
-  scores = writer->ew(scale, scores);
 
   if(mask) {
     scores = writer->ew(
@@ -346,11 +339,25 @@ tensor_t attention_t::forward(
       mask.value());
   }
 
+  double scale_ = 1.0 / (std::sqrt(double(1.0) * args.head_dim()));
+
   // compute softmax with a minimum of 32 bits precision
   if(dtype == dtype_t::f16) {
-    scores = writer->softmax(scores.to_f32()).to_dtype(dtype);
+    //scalarop_t scale = scalarop_t::make_scale(
+    //  scalar_t(dtype, write_with_ss(scale_)));
+    //scores = writer->ew(scale, scores);
+    //scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
+    scores = writer->softmax_v3_scale(
+      scalar_t(dtype_t::f32, write_with_ss(scale_)),
+      scores.to_f32()
+    ).to_dtype(dtype);
   } else {
-    scores = writer->softmax(scores);
+    //scalarop_t scale = scalarop_t::make_scale(
+    //  scalar_t(dtype, write_with_ss(scale_)));
+    //scores = writer->ew(scale, scores);
+    scores = writer->softmax_v3_scale(
+      scalar_t(dtype_t::f32, write_with_ss(scale_)),
+      scores);
   }
 
   tensor_t output;
@@ -515,7 +522,7 @@ transformer_t::transformer_t(
   }
 
   full_freqs_cis = writer->input(
-    { 2*args.max_seq_len, uint64_div(args.head_dim(), 2) },
+    { args.max_seq_len, uint64_div(args.head_dim(), 2) },
     dtype_t::c64);
 
   norm = rms_norm_t(writer, "norm.", args.full_dim(), args.norm_eps);
@@ -552,6 +559,7 @@ tensor_t transformer_t::forward(tensor_t x)
 
   for(auto& layer: layers) {
     x = layer.forward(x, freqs_cis, mask);
+    checkpoints.push_back(x);
   }
   x = norm.forward(x);
   // x: bsz, seqlen, dim

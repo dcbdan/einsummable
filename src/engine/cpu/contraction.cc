@@ -1,6 +1,106 @@
 #include "contraction.h"
 #include "kernel_executor.h"
 
+full_contraction_t
+full_contraction_t::make(
+  dtype_t dtype,
+  vector<uint64_t> const& shape,
+  vector<int> const& lhs_inn_modes,
+  vector<int> const& rhs_inn_modes,
+  int out_rank)
+{
+  auto maybe = contraction_t::make_bs_is_js_ks(
+    lhs_inn_modes, rhs_inn_modes, out_rank);
+  if(!maybe) {
+    throw std::runtime_error(
+      "one-sided aggs like k in ijk,ij->i aren't supported "
+      "nor are broadcasting outs like z in ij,jk->ikz");
+  }
+
+  auto& [bs,is,js,ks] = maybe.value();
+
+  vector<uint64_t> lhs_shape;
+  for(auto const& i: lhs_inn_modes) {
+    lhs_shape.push_back(shape[i]);
+  }
+  vector<uint64_t> rhs_shape;
+  for(auto const& i: rhs_inn_modes) {
+    rhs_shape.push_back(shape[i]);
+  }
+  vector<uint64_t> out_shape(shape.begin(), shape.begin() + out_rank);
+  vector<int> out_modes = vector_iota<int>(out_rank);
+
+  uint64_t nb = 1; for(auto const& b: bs) { nb *= shape[b]; }
+  uint64_t ni = 1; for(auto const& i: is) { ni *= shape[i]; }
+  uint64_t nj = 1; for(auto const& j: js) { nj *= shape[j]; }
+  uint64_t nk = 1; for(auto const& k: ks) { nk *= shape[k]; }
+
+  optional<full_contraction_t> ret;
+  uint64_t best_cost;
+  for(bool lhs_t: {false, true}) {
+  for(bool rhs_t: {false, true}) {
+    contraction_t::batching_t plan { bs, is, js, ks, lhs_t, rhs_t };
+
+    auto perm_lhs =
+      contraction_t::permute_info_t::from_inn_shape(
+        lhs_shape, lhs_inn_modes, plan.modes_lhs());
+    auto perm_rhs =
+      contraction_t::permute_info_t::from_inn_shape(
+        rhs_shape, rhs_inn_modes, plan.modes_rhs());
+    auto perm_out =
+      contraction_t::permute_info_t::from_out_shape(
+        out_shape, plan.modes_out(), out_modes);
+
+    full_contraction_t f {
+      .dtype = dtype,
+      .perm_lhs = std::nullopt,
+      .perm_rhs = std::nullopt,
+      .perm_out = std::nullopt,
+      .nb = nb,
+      .ni = ni,
+      .nj = nj,
+      .nk = nk,
+      .trans_lhs = lhs_t,
+      .trans_rhs = rhs_t
+    };
+
+    uint64_t cost = 0;
+    if(!perm_lhs.is_no_op()) {
+      cost += product(lhs_shape);
+      f.perm_lhs = permute_t {
+        .inn_shape = perm_lhs.inn_shape,
+        .out_perm  = perm_lhs.out_perm
+      };
+    }
+    if(!perm_rhs.is_no_op()) {
+      cost += product(rhs_shape);
+      f.perm_rhs = permute_t {
+        .inn_shape = perm_rhs.inn_shape,
+        .out_perm  = perm_rhs.out_perm
+      };
+    }
+    if(!perm_out.is_no_op()) {
+      cost += product(out_shape);
+      f.perm_out = permute_t {
+        .inn_shape = perm_out.inn_shape,
+        .out_perm  = perm_out.out_perm
+      };
+    }
+
+    if(ret) {
+      if(cost < best_cost) {
+        best_cost = cost;
+        ret = f;
+      }
+    } else {
+      best_cost = cost;
+      ret = f;
+    }
+  }}
+
+  return ret.value();
+}
+
 void contraction_t::operator()(
   void* workspace,
   void* out,
@@ -48,11 +148,13 @@ void contraction_t::operator()(
 
     batch_matrix_multiply(
       dtype,
-      inner.nb,
+      0, inner.nb,
       true, true, true, // have batching
-      inner.ni, inner.nj, inner.nk,
+      inner.ni, 0, inner.ni,
+      inner.nj, inner.nk,
       inner.lhs_t, inner.rhs_t,
-      out_work, lhs_work, rhs_work);
+      out_work, lhs_work, rhs_work,
+      false);
 
     if(out_p) {
       permute_kernel(dtype, 1024,
@@ -132,7 +234,7 @@ contraction_t contraction_t::make(
   do { do { do { do {
   for(bool lhs_t: {false, true}) { // do false first to avoid
   for(bool rhs_t: {false, true}) { // transpositions in the event of ties
-    auto plan = make(
+    contraction_t plan = make(
       dtype, shape, lhs_inn_modes, rhs_inn_modes, out_rank,
       batching_t { bs, is, js, ks, lhs_t, rhs_t });
     if(ret) {
@@ -179,8 +281,7 @@ contraction_t contraction_t::make(
   }
   vector<uint64_t> out_shape(shape.begin(), shape.begin() + out_rank);
 
-  vector<int> out_modes(out_rank);
-  std::iota(out_modes.begin(), out_modes.end(), 0);
+  vector<int> out_modes = vector_iota<int>(out_rank);
 
   auto perm_lhs =
     permute_info_t::from_inn_shape(lhs_shape, lhs_inn_modes, plan.modes_lhs());

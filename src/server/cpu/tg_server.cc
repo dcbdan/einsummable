@@ -15,12 +15,13 @@ void cpu_tg_server_t::_execute_tg(
   taskgraph_t const& taskgraph,
   map<string, scalar_t> const& scalar_vars)
 {
+  int this_rank = comm.get_this_rank();
+  int world_size = comm.get_world_size();
+
   int n_threads = threadpool.num_runners();
-  if(n_threads == 1) {
+  if(n_threads == 1 && world_size > 1) {
     throw std::runtime_error("must have more than one thread in the threadpool");
   }
-
-  int this_rank = comm.get_this_rank();
 
   ////////////////////
   // TODO: Should this check be kept?
@@ -49,21 +50,33 @@ void cpu_tg_server_t::_execute_tg(
   ////////////////////
 
   auto [graph, dinfos] = exec_graph_t::make_cpu_tg_exec_graph(
-    taskgraph, this_rank, kernel_executor, num_channels_per_move, scalar_vars);
+    taskgraph, this_rank, kernel_executor, num_channels_per_move,
+    num_threads_per_contraction, scalar_vars);
 
-  rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
-  recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
+  rm_ptr_t resource_manager = nullptr;
+  if(world_size > 1) {
+    rm_ptr_t rcm_ptr(new recv_channel_manager_t(comm));
+    recv_channel_manager_t& rcm = *static_cast<recv_channel_manager_t*>(rcm_ptr.get());
 
-  rm_ptr_t resource_manager(new resource_manager_t(
-    vector<rm_ptr_t> {
-      rm_ptr_t(new data_manager_t(local_data, dinfos, max_memory_usage)),
-      rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new notifier_t(comm, rcm)),
-      rm_ptr_t(new send_channel_manager_t(comm, n_threads-1)),
-      rcm_ptr,
-      rm_ptr_t(new threadpool_manager_t(threadpool))
-    }
-  ));
+    resource_manager = rm_ptr_t(new resource_manager_t(
+      vector<rm_ptr_t> {
+        rm_ptr_t(new data_manager_t(local_data, dinfos, max_memory_usage)),
+        rm_ptr_t(new group_manager_t()),
+        rm_ptr_t(new notifier_t(comm, rcm)),
+        rm_ptr_t(new send_channel_manager_t(comm, n_threads-1)),
+        rcm_ptr,
+        rm_ptr_t(new threadpool_manager_t(threadpool))
+      }
+    ));
+  } else {
+    resource_manager = rm_ptr_t(new resource_manager_t(
+      vector<rm_ptr_t> {
+        rm_ptr_t(new data_manager_t(local_data, dinfos, max_memory_usage)),
+        rm_ptr_t(new group_manager_t()),
+        rm_ptr_t(new threadpool_manager_t(threadpool))
+      }
+    ));
+  }
 
   exec_state_t state(
     graph,
@@ -78,9 +91,15 @@ void cpu_tg_server_t::execute_tg_server(
   taskgraph_t const& taskgraph,
   map<string, scalar_t> const& scalar_vars)
 {
-  comm.broadcast_string(taskgraph.to_wire());
-  comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
-  _execute_tg(taskgraph, scalar_vars);
+  get_timetracker().clear();
+  {
+    DLINEOUT("execute_tg_server start");
+    gremlin_t gremlin("execute_tg_server");
+    comm.broadcast_string(taskgraph.to_wire());
+    comm.broadcast_string(scalar_vars_to_wire(scalar_vars));
+    _execute_tg(taskgraph, scalar_vars);
+  }
+  get_timetracker().print_totals(std::cout);
 }
 
 void cpu_tg_server_t::execute_tg_client() {
