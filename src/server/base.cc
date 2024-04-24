@@ -35,7 +35,6 @@ void server_base_t::execute_graph(
     }
   }
 
-<<<<<<< HEAD
   int num_msgs = 0;
   uint64_t num_bytes = 0;
   for(auto const& node: taskgraph.nodes) {
@@ -45,17 +44,6 @@ void server_base_t::execute_graph(
     }
   }
   DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
-=======
-  //int num_msgs = 0;
-  //uint64_t num_bytes = 0;
-  //for(auto const& node: taskgraph.nodes) {
-  //  if(node.op.is_move()) {
-  //    num_msgs++;
-  //    num_bytes += node.op.get_move().size;
-  //  }
-  //}
-  //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
->>>>>>> origin/parallel_batchmatmul
 
   {
    std::ofstream f("tg.gv");
