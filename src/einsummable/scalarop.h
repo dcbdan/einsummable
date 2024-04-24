@@ -426,9 +426,6 @@ struct scalarop_t {
 
   static scalarop_t make_silu(dtype_t d = default_dtype());
 
-  // 1 / (1 + e^(-1*x0))
-  static scalarop_t make_sigmoid(dtype_t d = default_dtype());
-
   static scalarop_t make_rcp(dtype_t d = default_dtype());
 
   static scalarop_t make_relu_deriv(dtype_t d = default_dtype());

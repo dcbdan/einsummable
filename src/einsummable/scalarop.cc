@@ -2346,19 +2346,6 @@ scalarop_t scalarop_t::make_silu(dtype_t dtype) {
   return parse_with_ss<scalarop_t>(ret);
 }
 
-// 1 / (1 + e^x0)
-scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {
-  scalar_t n_one = scalar_t::negative_one(dtype);
-  scalar_t one   = scalar_t::one(dtype);
-
-  scalarop_t ret = make_scale(n_one);            // -1*x0
-  ret = combine(make_exp(dtype), { ret });       // e^(-1*x0)
-  ret = combine(make_increment(one), { ret });   // 1 + e^(-1*x0)
-  ret = combine(make_rcp(dtype), { ret });       // 1 / (1 + e^(-1*x0))
-
-  return ret;
-}
-
 scalarop_t scalarop_t::make_rcp(dtype_t dtype)
 {
   node_t node;

@@ -116,8 +116,6 @@ public:
 
   virtual void erase_tids(vector<tuple<int, int>> const& loc_tid_pairs) = 0;
 
-  vector<int> get_gids() const;
-
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
   // existing data

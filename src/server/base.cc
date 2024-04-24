@@ -247,15 +247,6 @@ void server_base_t::erase(vector<int> const& gids) {
   }
 }
 
-vector<int> server_base_t::get_gids() const {
-  vector<int> ret;
-  ret.reserve(gid_map.size());
-  for(auto const& [gid, _]: gid_map) {
-    ret.push_back(gid);
-  }
-  return ret;
-}
-
 map<string, scalar_t> scalar_vars_from_wire(string const& s) {
   std::stringstream inn(s);
   map<string, scalar_t> ret;
