@@ -90,9 +90,6 @@ int main(int argc, char** argv) {
 
   args_t args(argc-1, argv+1);
 
-  args.set_default("parallel_partialize", false);
-  gpu_server->set_parallel_partialize(args.get<bool>("parallel_partialize"));
-
   args.set_default("use_storage", true);
   gpu_server->set_use_storage(args.get<bool>("use_storage"));
 
@@ -331,7 +328,7 @@ void main_rank_zero(
   dtype_t dtype = default_dtype();
 
   //
-  pargs.set_default("simplify_tg", true);
+  pargs.set_default("simplify_tg", false);
   set_tg_do_simplify(pargs.get<bool>("simplify_tg"));
   //
 
@@ -348,7 +345,11 @@ void main_rank_zero(
 
   DOUT("batch_size: " << batch_size);
 
+  // time to make the graph in ms
+  auto start_graph = std::chrono::high_resolution_clock::now();
   auto info = make_graph(pargs, model_loader.num_files(), batch_size);
+  auto end_graph = std::chrono::high_resolution_clock::now();
+  DOUT("graph time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_graph - start_graph).count());
 
   // Used to figure out required shapes
   auto const& margs = info.margs;
@@ -370,11 +371,16 @@ void main_rank_zero(
     next_iter_remap.emplace_back(new_id, old_id);
   }
 
+  auto start_pls = std::chrono::high_resolution_clock::now();
   vector<placement_t> full_pls = autoplace01(info.full_graph, config);
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
+  auto end_pls = std::chrono::high_resolution_clock::now();
+  DOUT("placement time: " << 
+    std::chrono::duration_cast<std::chrono::milliseconds>(end_pls - start_pls).count() << " ms");
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
+  auto start_load = std::chrono::high_resolution_clock::now();
   string register_cmd = server->get_registered_cmd();
 
   dbuffer_t embedding_matrix;
@@ -427,6 +433,8 @@ void main_rank_zero(
     info.full_freqs_cis_id,
     info.get_shape(info.full_freqs_cis_id),
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
+  auto end_load = std::chrono::high_resolution_clock::now();
+  DOUT("load time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_load - start_load).count());
   // TODO: this is how form_position_interpolation works?
 
   /////////////////////////////////////////////////////////////////////////////
