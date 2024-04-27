@@ -114,7 +114,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         //   DOUT("einsum castable: " << einsum.castable);
         //   DOUT("");
         //   all_einsums.insert(einsum);
-        // }       
+        // }
 
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(
@@ -464,7 +464,7 @@ void gpu_evict_t::launch(
   cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
-  buffer_t buffer = make_buffer(size);
+  host_buffer_t buffer = make_host_buffer(size);
   handle_cuda_error(
     cudaMemcpyAsync(buffer->data, gpu_memory, size, cudaMemcpyDeviceToHost, stream),
     "cudaMemcpyAsync in gpu_evict_t");
@@ -524,7 +524,7 @@ void gpu_load_t::launch(
 
   auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
   // DOUT("gpu_load_t::launch: loading buffer from storage, id = " << storage_id);
-  buffer_t buffer = gpu_storage->load(storage_id);
+  host_buffer_t buffer = gpu_storage->load(storage_id);
   handle_cuda_error(
     cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
     "cudaMemcpyAsync in gpu_load_t");
