@@ -70,6 +70,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   // std::unordered_set<einsummable_t> all_einsums;
 
+  int evict_count = 0, load_count = 0;
+  uint64_t evict_bytes = 0, load_bytes = 0;
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
     //  DOUT("Skipping node " << mid << " because it is not local to this gpu")
@@ -172,10 +175,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
+      evict_count++;
+      evict_bytes += node.op.get_evict().src.size;
       gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted evict op for node " << mid);
     } else if(node.op.is_load()) {
+      load_count++;
+      load_bytes += node.op.get_load().dst.size;
       gpu_load_t* op = new gpu_load_t(node.op.get_load());
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted load op for node " << mid);
@@ -201,6 +208,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   // Debug: print the exec_graph
   // print_exec_graph(graph);
   DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  fprintf(stdout, "evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
+    evict_count, evict_bytes, load_count, load_bytes);
   return graph;
 }
 
