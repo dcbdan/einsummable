@@ -3,26 +3,44 @@
 
 #include "../../base/buffer.h"
 
-// for allocator_t
-#include "../../einsummable/memgraph.h"
 #include "utility.h"
+
+struct host_buffer_holder_t {
+  host_buffer_holder_t(uint64_t size);
+  ~host_buffer_holder_t();
+
+  void*       raw()       { return data; }
+  void const* raw() const { return data; }
+
+  uint8_t*       as_uint8()       { return reinterpret_cast<uint8_t*>(      data); }
+  uint8_t const* as_uint8() const { return reinterpret_cast<uint8_t const*>(data); }
+
+  uint64_t size;
+  void* data;
+};
+
+using host_buffer_t = std::shared_ptr<host_buffer_holder_t>;
+
+host_buffer_t make_host_buffer(uint64_t size);
 
 struct gpu_storage_t
 {
   gpu_storage_t();
 
   // inserts a copy of d into the storage
+  void write(host_buffer_t d, int id);
   void write(buffer_t d, int id);
 
   // inserts id, d into storage; does not copy the
   // d object
-  void insert(int id, buffer_t d);
+  void insert(int id, host_buffer_t d);
 
   // gets a copy of the bytes at id
-  buffer_t read(int id);
+  host_buffer_t read(int id);
+  buffer_t read_to_buffer(int id);
 
   // same as read but removes the id from storage
-  buffer_t load(int id);
+  host_buffer_t load(int id);
 
   // removes the id
   void remove(int id);
@@ -43,6 +61,6 @@ struct gpu_storage_t
 private:
   std::mutex m;
 
-  map<int, buffer_t> data;
+  map<int, host_buffer_t> data;
 };
 
