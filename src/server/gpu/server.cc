@@ -294,7 +294,7 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     if(sto_loc != this_rank) {
       throw std::runtime_error("invalid storage location");
     }
-    return storage.read_to_buffer(sto_id);
+    return storage.read(sto_id);
   } else {
     throw std::runtime_error("local_copy_data should not reach");
   }

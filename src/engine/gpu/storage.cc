@@ -5,7 +5,7 @@ host_buffer_holder_t::host_buffer_holder_t(uint64_t size)
   : size(size)
 {
   handle_cuda_error(
-    cudaMallocHost(&data, size),
+    cudaHostAlloc(&data, size, cudaHostAllocPortable),
     "host buffer construction");
 }
 
@@ -20,30 +20,82 @@ host_buffer_t make_host_buffer(uint64_t size) {
   return std::make_shared<host_buffer_holder_t>(size);
 }
 
-gpu_storage_t::gpu_storage_t() {}
-
-void gpu_storage_t::write(host_buffer_t buffer, int id) {
-  host_buffer_t ret = make_host_buffer(buffer->size);
-  std::copy(buffer->as_uint8(), buffer->as_uint8() + buffer->size, ret->as_uint8());
-  insert(id, ret);
-}
-void gpu_storage_t::write(buffer_t buffer, int id) {
-  host_buffer_t ret = make_host_buffer(buffer->size);
-  std::copy(buffer->data, buffer->data + buffer->size, ret->as_uint8());
-  insert(id, ret);
+gpu_storage_t::gpu_storage_t()
+  : allocator(
+      64lu*1000lu*1000lu*1000lu,
+      allocator_settings_t {
+        .strat = allocator_strat_t::first,
+        .alignment_power = 0
+      })
+{
+  host_data = make_host_buffer(64lu*1000lu*1000lu*1000lu);
 }
 
-void gpu_storage_t::insert(int id, host_buffer_t buffer) {
+buffer_t gpu_storage_t::alloc(uint64_t size, int id) {
   std::unique_lock lk(m);
 
-  auto [_, did_insert] = this->data.insert({id, buffer});
+  auto maybe = allocator.allocate_without_deps(size);
+  if(!maybe) {
+    throw std::runtime_error("ran out of gpu_storage blob space");
+  }
+  uint64_t const& offset = maybe.value();
+
+  mem_t mem { .offset = offset, .size = size };
+  auto [_, did_insert] = this->info.insert({id, mem});
   if(!did_insert) {
     throw std::runtime_error("id already in gpu storage");
   }
+
+  return make_reference(offset, size);
+}
+
+void gpu_storage_t::write(buffer_t d, int id) {
+  buffer_t ret = alloc(d->size, id);
+  std::copy(d->data, d->data + d->size, ret->data);
+}
+
+buffer_t gpu_storage_t::_read(int id) {
+  auto iter = info.find(id);
+  if(iter == info.end()) {
+    throw std::runtime_error("id not in storage.");
+  }
+
+  buffer_t d = make_reference(iter->second);
+  buffer_t ret = make_buffer(d->size);
+  std::copy(d->data, d->data + d->size, ret->data);
+
+  return ret;
+}
+
+buffer_t gpu_storage_t::read(int id) {
+  std::unique_lock lk(m);
+  return _read(id);
+}
+
+void gpu_storage_t::_remove(int id) {
+  auto iter = info.find(id);
+  if(iter == info.end()) {
+    throw std::runtime_error("id not in storage.");
+  }
+
+  {
+    uint64_t const& offset = iter->second.offset;
+    allocator.free(offset, -1);
+  }
+
+  info.erase(iter);
 }
 
 void gpu_storage_t::remove(int id) {
-  load(id);
+  std::unique_lock lk(m);
+  return _remove(id);
+}
+
+buffer_t gpu_storage_t::load(int id) {
+  std::unique_lock lk(m);
+  buffer_t ret = _read(id);
+  _remove(id);
+  return ret;
 }
 
 void gpu_storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
@@ -57,55 +109,41 @@ void gpu_storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
 void gpu_storage_t::remap(map<int, int> const& rmap) {
   std::unique_lock lk(m);
 
-  map<int, host_buffer_t> new_data;
+  map<int, mem_t> new_info;
 
-  for(auto const& [old_id,buffer]: data) {
+  for(auto const& [old_id,m]: info) {
     int const& new_id = rmap.at(old_id);
-    new_data.insert({new_id, buffer});
+    new_info.insert({new_id, m});
   }
 
-  data = new_data;
+  info = new_info;
 }
 
 int gpu_storage_t::get_max_id() const {
-  if(data.size() == 0) {
+  if(info.size() == 0) {
     return -1;
   }
-  return data.rbegin()->first;
+  return info.rbegin()->first;
 }
 
-host_buffer_t gpu_storage_t::load(int id) {
-  std::unique_lock lk(m);
-  auto iter = data.find(id);
-  if(iter == data.end()) {
-    throw std::runtime_error("id not in storage.");
-  }
-  host_buffer_t data = iter->second;
-  this->data.erase(iter);
-  return data;
+buffer_t gpu_storage_t::make_reference(uint64_t offset, uint64_t size)
+{
+  return make_buffer_reference(host_data->as_uint8() + offset, size);
 }
 
-host_buffer_t gpu_storage_t::read(int id) {
-  std::unique_lock lk(m);
-  auto iter = data.find(id);
-  if(iter == data.end()) {
-    throw std::runtime_error("id not in storage.");
-  }
-  host_buffer_t d = iter->second;
-  host_buffer_t ret = make_host_buffer(d->size);
-  std::copy(d->as_uint8(), d->as_uint8() + d->size, ret->as_uint8());
-  return ret;
+buffer_t gpu_storage_t::make_reference(mem_t const& mem) 
+{
+  return make_reference(mem.offset, mem.size);
 }
 
-buffer_t gpu_storage_t::read_to_buffer(int id) {
+buffer_t gpu_storage_t::reference(int id) 
+{
   std::unique_lock lk(m);
-  auto iter = data.find(id);
-  if(iter == data.end()) {
+  auto iter = info.find(id);
+  if(iter == info.end()) {
     throw std::runtime_error("id not in storage.");
   }
-  host_buffer_t d = iter->second;
-  buffer_t ret = make_buffer(d->size);
-  std::copy(d->as_uint8(), d->as_uint8() + d->size, ret->data);
-  return ret;
+
+  return make_reference(iter->second);
 }
 

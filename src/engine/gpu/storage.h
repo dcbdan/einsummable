@@ -3,6 +3,9 @@
 
 #include "../../base/buffer.h"
 
+#include "../../einsummable/memgraph.h"
+#include "../../einsummable/mgallocator.h"
+
 #include "utility.h"
 
 struct host_buffer_holder_t {
@@ -28,19 +31,19 @@ struct gpu_storage_t
   gpu_storage_t();
 
   // inserts a copy of d into the storage
-  void write(host_buffer_t d, int id);
   void write(buffer_t d, int id);
 
-  // inserts id, d into storage; does not copy the
-  // d object
-  void insert(int id, host_buffer_t d);
+  // insert id and get a reference to the data
+  buffer_t alloc(uint64_t size, int id);
 
   // gets a copy of the bytes at id
-  host_buffer_t read(int id);
-  buffer_t read_to_buffer(int id);
+  buffer_t read(int id);
 
-  // same as read but removes the id from storage
-  host_buffer_t load(int id);
+  // gets a copy of the bytes at id and removes id
+  buffer_t load(int id);
+
+  // gets a reference / shallow copy of the data at id
+  buffer_t reference(int id);
 
   // removes the id
   void remove(int id);
@@ -61,6 +64,13 @@ struct gpu_storage_t
 private:
   std::mutex m;
 
-  map<int, host_buffer_t> data;
+  allocator_t allocator;
+  host_buffer_t host_data;
+  map<int, mem_t> info;
+
+  buffer_t make_reference(mem_t const&);
+  buffer_t make_reference(uint64_t offset, uint64_t size);
+  buffer_t _read(int id);
+  void _remove(int id);
 };
 
