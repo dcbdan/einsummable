@@ -70,8 +70,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   // std::unordered_set<einsummable_t> all_einsums;
 
-  int evict_count, load_count = 0;
-  uint64_t evict_bytes, load_bytes = 0;
+  int evict_count = 0, load_count = 0;
+  uint64_t evict_bytes = 0, load_bytes = 0;
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
