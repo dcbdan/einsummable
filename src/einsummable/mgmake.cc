@@ -243,6 +243,8 @@ memgraph_t::make_(
       save_to_data.insert({id, memnode.op.get_output_memstoloc()});
     }
   }
+  std::cout << "Total nodes being saved: " << save_to_data.size() << std::endl;
+
 
   return {
     input_tid_to_data,
@@ -891,7 +893,8 @@ memgraph_make_state_t::add_op(
   bool just_deleted = false;
   for(auto const& used_task_id: used_task_tensors)
   {
-    just_deleted = just_deleted || register_usage(used_task_id);
+    bool has_delete = register_usage(used_task_id);
+    just_deleted = just_deleted || has_delete;
   }
 
   return just_deleted;
