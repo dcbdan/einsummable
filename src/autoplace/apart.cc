@@ -143,6 +143,7 @@ vector<vector<int>> compute_equal_sums(int n, int d) {
 
 struct get_parts_t {
   graph_t const& graph;
+  int n_compute;
   int log2_n;
   parts_space_t search_space;
   optional<vector<partition_t>> set_parts;
@@ -167,10 +168,18 @@ struct get_parts_t {
       }
     } else if(search_space == parts_space_t::all) {
       vector<uint64_t> shape = op.shape();
+      if(product(shape) < n_compute) {
+        vector<vector<int>> pps(1, vector<int>(shape.size(), 0));
+        return fix(shape, pps);
+      }
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       return fix(shape, pps);
     } else if(search_space == parts_space_t::all_range) {
       vector<uint64_t> shape = op.shape();
+      if(product(shape) < n_compute) {
+        vector<vector<int>> pps(1, vector<int>(shape.size(), 0));
+        return fix(shape, pps);
+      }
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       vector_concatenate_into(
         pps,
@@ -663,8 +672,10 @@ vector<partition_t> apart01(
   // 3.
   get_parts_t get_possible_partitions {
     .graph = graph,
+    .n_compute = n_compute,
     .log2_n = log2_n,
-    .search_space = search_space
+    .search_space = search_space,
+    .set_parts = std::nullopt
   };
   compute_cost_t compute_cost {
     .graph = graph,
@@ -880,6 +891,7 @@ vector<partition_t> apart02(
 
   get_parts_t get_possible_parts {
     .graph = graph,
+    .n_compute = n_compute,
     .log2_n = safe_log2(n_compute),
     .search_space = parts_space_t::contraction,
     .set_parts = std::nullopt
@@ -1017,9 +1029,6 @@ vector<partition_t> apart03(
             throw std::runtime_error("should not happen: at inn_pds.end()");
           }
           if(iter->total() != out_shape[i]) {
-            DOUT("i is " << i);
-            DOUT(iter->total());
-            DOUT(out_shape[i]);
             throw std::runtime_error("selected pd shape is incorrect");
           }
           out_pds.push_back(*iter++);
@@ -1181,7 +1190,7 @@ vector<partition_t> apart04(
       return std::nullopt;
     }
 
-    auto const& node = graph.nodes[gid]; 
+    auto const& node = graph.nodes[gid];
 
     // formation nodes are exclusively computed from inputs
     if(node.op.is_formation()) {
@@ -1195,7 +1204,7 @@ vector<partition_t> apart04(
       } else {
         return std::nullopt;
       }
-    } 
+    }
 
     if(node.op.is_einsummable()) {
       auto const& e = node.op.get_einsummable();

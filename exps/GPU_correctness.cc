@@ -692,7 +692,7 @@ graph_t generate_ffnn(uint64_t batch, vector<uint64_t> dims){
     }
     else{
       printf("Softmax\n");
-      out = writer.softmax(out);
+      out = writer.softmax_v1(out);
     }
   }
   out.save_inplace();
@@ -733,7 +733,7 @@ graph_t ffnn_specific(){
   out = writer.matmul(out, writer.input({H_2, output_class}));
   printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_2);
   printf("MATMUL Matrix 2: %lu %lu\n", H_2, output_class);
-  out = writer.softmax(out);
+  out = writer.softmax_v1(out);
   printf("Softmax\n");
 
   out.save_inplace();
@@ -767,7 +767,7 @@ graph_t ffnn_specific_H1(){
   out = writer.matmul(out, writer.input({H_1, output_class}));
   printf("MATMUL Matrix 1: %lu %lu\n", batch_size, H_1);
   printf("MATMUL Matrix 2: %lu %lu\n", H_1, output_class);
-  out = writer.softmax(out);
+  out = writer.softmax_v1(out);
   printf("Softmax\n");
 
   out.save_inplace();

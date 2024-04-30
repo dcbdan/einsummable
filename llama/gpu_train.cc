@@ -17,6 +17,23 @@ void usage() {
                "Args:\n";
 }
 
+void tokenizer_check(){
+  piper_t piper("./llama_tokenizer", "../tokenizer.model");
+  string str = "This is a sentence";
+  int32_t sz;
+  char const* raw = reinterpret_cast<char const*>(&sz);
+  string msgsz(raw, raw + sizeof(sz));
+  piper.write(msgsz);
+  piper.write(str);
+  vector<int> tokens = parse_vector<int>(piper.read());
+  DOUT(str);
+  DOUT(tokens);
+}
+
+// int main(){
+//   tokenizer_check();
+// }
+
 void main_rank_zero(
   server_base_t* server,
   tensor_reader_t& model_loader,
@@ -438,7 +455,10 @@ void main_rank_zero(
   // TODO: this is how form_position_interpolation works?
 
   /////////////////////////////////////////////////////////////////////////////
-
+  
+  pargs.set_default("tokenizer", "../tokenizer.model");
+  pargs.set_default("dataset", "~/containers/redpaj_long_samples");
+  pargs.set_default("learning_rate", 1e-4f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
 
@@ -454,11 +474,12 @@ void main_rank_zero(
 
   pargs.set_default<int>("niter", 2);
   int niter = pargs.get<int>("niter");
+  DOUT("starting training")
   for(int iter = 1; iter != niter + 1; ++iter) {
     // Insert the actual (embeddings,label) data
     // Note that embeddings will need to be selected from the embedding matrix
     // and the labels will need to be one-hot encoded
-
+    DOUT("Iter: " << iter)
     auto [data_tokens, label_tokens] = [&] {
       if(which_data.size() > 0) {
         vector<vector<int>> data_tokens;
@@ -474,6 +495,7 @@ void main_rank_zero(
       return data_loader.random_data(margs.batch_size, margs.max_seq_len);
     }();
 
+    DOUT("server inserting tensors");
     server->insert_tensor(
       info.embeddings_id,
       info.get_shape(info.embeddings_id),
@@ -488,9 +510,11 @@ void main_rank_zero(
 
     update_vars(updater_desc, iter, vars);
     for(int which = 0; which != taskgraphs.infos.size(); ++which) {
+      DOUT("server remapping");
       server->remap_gids(graphs.remaps[which]);
       auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
       server->remap(init_rels);
+      DOUT("server executing");
       server->execute(taskgraph, save_rels, vars);
     }
     server->remap_gids(graphs.remaps.back());
