@@ -4,8 +4,11 @@
 host_buffer_holder_t::host_buffer_holder_t(uint64_t size)
   : size(size)
 {
+  // cudaHostAllocPortable allows for the buffer to be used on any device
+  // cudaHostAllocWriteCombined allows for faster writes to the buffer
   handle_cuda_error(
-    cudaHostAlloc(&data, size, cudaHostAllocPortable),
+    cudaHostAlloc(&data, size, 
+      cudaHostAllocPortable|cudaHostAllocWriteCombined),
     "host buffer construction");
 }
 

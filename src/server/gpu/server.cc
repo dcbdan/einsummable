@@ -61,7 +61,10 @@ gpu_mg_server_t::gpu_mg_server_t(
     for (int j = 0; j < deviceCount; ++j) {
       if (i != j) {
         cudaSetDevice(i);
+        // enable p2p access
         cudaDeviceEnablePeerAccess(j, 0);
+        // enable host memory mapping access by cudaHostAlloc
+        cudaSetDeviceFlags(cudaDeviceMapHost);
       }
     }
   }
