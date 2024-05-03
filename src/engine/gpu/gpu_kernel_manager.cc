@@ -1,11 +1,13 @@
 #include "gpu_kernel_manager.h"
 
+#include "cuda_kernels.h"
 #include "kernels.h"
 #include "utility.h"
 #include <cstdint>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
 #include <stdexcept>
+#include <variant>
 
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
@@ -56,7 +58,8 @@ static cutensorOperator_t uop_to_cutensorOp(simple_scalarop_t::uop_t uop){
     case simple_scalarop_t::uop_t::log: return CUTENSOR_OP_LOG;
     case simple_scalarop_t::uop_t::exp: return CUTENSOR_OP_EXP;
     case simple_scalarop_t::uop_t::relu: return CUTENSOR_OP_RELU;
-    default: throw std::runtime_error("Unknown uop");
+    // default: return CUTENSOR_OP_IDENTITY;
+    default: throw std::runtime_error("uop_to_cutensorOp: Unknown uop");
   }
 }
 
@@ -162,6 +165,44 @@ bool kernel_manager_t::is_custom_kernel1(einsummable_t e){
   return false;
 }
 
+// ab,a->ab: (x0==x1?f16|1:f16|0)
+bool kernel_manager_t::is_custom_kernel2(einsummable_t e){
+  if(e.inns.size()==2){
+    scalarop_t op = e.join;
+    op = op.simplify();
+    auto op_str = op.to_cppstr();
+    // check if front is x0==x1
+    if(op_str.substr(0,8)=="(x0==x1?"){
+      // DOUT("Found custom kernel 2: " << op_str);
+      // print the join_shape, inns, and out_rank, and join
+      // DOUT("join_shape: " << e.join_shape);
+      // DOUT("inns: " << e.inns);
+      // DOUT("out_rank: " << e.out_rank);
+      // DOUT("join: " << e.join);
+      // check if the 2 assignment values are 1 and 0
+      if(op_str.substr(8,11)!="f16|1:f16|0" && op_str.substr(8,11)!="f32|1:f32|0"){
+        throw std::runtime_error("custom kernel 2 only supports 1 and 0, but got: " + op_str.substr(8,11));
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// (f16|-1*x0)
+bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
+  if(e.inns.size()==1){
+    scalarop_t op = e.join;
+    op = op.simplify();
+    auto op_str = op.to_cppstr();
+    if(op_str.substr(0,11)=="(f16|-1*x0)" || op_str.substr(0,11)=="(f32|-1*x0)"){
+      // DOUT("Found custom kernel 3: " << e);
+      return true;
+    }
+  }
+  return false;
+}
+
 bool kernel_manager_t::is_c64_elementwise_multiply(einsummable_t e){
    if(e.inns.size()==2){
     scalarop_t op = e.join;
@@ -227,6 +268,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 {
   cudaSetDevice(device);
   // DOUT("Building kernel for " << e_);
+  // DOUT("simplified: " << e_.join.simplify())
   auto einsummable = e_.merge_adjacent_dims();
 
   auto iter = kernels.find(einsummable);
@@ -251,13 +293,47 @@ kernel_manager_t::build(einsummable_t const& e_)
   // Check for Reductions
   if(einsummable.has_aggregation()) {
     if(einsummable.inns.size() != 1) {
-      DOUT("Warning: Reduction with more than one input tensor");
+      DOUT("Reduction with more than one input tensor. Einsummable: " << einsummable);
       return std::nullopt;
     }
 
     if (!einsummable.join.is_identity()){
-      DOUT("Warning: Reduction with non-identity join");
-      return std::nullopt;
+      if (!is_custom_kernel3(einsummable)){
+        DOUT("Reduction with non-identity join. Einsummable: " << einsummable);
+        return std::nullopt;
+      }
+      vector<int> const& inn_modes = einsummable.inns[0];
+      auto inn_shape = einsummable.inn_shapes()[0];
+      vector<int> out_modes(einsummable.out_rank);
+      std::iota(out_modes.begin(), out_modes.end(), 0);
+      auto out_shape = einsummable.out_shape();
+      reduction_t reduct = make_reduction(einsummable);
+      
+      // elementwise is 1 * neg(x)
+      scalar_t scale = scalar_t::one(reduct.dtype);
+      auto uop = simple_scalarop_t::uop_t::neg;
+      simple_scalarop_t::unary_t unary {
+        .scale = scale,
+        .op = uop,
+      };
+      // the out shape of the elementwise is the same as the input shape
+      auto out_shape_elemwise = einsummable.inn_shapes()[0];
+      // get the product of the out_shape_elemwise
+      uint64_t elewise_wsz = 1;
+      for(auto const& dim: out_shape_elemwise) {
+        elewise_wsz *= dim;
+      }
+      elewise_wsz = elewise_wsz * dtype_size(reduct.dtype);
+      auto elewise_plan = sop_unary_plan(unary, {0}, out_shape_elemwise);
+
+      custom_kernel_3_t custom_kernel {
+        .elementwise_plan = elewise_plan,
+        .reduction = reduct,
+        .worksize = reduct.worksize + elewise_wsz,
+        .offset = elewise_wsz
+      };
+
+      kernels.insert({einsummable, custom_kernel});
     }
 
     if(einsummable.castable.value() == castable_t::add ||
@@ -400,6 +476,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 
   // Assumption: We can execute all simple scalarops
   // trying to build list of elewise after we tried all the special kernels
+  // DOUT("Trying to build elementwise kernel: " << einsummable);
   optional<list_simple_scalarop_t> maybe_sops =
     list_simple_scalarop_t::make(einsummable.join);
   if (maybe_sops) {
@@ -419,6 +496,30 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
+  if(is_custom_kernel2(einsummable)){
+    // DOUT("Building custom kernel 2");
+    auto lhs = einsummable.inns[0];
+    auto rhs = einsummable.inns[1];
+    if (lhs.size() != 2 || rhs.size() != 1) {
+      throw std::runtime_error("custom kernel 2 only supports form of ab,a->ab");
+    }
+    if (lhs[0] != rhs[0]) {
+      throw std::runtime_error("custom kernel 2 only supports form of ab,a->ab; shape mismatch");
+    }
+    uint64_t nrows = einsummable.join_shape[lhs[0]];
+    uint64_t ncols = einsummable.join_shape[lhs[1]];
+    // DOUT("einsummable: " << einsummable);
+    custom_kernel_2_t custom_kernel {
+      .nrows = nrows,
+      .ncols = ncols,
+      .dtype = einsummable.inn_dtype(0)
+    };
+
+    kernels.insert({einsummable, custom_kernel});
+
+    return workspace_info_t(0);
+  }
+
   return std::nullopt;
 }
 
@@ -433,6 +534,8 @@ workspace_info_t kernel_manager_t::workspace_size(
     return workspace_info_t(std::get<reduction_t>(kernel).worksize);
   }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
     return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
+  }else if(std::holds_alternative<custom_kernel_3_t>(kernel)) {
+    return workspace_info_t(std::get<custom_kernel_3_t>(kernel).worksize);
   }else {
     return workspace_info_t(0);
   }
@@ -608,7 +711,43 @@ void kernel_manager_t::call(
     auto const& [f] = get<custom_kernel_1_t>(kernel);
 
     f(stream,cutensor_handle,out,inns);
-  }    
+  } else if(holds_alternative<custom_kernel_2_t>(kernel)){
+    auto nrows = get<custom_kernel_2_t>(kernel).nrows;
+    auto ncols = get<custom_kernel_2_t>(kernel).ncols;
+    auto dtype = get<custom_kernel_2_t>(kernel).dtype;
+    int dtype_info;
+    if (dtype == dtype_t::f16) {
+      dtype_info = 0;
+    } else if (dtype == dtype_t::f32) {
+      dtype_info = 1;
+    } else if (dtype == dtype_t::f64) {
+      dtype_info = 2;
+    } else if (dtype == dtype_t::c64) {
+      dtype_info = 3;
+    } else {
+      throw std::runtime_error("custom_kernel_2: unknown dtype");
+    }
+    conditional_assignment_dispatch(out, inns[0], nrows, ncols, 
+      inns[1], 1, 0, stream, dtype_info);
+  } else if(holds_alternative<custom_kernel_3_t>(kernel)){
+    // throw std::runtime_error("custom_kernel_3: debug");
+    auto const& [elewise_plan, reduct, worksize, offset] = get<custom_kernel_3_t>(kernel);
+    auto [workspace, wsz] = maybe_workspace.value();
+    auto reduct_workspace = increment_void_ptr(workspace, offset);
+    // elementwise is 1 * neg(x)
+    scalar_t scale = scalar_t::one(reduct.dtype);
+    auto uop = simple_scalarop_t::uop_t::neg;
+    simple_scalarop_t::unary_t unary {
+      .scale = scale,
+      .op = uop,
+    };
+    // negating the input
+    execute_sop_unary(unary, stream, workspace, inns[0], elewise_plan);
+    // perform reduction
+    execute_reduction(reduct, stream, out, inns, reduct_workspace, wsz-offset);
+  } else {
+    throw std::runtime_error("kernel_manager_t: unknown kernel type");
+  }
 }
 
 kernel_manager_t::kernel_info_t const&
@@ -616,6 +755,7 @@ kernel_manager_t::get_built_kernel_info(einsummable_t const& e) const
 {
   auto iter = kernels.find(e.merge_adjacent_dims());
   if(iter == kernels.end()) {
+    DOUT("einsummable not found: " << e.str());
     throw std::runtime_error("get_built_kernel_info: this einsummable has not been built");
   }
   return iter->second;

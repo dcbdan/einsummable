@@ -9,6 +9,7 @@
 #include "../../einsummable/taskgraph.h" // touch_t
 
 #include <cstdint>
+#include <sys/types.h>
 #include <thread>
 
 #include <cuda_runtime.h>
@@ -212,6 +213,25 @@ private:
     cutensor_elementwise_kernel_t kernel;
   };
 
+  struct custom_kernel_2_t{
+    uint64_t nrows;
+    uint64_t ncols;
+    dtype_t dtype;
+  };
+
+  // ab->a | *[constant{f16|-1},hole|f16@0]
+  // we can do a elementwise then a reduction
+  struct custom_kernel_3_t{
+    cutensorPlan_t elementwise_plan;
+    // reduction
+    reduction_t reduction;
+    // we need 2 workspace: 1. for elementwise (size of input) 2. reduction
+    uint64_t worksize;
+    // workspace = elementwise + reduction, so we need an offset to 
+    // get the workspace for reduction
+    uint64_t offset;
+  };
+
 public:
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -222,6 +242,8 @@ public:
   static bool is_type_conversion(einsummable_t e);
   static bool is_elementwise_with_pow(einsummable_t e);
   static bool is_custom_kernel1(einsummable_t e);
+  static bool is_custom_kernel2(einsummable_t e);
+  static bool is_custom_kernel3(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
   static double get_power(einsummable_t e);
   static bool is_scale_and_increment(einsummable_t e);
@@ -257,7 +279,7 @@ public:
 private:
   using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
                                       type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
-                                      power_t, scale_t>;
+                                      power_t, scale_t, custom_kernel_2_t, custom_kernel_3_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;

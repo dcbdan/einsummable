@@ -59,16 +59,23 @@ _pop_with_unary(node_t const* node_with_scale)
 
   {
     vector<tuple<uop_t, scalarop_t>> ms;
-    // NOTE: sort this from most complicated to least complicated
-    // for example, sigmoid can be matched with rcp. exp
-    ms.emplace_back(uop_t::sigmoid, scalarop_t::make_sigmoid(node->dtype));
-    ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
-    ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
-    ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
-    ms.emplace_back(uop_t::neg, scalarop_t::make_neg(node->dtype));
-    ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
-    ms.emplace_back(uop_t::rcp, scalarop_t::make_rcp(node->dtype));
-    ms.emplace_back(uop_t::square, scalarop_t::make_square(node->dtype));
+    if (node->dtype == dtype_t::c64) {
+      // it seems that conjugate is the only unary operation we can add
+      // but we can always add more later
+      ms.emplace_back(uop_t::conj, scalarop_t::make_conjugate(node->dtype));
+    }
+    else{
+      // NOTE: sort this from most complicated to least complicated
+      // for example, sigmoid can be matched with rcp. exp
+      ms.emplace_back(uop_t::sigmoid, scalarop_t::make_sigmoid(node->dtype));
+      ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
+      ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
+      ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
+      ms.emplace_back(uop_t::neg, scalarop_t::make_neg(node->dtype));
+      ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
+      ms.emplace_back(uop_t::rcp, scalarop_t::make_rcp(node->dtype));
+      ms.emplace_back(uop_t::square, scalarop_t::make_square(node->dtype));
+    }
     
 
     for(auto const& [uop, m]: ms) {

@@ -25,7 +25,7 @@ host_buffer_t make_host_buffer(uint64_t size) {
 
 gpu_storage_t::gpu_storage_t()
   : allocator(
-      64lu*1000lu*1000lu*1000lu,
+      256lu*1000lu*1000lu*1000lu,
       allocator_settings_t {
         .strat = allocator_strat_t::first,
         .alignment_power = 0

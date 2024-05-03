@@ -42,3 +42,9 @@ void fillTri_dispatch(void* mem, uint64_t nrow, uint64_t ncol, uint64_t start,
 
 void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
   cudaStream_t stream, int dtype_info);
+
+// compare every element in the array with a value, if the element is equal to
+// the value, assign value_true to the element, otherwise assign value_false
+// Out[i,j] = f(X[i,j], Y[i]), f is the conditional assignment
+void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, uint64_t columns,
+  void const* compare, uint64_t value_true, uint64_t value_false, cudaStream_t stream, int dtype_info);

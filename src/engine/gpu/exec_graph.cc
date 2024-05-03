@@ -11,8 +11,7 @@
 #include <driver_types.h>
 #include <iostream>
 #include <sys/types.h>
-#include <thread>
-#include <unordered_set>
+#include <unordered_map>
 
 void print_exec_graph(exec_graph_t exec_graph){
   for (int i = 0; i < exec_graph.nodes.size(); ++i) {
@@ -73,6 +72,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   int evict_count = 0, load_count = 0;
   uint64_t evict_bytes = 0, load_bytes = 0;
 
+  std::unordered_map<string, einsummable_t> einsums_not_compiled;
+  // open a file
+  std::ofstream failed_einsums;
+  failed_einsums.open("failed_einsums.txt");
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
     //  DOUT("Skipping node " << mid << " because it is not local to this gpu")
@@ -127,9 +131,17 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         // DOUT("Einsummable: " << einsum);
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
-          DOUT("Einsummable: " << einsum);
-          DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
-          throw std::runtime_error("GPU KM could not compile the kernel");
+          // DOUT("Einsummable: " << einsum);
+          // DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
+          string e_string = einsum.str();
+          if (einsums_not_compiled.find(e_string) == einsums_not_compiled.end()){
+            einsums_not_compiled.emplace(e_string, einsum);
+            failed_einsums << "einsum:" << einsum << std::endl;
+          }
+          // throw std::runtime_error("GPU KM could not compile the kernel");
+          op_ptr_t op = std::make_shared<dummy_t>();
+          insert(op, mid);
+          continue;
         }
         auto workspace_info = maybe_built.value();
         if (workspace_info.known()){
@@ -207,6 +219,17 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   }
   // Debug: print the exec_graph
   // print_exec_graph(graph);
+  if (einsums_not_compiled.size() > 0){
+    DOUT("The following einsums were not compiled:");
+    for (auto [e_string, e_value]: einsums_not_compiled){
+      DOUT("einsum: " << e_value);
+      DOUT("einsum simplified: " << e_value.join.simplify().to_cppstr());
+    }
+    throw std::runtime_error("GPU KM could not compile some kernels");
+  }
+  // close the file
+  failed_einsums.close();
+
   DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
   fprintf(stdout, "evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
     evict_count, evict_bytes, load_count, load_bytes);

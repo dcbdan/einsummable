@@ -17,18 +17,20 @@ void usage() {
                "Args:\n";
 }
 
-void tokenizer_check(){
-  piper_t piper("./llama_tokenizer", "../tokenizer.model");
-  string str = "This is a sentence";
-  int32_t sz;
-  char const* raw = reinterpret_cast<char const*>(&sz);
-  string msgsz(raw, raw + sizeof(sz));
-  piper.write(msgsz);
-  piper.write(str);
-  vector<int> tokens = parse_vector<int>(piper.read());
-  DOUT(str);
-  DOUT(tokens);
-}
+// void tokenizer_check(){
+//   piper_t piper("./llama_tokenizer", "../tokenizer.model");
+//   DOUT("pad_id  and vocab_size: " << parse_vector<int>(piper.read()));
+//   string str = "This is a sentence";
+//   int32_t sz = str.size();
+//   char const* raw = reinterpret_cast<char const*>(&sz);
+//   string msgsz(raw, raw + sizeof(sz));
+//   piper.write(msgsz);
+//   piper.write(str);
+//   DOUT("parsing tokens");
+//   vector<int> tokens = parse_vector<int>(piper.read());
+//   DOUT(str);
+//   DOUT(tokens);
+// }
 
 // int main(){
 //   tokenizer_check();
@@ -457,10 +459,20 @@ void main_rank_zero(
   /////////////////////////////////////////////////////////////////////////////
   
   pargs.set_default("tokenizer", "../tokenizer.model");
-  pargs.set_default("dataset", "~/containers/redpaj_long_samples");
+  pargs.set_default("dataset", "./redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-4f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
+
+  // check if tokenizer_file and dataset_file are valid
+  std::ifstream tokenizer_check(tokenizer_file);
+  if(!tokenizer_check.good()) {
+    throw std::runtime_error("could not open tokenizer file");
+  }
+  std::ifstream dataset_check(dataset_file);
+  if(!dataset_check.good()) {
+    throw std::runtime_error("could not open dataset file");
+  }
 
   dataset_reader_t data_loader(tokenizer_file, dataset_file);
 
@@ -484,6 +496,7 @@ void main_rank_zero(
       if(which_data.size() > 0) {
         vector<vector<int>> data_tokens;
         vector<int> label_tokens;
+        DOUT("which data: " << which_data);
         for(auto const& which_datum: which_data) {
           auto [datum_tokens, label_token] =
             data_loader.datum(which_datum, margs.max_seq_len);
@@ -492,6 +505,7 @@ void main_rank_zero(
         }
         return tuple<vector<vector<int>>, vector<int>>(data_tokens, label_tokens);
       }
+      DOUT("random data");
       return data_loader.random_data(margs.batch_size, margs.max_seq_len);
     }();
 

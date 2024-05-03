@@ -1,6 +1,7 @@
 #include "cuda_kernels.h"
 #include <cstdint>
 #include <cstdio>
+#include <cuComplex.h>
 #include <cuda_runtime_api.h>
 #include <sys/types.h>
 
@@ -643,4 +644,44 @@ void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
   // printf("reinterpret cast value 2 %f\n", *reinterpret_cast<float const*>(&value));
   fill_constant<<<gridSize, blockSize,0,stream>>>
     (mem, nelem, value, dtype_info);
+}
+
+// compare mem[i, j] with compare [i], if mem[i, j] == compare[i], assign out[i, j] = value_true
+// else assign out[i, j] = value_false
+__global__ void conditional_assignment(void* out, void const* mem, uint64_t rows, uint64_t columns,
+ void const* compare, uint64_t value_true, uint64_t value_false, int dtype_info){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(index<rows * columns){
+    uint64_t row = index / columns;
+    // uint64_t col = index % columns;
+    uint64_t compare_index = row;
+    if(dtype_info==0){
+      ((__half*)out)[index] = ((__half*)mem)[index] == ((__half*)compare)[compare_index] ? ((__half*)compare)[compare_index] : *(reinterpret_cast<__half const*>(&value_false));
+    }else if(dtype_info==1){
+      ((float*)out)[index] = ((float*)mem)[index] == ((float*)compare)[compare_index] ? ((float*)compare)[compare_index] : *(reinterpret_cast<float const*>(&value_false));
+    }else if(dtype_info==2){
+      ((double*)out)[index] = ((double*)mem)[index] == ((double*)compare)[compare_index] ? ((double*)compare)[compare_index] : *(reinterpret_cast<double const*>(&value_false));
+    }
+    else if(dtype_info==3){
+      cuFloatComplex* c = (cuFloatComplex*)compare;
+      cuFloatComplex* m = (cuFloatComplex*)mem;
+      if (c[compare_index].x == m[index].x && c[compare_index].y == m[index].y){
+        ((cuFloatComplex*)out)[index] = ((cuFloatComplex*)compare)[compare_index];
+      }else{
+        ((cuFloatComplex*)out)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value_false));
+      }
+    }
+    else{
+      printf("ERROR: CUDA_KERNEL: dtype_info not supported\n");
+    }
+  }
+ }
+
+void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, uint64_t columns,
+  void const* compare, uint64_t value_true, uint64_t value_false, cudaStream_t stream, int dtype_info){
+  int blockSize = 256;
+  int gridSize = (rows * columns + blockSize - 1) / blockSize;
+  conditional_assignment<<<gridSize, blockSize,0,stream>>>
+    (out, mem, rows, columns, compare, value_true, value_false, dtype_info);
 }
