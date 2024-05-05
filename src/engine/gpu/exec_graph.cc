@@ -224,6 +224,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     for (auto [e_string, e_value]: einsums_not_compiled){
       DOUT("einsum: " << e_value);
       DOUT("einsum simplified: " << e_value.join.simplify().to_cppstr());
+      DOUT("einsum inns: " << e_value.inns);
+      DOUT("einsum out rank: " << e_value.out_rank);
+      DOUT("einsum join: " << e_value.join);
+      DOUT("einsum castable: " << e_value.castable);
+      DOUT("einsum join shape: " << e_value.join_shape);
     }
     throw std::runtime_error("GPU KM could not compile some kernels");
   }

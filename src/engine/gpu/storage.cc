@@ -31,7 +31,7 @@ gpu_storage_t::gpu_storage_t()
         .alignment_power = 0
       })
 {
-  host_data = make_host_buffer(64lu*1000lu*1000lu*1000lu);
+  host_data = make_host_buffer(256lu*1000lu*1000lu*1000lu);
 }
 
 buffer_t gpu_storage_t::alloc(uint64_t size, int id) {

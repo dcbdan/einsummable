@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <variant>
 
 kernel_manager_t::kernel_manager_t() 
@@ -189,7 +191,7 @@ bool kernel_manager_t::is_custom_kernel2(einsummable_t e){
   return false;
 }
 
-// (f16|-1*x0)
+// reduction on: (f16|-1*x0)
 bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
   if(e.inns.size()==1){
     scalarop_t op = e.join;
@@ -201,6 +203,103 @@ bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
     }
   }
   return false;
+}
+
+// *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+bool kernel_manager_t::is_custom_kernel4(einsummable_t e){
+  if (e.inns.size()!=3){
+    return false;
+  }
+  scalarop_t op = e.join;
+  op = op.simplify();
+  auto op_str = op.to_cppstr();
+  if(op_str == "(x0*(x1*(f32|-1*_pow(x2,-2))))"){
+    // DOUT("Found custom kernel 4: " << e);
+    return true;
+  }
+  return false;
+}
+
+// ((f32|0.999*x0)+(f32|0.000999987*_pow(x1,2)))
+bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
+  scalarop_t op = e.join;
+  op = op.simplify();
+  auto op_str = op.to_cppstr();
+  // check the last is *_pow(x1,2)))
+  if(op_str.size() >= 11){
+    // DOUT("op_str.substr(op_str.size()-11,11)" << op_str.substr(op_str.size()-11,11));
+    if (op_str.substr(op_str.size()-11,11)=="pow(x1,2)))" && op_str.substr(0,5)=="((f32"){
+      // DOUT("Found custom kernel 5: " << e);
+      // print join shape, inns, and out_rank
+      // DOUT("join_shape: " << e.join_shape);
+      // DOUT("inns: " << e.inns);
+      // DOUT("out_rank: " << e.out_rank);
+      return true;
+    }
+  }
+  return false;
+}
+
+kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsummable_t const& e){
+  // 1) rewrite the join to a scalarop we can compile
+  auto [str, bytes] = e.join.to_cpp_bytes();
+  if (*((double*)(bytes.data() + 4)) != -2){
+    throw std::runtime_error("build_custom_kernel4: power is not -2");
+  }
+  // get the dtype
+  dtype_t dtype = e.inn_dtype(0);
+  scalarop_t one = scalarop_t::make_constant(scalar_t::one(dtype));
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype);
+  scalarop_t arg2 = scalarop_t::make_arg(2, dtype);
+  scalarop_t mul = scalarop_t::make_mul(dtype);
+  scalarop_t neg = scalarop_t::make_neg(dtype);
+  scalarop_t div = scalarop_t::make_div(dtype);
+  // rewrite power{-2}[hole|f32@2] as div(1, mul(hole|f32@2, hole|f32@2))
+  scalarop_t new_ret = scalarop_t::replace_arguments(mul, {arg2, arg2});
+  new_ret = scalarop_t::replace_arguments(div, {one, new_ret});
+  new_ret = scalarop_t::replace_arguments(neg, {new_ret});
+  new_ret = scalarop_t::replace_arguments(mul, {arg1, new_ret});
+  new_ret = scalarop_t::replace_arguments(mul, {arg0, new_ret});
+
+  // 2) build the elementwise kernel
+  auto sop = list_simple_scalarop_t::make(new_ret);
+  if (!sop){
+    throw std::runtime_error("build_custom_kernel4: failed to build elementwise kernel");
+  }
+  elementwise_t elementwise {
+    .sops = sop.value(),
+    .plans = make_elementwise_plans(sop.value(), e.join_shape, e.inns, e.out_rank),
+    .join_shape = e.join_shape,
+    .inns = e.inns,
+    .out_rank = e.out_rank
+  };
+  // size of the elementwise output is the product of the join shape * dtype size
+  uint64_t elementwise_wsz = 1;
+  for(auto const& dim: e.join_shape) {
+    elementwise_wsz *= dim;
+  }
+  elementwise_wsz = elementwise_wsz * dtype_size(dtype);
+
+  // 3) build the reduction kernel
+  // need to write an ab->a join
+  scalarop_t join = scalarop_t::make_arg(0, dtype);
+  einsummable_t reduct_einsum = einsummable_t(e.join_shape, {{0, 1}}, e.out_rank, join, e.castable);
+  reduction_t reduction = make_reduction(reduct_einsum);
+  custom_kernel_4_t custom_kernel {
+    .elementwise = elementwise,
+    .reduction = reduction,
+    .worksize = elementwise_workspace_size(elementwise) + reduction.worksize + elementwise_wsz,
+    .elementwise_output_offset = elementwise_workspace_size(elementwise),
+    .reduction_offset = elementwise_workspace_size(elementwise) + elementwise_wsz
+  };
+  // print if worksize > 100MB
+  if (custom_kernel.worksize > 100000000){
+    DOUT("Large worksize: " << e << " custom kernel 4 worksize: " << custom_kernel.worksize);
+    DOUT("elementwise worksize: " << elementwise_workspace_size(elementwise));
+    DOUT("reduction worksize: " << reduction.worksize);
+  }
+  return custom_kernel;
 }
 
 bool kernel_manager_t::is_c64_elementwise_multiply(einsummable_t e){
@@ -268,7 +367,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 {
   cudaSetDevice(device);
   // DOUT("Building kernel for " << e_);
-  // DOUT("simplified: " << e_.join.simplify())
+  // DOUT("simplified: " << e_.join.simplify().to_cppstr());
   auto einsummable = e_.merge_adjacent_dims();
 
   auto iter = kernels.find(einsummable);
@@ -293,47 +392,37 @@ kernel_manager_t::build(einsummable_t const& e_)
   // Check for Reductions
   if(einsummable.has_aggregation()) {
     if(einsummable.inns.size() != 1) {
-      DOUT("Reduction with more than one input tensor. Einsummable: " << einsummable);
-      return std::nullopt;
+      if (!is_custom_kernel4(einsummable)){
+        DOUT("Error: Reduction with more than one input tensor. Einsummable: " << einsummable);
+        auto [str, bytes] = einsummable.join.to_cpp_bytes();
+        DOUT(str);
+        return std::nullopt;
+      }
+      else{
+        custom_kernel_4_t custom_kernel = build_custom_kernel4(einsummable);
+        kernels.insert({einsummable, custom_kernel});
+        return custom_kernel.worksize;
+      }
     }
 
     if (!einsummable.join.is_identity()){
       if (!is_custom_kernel3(einsummable)){
-        DOUT("Reduction with non-identity join. Einsummable: " << einsummable);
+        DOUT("Error: Reduction with non-identity join. Einsummable: " << einsummable);
         return std::nullopt;
       }
-      vector<int> const& inn_modes = einsummable.inns[0];
-      auto inn_shape = einsummable.inn_shapes()[0];
-      vector<int> out_modes(einsummable.out_rank);
-      std::iota(out_modes.begin(), out_modes.end(), 0);
-      auto out_shape = einsummable.out_shape();
-      reduction_t reduct = make_reduction(einsummable);
-      
-      // elementwise is 1 * neg(x)
-      scalar_t scale = scalar_t::one(reduct.dtype);
-      auto uop = simple_scalarop_t::uop_t::neg;
-      simple_scalarop_t::unary_t unary {
-        .scale = scale,
-        .op = uop,
-      };
-      // the out shape of the elementwise is the same as the input shape
-      auto out_shape_elemwise = einsummable.inn_shapes()[0];
-      // get the product of the out_shape_elemwise
-      uint64_t elewise_wsz = 1;
-      for(auto const& dim: out_shape_elemwise) {
-        elewise_wsz *= dim;
+      // Actually cutensor supports something like negate input first then reduce
+      // at least I think 
+      // (see this: https://docs.nvidia.com/cuda/cutensor/latest/api/cutensor.html#reduction-operations)
+      reduction_t reduct = make_reduction_negate(einsummable);
+
+      // print if custom kernel 3 has a worksize > 100MB
+      if (reduct.worksize > 100000000){
+        DOUT("Large worksize: " << einsummable << " custom kernel 3 worksize: " << reduct.worksize);
       }
-      elewise_wsz = elewise_wsz * dtype_size(reduct.dtype);
-      auto elewise_plan = sop_unary_plan(unary, {0}, out_shape_elemwise);
 
-      custom_kernel_3_t custom_kernel {
-        .elementwise_plan = elewise_plan,
-        .reduction = reduct,
-        .worksize = reduct.worksize + elewise_wsz,
-        .offset = elewise_wsz
-      };
+      kernels.insert({einsummable, reduct});
 
-      kernels.insert({einsummable, custom_kernel});
+      return workspace_info_t(reduct.worksize);
     }
 
     if(einsummable.castable.value() == castable_t::add ||
@@ -474,6 +563,54 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
+  // example: a,a->a | +[*[constant{f32|0.999},hole|f32@0],*[constant{f32|0.000999987},power{2}[hole|f32@1]]]
+  if (is_custom_kernel5(einsummable)){
+    // we can rewrite power{2}[hole|f32@1] as mul(hole|f32@1, hole|f32@1)
+    // let's find the constants first...
+    scalarop_t op = einsummable.join;
+    auto [str, bytes] = op.to_cpp_bytes();
+    // get the dtype
+    dtype_t dtype = einsummable.inn_dtype(0);
+    if (dtype != dtype_t::f32){
+      throw std::runtime_error("custom kernel 5 only supports f32");
+    }
+    // cast the bytes to the dtype
+    string constant1;
+    string constant2;
+    constant1 = std::to_string(*reinterpret_cast<const float*>(bytes.data()));
+    constant2 = std::to_string(*reinterpret_cast<const float*>(bytes.data() + 4));
+    // DOUT("constant1: " << constant1);
+    // DOUT("constant2: " << constant2);
+
+    // we need to build the elementwise kernel with power replaced by mul
+    auto s1 = scalar_t(dtype, constant1);
+    auto s2 = scalar_t(dtype, constant2);
+    scalarop_t c1 = scalarop_t::make_constant(s1);
+    scalarop_t c2 = scalarop_t::make_constant(s2);
+    scalarop_t m = scalarop_t::make_mul(dtype);
+    scalarop_t a = scalarop_t::make_add(dtype);
+    scalarop_t arg = scalarop_t::make_arg(0, dtype);
+    scalarop_t e1 = scalarop_t::combine(m, {c1, arg});
+    scalarop_t e2 = scalarop_t::combine(m, {c2, scalarop_t::replace_arguments(m, {arg, arg})});
+    scalarop_t join = scalarop_t::combine(a, {e1, e2});
+    // DOUT(join);
+    auto sop = list_simple_scalarop_t::make(join);
+    if (!sop){
+      throw std::runtime_error("custom kernel 5 failed to build elementwise kernel");
+    }
+    elementwise_t kernel {
+      .sops = sop.value(),
+      .plans = make_elementwise_plans(sop.value(), einsummable.join_shape,
+                                      einsummable.inns, einsummable.out_rank),
+      .join_shape = einsummable.join_shape,
+      .inns = einsummable.inns,
+      .out_rank = einsummable.out_rank
+    };
+    kernels.insert({einsummable, kernel});
+
+    return workspace_info_t(elementwise_workspace_size(kernel));
+  }
+
   // Assumption: We can execute all simple scalarops
   // trying to build list of elewise after we tried all the special kernels
   // DOUT("Trying to build elementwise kernel: " << einsummable);
@@ -534,8 +671,8 @@ workspace_info_t kernel_manager_t::workspace_size(
     return workspace_info_t(std::get<reduction_t>(kernel).worksize);
   }else if(std::holds_alternative<pow_and_elementwise_t>(kernel)) {
     return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
-  }else if(std::holds_alternative<custom_kernel_3_t>(kernel)) {
-    return workspace_info_t(std::get<custom_kernel_3_t>(kernel).worksize);
+  }else if(std::holds_alternative<custom_kernel_4_t>(kernel)) {
+    return workspace_info_t(std::get<custom_kernel_4_t>(kernel).worksize);
   }else {
     return workspace_info_t(0);
   }
@@ -729,22 +866,15 @@ void kernel_manager_t::call(
     }
     conditional_assignment_dispatch(out, inns[0], nrows, ncols, 
       inns[1], 1, 0, stream, dtype_info);
-  } else if(holds_alternative<custom_kernel_3_t>(kernel)){
-    // throw std::runtime_error("custom_kernel_3: debug");
-    auto const& [elewise_plan, reduct, worksize, offset] = get<custom_kernel_3_t>(kernel);
+  } else if (holds_alternative<custom_kernel_4_t>(kernel)){
+    auto const& [elementwise, reduction, worksize, elementwise_output_offset, reduction_offset] = get<custom_kernel_4_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
-    auto reduct_workspace = increment_void_ptr(workspace, offset);
-    // elementwise is 1 * neg(x)
-    scalar_t scale = scalar_t::one(reduct.dtype);
-    auto uop = simple_scalarop_t::uop_t::neg;
-    simple_scalarop_t::unary_t unary {
-      .scale = scale,
-      .op = uop,
-    };
-    // negating the input
-    execute_sop_unary(unary, stream, workspace, inns[0], elewise_plan);
-    // perform reduction
-    execute_reduction(reduct, stream, out, inns, reduct_workspace, wsz-offset);
+    auto elementwise_output = increment_void_ptr(workspace, elementwise_output_offset);
+    auto reduction_workspace = increment_void_ptr(workspace, reduction_offset);
+    // elementwise
+    execute_elementwise(elementwise, stream, elementwise_output, inns, workspace, wsz);
+    // reduction
+    execute_reduction(reduction, stream, out, {elementwise_output}, reduction_workspace, wsz-elementwise_output_offset);
   } else {
     throw std::runtime_error("kernel_manager_t: unknown kernel type");
   }
@@ -1131,6 +1261,7 @@ void kernel_manager_t::execute_contraction(
 kernel_manager_t::reduction_t
 kernel_manager_t::make_reduction(einsummable_t const& e)
 {
+  // DOUT("reduction join: " << e.join);
   std::vector<int> modeA = e.inns[0];
   std::vector<int> modeC;
   for (int i = 0; i < e.out_rank; i++) {
@@ -1199,6 +1330,131 @@ kernel_manager_t::make_reduction(einsummable_t const& e)
       cutensor_handle,
       &desc,
       descA, modeA.data(), CUTENSOR_OP_IDENTITY,
+      descC, modeC.data(), CUTENSOR_OP_IDENTITY,
+      descC, modeC.data(),
+      opReduce, typeCompute) );
+  
+  
+  const cutensorAlgo_t algo = CUTENSOR_ALGO_DEFAULT;
+
+  cutensorPlanPreference_t planPref;
+  handle_cutensor_error(
+    cutensorCreatePlanPreference(
+    cutensor_handle,
+    &planPref,
+    algo,
+    CUTENSOR_JIT_MODE_NONE));
+  
+  uint64_t workspaceSizeEstimate = 0;
+  const cutensorWorksizePreference_t workspacePref = CUTENSOR_WORKSPACE_DEFAULT;
+  handle_cutensor_error(
+    cutensorEstimateWorkspaceSize(cutensor_handle,
+    desc,
+    planPref,
+    workspacePref,
+    &workspaceSizeEstimate));
+
+
+  cutensorPlan_t plan;
+  handle_cutensor_error(
+    cutensorCreatePlan(cutensor_handle,
+      &plan,
+      desc,
+      planPref,
+      workspaceSizeEstimate));
+  
+  uint64_t actualWorkspaceSize = 0;
+  handle_cutensor_error(
+    cutensorPlanGetAttribute(cutensor_handle,
+      plan,
+      CUTENSOR_PLAN_REQUIRED_WORKSPACE,
+      &actualWorkspaceSize,
+      sizeof(actualWorkspaceSize)));
+  
+
+  uint64_t worksize = actualWorkspaceSize;
+
+  return reduction_t {
+    .dtype = type,
+    .worksize = worksize,
+    .plan = plan
+    
+  };
+}
+
+// negate then reduce
+kernel_manager_t::reduction_t
+kernel_manager_t::make_reduction_negate(einsummable_t const& e)
+{
+  // DOUT("reduction join: " << e.join);
+  std::vector<int> modeA = e.inns[0];
+  std::vector<int> modeC;
+  for (int i = 0; i < e.out_rank; i++) {
+    modeC.push_back(i);
+  }
+
+  int32_t nmodeA = modeA.size();
+  int32_t nmodeC = modeC.size();
+
+  std::reverse(modeA.begin(), modeA.end());
+  std::reverse(modeC.begin(), modeC.end());
+  dtype_t type = e.inn_dtype(0);
+  cutensorDataType_t typeTensor = dtype_to_cudatype(type);
+  const cutensorComputeDescriptor_t typeCompute = dtype_to_computetype(type);
+
+  vector<int64_t> extent_A;
+  for(auto const& mode: modeA) {
+    extent_A.push_back(e.join_shape[mode]);
+  }
+
+  vector<int64_t> extent_C;
+  for(auto const& mode: modeC) {
+    extent_C.push_back(e.join_shape[mode]);
+  }
+
+  const uint32_t kAlignment = 256; 
+
+  cutensorTensorDescriptor_t descA;
+  handle_cutensor_error(
+    cutensorCreateTensorDescriptor(
+      cutensor_handle,
+      &descA,
+      nmodeA,
+      extent_A.data(),
+      NULL,/*stride*/
+      typeTensor, kAlignment ) );
+
+
+  cutensorTensorDescriptor_t descC;
+  handle_cutensor_error(
+    cutensorCreateTensorDescriptor(
+      cutensor_handle,
+      &descC,
+      nmodeC,
+      extent_C.data(),
+      NULL,/*stride*/
+      typeTensor, kAlignment ) );
+  
+
+  cutensorOperator_t opReduce;
+  if(e.castable == castable_t::add) {
+    opReduce = CUTENSOR_OP_ADD;
+  } else if(e.castable == castable_t::mul) {
+    opReduce = CUTENSOR_OP_MUL;
+  } else if(e.castable == castable_t::min) {
+    opReduce = CUTENSOR_OP_MIN;
+  } else if(e.castable == castable_t::max) {
+    opReduce = CUTENSOR_OP_MAX;
+  } else {
+    throw std::runtime_error("should not reach: missing castable");
+  }
+
+  cutensorOperationDescriptor_t desc;
+  handle_cutensor_error(
+    cutensorCreateReduction(
+      cutensor_handle,
+      &desc,
+      descA, modeA.data(), CUTENSOR_OP_NEG,
       descC, modeC.data(), CUTENSOR_OP_IDENTITY,
       descC, modeC.data(),
       opReduce, typeCompute) );

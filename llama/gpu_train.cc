@@ -43,7 +43,7 @@ void main_rank_zero(
   autoplace_config_t config);
 
 int main(int argc, char** argv) {
-  set_default_dtype(dtype_t::f16);
+  set_default_dtype(dtype_t::f32);
 
   int expected_argc = 1;
   if(argc < expected_argc) {
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(16lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(12lu * 1000lu * 1000lu * 1000lu);
   }
 
   auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);

@@ -77,6 +77,7 @@ private:
   };
 
   reduction_t make_reduction(einsummable_t const& e);
+  reduction_t make_reduction_negate(einsummable_t const& e);
 
   void execute_reduction(
     reduction_t const& r,
@@ -219,17 +220,17 @@ private:
     dtype_t dtype;
   };
 
-  // ab->a | *[constant{f16|-1},hole|f16@0]
-  // we can do a elementwise then a reduction
-  struct custom_kernel_3_t{
-    cutensorPlan_t elementwise_plan;
-    // reduction
+  struct custom_kernel_4_t{
+    // three steps:
+    // 1)rewrite the scalarop to an elementwise we can compile
+    // 2)compile the elementwise
+    // 3)compile the reduction
+    elementwise_t elementwise;
     reduction_t reduction;
-    // we need 2 workspace: 1. for elementwise (size of input) 2. reduction
+    // we need 3 workspace: 1. for elementwise 2. for output of elementwise 3.reduction
     uint64_t worksize;
-    // workspace = elementwise + reduction, so we need an offset to 
-    // get the workspace for reduction
-    uint64_t offset;
+    uint64_t elementwise_output_offset;
+    uint64_t reduction_offset;
   };
 
 public:
@@ -244,10 +245,14 @@ public:
   static bool is_custom_kernel1(einsummable_t e);
   static bool is_custom_kernel2(einsummable_t e);
   static bool is_custom_kernel3(einsummable_t e);
+  static bool is_custom_kernel4(einsummable_t e);
+  static bool is_custom_kernel5(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
   static double get_power(einsummable_t e);
   static bool is_scale_and_increment(einsummable_t e);
   static tuple<float, float> get_increment_scale(einsummable_t e);
+
+  custom_kernel_4_t build_custom_kernel4(einsummable_t const& e);
 
   optional<workspace_info_t> build(einsummable_t const& e);
 
@@ -279,7 +284,8 @@ public:
 private:
   using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
                                       type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
-                                      power_t, scale_t, custom_kernel_2_t, custom_kernel_3_t>;
+                                      power_t, scale_t, 
+                                      custom_kernel_2_t, custom_kernel_4_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;
