@@ -71,7 +71,7 @@ gpu_workspace_manager_t::try_to_acquire_impl(
   handle_cuda_error(cudaSetDevice(device));
 
   void* mem;
-  DOUT("Allocating " << size / 1024 / 1024 << " MB on device " << device);
+  // DOUT("Allocating " << size / 1024 / 1024 << " MB on device " << device);
   handle_cuda_error(cudaMalloc(&mem, size));
   // TODO: currently not setting device back to wtvr it was
 
@@ -87,7 +87,7 @@ void gpu_workspace_manager_t::release_impl(
 {
   std::unique_lock lk(m);
   auto const& [device, ptr, size] = resource;
-  DOUT("Releasing " << size / 1024 / 1024 << " MB on device " << device << "\n")
+  // DOUT("Releasing " << size / 1024 / 1024 << " MB on device " << device)
   data[device].emplace_back(ptr, size);
 }
 

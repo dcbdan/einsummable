@@ -951,6 +951,18 @@ scalarop_t scalarop_km2(){
   return ret;
 }
 
+// ite_==[hole|f32@0,hole|f32@1,constant{f32|1},constant{f32|0}]
+scalarop_t scalarop_km3(){
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  scalarop_t is_equal = scalarop_t::make_is_equal(dtype_t::f32);
+  scalarop_t ret = scalarop_t::replace_arguments(is_equal, {arg0, arg1});
+  DOUT(ret);
+  DOUT(ret.to_cppstr());
+
+  return ret;
+}
+
 // void km_test(){
 //   sca
 // }
@@ -969,5 +981,5 @@ int main(int argc, char **argv) {
   // lowerTri_test();
   // constant_test(); 
   // ew_test();
-  scalarop_km2();
+  scalarop_km3();
 }

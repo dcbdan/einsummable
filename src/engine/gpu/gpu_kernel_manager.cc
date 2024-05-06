@@ -167,61 +167,111 @@ bool kernel_manager_t::is_custom_kernel1(einsummable_t e){
   return false;
 }
 
-// ab,a->ab: (x0==x1?f16|1:f16|0)
+// example:
+// (x0==x1?f32|1:f32|0)
+// join_shape: {1,8000}
+// inns: {{0,1},{0}}
+// out_rank: 2
+// join: ite_==[hole|f32@0,hole|f32@1,constant{f32|1},constant{f32|0}]
+// e.str(): ab,a->ab
 bool kernel_manager_t::is_custom_kernel2(einsummable_t e){
-  if(e.inns.size()==2){
-    scalarop_t op = e.join;
-    op = op.simplify();
-    auto op_str = op.to_cppstr();
-    // check if front is x0==x1
-    if(op_str.substr(0,8)=="(x0==x1?"){
-      // DOUT("Found custom kernel 2: " << op_str);
-      // print the join_shape, inns, and out_rank, and join
-      // DOUT("join_shape: " << e.join_shape);
-      // DOUT("inns: " << e.inns);
-      // DOUT("out_rank: " << e.out_rank);
-      // DOUT("join: " << e.join);
-      // check if the 2 assignment values are 1 and 0
-      if(op_str.substr(8,11)!="f16|1:f16|0" && op_str.substr(8,11)!="f32|1:f32|0"){
-        throw std::runtime_error("custom kernel 2 only supports 1 and 0, but got: " + op_str.substr(8,11));
-      }
-      return true;
-    }
+  if (e.str() != "ab,a->ab"){
+    return false;
+  }
+  // make scalarop and compare
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  scalarop_t is_equal = scalarop_t::make_is_equal(dtype_t::f32);
+  scalarop_t compare = scalarop_t::replace_arguments(is_equal, {arg0, arg1});
+  if (e.inns.size() == 2 && compare.to_cppstr() == e.join.to_cppstr()){
+    // DOUT("Found custom kernel 2: " << op_str);
+    // // print the join_shape, inns, and out_rank, and join
+    // DOUT("join_shape: " << e.join_shape);
+    // DOUT("inns: " << e.inns);
+    // DOUT("out_rank: " << e.out_rank);
+    // DOUT("join: " << e.join);
+    // DOUT("e.str(): " << e.str());
+    return true;
   }
   return false;
 }
 
 // reduction on: (f16|-1*x0)
+// example:
+// Found custom kernel 3: es[1,8000]+ ab->a | *[constant{f32|-1},hole|f32@0]
+// join_shape: {1,8000}
+// inns: {{0,1}}
+// out_rank: 1
+// join: *[constant{f32|-1},hole|f32@0]
+// e.str(): ab->a
 bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
-  if(e.inns.size()==1){
-    scalarop_t op = e.join;
-    op = op.simplify();
-    auto op_str = op.to_cppstr();
-    if(op_str.substr(0,11)=="(f16|-1*x0)" || op_str.substr(0,11)=="(f32|-1*x0)"){
-      // DOUT("Found custom kernel 3: " << e);
-      return true;
-    }
+  if (e.str() != "ab->a"|| e.inns.size()!=1){
+    return false;
   }
+
+  // build the scalarop and compare
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t neg = scalarop_t::make_neg(dtype_t::f32);
+  scalarop_t compare = scalarop_t::replace_arguments(neg, {arg0});
+
+  scalarop_t arg1 = scalarop_t::make_arg(0, dtype_t::f16);
+  scalarop_t neg1 = scalarop_t::make_neg(dtype_t::f16);
+  scalarop_t compare1 = scalarop_t::replace_arguments(neg1, {arg1});
+  // DOUT("compare.to_cppstr(): " << compare.to_cppstr());
+  // DOUT("e.join.to_cppstr(): " << e.join.to_cppstr());
+  if (compare.to_cppstr() == e.join.to_cppstr() || compare1.to_cppstr() == e.join.to_cppstr()){
+    DOUT("Found custom kernel 3: " << e);
+    // print the join_shape, inns, and out_rank, and join
+    DOUT("join_shape: " << e.join_shape);
+    DOUT("inns: " << e.inns);
+    DOUT("out_rank: " << e.out_rank);
+    DOUT("join: " << e.join);
+    DOUT("e.str(): " << e.str());
+    return true;
+  }
+
   return false;
 }
 
 // *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+// example:
+// Found custom kernel 4: es[32768,4096]+ ab,ab,a->a | *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+// join_shape: {32768,4096}
+// inns: {{0,1},{0,1},{0}}
+// out_rank: 1
+// join: *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+// e.str(): ab,ab,a->a
 bool kernel_manager_t::is_custom_kernel4(einsummable_t e){
-  if (e.inns.size()!=3){
+  if (e.inns.size()!=3 || e.str() != "ab,ab,a->a"){
     return false;
   }
   scalarop_t op = e.join;
   op = op.simplify();
   auto op_str = op.to_cppstr();
   if(op_str == "(x0*(x1*(f32|-1*_pow(x2,-2))))"){
-    // DOUT("Found custom kernel 4: " << e);
+    DOUT("Found custom kernel 4: " << e);
+    // print the join_shape, inns, and out_rank, and join
+    DOUT("join_shape: " << e.join_shape);
+    DOUT("inns: " << e.inns);
+    DOUT("out_rank: " << e.out_rank);
+    DOUT("join: " << e.join);
+    DOUT("e.str(): " << e.str());
     return true;
   }
   return false;
 }
 
-// ((f32|0.999*x0)+(f32|0.000999987*_pow(x1,2)))
+// example:
+// Found custom kernel 5: es[32768]: a,a->a | +[*[constant{f32|0.999},hole|f32@0],*[constant{f32|0.000999987},power{2}[hole|f32@1]]]
+// join_shape: {32768}
+// inns: {{0},{0}}
+// out_rank: 1
+// join: +[*[constant{f32|0.999},hole|f32@0],*[constant{f32|0.000999987},power{2}[hole|f32@1]]]
+// e.str(): a,a->a
 bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
+  if (e.str() != "a,a->a"){
+    return false;
+  }
   scalarop_t op = e.join;
   op = op.simplify();
   auto op_str = op.to_cppstr();
@@ -229,11 +279,13 @@ bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
   if(op_str.size() >= 11){
     // DOUT("op_str.substr(op_str.size()-11,11)" << op_str.substr(op_str.size()-11,11));
     if (op_str.substr(op_str.size()-11,11)=="pow(x1,2)))" && op_str.substr(0,5)=="((f32"){
-      // DOUT("Found custom kernel 5: " << e);
-      // print join shape, inns, and out_rank
-      // DOUT("join_shape: " << e.join_shape);
-      // DOUT("inns: " << e.inns);
-      // DOUT("out_rank: " << e.out_rank);
+      DOUT("Found custom kernel 5: " << e);
+      // print the join_shape, inns, and out_rank, and join
+      DOUT("join_shape: " << e.join_shape);
+      DOUT("inns: " << e.inns);
+      DOUT("out_rank: " << e.out_rank);
+      DOUT("join: " << e.join);
+      DOUT("e.str(): " << e.str());
       return true;
     }
   }
@@ -574,17 +626,10 @@ kernel_manager_t::build(einsummable_t const& e_)
     if (dtype != dtype_t::f32){
       throw std::runtime_error("custom kernel 5 only supports f32");
     }
-    // cast the bytes to the dtype
-    string constant1;
-    string constant2;
-    constant1 = std::to_string(*reinterpret_cast<const float*>(bytes.data()));
-    constant2 = std::to_string(*reinterpret_cast<const float*>(bytes.data() + 4));
-    // DOUT("constant1: " << constant1);
-    // DOUT("constant2: " << constant2);
 
     // we need to build the elementwise kernel with power replaced by mul
-    auto s1 = scalar_t(dtype, constant1);
-    auto s2 = scalar_t(dtype, constant2);
+    scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
+    scalar_t s2(*reinterpret_cast<const float*>(bytes.data() + 4));
     scalarop_t c1 = scalarop_t::make_constant(s1);
     scalarop_t c2 = scalarop_t::make_constant(s2);
     scalarop_t m = scalarop_t::make_mul(dtype);
