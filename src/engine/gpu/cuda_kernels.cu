@@ -657,17 +657,20 @@ __global__ void conditional_assignment(void* out, void const* mem, uint64_t rows
     // uint64_t col = index % columns;
     uint64_t compare_index = row;
     if(dtype_info==0){
-      ((__half*)out)[index] = ((__half*)mem)[index] == ((__half*)compare)[compare_index] ? ((__half*)compare)[compare_index] : *(reinterpret_cast<__half const*>(&value_false));
+      ((__half*)out)[index] = ((__half*)mem)[index] == ((__half*)compare)[compare_index] ? 
+        *(reinterpret_cast<__half const*>(&value_true)) : *(reinterpret_cast<__half const*>(&value_false));
     }else if(dtype_info==1){
-      ((float*)out)[index] = ((float*)mem)[index] == ((float*)compare)[compare_index] ? ((float*)compare)[compare_index] : *(reinterpret_cast<float const*>(&value_false));
+      ((float*)out)[index] = ((float*)mem)[index] == ((float*)compare)[compare_index] ? 
+        *(reinterpret_cast<float const*>(&value_true)) : *(reinterpret_cast<float const*>(&value_false));
     }else if(dtype_info==2){
-      ((double*)out)[index] = ((double*)mem)[index] == ((double*)compare)[compare_index] ? ((double*)compare)[compare_index] : *(reinterpret_cast<double const*>(&value_false));
+      ((double*)out)[index] = ((double*)mem)[index] == ((double*)compare)[compare_index] ? 
+         *(reinterpret_cast<double const*>(&value_true)) : *(reinterpret_cast<double const*>(&value_false));
     }
     else if(dtype_info==3){
       cuFloatComplex* c = (cuFloatComplex*)compare;
       cuFloatComplex* m = (cuFloatComplex*)mem;
       if (c[compare_index].x == m[index].x && c[compare_index].y == m[index].y){
-        ((cuFloatComplex*)out)[index] = ((cuFloatComplex*)compare)[compare_index];
+        ((cuFloatComplex*)out)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value_true));
       }else{
         ((cuFloatComplex*)out)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value_false));
       }
