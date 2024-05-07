@@ -688,3 +688,38 @@ void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, 
   conditional_assignment<<<gridSize, blockSize,0,stream>>>
     (out, mem, rows, columns, compare, value_true, value_false, dtype_info);
 }
+
+
+__global__ void special_elementwise_mul(void* out, uint64_t a, uint64_t b, const void* x, 
+  const void* y, cudaStream_t stream, int dtype_info){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // fill a x b matrix with two vectors X and Y
+  // for i in size(a):
+  // for j in size(b):
+  //   Out[i,j] = f(X[i], Y[i])
+  if (index < a*b){
+    uint64_t row = index / b;
+    // uint64_t col = index % b;
+    if(dtype_info==0){
+      ((__half*)out)[index] = __hmul(((__half*)x)[row], ((__half*)y)[row]);
+    }else if(dtype_info==1){
+      ((float*)out)[index] = ((float*)x)[row] * ((float*)y)[row];
+    }else if(dtype_info==2){
+      ((double*)out)[index] = ((double*)x)[row] * ((double*)y)[row];
+    }
+    else if(dtype_info==3){
+      ((cuFloatComplex*)out)[index] = cuCmulf(((cuFloatComplex*)x)[row], ((cuFloatComplex*)y)[row]);
+    }
+    else{
+      printf("ERROR: CUDA_KERNEL: dtype_info not supported\n");
+    }
+  }
+}
+
+void special_elementwise_mul_dispatch (void* out, uint64_t a, uint64_t b, const void* x, 
+  const void* y, cudaStream_t stream, int dtype_info){
+  int blockSize = 256;
+  int gridSize = (a*b + blockSize - 1) / blockSize;
+  special_elementwise_mul<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, y, stream, dtype_info);
+}

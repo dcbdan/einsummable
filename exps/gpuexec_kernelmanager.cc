@@ -3125,25 +3125,208 @@ void kernel8(dtype_t dtype){
   }
 }
 
+void kernel30(dtype_t dtype){
+  uint64_t a = 256;
+  uint64_t b = 32;
+
+  a=32;
+  b=4;
+  
+  auto scar = parse_with_ss<scalarop_t>("*[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]");
+  
 
 
+  einsummable_t custom = einsummable_t(
+    {a,b},
+    {{0, 1}, {0, 1}, {0}},
+    1,
+    scar,
+    castable_t::add);
+
+  dbuffer_t lhs = make_dbuffer(dtype, a*b);
+  dbuffer_t middle = make_dbuffer(dtype, a*b);
+  dbuffer_t rhs = make_dbuffer(dtype, a);
+
+  lhs.random();
+  middle.random();
+  rhs.random();
 
 
+  dbuffer_t out_ref = reference_einsummable(custom, {lhs,middle,rhs});
 
 
+  kernel_manager_t km(0);
+  auto workspace_info = km.build(custom);
+
+  uint64_t size = workspace_info.value().value();
 
 
+  void* work;
+  cudaMalloc(&work, size);
+
+  dbuffer_t out = make_dbuffer(dtype, a);
+  out.zeros();
+
+  cutensorHandle_t handle;
+  cutensorCreate(&handle);
+
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
+  size_t sizeA = lhs.size();
+  size_t sizeB = rhs.size();
+  size_t sizeC = out.size();
+  size_t sizeD = middle.size();
+
+  void *lh, *rh, *mid, *ou;
+
+  cudaMalloc((void**)&lh, sizeA);
+  cudaMalloc((void**)&ou, sizeC);
+
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+
+  cudaMalloc((void**)&mid, sizeD);
+  cudaMalloc((void**)&rh, sizeB);
+
+  cudaMemcpy(mid, middle.ptr(), sizeD, cudaMemcpyHostToDevice);
+  cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
 
 
+  vector<void const*> inns;
+  inns.push_back(lh);
+  inns.push_back(mid);
+  inns.push_back(rh);
+
+  //uint64_t size = km.workspace_size(reduction,ou,inns,handle);
+  //void* work;
+  //cudaMalloc(&work, size);
+
+  optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+    work, size };
+
+  km(custom,stream,ou,inns,workspace);
+
+  //func(stream, handle, ou, inns);
+
+  cudaStreamDestroy(stream);
+
+  cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
+
+  if(!is_close(out_ref, out)) {
+    printf("KERNEL30 ARE NOT CLOSE!");
+    DOUT(out_ref);
+    DOUT(out);
+  }else{
+     std::cout << "Custom operation successful for dtype "<<dtype << "for kernel 30" <<std::endl;
+  }
+}
+
+void kernel31(dtype_t dtype){
+  uint64_t a = 256;
+  uint64_t b = 32;
+
+  a=2;
+  b=2;
+  
+  auto scar = parse_with_ss<scalarop_t>
+    ("*[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-1}[*[hole|f32@2,hole|f32@2]]]]]");
+
+  // einsummable_t custom = einsummable_t(
+  //   {a,b},
+  //   {{0, 1}, {0, 1}, {0}},
+  //   1,
+  //   scar,
+  //   castable_t::add);
+
+  einsummable_t custom = einsummable_t(
+    {a,b},
+    {{0, 1}, {0, 1}, {0}},
+    2,
+    scar);
+
+  dbuffer_t lhs = make_dbuffer(dtype, a*b);
+  dbuffer_t middle = make_dbuffer(dtype, a*b);
+  dbuffer_t rhs = make_dbuffer(dtype, a);
+
+  lhs.iota(1);
+  middle.iota(1);
+  rhs.iota(1);
+
+  dbuffer_t out_ref = reference_einsummable(custom, {lhs,middle,rhs});
+  DOUT("out_ref: " << out_ref)
 
 
+  kernel_manager_t km(0);
+  auto workspace_info = km.build(custom);
+
+  uint64_t size = workspace_info.value().value();
 
 
+  void* work;
+  cudaMalloc(&work, size);
+
+  dbuffer_t out = make_dbuffer(dtype, a*b);
+  out.zeros();
+
+  cutensorHandle_t handle;
+  cutensorCreate(&handle);
+
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
+  size_t sizeA = lhs.size();
+  size_t sizeB = rhs.size();
+  size_t sizeC = out.size();
+  size_t sizeD = middle.size();
+
+  void *lh, *rh, *mid, *ou;
+
+  cudaMalloc((void**)&lh, sizeA);
+  cudaMalloc((void**)&ou, sizeC);
+
+  cudaMemcpy(ou, out.ptr(), sizeC, cudaMemcpyHostToDevice);
+  cudaMemcpy(lh, lhs.ptr(), sizeA, cudaMemcpyHostToDevice);
+
+  cudaMalloc((void**)&mid, sizeD);
+  cudaMalloc((void**)&rh, sizeB);
+
+  cudaMemcpy(mid, middle.ptr(), sizeD, cudaMemcpyHostToDevice);
+  cudaMemcpy(rh, rhs.ptr(), sizeB, cudaMemcpyHostToDevice);
 
 
+  vector<void const*> inns;
+  inns.push_back(lh);
+  inns.push_back(mid);
+  inns.push_back(rh);
 
+  //uint64_t size = km.workspace_size(reduction,ou,inns,handle);
+  //void* work;
+  //cudaMalloc(&work, size);
 
+  optional<tuple<void*, uint64_t>> workspace = tuple<void*, uint64_t>{
+    work, size };
 
+  km(custom,stream,ou,inns,workspace);
+
+  //func(stream, handle, ou, inns);
+
+  cudaStreamDestroy(stream);
+
+  cudaMemcpy(out.ptr(), ou,sizeC, cudaMemcpyDeviceToHost);
+
+  if(!is_close(out_ref, out)) {
+    DOUT("KERNEL31 ARE NOT CLOSE!");
+    DOUT(out_ref);
+    DOUT(out);
+    DOUT("lhs: " << lhs);
+    DOUT("middle: " << middle);
+    DOUT("rhs: " << rhs);
+  }else{
+    DOUT(out);
+    std::cout << "Custom operation successful for dtype "<<dtype << "for kernel 31" <<std::endl;
+  }
+}
 
 
 
@@ -3167,7 +3350,7 @@ int main(){
 
   // kernel9(dtype_t::f16);
 
-  kernel10(dtype_t::c64);
+  // kernel10(dtype_t::c64);
    
   // //complex contraction
   // kernel11(dtype_t::f16);  
@@ -3207,5 +3390,8 @@ int main(){
   // kernel28(dtype_t::f16);
 
   // kernel29(dtype_t::f16);
+
+  kernel30(dtype_t::f32);
+  // kernel31(dtype_t::f32);
 
 }

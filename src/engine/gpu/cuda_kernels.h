@@ -48,3 +48,11 @@ void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
 // Out[i,j] = f(X[i,j], Y[i]), f is the conditional assignment
 void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, uint64_t columns,
   void const* compare, uint64_t value_true, uint64_t value_false, cudaStream_t stream, int dtype_info);
+
+// special elementwise kernel dispatch
+// a, a -> ab
+// for i in size(a):
+//   for j in size(b):
+//     Out[i,j] = f(X[i], Y[i])
+void special_elementwise_mul_dispatch (void* out, uint64_t a, uint64_t b, const void* x, 
+  const void* y, cudaStream_t stream, int dtype_info);

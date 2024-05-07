@@ -321,11 +321,15 @@ kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsu
   }
   elementwise_t elementwise {
     .sops = sop.value(),
-    .plans = make_elementwise_plans(sop.value(), e.join_shape, e.inns, e.out_rank),
+    .plans = make_elementwise_plans(sop.value(), e.join_shape, e.inns, 2),
     .join_shape = e.join_shape,
     .inns = e.inns,
-    .out_rank = e.out_rank
+    .out_rank = 2
   };
+  // DOUT("elementwise: ");
+  // DOUT("Join shape: " << e.join_shape);
+  // DOUT("inns: " << e.inns);
+  // DOUT("out_rank: " << 2);
   // size of the elementwise output is the product of the join shape * dtype size
   uint64_t elementwise_wsz = 1;
   for(auto const& dim: e.join_shape) {
@@ -336,7 +340,7 @@ kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsu
   // 3) build the reduction kernel
   // need to write an ab->a join
   scalarop_t join = scalarop_t::make_arg(0, dtype);
-  einsummable_t reduct_einsum = einsummable_t(e.join_shape, {{0, 1}}, e.out_rank, join, e.castable);
+  einsummable_t reduct_einsum = einsummable_t(e.join_shape, {{0, 1}}, 1, join, e.castable);
   reduction_t reduction = make_reduction(reduct_einsum);
   custom_kernel_4_t custom_kernel {
     .elementwise = elementwise,
@@ -345,6 +349,9 @@ kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsu
     .elementwise_output_offset = elementwise_workspace_size(elementwise),
     .reduction_offset = elementwise_workspace_size(elementwise) + elementwise_wsz
   };
+  // DOUT("Custom kernel 4 reduction: ");
+  // DOUT("Join shape: " << e.join_shape);
+  // DOUT("Join: " << join);
   // print if worksize > 100MB
   if (custom_kernel.worksize > 100000000){
     DOUT("Large worksize: " << e << " custom kernel 4 worksize: " << custom_kernel.worksize);
@@ -1753,6 +1760,7 @@ void kernel_manager_t::execute_elementwise(
         sop.get_unary(), stream, this_out_mem, 
         get_inn_memory_at(args[0]),
         plan);
+
     } else if(sop.is_binary()) {
       // check if we need to execute a ternary of C = A op B op 0*C 
       auto lhs_idxs = get_inn_idxs_at(args[0]);
@@ -1767,8 +1775,23 @@ void kernel_manager_t::execute_elementwise(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
+      } else if (lhs_idxs == rhs_idxs && rhs_idxs != out_idxs){
+        auto dtype_b = sop.get_binary().lhs.scale.dtype;
+        // get dtype info
+        int dtype_info;
+        if (dtype_b == dtype_t::f16){
+          dtype_info = 0;
+        } else if (dtype_b == dtype_t::f32){
+          dtype_info = 1;
+        } else if (dtype_b == dtype_t::f64){
+          dtype_info = 2;
+        } else if (dtype_b == dtype_t::c64){
+          dtype_info = 3;
+        }
+        special_elementwise_mul_dispatch(this_out_mem, e.join_shape[0], e.join_shape[1], 
+          get_inn_memory_at(args[0]), get_inn_memory_at(args[1]), stream, dtype_info);
       } else {
-        DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        // DOUT("NOTE: USING TERNARY ELEMENTWISE")
         execute_sop_binary_different_shape(sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
@@ -1802,6 +1825,7 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
       ret.push_back(
         sop_scale_plan(
           sop.get_scale(), get_inn_idxs_at(args[0]), join_shape));
+      // DOUT("NOTE: USING SCALE ELEMENTWISE");
     }
     else if(sop.is_unary()) {
       ret.push_back(
@@ -1811,10 +1835,14 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
     else if(sop.is_binary()) {
       auto lhs_idxs = get_inn_idxs_at(args[0]);
       auto rhs_idxs = get_inn_idxs_at(args[1]);
+      // DOUT("lhs_idxs: " << lhs_idxs);
+      // DOUT("rhs_idxs: " << rhs_idxs);
+      // DOUT("out_idxs: " << out_idxs);
       if (lhs_idxs == out_idxs || rhs_idxs == out_idxs){
         ret.push_back(
           sop_binary_plan(
             sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
+        // DOUT("NOTE: USING BINARY ELEMENTWISE");
       } else {
         DOUT("NOTE: USING TERNARY ELEMENTWISE")
         ret.push_back(
@@ -2329,7 +2357,7 @@ void kernel_manager_t::execute_sop_binary(
 }
 
 // we execute sop binary with different shapes such as 
-// ab,bc->abc, then join op is f(x,y,z) = binary_op(x,y) + 0*
+// ab,bc->abc, then join op is f(x,y,z) = binary_op(x,y) + 0*z
 // here we assume 
 void kernel_manager_t::execute_sop_binary_different_shape(
   simple_scalarop_t::binary_t const& op,
