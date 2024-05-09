@@ -47,9 +47,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   }
 
   // print all mems
-  // for (auto i = 0; i < mems.size(); i++){
-  //   DOUT("mems GPU[" << i << "]: " << mems[i]);
-  // }
+  for (auto i = 0; i < mems.size(); i++){
+    DOUT("mems GPU[" << i << "]: " << mems[i]);
+  }
 
   // initialize the stream pool now that we have num_gpus_per_node
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);

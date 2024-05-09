@@ -12,7 +12,7 @@
 #include <variant>
 
 static int num_element_print = 20;
-static bool force_debug = false;
+static bool force_debug = true;
 
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
@@ -745,14 +745,18 @@ void kernel_manager_t::operator()(
   void const* inn) const
 {
   cudaSetDevice(device);
-  // DOUT("Touch input: ")
-  // printFloatGPU(inn, 100);
+  // if (force_debug){
+  //   DOUT("Touch input: ");
+  //   printFloatGPU(inn, num_element_print);
+  // }
   auto f = build_touch(touch);
   f(stream, out, inn);
-  // cudaDeviceSynchronize();
-  // DOUT("Touch output: ")
-  // printFloatGPU(out, 100);
-  // DOUT("");
+  // if (force_debug){
+  //   cudaDeviceSynchronize();
+  //   DOUT("Touch output: ")
+  //   printFloatGPU(out, num_element_print);
+  //   DOUT("");
+  // }
 }
 
 void kernel_manager_t::operator()(
@@ -1793,28 +1797,41 @@ void kernel_manager_t::execute_elementwise(
         sop.get_scale(), stream, this_out_mem,
         get_inn_memory_at(args[0]),
         plan);
+      // cudaDeviceSynchronize();
+      // DOUT("intermediate output scale: ");
+      // printFloatGPU(this_out_mem, 32);
     } else if(sop.is_unary()) {
       execute_sop_unary(
         sop.get_unary(), stream, this_out_mem, 
         get_inn_memory_at(args[0]),
         plan);
-
+      // cudaDeviceSynchronize();
+      // DOUT("intermediate output unary: ");
+      // printFloatGPU(this_out_mem, 32);
     } else if(sop.is_binary()) {
       // check if we need to execute a ternary of C = A op B op 0*C 
       auto lhs_idxs = get_inn_idxs_at(args[0]);
       auto rhs_idxs = get_inn_idxs_at(args[1]);
       if (lhs_idxs == out_idxs && rhs_idxs != out_idxs){
-        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = true");
+        DOUT("NOTE: USING BINARY ELEMENTWISE with swap = true");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, true);
+
+        // cudaDeviceSynchronize();
+        // DOUT("intermediate output Binary with swap: ");
+        // printFloatGPU(this_out_mem, 32);
       } else if (rhs_idxs == out_idxs){
-        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = false");
+        DOUT("NOTE: USING BINARY ELEMENTWISE with swap = false");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
+
+        // cudaDeviceSynchronize();
+        // DOUT("intermediate output Binary without swap: ");
+        // printFloatGPU(this_out_mem, 32);
       } else if (lhs_idxs == rhs_idxs && rhs_idxs != out_idxs 
         && sop.get_binary().op == simple_scalarop_t::bop_t::mul){
         auto dtype_b = sop.get_binary().lhs.scale.dtype;
@@ -1886,6 +1903,7 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
       // DOUT("rhs_idxs: " << rhs_idxs);
       // DOUT("out_idxs: " << out_idxs);
       if (lhs_idxs == out_idxs || rhs_idxs == out_idxs){
+        // DOUT("NOTE: Building BINARY ELEMENTWISE");
         ret.push_back(
           sop_binary_plan(
             sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
@@ -2329,7 +2347,7 @@ void kernel_manager_t::execute_sop_scale_add(
     .rhs = unary
   };
 
-  execute_sop_binary(binary, stream, out_mem, inn_mem, scale_mem, plan, false);
+  execute_sop_binary(binary, stream, out_mem, scale_mem, inn_mem, plan, false);
 
   cudaFree(scale_mem);
 }
