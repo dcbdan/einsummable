@@ -10,6 +10,8 @@
 #include "../src/misc/update.h"
 
 #include "../src/autoplace/autoplace.h"
+#include <cuda_runtime_api.h>
+#include <stdexcept>
 
 void usage() {
   std::cout << "Usage: addr_zero is_client world_size memsize "
@@ -460,7 +462,7 @@ void main_rank_zero(
   
   pargs.set_default("tokenizer", "../tokenizer.model");
   pargs.set_default("dataset", "./redpaj_long_samples");
-  pargs.set_default("learning_rate", 1e-4f);
+  pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
 
@@ -484,7 +486,7 @@ void main_rank_zero(
     { "learning_rate", _lr },
   };
 
-  pargs.set_default<int>("niter", 2);
+  pargs.set_default<int>("niter", 1);
   int niter = pargs.get<int>("niter");
   DOUT("starting training")
   for(int iter = 1; iter != niter + 1; ++iter) {
@@ -523,15 +525,37 @@ void main_rank_zero(
       data_loader.one_hot_encode(dtype, label_tokens));
 
     update_vars(updater_desc, iter, vars);
-    for(int which = 0; which != taskgraphs.infos.size(); ++which) {
-      DOUT("server remapping");
-      server->remap_gids(graphs.remaps[which]);
-      auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
-      server->remap(init_rels);
-      DOUT("server executing");
-      server->execute(taskgraph, save_rels, vars);
+    /////////////////////////////////
+    // DANIEL MODIFICATIONS: Don't bother using all the checkpoint stuff,
+    //                       just run 1 big taskgraph...
+    // inspect all tensors in the graph / server
+    auto gids = server->get_gids();
+    for (auto gid : gids) {
+      auto tensor = server->get_tensor_from_gid(gid);
+      if (tensor.dtype != dtype_t::c64){
+        DOUT("tensor " << gid << " tensor: ");
+        // print_nelems(tensor, 100);
+        DOUT("max value: " << tensor.max() << " min value: " << tensor.min() <<
+          " Sum: " << tensor.sum_to_f64() << " Nelem: " << tensor.nelem());
+      }
     }
-    server->remap_gids(graphs.remaps.back());
+    // auto gpu_server = dynamic_cast<gpu_mg_server_t*>(server);
+    // gpu_server->debug_mem(0, 94208);
+    // throw std::runtime_error("stop here");
+    server->execute_graph(info.full_graph, full_pls, vars);
+    // inspect forward output
+    auto forward_output = server->get_tensor_from_gid(91);
+    DOUT("forward_output: " << forward_output.sum_to_f64());
+    /////////////////////////////////
+    // for(int which = 0; which != taskgraphs.infos.size(); ++which) {
+    //   DOUT("server remapping");
+    //   server->remap_gids(graphs.remaps[which]);
+    //   auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
+    //   server->remap(init_rels);
+    //   DOUT("server executing");
+    //   server->execute(taskgraph, save_rels, vars);
+    // }
+    // server->remap_gids(graphs.remaps.back());
 
     double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     DOUT("loss: " << loss_val);

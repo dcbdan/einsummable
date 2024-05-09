@@ -431,3 +431,9 @@ gpu_mg_server_t::~gpu_mg_server_t(){
   }
 }
 
+void gpu_mg_server_t::debug_mem(int device, uint64_t counts){
+  DOUT("Debugging memory on device: " << device);
+  DOUT("Counts: " << counts);
+  printFloatGPU(mems[device], counts);
+}
+

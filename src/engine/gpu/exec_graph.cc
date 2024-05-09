@@ -9,9 +9,13 @@
 #include <cstdio>
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
+#include <fstream>
 #include <iostream>
 #include <sys/types.h>
 #include <unordered_map>
+
+static int w = 0;
+bool debug_exec_graph = false;
 
 void print_exec_graph(exec_graph_t exec_graph){
   for (int i = 0; i < exec_graph.nodes.size(); ++i) {
@@ -36,6 +40,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   vector<void*> gpu_mems,
   map<string, scalar_t> const& scalar_vars)
 {
+  string file_name = "gpu_mg" + std::to_string(w++) + ".gv";
+  std::ofstream f(file_name);
+  memgraph.print_graphviz(f);
   exec_graph_t graph;
 
   map<int, int> mid_to_eid;
@@ -108,6 +115,15 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .get_einsummable()
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
+        
+        // vector<uint64_t> join_shape_compare = {8, 256};
+        // if (einsum.str() == "ab,b->ab" && einsum.join_shape == join_shape_compare){
+        //   DOUT("Found kernel: " << einsum);
+        //   DOUT("mid: " << mid);
+        //   DOUT("mg file name: " << file_name);
+        // }
+
+        // DOUT("mid: " << mid << " Einsum: " << einsum);
 
         // if (all_einsums.find(einsum) == all_einsums.end()){
         //   DOUT("einsum: " << einsum);
@@ -273,6 +289,15 @@ void gpu_einsummable_t::launch(
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
+  if (debug_exec_graph && device == 0){
+    debug_exec_graph = false;
+    DOUT("debug section on 0: ");
+    cudaSetDevice(0);
+    // printFloatGPU(increment_void_ptr(global_buffer, 94208), 100);
+    init_value((float*)increment_void_ptr(global_buffer, 94208), 256, 1e-9f);
+    // printFloatGPU(increment_void_ptr(global_buffer, 94208), 20);
+  }
+
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
@@ -432,6 +457,8 @@ void gpu_copy_t::launch(
   void* dst_mem = increment_void_ptr(
     dst_buffer,
     dst_offset);
+
+  // print 100 elements of src
 
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
@@ -623,9 +650,17 @@ void gpu_constant_t::launch(
     num_elements *= dim;
   }
 
+  // DOUT("fill: " << fill.value << " offset: " << gpu_offset << "nelms: " << num_elements);
+
   gpu_km.constant_fill(fill, stream, gpu_memory);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  // cudaDeviceSynchronize();
+  // DOUT("Output from constant: ");
+  // printFloatGPU(gpu_memory, 20);
+
+  // callback();
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
@@ -660,6 +695,14 @@ void gpu_lowerTri_t::launch(
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
   gpu_km.lowerTri_fill(fill, stream, gpu_memory);
+
+  // DOUT("lower tri fill lower: " << fill.lower << " upper: " << fill.upper << " offset: " << gpu_offset 
+  //   << " nrows: " << fill.nrow << " ncols: " << fill.ncol);
+
+  // cudaDeviceSynchronize();
+  // DOUT("Output from lower_tri fill: ");
+  // printFloatGPU(gpu_memory, 20);
+  // callback();
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 

@@ -555,6 +555,8 @@ tensor_t transformer_t::forward(tensor_t x)
   for(auto& layer: layers) {
     x = layer.forward(x, freqs_cis, mask);
     checkpoints.push_back(x);
+    // x.save_inplace();
+    // DOUT("Saved Tensor id: " << x.get_id());
   }
   x = norm.forward(x);
   // x: bsz, seqlen, dim

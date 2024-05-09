@@ -11,6 +11,9 @@
 #include <string>
 #include <variant>
 
+static int num_element_print = 20;
+static bool force_debug = false;
+
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
 {
@@ -443,6 +446,7 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(einsummable.is_contraction()) {
+    // DOUT("Building contraction kernel: " << einsummable);
     auto c = make_contraction(einsummable);
     kernels.insert({einsummable,c});
     return workspace_info_t(c.worksize);
@@ -450,6 +454,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 
   // Check for Reductions
   if(einsummable.has_aggregation()) {
+    // DOUT("Building reduction kernel: " << einsummable);
     if(einsummable.inns.size() != 1) {
       if (!is_custom_kernel4(einsummable)){
         DOUT("Error: Reduction with more than one input tensor. Einsummable: " << einsummable);
@@ -505,7 +510,7 @@ kernel_manager_t::build(einsummable_t const& e_)
       // see known_workspace_size
       return workspace_info_t(reduct.worksize);
     }
-
+    DOUT("Error: Reduction with unknown aggregation. Einsummable: " << einsummable);
     return std::nullopt;
   }
     // TODO: special case kernels here
@@ -740,8 +745,14 @@ void kernel_manager_t::operator()(
   void const* inn) const
 {
   cudaSetDevice(device);
+  // DOUT("Touch input: ")
+  // printFloatGPU(inn, 100);
   auto f = build_touch(touch);
   f(stream, out, inn);
+  // cudaDeviceSynchronize();
+  // DOUT("Touch output: ")
+  // printFloatGPU(out, 100);
+  // DOUT("");
 }
 
 void kernel_manager_t::operator()(
@@ -753,7 +764,34 @@ void kernel_manager_t::operator()(
 {
   cudaSetDevice(device);
   auto const& info = get_built_kernel_info(e);
+  if (force_debug){
+    DOUT("Calling kernel: " << e);
+    DOUT("e.str(): " << e.str());
+    auto inn_shape = e.inn_shapes();
+    // inspect all inputs
+    for (auto i = 0; i < inns.size(); i++) {
+      auto num_elements = 1;
+      for (auto dim : inn_shape[i]) {
+        num_elements *= dim;
+      }
+      DOUT("Input " << i << " (" << num_elements << "): ");
+      printFloatGPU(inns[i], std::min(num_elements, num_element_print));
+    }
+  }
+
   call(info, stream, out, inns, maybe_workspace);
+
+  if (force_debug){
+    // inspect the output for debug
+    cudaDeviceSynchronize();
+    int num_elements = 1;
+    for (auto i = 0; i < e.out_rank; i++) {
+      num_elements *= e.join_shape[i];
+    }
+    DOUT("Output (" << num_elements << "): ");
+    printFloatGPU(out, std::min(num_elements, num_element_print));
+    DOUT("");
+  }  
 }
 
 void kernel_manager_t::lowerTri_fill(fill_t::lowertri_t const& l, 
@@ -857,7 +895,7 @@ void kernel_manager_t::call(
     execute_reduction(r, stream, out, inns, workspace, wsz);
   } else if(holds_alternative<power_t>(kernel)) {
     assert_num_inputs(1);
-
+    // DOUT("Calling power kernel");
     auto const& [pow,f] = get<power_t>(kernel);
 
     f(stream,(float*)out,(float*)inns[0]);
@@ -1766,16 +1804,19 @@ void kernel_manager_t::execute_elementwise(
       auto lhs_idxs = get_inn_idxs_at(args[0]);
       auto rhs_idxs = get_inn_idxs_at(args[1]);
       if (lhs_idxs == out_idxs && rhs_idxs != out_idxs){
+        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = true");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, true);
       } else if (rhs_idxs == out_idxs){
+        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = false");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
-      } else if (lhs_idxs == rhs_idxs && rhs_idxs != out_idxs){
+      } else if (lhs_idxs == rhs_idxs && rhs_idxs != out_idxs 
+        && sop.get_binary().op == simple_scalarop_t::bop_t::mul){
         auto dtype_b = sop.get_binary().lhs.scale.dtype;
         // get dtype info
         int dtype_info;
@@ -1788,10 +1829,11 @@ void kernel_manager_t::execute_elementwise(
         } else if (dtype_b == dtype_t::c64){
           dtype_info = 3;
         }
+        DOUT("NOTE: USING SPECIAL ELEMENTWISE");
         special_elementwise_mul_dispatch(this_out_mem, e.join_shape[0], e.join_shape[1], 
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]), stream, dtype_info);
       } else {
-        // DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        DOUT("NOTE: USING TERNARY ELEMENTWISE")
         execute_sop_binary_different_shape(sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
@@ -1799,6 +1841,10 @@ void kernel_manager_t::execute_elementwise(
     } else {
       throw std::runtime_error("missing sop case!");
     }
+    // inspect the output
+    // cudaDeviceSynchronize();
+    // DOUT("intermediate output: ");
+    // printFloatGPU(this_out_mem, 10);
   }
 }
 
@@ -1825,12 +1871,13 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
       ret.push_back(
         sop_scale_plan(
           sop.get_scale(), get_inn_idxs_at(args[0]), join_shape));
-      // DOUT("NOTE: USING SCALE ELEMENTWISE");
+      // DOUT("NOTE: Building SCALE ELEMENTWISE");
     }
     else if(sop.is_unary()) {
       ret.push_back(
         sop_unary_plan(
           sop.get_unary(), get_inn_idxs_at(args[0]), join_shape));
+      // DOUT("NOTE: Building UNARY ELEMENTWISE")
     }
     else if(sop.is_binary()) {
       auto lhs_idxs = get_inn_idxs_at(args[0]);
@@ -1842,9 +1889,11 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
         ret.push_back(
           sop_binary_plan(
             sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
-        // DOUT("NOTE: USING BINARY ELEMENTWISE");
+        // DOUT("NOTE: Building BINARY ELEMENTWISE");
+        // TODO: we don't need a plan for special elementwise but we need to take the space for it
+        // so it doesn't go out of bounds
       } else {
-        DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        DOUT("NOTE: Building TERNARY ELEMENTWISE")
         ret.push_back(
           sop_binary_plan_different_shape(
             sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));
@@ -2067,8 +2116,9 @@ cutensorPlan_t kernel_manager_t::sop_binary_plan(
   auto rhs = op.rhs;
   assert(lhs.scale.dtype == rhs.scale.dtype);
   cutensorOperator_t opElementwise = bop_to_cutensorOp(bop);
-  cutensorOperator_t opElemmentwise_lhs = uop_to_cutensorOp(lhs.op);
-  cutensorOperator_t opElemmentwise_rhs = uop_to_cutensorOp(rhs.op);
+  // DOUT("opElementwise: " << bop);
+  // DOUT("opElemmentwise_lhs: " << lhs.op);
+  // DOUT("opElemmentwise_rhs: " << rhs.op);
 
   std::vector<int> modeA = lhs_idxs;
   std::vector<int> modeC = rhs_idxs;
@@ -2078,6 +2128,9 @@ cutensorPlan_t kernel_manager_t::sop_binary_plan(
     std::swap(modeA, modeC);
     std::swap(lhs, rhs);
   }
+  cutensorOperator_t opElemmentwise_lhs = uop_to_cutensorOp(lhs.op);
+  cutensorOperator_t opElemmentwise_rhs = uop_to_cutensorOp(rhs.op);
+
   int nmodeA = modeA.size();
   int nmodeC = modeC.size();
 

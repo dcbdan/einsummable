@@ -211,7 +211,7 @@ bool exec_state_t::try_to_launch(int id) {
 
       cv_notify.notify_one();
     };
-
+    // DOUT("launching " << id);
     node.launch(resources, callback);
     is_running.insert({id, resources});
 

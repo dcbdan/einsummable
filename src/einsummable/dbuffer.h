@@ -70,3 +70,5 @@ std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer);
 bool operator==(dbuffer_t const& lhs, dbuffer_t const& rhs);
 bool operator!=(dbuffer_t const& lhs, dbuffer_t const& rhs);
 
+void print_nelems(dbuffer_t const& dbuffer);
+
