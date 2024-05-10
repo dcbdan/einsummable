@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -781,6 +782,15 @@ void kernel_manager_t::operator()(
       DOUT("Input " << i << " (" << num_elements << "): ");
       printFloatGPU(inns[i], std::min(num_elements, num_element_print));
     }
+    // if (e.castable == castable_t::max){
+    //   DOUT("castable: max; printing output first for debug");
+    //   auto num_elements = 1;
+    //   for (auto dim : e.join_shape) {
+    //     num_elements *= dim;
+    //   }
+    //   DOUT("Output (" << num_elements << "): ");
+    //   printFloatGPU(out, std::min(num_elements, num_element_print));
+    // }
   }
 
   call(info, stream, out, inns, maybe_workspace);
@@ -886,7 +896,7 @@ void kernel_manager_t::call(
         throw std::runtime_error("workspace required; none given");
       }
     }
-    // std::cout << "Calling contraction" << std::endl;
+    // DOUT("Executing contraction");
     execute_contraction(
       c, stream,
       out, inns[0], inns[1],
@@ -896,6 +906,7 @@ void kernel_manager_t::call(
 
     auto r = get<reduction_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
+    // DOUT("Executing reduction");
     execute_reduction(r, stream, out, inns, workspace, wsz);
   } else if(holds_alternative<power_t>(kernel)) {
     assert_num_inputs(1);
@@ -1413,6 +1424,8 @@ kernel_manager_t::make_reduction(einsummable_t const& e)
   } else if(e.castable == castable_t::min) {
     opReduce = CUTENSOR_OP_MIN;
   } else if(e.castable == castable_t::max) {
+    // DOUT("MAX reduction extent_A: " << extent_A);
+    // DOUT("Max reduction extent_C: " << extent_C);
     opReduce = CUTENSOR_OP_MAX;
   } else {
     throw std::runtime_error("should not reach: missing castable");
@@ -1467,6 +1480,10 @@ kernel_manager_t::make_reduction(einsummable_t const& e)
   
 
   uint64_t worksize = actualWorkspaceSize;
+
+  // if (e.castable == castable_t::max) {
+  //   DOUT("MAX reduction worksize: " << worksize);
+  // }
 
   return reduction_t {
     .dtype = type,
@@ -1609,41 +1626,21 @@ void kernel_manager_t::execute_reduction(
   void* work,
   uint64_t given_worksize) const
 {
-  void* ptr1;
-  void* ptr2;
-  float16_t alpha1, beta1;
-  float alpha2, beta2;
-  double alpha3, beta3;
-  std::complex<float> alpha4(1.0f, 0.0f);
-  std::complex<float> beta4(0.0f, 0.0f);
   auto dtype = r.dtype;
   const cutensorComputeDescriptor_t typeCompute = dtype_to_computetype(dtype);
 
-  if(dtype == dtype_t::f16){
-    alpha2 = 1.0f;
-    ptr1 = static_cast<void*>(&alpha2);
-    beta2 = 0.0f;
-    ptr2 = static_cast<void*>(&beta2);
-  }
-  else if(dtype == dtype_t::f32){
-    alpha2 = 1.0f;
-    ptr1 = static_cast<void*>(&alpha2);
-    beta2 = 0.0f;
-    ptr2 = static_cast<void*>(&beta2);
-  }
-  else if(dtype == dtype_t::f64){
-    alpha3 = 1.0;
-    ptr1 = static_cast<void*>(&alpha3);
-    beta3 = 0.0;
-    ptr2 = static_cast<void*>(&beta3);
-  }
-  else if(dtype == dtype_t::c64){
-    ptr1 =  static_cast<void*>(&alpha4);
-    ptr2 =  static_cast<void*>(&beta4);
-  }
+  scalar_t one = scalar_t::one(dtype);
+  scalar_t zero = scalar_t::zero(dtype);
 
-  void const* alpha = ptr1; 
-  void const* beta = ptr2; 
+  if (dtype == dtype_t::f16) {
+    one = scalar_t::one(dtype_t::f32);
+    zero = scalar_t::zero(dtype_t::f32);
+  }
+  
+  void const* alpha = one.raw();
+  void const* beta = zero.raw();
+
+  // DOUT("reduction worksize: " << given_worksize);
 
   handle_cutensor_error(cutensorReduce(cutensor_handle, r.plan,
                 alpha, inns[0],
@@ -1813,7 +1810,7 @@ void kernel_manager_t::execute_elementwise(
       auto lhs_idxs = get_inn_idxs_at(args[0]);
       auto rhs_idxs = get_inn_idxs_at(args[1]);
       if (lhs_idxs == out_idxs && rhs_idxs != out_idxs){
-        DOUT("NOTE: USING BINARY ELEMENTWISE with swap = true");
+        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = true");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
@@ -1823,7 +1820,7 @@ void kernel_manager_t::execute_elementwise(
         // DOUT("intermediate output Binary with swap: ");
         // printFloatGPU(this_out_mem, 32);
       } else if (rhs_idxs == out_idxs){
-        DOUT("NOTE: USING BINARY ELEMENTWISE with swap = false");
+        // DOUT("NOTE: USING BINARY ELEMENTWISE with swap = false");
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
