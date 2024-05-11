@@ -42,7 +42,7 @@ struct scalar_t {
   float                const& f32() const;
   double               const& f64() const;
   std::complex<float>  const& c64() const;
-  
+
   void const* raw() const;
   // return a string of the number;
   // this removes dtype information
@@ -350,7 +350,7 @@ struct scalarop_t {
   //   (x0 + x1) * (x2 + x3)
   static scalarop_t combine(scalarop_t op, vector<scalarop_t> const& ops);
 
-  static scalarop_t replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops); 
+  static scalarop_t replace_arguments(scalarop_t top, vector<scalarop_t> const& bottom_ops);
 
   static scalarop_t from_string(string const& str);
 
@@ -380,6 +380,9 @@ struct scalarop_t {
   // max(x0, x1);
   static scalarop_t make_max(dtype_t d = default_dtype());
 
+  // abs(x0); x0 > 0.0 ? x0 : -1*x0
+  static scalarop_t make_abs(dtype_t d = default_dtype());
+
   // x0 <= x1 ? 1.0 : 0.0
   static scalarop_t make_is_min(dtype_t d = default_dtype());
 
@@ -403,7 +406,7 @@ struct scalarop_t {
   // x0 + val
   static scalarop_t make_increment(scalar_t val);
 
-  // e^x0 
+  // e^x0
   static scalarop_t make_exp(dtype_t d = default_dtype());
 
   // 1 / (1 + e^(-1*x0))

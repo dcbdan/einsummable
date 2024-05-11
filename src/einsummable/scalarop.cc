@@ -1234,7 +1234,7 @@ node_t node_t::simplify_once() const {
     // Check for (constant * (constant * hole))
     //           (c0 * (c1 * h))
     if(lhs.op.is_constant() && rhs.op.is_mul()) {
-      node_t& c0 = lhs; 
+      node_t& c0 = lhs;
       node_t& c1 = rhs.children[0];
       node_t& h  = rhs.children[1];
       if(c1.op.is_constant() && h.op.is_hole()) {
@@ -1263,7 +1263,7 @@ node_t node_t::simplify_once() const {
     // Check for (constant * (constant * hole))
     //           (c0 * (c1 * h))
     if(lhs.op.is_constant() && rhs.op.is_mul()) {
-      node_t& c0 = lhs; 
+      node_t& c0 = lhs;
       node_t& c1 = rhs.children[0];
       node_t& h  = rhs.children[1];
       if(c1.op.is_constant() && h.op.is_hole()) {
@@ -1507,7 +1507,7 @@ _unary_matches(dtype_t dtype)
   vector<tuple<make_t, scalarop_t>> ret;
 
   make_t f_sqrt = [](string const& inn) {
-    return "_sqrt(" + inn + ")"; 
+    return "_sqrt(" + inn + ")";
   };
   make_t f_square = [](string const& inn) {
     return "_square(" + inn + ")";
@@ -1571,7 +1571,7 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
       }
     }
 
-    for(auto const& [make_str, skeleton]: _binary_matches(dtype)) 
+    for(auto const& [make_str, skeleton]: _binary_matches(dtype))
 	  {
       auto maybe = _pop_match(skeleton.get_node(), this);
       if(maybe) {
@@ -2183,6 +2183,13 @@ scalarop_t scalarop_t::make_max(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   string h1 = op_t::h_str(1, dtype);
   return parse_with_ss<scalarop_t>("ite_>["+h0+","+h1+","+h0+","+h1+"]");
+}
+
+scalarop_t scalarop_t::make_abs(dtype_t dtype) {
+  string h0 = op_t::h_str(0, dtype);
+  string n0 = write_with_ss(make_scale(scalar_t::one(dtype)));
+  string zero = write_with_ss(make_constant(scalar_t::zero(dtype)));
+  return parse_with_ss<scalarop_t>("ite_>["+h0+","+zero+","+h0+","+n0+"]");
 }
 
 // x0 <= x1 ? 1.0 : 0.0
