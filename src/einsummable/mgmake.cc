@@ -1255,35 +1255,39 @@ memgraph_make_state_t::find_victim(
     auto is_on_mem_iter = tensors_on_memory.find(tid);
     if(is_on_mem_iter != tensors_on_memory.end()){ //only add the tensors on memory
     DOUT("tid found in tensors_on_memory");
-    // auto const& memnode = memgraph.nodes.at(iter->second);
-    // if (memnode.op.is_alloc()){
-    //   DOUT("memnode is alloc");
-    // } else if (memnode.op.is_apply()) {
-    //   DOUT("memnode is apply");
-    // } else if (memnode.op.is_constant()) {
-    //   DOUT("memnode is constant");
-    // } else if (memnode.op.is_del()) {
-    //   DOUT("memnode is del");
-    // } else if (memnode.op.is_evict()) {
-    //   DOUT("memnode is evict");
-    // } else if (memnode.op.is_inputsto()) {
-    //   DOUT("memnode is inputsto");
-    // } else if (memnode.op.is_move()) {
-    //   DOUT("memnode is move");
-    // } else if (memnode.op.is_load()) {
-    //   DOUT("memnode is load");
-    // } else if (memnode.op.is_partialize() ) {
-    //   DOUT("memnode is partialize");
-    // }
-      std::cout << "offset?: " << memnode.op.get_output_mem().offset << std::endl;
+    auto const& memnode = memgraph.nodes.at(iter->second);
+    if (memnode.op.is_alloc()){
+      DOUT("memnode is alloc");
+    } else if (memnode.op.is_apply()) {
+      DOUT("memnode is apply");
+    } else if (memnode.op.is_constant()) {
+      DOUT("memnode is constant");
+    } else if (memnode.op.is_del()) {
+      DOUT("memnode is del");
+    } else if (memnode.op.is_evict()) {
+      DOUT("memnode is evict");
+    } else if (memnode.op.is_inputsto()) {
+      DOUT("memnode is inputsto");
+    } else if (memnode.op.is_move()) {
+      DOUT("memnode is move");
+    } else if (memnode.op.is_load()) {
+      DOUT("memnode is load");
+    } else if (memnode.op.is_partialize() ) {
+      DOUT("memnode is partialize");
+    }
       auto memstoloc = memnode.op.get_output_memstoloc();
-      if (memstoloc.is_memloc()) {
-        auto offset = memstoloc.get_memloc().offset;
+      uint64_t offset;
+      if (memstoloc.is_memloc()) { //don't need to consider move?
+        if (memnode.op.is_move()) {
+          offset = std::get<1>(memnode.op.get_move().src);
+        } else {
+          offset = memstoloc.get_memloc().offset;
+        }
         std::cout << "offset to map: " << offset << std::endl;
         int block_id = allocators.at(loc)._get_block_id(offset);
         bid2tid[block_id] = iter->first;
         tid2bid[iter->first] = block_id;
-      } else {
+      } else if (!memstoloc.is_memloc()) {
         throw std::runtime_error("tensor on memory contains some stuff from storage nooo");
       }
     }
