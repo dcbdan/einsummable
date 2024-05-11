@@ -119,6 +119,21 @@ public:
   void reset(save_t const& save) {
     blocks = save(); 
   }
+
+  // return the (best) set of block ids standing in the way from an allocation
+  optional<set<int>> _find_best_evict_block_ids(
+    // how much we would want to allocate
+    uint64_t size,
+    // a function from block_id to the score.
+    // If score is < 0, the block cannot be used. Otherwise, higher scores are better.
+    std::function<int(int)> f_score) const;
+    // Example: We have blocks [3,4,5] with score [9,20,8]. Then the score for this range of blocks
+    //          is min(9,20,8) = 8.
+
+  // For this offset, get the occupied block id at that offset
+  int _get_block_id(uint64_t const& offset);
+
+  double buffer_utilization() const;
   ///////////////////////////////////////////////////////////////////
 };
 

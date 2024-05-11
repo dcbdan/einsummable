@@ -222,6 +222,7 @@ memgraph_t::make_(
   }
 
   optional<memgraph_t> input_memgraph;
+  std::cout << "aaaaa???" << std::endl;
   if(split_off_inputs)
   {
     auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
@@ -1238,57 +1239,130 @@ int memgraph_make_state_t::order_state_t::get(int tid)
   return std::numeric_limits<int>::max();
 }
 
-optional<int>
+optional<vector<int>>
 memgraph_make_state_t::find_victim(
   int loc,
   uint64_t size,
   vector<int> cannot_evict)
 {
-  if(!use_storage)
-  {
-    return std::nullopt;
+  //form a bidirectional mapping block_id <-> tid, use _get_block_id
+  map<int, int> bid2tid; //block id to tid
+  map<int, int> tid2bid; //tid to block id
+
+  for (auto iter = task_tensor_to_mem_node.begin(); iter != task_tensor_to_mem_node.end(); ++iter) {
+    auto tid = iter->first;
+    std::cout << "tid in loop: " << tid << std::endl;
+    auto is_on_mem_iter = tensors_on_memory.find(tid);
+    if(is_on_mem_iter != tensors_on_memory.end()){ //only add the tensors on memory
+    DOUT("tid found in tensors_on_memory");
+    // auto const& memnode = memgraph.nodes.at(iter->second);
+    // if (memnode.op.is_alloc()){
+    //   DOUT("memnode is alloc");
+    // } else if (memnode.op.is_apply()) {
+    //   DOUT("memnode is apply");
+    // } else if (memnode.op.is_constant()) {
+    //   DOUT("memnode is constant");
+    // } else if (memnode.op.is_del()) {
+    //   DOUT("memnode is del");
+    // } else if (memnode.op.is_evict()) {
+    //   DOUT("memnode is evict");
+    // } else if (memnode.op.is_inputsto()) {
+    //   DOUT("memnode is inputsto");
+    // } else if (memnode.op.is_move()) {
+    //   DOUT("memnode is move");
+    // } else if (memnode.op.is_load()) {
+    //   DOUT("memnode is load");
+    // } else if (memnode.op.is_partialize() ) {
+    //   DOUT("memnode is partialize");
+    // }
+      std::cout << "offset?: " << memnode.op.get_output_mem().offset << std::endl;
+      auto memstoloc = memnode.op.get_output_memstoloc();
+      if (memstoloc.is_memloc()) {
+        auto offset = memstoloc.get_memloc().offset;
+        std::cout << "offset to map: " << offset << std::endl;
+        int block_id = allocators.at(loc)._get_block_id(offset);
+        bid2tid[block_id] = iter->first;
+        tid2bid[iter->first] = block_id;
+      } else {
+        throw std::runtime_error("tensor on memory contains some stuff from storage nooo");
+      }
+    }
   }
-  if(!order_state)
+
+  //get the set of block ids to evict from _find_best_evict_block_ids. Use order_state in the overload function.
+  auto maybe_evict_block_ids = allocators.at(loc)._find_best_evict_block_ids(size, [&, this, cannot_evict](int tid) 
   {
-    throw std::runtime_error("order state must be setup");
-  }
-
-  auto& ostate = order_state.value();
-
-  vector<int> candidates = map_get_keys(tensors_on_memory);
-
-  vector_filter_inplace(candidates, [&](int const& tid)
-  {
-    // If this tid is in cannot_evict, return false
     auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
     if(iter != cannot_evict.end()) {
-      return false;
+      return -1;
     }
-
-    if(taskgraph.nodes[tid].op.out_loc() != loc) {
-      return false;
-    }
-
-    // Make sure it is big enough to evict
-    uint64_t tensor_size = taskgraph.nodes[tid].op.out_size();
-    return tensor_size >= size; 
+    return order_state.value().get(tid);
   });
 
-  // Order the candidates in ascending order so that the last item
-  // is the one that is used the lastest
-  vector_sort_inplace(candidates, 
-    [&, this](int const& lhs, int const& rhs) { 
-      return ostate.get(lhs) < ostate.get(rhs); 
-    }
-  );
-
-  if(candidates.size() == 0)
-  {
+  //using the block ids to evict, get the corresponding tids
+  if (!maybe_evict_block_ids) {
     return std::nullopt;
   }
-
-  return candidates.back();
+  auto evict_block_ids = maybe_evict_block_ids.value();
+  vector<int> evict_tids;
+  evict_tids.reserve(evict_block_ids.size());
+  for (auto bid: evict_block_ids){
+    evict_tids.push_back(bid2tid.at(bid));
+  }
+  return evict_tids;
 }
+
+// optional<int>
+// memgraph_make_state_t::find_victim(
+//   int loc,
+//   uint64_t size,
+//   vector<int> cannot_evict)
+// {
+//   if(!use_storage)
+//   {
+//     return std::nullopt;
+//   }
+//   if(!order_state)
+//   {
+//     throw std::runtime_error("order state must be setup");
+//   }
+
+//   auto& ostate = order_state.value();
+
+//   vector<int> candidates = map_get_keys(tensors_on_memory);
+
+//   vector_filter_inplace(candidates, [&](int const& tid)
+//   {
+//     // If this tid is in cannot_evict, return false
+//     auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
+//     if(iter != cannot_evict.end()) {
+//       return false;
+//     }
+
+//     if(taskgraph.nodes[tid].op.out_loc() != loc) {
+//       return false;
+//     }
+
+//     // Make sure it is big enough to evict
+//     uint64_t tensor_size = taskgraph.nodes[tid].op.out_size();
+//     return tensor_size >= size; 
+//   });
+
+//   // Order the candidates in ascending order so that the last item
+//   // is the one that is used the lastest
+//   vector_sort_inplace(candidates, 
+//     [&, this](int const& lhs, int const& rhs) { 
+//       return ostate.get(lhs) < ostate.get(rhs); 
+//     }
+//   );
+
+//   if(candidates.size() == 0)
+//   {
+//     return std::nullopt;
+//   }
+
+//   return candidates.back();
+// }
 
 int memgraph_make_state_t::allocate_with_evict(
   int loc, uint64_t size,
@@ -1307,11 +1381,13 @@ int memgraph_make_state_t::allocate_with_evict(
       "allocate_with_evict: would have to use storage but storage is unavailable.");
   }
 
-  auto maybe_victim = find_victim(loc, size, cannot_evict);
-  if(maybe_victim)
+  auto maybe_victims = find_victim(loc, size, cannot_evict);
+  if(maybe_victims)
   {
-    int const& victim = maybe_victim.value();
-    evict_tensor(victim);
+    vector<int> const& victims = maybe_victims.value();
+    for (auto vic_tid : victims) {
+      evict_tensor(vic_tid);
+    }
     auto maybe_ret = allocate_without_evict(loc, size);
     if(!maybe_ret)
     {
@@ -1321,28 +1397,8 @@ int memgraph_make_state_t::allocate_with_evict(
     }
     return maybe_ret.value();
   } else {
-    // TODO: what is the right thing to do here?
-
-    // Option 1: just give up
-    //   throw std::runtime_error("allocate_with_evict: could not find victim!");
-    // Option 2: just keep evicting things, don't even worry about the size
-    //   (see below)
-    // Option 3: something smarter?
-    while(true)
-    {
-      auto maybe_victim = find_victim(loc, 0, cannot_evict);
-      if(!maybe_victim)
-      {
-        throw std::runtime_error(
-          "allocate_with_evict: there is nothing to evict; no memory left!");
-      }
-      evict_tensor(maybe_victim.value());
-      auto maybe_ret = allocate_without_evict(loc, size);
-      if(maybe_ret)
-      {
-        return maybe_ret.value();
-      }
-    }
+    throw std::runtime_error(
+      "allocate_with_evict: could not allocate even after evicting a tensor.");
   }
 }
 
