@@ -1248,74 +1248,47 @@ memgraph_make_state_t::find_victim(
   //form a bidirectional mapping block_id <-> tid, use _get_block_id
   map<int, int> bid2tid; //block id to tid
   map<int, int> tid2bid; //tid to block id
-
-  for (auto iter = task_tensor_to_mem_node.begin(); iter != task_tensor_to_mem_node.end(); ++iter) {
-    auto tid = iter->first;
-    std::cout << "tid in loop: " << tid << std::endl;
-    auto is_on_mem_iter = tensors_on_memory.find(tid);
-    if(is_on_mem_iter != tensors_on_memory.end()){ //only add the tensors on memory
-    DOUT("tid found in tensors_on_memory");
-    auto const& memnode = memgraph.nodes.at(iter->second);
-    if (memnode.op.is_alloc()){
-      DOUT("memnode is alloc");
-    } else if (memnode.op.is_apply()) {
-      DOUT("memnode is apply");
-    } else if (memnode.op.is_constant()) {
-      DOUT("memnode is constant");
-    } else if (memnode.op.is_del()) {
-      DOUT("memnode is del");
-    } else if (memnode.op.is_evict()) {
-      DOUT("memnode is evict");
-    } else if (memnode.op.is_inputsto()) {
-      DOUT("memnode is inputsto");
-    } else if (memnode.op.is_move()) {
-      DOUT("memnode is move");
-    } else if (memnode.op.is_load()) {
-      DOUT("memnode is load");
-    } else if (memnode.op.is_partialize() ) {
-      DOUT("memnode is partialize");
-    }
-      auto memstoloc = memnode.op.get_output_memstoloc();
-      uint64_t offset;
-      if (memstoloc.is_memloc()) { //don't need to consider move?
-        if (memnode.op.is_move()) {
-          offset = std::get<1>(memnode.op.get_move().src);
-        } else {
-          offset = memstoloc.get_memloc().offset;
-        }
-        std::cout << "offset to map: " << offset << std::endl;
-        int block_id = allocators.at(loc)._get_block_id(offset);
-        bid2tid[block_id] = iter->first;
-        tid2bid[iter->first] = block_id;
-      } else if (!memstoloc.is_memloc()) {
-        throw std::runtime_error("tensor on memory contains some stuff from storage nooo");
+  for(auto const& [tid, mid]: task_tensor_to_mem_node) {
+    memstoloc_t memstoloc = memgraph.nodes[mid].op.get_output_memstoloc();
+    if(memstoloc.is_memloc()) {
+      auto const& memloc = memstoloc.get_memloc();
+      if(memloc.loc == loc) {
+        int block_id = allocators.at(loc)._get_block_id(memloc.offset);
+        bid2tid[block_id] = tid;
+        tid2bid[tid] = block_id;
       }
+    } else {
+      // it is on storage, so we won't be evicting it
     }
   }
 
-  //get the set of block ids to evict from _find_best_evict_block_ids. Use order_state in the overload function.
-  auto maybe_evict_block_ids = allocators.at(loc)._find_best_evict_block_ids(size, [&, this, cannot_evict](int tid) 
-  {
+  // Get the set of block ids to evict from
+  // _find_best_evict_block_ids.
+  // Use order_state in the overload function.
+  auto f_score = [&](int tid) {
     auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
     if(iter != cannot_evict.end()) {
       return -1;
     }
     return order_state.value().get(tid);
-  });
+  };
+  auto maybe_evict_block_ids = allocators.at(loc)._find_best_evict_block_ids(size, f_score);
 
-  //using the block ids to evict, get the corresponding tids
   if (!maybe_evict_block_ids) {
+    // this should be unlikely
     return std::nullopt;
   }
-  auto evict_block_ids = maybe_evict_block_ids.value();
+
+  // using the block ids to evict, get the corresponding tids
+  auto const& evict_block_ids = maybe_evict_block_ids.value();
   vector<int> evict_tids;
   evict_tids.reserve(evict_block_ids.size());
   for (auto bid: evict_block_ids){
     evict_tids.push_back(bid2tid.at(bid));
   }
+
   return evict_tids;
 }
-
 // optional<int>
 // memgraph_make_state_t::find_victim(
 //   int loc,
