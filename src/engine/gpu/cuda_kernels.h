@@ -54,5 +54,14 @@ void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, 
 // for i in size(a):
 //   for j in size(b):
 //     Out[i,j] = f(X[i], Y[i])
-void special_elementwise_mul_dispatch (void* out, uint64_t a, uint64_t b, const void* x, 
+void special_elementwise_mul_dispatch(void* out, uint64_t a, uint64_t b, const void* x, 
   const void* y, cudaStream_t stream, int dtype_info);
+
+void special_reduction_max_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream);
+
+void special_reduction_sum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream);
+
+void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream);

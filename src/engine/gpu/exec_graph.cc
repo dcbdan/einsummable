@@ -11,6 +11,7 @@
 #include <driver_types.h>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sys/types.h>
 #include <unordered_map>
 
@@ -292,10 +293,10 @@ void gpu_einsummable_t::launch(
   if (debug_exec_graph && device == 0){
     debug_exec_graph = false;
     DOUT("debug section on 0: ");
-    cudaSetDevice(0);
-    // printFloatGPU(increment_void_ptr(global_buffer, 94208), 100);
-    init_value((float*)increment_void_ptr(global_buffer, 94208), 256, 1e-9f);
-    // printFloatGPU(increment_void_ptr(global_buffer, 94208), 20);
+  //   cudaSetDevice(0);
+    printFloatGPU(increment_void_ptr(global_buffer, 94208), 100);
+  //   init_value((float*)increment_void_ptr(global_buffer, 94208), 256, 1e-9f);
+  //   // printFloatGPU(increment_void_ptr(global_buffer, 94208), 20);
   }
 
   void* out_mem = increment_void_ptr(
@@ -309,6 +310,13 @@ void gpu_einsummable_t::launch(
       global_buffer,
       mems[i].offset));
   }
+
+  // print all the input and output offsets
+  // for (int i = 1; i < mems.size(); ++i){
+  //   DOUT("Input offset " << i-1 << ": " << mems[i].offset << " Device: " << device);
+  // }
+  // DOUT("Output offset: " << mems[0].offset << " Device: " << device);
+  
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
@@ -376,6 +384,10 @@ void gpu_touch_t::launch(
   void const* inn_mem = increment_void_ptr(
     global_buffer,
     mems[1].offset);
+
+  // print the offsets
+  // DOUT("Touch Output offset: " << mems[0].offset);
+  // DOUT("Touch Input offset: " << mems[1].offset);
 
   bool is_first = false;
   if(group_id >= 0) {
@@ -650,7 +662,7 @@ void gpu_constant_t::launch(
     num_elements *= dim;
   }
 
-  // DOUT("fill: " << fill.value << " offset: " << gpu_offset << "nelms: " << num_elements);
+  // DOUT("fill: " << fill.value << " offset: " << gpu_offset << " nelms: " << num_elements);
 
   gpu_km.constant_fill(fill, stream, gpu_memory);
 
@@ -694,7 +706,23 @@ void gpu_lowerTri_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  gpu_km.lowerTri_fill(fill, stream, gpu_memory);
+  auto gpu_fill = fill;
+
+  if (fill.upper == scalar_t::negative_inf(dtype_t::f32)){
+    // DOUT("Found negative infinity lower triangular fill");
+    scalar_t new_upper(-1 * 1e30);
+    auto l = fill_t::lowertri_t {
+      .lower = fill.lower,
+      .upper = new_upper,
+      .nrow = fill.nrow,
+      .ncol = fill.ncol,
+      .start = fill.start
+    };
+    gpu_fill = l;
+  }
+  // DOUT("new upper: " << gpu_fill.upper);
+
+  gpu_km.lowerTri_fill(gpu_fill, stream, gpu_memory);
 
   // DOUT("lower tri fill lower: " << fill.lower << " upper: " << fill.upper << " offset: " << gpu_offset 
   //   << " nrows: " << fill.nrow << " ncols: " << fill.ncol);

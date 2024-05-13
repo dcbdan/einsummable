@@ -233,6 +233,21 @@ private:
     uint64_t reduction_offset;
   };
 
+  struct special_max_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct special_sum_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct special_negateSum_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
 public:
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -247,6 +262,8 @@ public:
   static bool is_custom_kernel3(einsummable_t e);
   static bool is_custom_kernel4(einsummable_t e);
   static bool is_custom_kernel5(einsummable_t e);
+  static bool is_special_max_reduction(einsummable_t e);
+  static bool is_special_sum_reduction(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
   static double get_power(einsummable_t e);
   static bool is_scale_and_increment(einsummable_t e);
@@ -285,7 +302,10 @@ private:
   using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
                                       type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
                                       power_t, scale_t, 
-                                      custom_kernel_2_t, custom_kernel_4_t>;
+                                      custom_kernel_2_t, custom_kernel_4_t,
+                                      special_max_reduction_t,
+                                      special_sum_reduction_t,
+                                      special_negateSum_reduction_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;

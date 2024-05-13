@@ -716,10 +716,85 @@ __global__ void special_elementwise_mul(void* out, uint64_t a, uint64_t b, const
   }
 }
 
-void special_elementwise_mul_dispatch (void* out, uint64_t a, uint64_t b, const void* x, 
+void special_elementwise_mul_dispatch(void* out, uint64_t a, uint64_t b, const void* x, 
   const void* y, cudaStream_t stream, int dtype_info){
   int blockSize = 256;
   int gridSize = (a*b + blockSize - 1) / blockSize;
   special_elementwise_mul<<<gridSize, blockSize,0,stream>>>
     (out, a, b, x, y, stream, dtype_info);
+}
+
+// ab -> a with max reduction
+__global__ void special_reduction_max(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = max(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = ((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] = fmaxf(((float*)out)[index], ((float*)x)[index * b + i]);
+      }
+    }
+  }
+}
+
+void special_reduction_max_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_max<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
+}
+
+// ab -> a with add reduction
+__global__ void special_reduction_sum(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = sum(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = ((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] += ((float*)x)[index * b + i];
+      }
+    }
+  }
+}
+
+void special_reduction_sum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_sum<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
+}
+
+// ab -> a with add reduction with negated input x
+__global__ void special_reduction_negateSum(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = sum(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = -((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] -= ((float*)x)[index * b + i];
+      }
+    }
+  }
+}
+
+void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_negateSum<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
 }

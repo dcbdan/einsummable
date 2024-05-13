@@ -529,23 +529,23 @@ void main_rank_zero(
     // DANIEL MODIFICATIONS: Don't bother using all the checkpoint stuff,
     //                       just run 1 big taskgraph...
     // inspect all tensors in the graph / server
-    auto gids = server->get_gids();
-    for (auto gid : gids) {
-      auto tensor = server->get_tensor_from_gid(gid);
-      if (tensor.dtype != dtype_t::c64){
-        DOUT("tensor " << gid << " tensor: ");
-        // print_nelems(tensor, 100);
-        DOUT("max value: " << tensor.max() << " min value: " << tensor.min() <<
-          " Sum: " << tensor.sum_to_f64() << " Nelem: " << tensor.nelem());
-      }
-    }
+    // auto gids = server->get_gids();
+    // for (auto gid : gids) {
+    //   auto tensor = server->get_tensor_from_gid(gid);
+    //   if (tensor.dtype != dtype_t::c64){
+    //     DOUT("tensor " << gid << " tensor: ");
+    //     // print_nelems(tensor, 100);
+    //     DOUT("max value: " << tensor.max() << " min value: " << tensor.min() <<
+    //       " Sum: " << tensor.sum_to_f64() << " Nelem: " << tensor.nelem());
+    //   }
+    // }
     // auto gpu_server = dynamic_cast<gpu_mg_server_t*>(server);
     // gpu_server->debug_mem(0, 94208);
     // throw std::runtime_error("stop here");
     server->execute_graph(info.full_graph, full_pls, vars);
     // inspect forward output
-    auto forward_output = server->get_tensor_from_gid(91);
-    DOUT("forward_output: " << forward_output.sum_to_f64());
+    // auto forward_output = server->get_tensor_from_gid(91);
+    // DOUT("forward_output: " << forward_output.sum_to_f64());
     /////////////////////////////////
     // for(int which = 0; which != taskgraphs.infos.size(); ++which) {
     //   DOUT("server remapping");

@@ -13,7 +13,7 @@
 #include <variant>
 
 static int num_element_print = 20;
-static bool force_debug = true;
+static bool force_debug = false;
 
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
@@ -209,10 +209,9 @@ bool kernel_manager_t::is_custom_kernel2(einsummable_t e){
 // join: *[constant{f32|-1},hole|f32@0]
 // e.str(): ab->a
 bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
-  if (e.str() != "ab->a"|| e.inns.size()!=1){
+  if (e.str() != "ab->a" || e.inns.size()!=1 || e.castable != castable_t::add){
     return false;
   }
-
   // build the scalarop and compare
   scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
   scalarop_t neg = scalarop_t::make_neg(dtype_t::f32);
@@ -224,16 +223,15 @@ bool kernel_manager_t::is_custom_kernel3(einsummable_t e){
   // DOUT("compare.to_cppstr(): " << compare.to_cppstr());
   // DOUT("e.join.to_cppstr(): " << e.join.to_cppstr());
   if (compare.to_cppstr() == e.join.to_cppstr() || compare1.to_cppstr() == e.join.to_cppstr()){
-    DOUT("Found custom kernel 3: " << e);
-    // print the join_shape, inns, and out_rank, and join
-    DOUT("join_shape: " << e.join_shape);
-    DOUT("inns: " << e.inns);
-    DOUT("out_rank: " << e.out_rank);
-    DOUT("join: " << e.join);
-    DOUT("e.str(): " << e.str());
+    // DOUT("Found custom kernel 3: " << e);
+    // // print the join_shape, inns, and out_rank, and join
+    // DOUT("join_shape: " << e.join_shape);
+    // DOUT("inns: " << e.inns);
+    // DOUT("out_rank: " << e.out_rank);
+    // DOUT("join: " << e.join);
+    // DOUT("e.str(): " << e.str());
     return true;
   }
-
   return false;
 }
 
@@ -253,13 +251,13 @@ bool kernel_manager_t::is_custom_kernel4(einsummable_t e){
   op = op.simplify();
   auto op_str = op.to_cppstr();
   if(op_str == "(x0*(x1*(f32|-1*_pow(x2,-2))))"){
-    DOUT("Found custom kernel 4: " << e);
-    // print the join_shape, inns, and out_rank, and join
-    DOUT("join_shape: " << e.join_shape);
-    DOUT("inns: " << e.inns);
-    DOUT("out_rank: " << e.out_rank);
-    DOUT("join: " << e.join);
-    DOUT("e.str(): " << e.str());
+    // DOUT("Found custom kernel 4: " << e);
+    // // print the join_shape, inns, and out_rank, and join
+    // DOUT("join_shape: " << e.join_shape);
+    // DOUT("inns: " << e.inns);
+    // DOUT("out_rank: " << e.out_rank);
+    // DOUT("join: " << e.join);
+    // DOUT("e.str(): " << e.str());
     return true;
   }
   return false;
@@ -283,17 +281,45 @@ bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
   if(op_str.size() >= 11){
     // DOUT("op_str.substr(op_str.size()-11,11)" << op_str.substr(op_str.size()-11,11));
     if (op_str.substr(op_str.size()-11,11)=="pow(x1,2)))" && op_str.substr(0,5)=="((f32"){
-      DOUT("Found custom kernel 5: " << e);
-      // print the join_shape, inns, and out_rank, and join
-      DOUT("join_shape: " << e.join_shape);
-      DOUT("inns: " << e.inns);
-      DOUT("out_rank: " << e.out_rank);
-      DOUT("join: " << e.join);
-      DOUT("e.str(): " << e.str());
+      // DOUT("Found custom kernel 5: " << e);
+      // // print the join_shape, inns, and out_rank, and join
+      // DOUT("join_shape: " << e.join_shape);
+      // DOUT("inns: " << e.inns);
+      // DOUT("out_rank: " << e.out_rank);
+      // DOUT("join: " << e.join);
+      // DOUT("e.str(): " << e.str());
       return true;
     }
   }
   return false;
+}
+
+// ab -> a with reduction max
+// out[a] = max(in[a][b] for b in range(b))
+bool kernel_manager_t::is_special_max_reduction(einsummable_t e){
+  if (e.str() != "ab->a"){
+    return false;
+  }
+  if (e.inns.size() != 1){
+    return false;
+  }
+  if (e.castable != castable_t::max){
+    return false;
+  }
+  return true;
+}
+
+bool kernel_manager_t::is_special_sum_reduction(einsummable_t e){
+  if (e.str() != "ab->a"){
+    return false;
+  }
+  if (e.inns.size() != 1){
+    return false;
+  }
+  if (e.castable != castable_t::add){
+    return false;
+  }
+  return true;
 }
 
 kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsummable_t const& e){
@@ -478,17 +504,36 @@ kernel_manager_t::build(einsummable_t const& e_)
       // Actually cutensor supports something like negate input first then reduce
       // at least I think 
       // (see this: https://docs.nvidia.com/cuda/cutensor/latest/api/cutensor.html#reduction-operations)
-      reduction_t reduct = make_reduction_negate(einsummable);
+      // reduction_t reduct = make_reduction_negate(einsummable);
 
-      // print if custom kernel 3 has a worksize > 100MB
-      if (reduct.worksize > 100000000){
-        DOUT("Large worksize: " << einsummable << " custom kernel 3 worksize: " << reduct.worksize);
-      }
+      special_negateSum_reduction_t reduct {
+        .a = einsummable.join_shape[0],
+        .b = einsummable.join_shape[1]
+      };
 
       kernels.insert({einsummable, reduct});
 
-      return workspace_info_t(reduct.worksize);
+      // return workspace_info_t(reduct.worksize);
+      return workspace_info_t(0);
     }
+
+    // if (is_special_max_reduction(einsummable)){
+    //   special_max_reduction_t r {
+    //     .a = einsummable.join_shape[0],
+    //     .b = einsummable.join_shape[1]
+    //   };
+    //   kernels.insert({einsummable, r});
+    //   return workspace_info_t(0);
+    // }
+
+    // if (is_special_sum_reduction(einsummable)){
+    //   special_sum_reduction_t r {
+    //     .a = einsummable.join_shape[0],
+    //     .b = einsummable.join_shape[1]
+    //   };
+    //   kernels.insert({einsummable, r});
+    //   return workspace_info_t(0);
+    // }
 
     if(einsummable.castable.value() == castable_t::add ||
         einsummable.castable.value() == castable_t::max) 
@@ -782,15 +827,6 @@ void kernel_manager_t::operator()(
       DOUT("Input " << i << " (" << num_elements << "): ");
       printFloatGPU(inns[i], std::min(num_elements, num_element_print));
     }
-    // if (e.castable == castable_t::max){
-    //   DOUT("castable: max; printing output first for debug");
-    //   auto num_elements = 1;
-    //   for (auto dim : e.join_shape) {
-    //     num_elements *= dim;
-    //   }
-    //   DOUT("Output (" << num_elements << "): ");
-    //   printFloatGPU(out, std::min(num_elements, num_element_print));
-    // }
   }
 
   call(info, stream, out, inns, maybe_workspace);
@@ -980,6 +1016,18 @@ void kernel_manager_t::call(
     execute_elementwise(elementwise, stream, elementwise_output, inns, workspace, wsz);
     // reduction
     execute_reduction(reduction, stream, out, {elementwise_output}, reduction_workspace, wsz-elementwise_output_offset);
+  } else if (holds_alternative<special_max_reduction_t>(kernel)){
+    auto const& [a, b] = get<special_max_reduction_t>(kernel);
+    // DOUT("Calling special max reduction");
+    special_reduction_max_dispatch(out, a, b, inns[0], stream);
+  } else if (holds_alternative<special_sum_reduction_t>(kernel)){
+    auto const& [a, b] = get<special_sum_reduction_t>(kernel);
+    // DOUT("Calling special sum reduction");
+    special_reduction_sum_dispatch(out, a, b, inns[0], stream);
+  } else if (holds_alternative<special_negateSum_reduction_t>(kernel)){
+    auto const& [a, b] = get<special_negateSum_reduction_t>(kernel);
+    // DOUT("Calling special negate sum reduction");
+    special_reduction_negateSum_dispatch(out, a, b, inns[0], stream);
   } else {
     throw std::runtime_error("kernel_manager_t: unknown kernel type");
   }
@@ -1523,7 +1571,7 @@ kernel_manager_t::make_reduction_negate(einsummable_t const& e)
     extent_C.push_back(e.join_shape[mode]);
   }
 
-  const uint32_t kAlignment = 256; 
+  const uint32_t kAlignment = 128; 
 
   cutensorTensorDescriptor_t descA;
   handle_cutensor_error(
