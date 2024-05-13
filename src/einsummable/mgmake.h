@@ -13,6 +13,8 @@ struct _which_touch_t {
   int touch_id;
 };
 
+#define USE_LOCATIONWISE_APPLY_ORDERING
+
 using _which_op_t = std::variant<_which_node_t, _which_touch_t>;
 
 bool operator==(_which_node_t const& lhs, _which_node_t const& rhs);
@@ -110,7 +112,7 @@ struct memgraph_make_state_t {
     vector<int> cannot_evict = {});
 
   // Try to insert an allocate node and return the alloc_t mem id
-  optional<int> 
+  optional<int>
   allocate_without_evict(int loc, uint64_t size);
 
   // find the tid that
@@ -119,20 +121,20 @@ struct memgraph_make_state_t {
   // 3. will be used latest into the future among tids that
   //    satisfy 1 and 2
   optional<int> find_victim(
-    int loc, 
-    uint64_t size, 
+    int loc,
+    uint64_t size,
     vector<int> cannot_evict = {});
   // If not tensors satisfy 1 and 2, return None.
 
   // load tid on storage into memory, possibly evicting tensors.
   // Don't evict any items in cannot_evict
   void load_tensor_with_evict(
-    int tid, 
+    int tid,
     vector<int> cannot_evict = {});
 
   void _load_tensor_helper(int tid, int alloc_mid);
 
-  vector<tuple<int, mem_t>> 
+  vector<tuple<int, mem_t>>
   get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
 
   // this tensor was used, see if you can free the memory
@@ -230,4 +232,8 @@ struct memgraph_make_state_t {
     // increased.
   };
   optional<order_state_t> order_state;
+
+#ifdef USE_LOCATIONWISE_APPLY_ORDERING
+  vector<int> last_applys;
+#endif
 };
