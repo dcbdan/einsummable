@@ -61,9 +61,9 @@ memgraph_make_state_t::pop_memgraph()
   memgraph_t ret = memgraph;
 
   memgraph = memgraph_t(
-    ret.num_compute_locs, 
-    ret.num_storage_locs, 
-    ret.storage_locs, 
+    ret.num_compute_locs,
+    ret.num_storage_locs,
+    ret.storage_locs,
     ret.prune_edges);
 
   // update the trio
@@ -195,7 +195,7 @@ memgraph_t::make_(
     n_compute_locs, n_storage_locs,
     use_storage);
 
-  if(!use_storage) 
+  if(!use_storage)
   {
     // Without storage, it makes more sense to allocate all the inputs
     // before proceeding
@@ -370,6 +370,10 @@ memgraph_make_state_t::memgraph_make_state_t(
     use_storage(use_storage),
     input_tid_to_data(ittd)
 {
+#ifdef USE_LOCATIONWISE_APPLY_ORDERING
+  last_applys = vector<int>(num_compute, -1);
+  DOUT("Using locationwise apply ordering");
+#endif
   _sto_id = 0;
   remaining_usage_counts = vector<int>(taskgraph.nodes.size(), 0);
 
@@ -504,7 +508,7 @@ bool memgraph_make_state_t::input_has_been_initialized(int inn)
 }
 
 bool memgraph_make_state_t::allocate_op(
-  _which_op_t const& which_op, 
+  _which_op_t const& which_op,
   bool force)
 {
   int id;
@@ -521,10 +525,10 @@ bool memgraph_make_state_t::allocate_op(
   auto const& node = taskgraph.nodes[id];
 
   // Note that input_t nodes are not encoded in _which_ops
-  // and they may or may not already have been added to the memgraph. 
+  // and they may or may not already have been added to the memgraph.
   //
-  // Make sure to add any input_t nodes before proceeding, 
-  // otherwise uninitialized input_t nodes will be treated as 
+  // Make sure to add any input_t nodes before proceeding,
+  // otherwise uninitialized input_t nodes will be treated as
   // new tensors below and would get mistakenly allocated.
   for(int const& inn: node.op.inputs())
   {
@@ -535,7 +539,7 @@ bool memgraph_make_state_t::allocate_op(
     }
   }
 
-  // Set used_tids 
+  // Set used_tids
   vector<int> used_tids;
   if(node.op.is_apply()) {
     auto const& [loc, inns, es] = node.op.get_apply();
@@ -582,8 +586,8 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
   vector<allocator_t::save_t> saves(allocators.size());
   bool failed = false;
 
-  // A quick wrapper to only form saves as needed;; 
-  // doing this prevents us from calling the naive save 
+  // A quick wrapper to only form saves as needed;;
+  // doing this prevents us from calling the naive save
   // for every allocator
   auto do_allocate = [&](int loc, uint64_t size) {
     auto& allocator = allocators.at(loc);
@@ -600,7 +604,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
   for(int const& tid: used_tids) {
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
-    if(iter != task_tensor_to_mem_node.end()) { 
+    if(iter != task_tensor_to_mem_node.end()) {
       // We have this tensor, but it may be on storage,
       // so move it to memory
       int const& memid = iter->second;
@@ -670,7 +674,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
       // the memory at alloc_mid
       _load_tensor_helper(tid, alloc_mid);
     } else {
-      // This mustve been a new tensor, so get it setup 
+      // This mustve been a new tensor, so get it setup
       task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
     }
   }
@@ -692,8 +696,8 @@ void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
         // Note: we are not pushing other tids in tids off of memory
         load_tensor_with_evict(tid, tids);
         int const& memid = task_tensor_to_mem_node.at(tid);
-      } 
-    } else { 
+      }
+    } else {
       // This is an output tid that needs to be allocated
       if(node.op.is_input()) {
         throw std::runtime_error(
@@ -711,8 +715,8 @@ void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
     }
   }
 }
-  
-bool 
+
+bool
 memgraph_make_state_t::add_op(
   _which_op_t const& which_op)
 {
@@ -764,6 +768,16 @@ memgraph_make_state_t::add_op(
     auto [vector_deps, mems] = vector_unzip(
       get_tensors_in_memory_without_alloc(out_then_inns));
     deps = set<int>(vector_deps.begin(), vector_deps.end());
+
+#ifdef USE_LOCATIONWISE_APPLY_ORDERING
+    {
+      // Add the last apply on this gpu
+      int last_apply_mid = last_applys[loc];
+      if(last_apply_mid >= 0) {
+        deps.insert(last_apply_mid);
+      }
+    }
+#endif
 
     for(auto const& task_inn: inns)
     {
@@ -836,6 +850,15 @@ memgraph_make_state_t::add_op(
   }
 
   int new_memid = memgraph.insert(op.value(), deps);
+
+#ifdef USE_LOCATIONWISE_APPLY_ORDERING
+  {
+    if(node.op.is_apply()) {
+      auto const& [loc, inns, es] = node.op.get_apply();
+      last_applys[loc] = new_memid;
+    }
+  }
+#endif
 
   // notify tensors_on_memory that these tensors were used
   for(auto const& used_tid: used_tids) {
@@ -981,36 +1004,36 @@ int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
   }
 }
 
-// Helper to print out what is inside the mapping 
-// task_node_to_mem_node(task apply/move node to memid) 
-void 
+// Helper to print out what is inside the mapping
+// task_node_to_mem_node(task apply/move node to memid)
+void
 memgraph_make_state_t::print_task_node_to_mem_node(
   map<_which_node_t, int> task_node_to_mem_node)
 {
   DOUT("Printing task_node_to_mem_node:");
   for(
-    auto iter = task_node_to_mem_node.begin(); 
-    iter != task_node_to_mem_node.end(); 
+    auto iter = task_node_to_mem_node.begin();
+    iter != task_node_to_mem_node.end();
     ++iter)
   {
-    std::cout << "apply/move id: " << iter->first.task_id << 
+    std::cout << "apply/move id: " << iter->first.task_id <<
       "; memid: " << iter->second;
   }
   std::cout << std::endl;
 }
 
-void 
+void
 memgraph_make_state_t::print_task_touch_to_mem_node(
   map<_which_touch_t, int> task_touch_to_mem_node)
 {
   DOUT("Printing task_touch_to_mem_node:");
   for(
-    auto iter = task_touch_to_mem_node.begin(); 
-    iter != task_touch_to_mem_node.end(); 
+    auto iter = task_touch_to_mem_node.begin();
+    iter != task_touch_to_mem_node.end();
     ++iter)
   {
-    std::cout << "partialize task id: " << iter->first.task_id << 
-      "unit id: " << iter->first.unit_id << "touch id: " << 
+    std::cout << "partialize task id: " << iter->first.task_id <<
+      "unit id: " << iter->first.unit_id << "touch id: " <<
       iter->first.touch_id << "; memid:" << iter->second;
   }
   std::cout << std::endl;
@@ -1077,7 +1100,7 @@ bool memgraph_make_state_t::register_usage(int task_id)
             task_out,
             task_id);
         for(auto const& which: whiches)
-        { 
+        {
           auto iter = task_touch_to_mem_node.find(which);
           if(iter == task_touch_to_mem_node.end()) {
             // Assumption: this which lived on the other side of a pop_memgraph
@@ -1271,14 +1294,14 @@ memgraph_make_state_t::find_victim(
 
     // Make sure it is big enough to evict
     uint64_t tensor_size = taskgraph.nodes[tid].op.out_size();
-    return tensor_size >= size; 
+    return tensor_size >= size;
   });
 
   // Order the candidates in ascending order so that the last item
   // is the one that is used the lastest
-  vector_sort_inplace(candidates, 
-    [&, this](int const& lhs, int const& rhs) { 
-      return ostate.get(lhs) < ostate.get(rhs); 
+  vector_sort_inplace(candidates,
+    [&, this](int const& lhs, int const& rhs) {
+      return ostate.get(lhs) < ostate.get(rhs);
     }
   );
 
@@ -1489,7 +1512,7 @@ memgraph_make_state_t::get_tensors_in_memory_without_alloc(
   }
 
   return ret;
-} 
+}
 
 bool operator==(_which_node_t const& lhs, _which_node_t const& rhs)
 {
@@ -1508,4 +1531,3 @@ bool operator<(_which_touch_t const& lhs, _which_touch_t const& rhs)
 {
   return three_tuple_lt(lhs, rhs);
 }
-
