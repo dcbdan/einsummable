@@ -120,11 +120,16 @@ struct memgraph_make_state_t {
   // 2. not in `cannot_evict` and
   // 3. will be used latest into the future among tids that
   //    satisfy 1 and 2
-  optional<int> find_victim(
-    int loc,
-    uint64_t size,
-    vector<int> cannot_evict = {});
+  // optional<int> find_victim(
+  //   int loc, 
+  //   uint64_t size, 
+  //   vector<int> cannot_evict = {});
   // If not tensors satisfy 1 and 2, return None.
+
+  optional<vector<int>> find_victim(
+  int loc,
+  uint64_t size,
+  vector<int> cannot_evict = {});
 
   // load tid on storage into memory, possibly evicting tensors.
   // Don't evict any items in cannot_evict

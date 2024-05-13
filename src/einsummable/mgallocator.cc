@@ -422,3 +422,94 @@ vector<allocator_t::block_t> const& allocator_t::save_t::operator()() const {
   return *blocks;
 }
 
+optional<set<int>> allocator_t::_find_best_evict_block_ids(
+  uint64_t size,
+  std::function<int(int)> f_block_score) const
+{
+  optional<set<int>> ret;
+  optional<int> best_score;
+  for(auto first = blocks.begin(); first != blocks.end(); ++first) {
+    uint64_t rem = align_to_power_of_two(first->beg, alignment_power) - first->beg;
+    uint64_t size_with_rem = rem + size;
+
+    uint64_t sz = 0;
+    bool success = false;
+    auto last = first;
+    for(; last != blocks.end(); ++last) {
+      sz += last->size();
+      if(sz >= size_with_rem) {
+        success = true;
+        break;
+      }
+    }
+
+    if(success) {
+      // At this point, the interval we are evaluating is [first,last]
+
+      // make sure that each occupied block is valid and get the score.
+      int score = std::numeric_limits<int>::max();
+      set<int> ret_blocks;
+      for(auto iter = first; iter != last + 1; ++iter) {
+        int blk_id = std::distance(blocks.begin(), iter);
+        if(iter->occupied()) {
+          int s = f_block_score(blk_id);
+          if(s < 0) {
+            // ok, we found a block we can't evict, so fail
+            success = false;
+            break;
+          } else {
+            score = std::min(score, s);
+            ret_blocks.insert(blk_id);
+          }
+        }
+      }
+
+      if(success && (!best_score || best_score.value() < score)) {
+        best_score = score;
+        ret = ret_blocks;
+      }
+    }
+  }
+
+  return ret;
+}
+
+//throws exception if the block is not allocated at offset.
+//Note: we are assuming an unchanged order on blocks, so between calls of this function,
+//      we cannot merge or do anything to the blocks.
+int allocator_t::_get_block_id(uint64_t const& offset)
+{
+  // for (auto block: blocks) {
+  //   if (offset <= block.beg) {
+  //     std::cout << "is the block occupied: " << block.occupied() << std::endl;
+  //     break;
+  //   }
+  // }
+  this->print();
+  //find the last block in allocator that has block.beg >= (input) offset
+  auto ret = binary_search_find(blocks.begin(), blocks.end(),
+    [&offset](block_t const& blk) {
+      return offset >= blk.beg;
+    });
+  if(!ret->occupied()) {
+    throw std::runtime_error("block not occupied at the offset provided!");
+  }
+  return std::distance(blocks.begin(), ret);
+}
+
+double allocator_t::buffer_utilization() const {
+    uint64_t total_occupied = 0;
+    uint64_t total_memory = blocks.empty() ? 0 : blocks.back().end; // Assuming blocks cover all memory.
+
+    for (const auto& block : blocks) {
+        if (block.occupied()) {
+            total_occupied += block.size();
+        }
+    }
+
+    double utilization = total_memory > 0 ? (100.0 * total_occupied / total_memory) : 0.0;
+    std::cout << "total memory: " << total_memory << "block count: " << blocks.size() << "utilization: " << utilization <<std::endl;
+    return utilization;
+}
+
+
