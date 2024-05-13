@@ -222,7 +222,6 @@ memgraph_t::make_(
   }
 
   optional<memgraph_t> input_memgraph;
-  std::cout << "aaaaa???" << std::endl;
   if(split_off_inputs)
   {
     auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
@@ -730,6 +729,7 @@ memgraph_make_state_t::add_op(
   {
     id = std::get<_which_touch_t>(which_op).task_id;
   }
+  // std::cout << "add_op with id: " << id << std::endl;
 
   auto const& node = taskgraph.nodes[id];
 
@@ -757,6 +757,7 @@ memgraph_make_state_t::add_op(
 
   if(node.op.is_apply())
   {
+    // DOUT("addop: is apply");
     auto const& [loc, inns, es] = node.op.get_apply();
 
     vector<int>& out_then_inns = used_tids;
@@ -792,6 +793,7 @@ memgraph_make_state_t::add_op(
       .group = -1
     });
   } else if(node.op.is_constant()) {
+    // DOUT("addop: is constant");
     auto const& constant = node.op.get_constant();
     auto const& fill = constant.fill;
 
@@ -807,6 +809,7 @@ memgraph_make_state_t::add_op(
       .fill = constant.fill
     });
   } else if(node.op.is_move()) {
+    // DOUT("addop: is move");
     auto const& [src, dst, task_inn, size] = node.op.get_move();
 
     used_tids = {task_inn, id};
@@ -824,6 +827,7 @@ memgraph_make_state_t::add_op(
         .dst = {dst, dst_mem.offset},
         .size = size});
   } else if(node.op.is_partialize()) {
+    // DOUT("addop: is partialize");
     auto const& partialize = node.op.get_partialize();
 
     auto const& [_0, unit_id, touch_id] = std::get<_which_touch_t>(which_op);
@@ -1268,6 +1272,7 @@ memgraph_make_state_t::find_victim(
   uint64_t size,
   vector<int> cannot_evict)
 {
+  // std::cout << "cannot evict: " << cannot_evict << std::endl; 
   //form a bidirectional mapping block_id <-> tid, use _get_block_id
   map<int, int> bid2tid; //block id to tid
   map<int, int> tid2bid; //tid to block id
@@ -1288,17 +1293,21 @@ memgraph_make_state_t::find_victim(
   // Get the set of block ids to evict from
   // _find_best_evict_block_ids.
   // Use order_state in the overload function.
-  auto f_score = [&](int tid) {
+  auto f_score = [&, this, cannot_evict](int bid) {
+    // std::cout << "aaaa new inside lambda cannot evict: " << cannot_evict << std::endl; 
+    int tid = bid2tid.at(bid);
     auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
     if(iter != cannot_evict.end()) {
       return -1;
     }
     return order_state.value().get(tid);
   };
+
   auto maybe_evict_block_ids = allocators.at(loc)._find_best_evict_block_ids(size, f_score);
 
   if (!maybe_evict_block_ids) {
     // this should be unlikely
+
     return std::nullopt;
   }
 
@@ -1308,6 +1317,14 @@ memgraph_make_state_t::find_victim(
   evict_tids.reserve(evict_block_ids.size());
   for (auto bid: evict_block_ids){
     evict_tids.push_back(bid2tid.at(bid));
+  }
+  
+  //check that all the victims are not things we can't evict
+  for (auto tid: evict_tids) {
+    auto find_iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
+    if (find_iter != cannot_evict.end()) {
+      throw std::runtime_error("thing we are evicting is in cannot evict!");
+    }
   }
 
   return evict_tids;

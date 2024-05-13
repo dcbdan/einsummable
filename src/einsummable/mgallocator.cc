@@ -463,7 +463,6 @@ optional<set<int>> allocator_t::_find_best_evict_block_ids(
           }
         }
       }
-
       if(success && (!best_score || best_score.value() < score)) {
         best_score = score;
         ret = ret_blocks;
@@ -485,7 +484,7 @@ int allocator_t::_get_block_id(uint64_t const& offset)
   //     break;
   //   }
   // }
-  this->print();
+  // this->print();
   //find the last block in allocator that has block.beg >= (input) offset
   auto ret = binary_search_find(blocks.begin(), blocks.end(),
     [&offset](block_t const& blk) {
