@@ -426,14 +426,11 @@ optional<set<int>> allocator_t::_find_best_evict_block_ids(
   uint64_t size,
   std::function<int(int)> f_block_score) const
 {
-  std::cout << "finding block of size " << size << std::endl;
-  this->print();
   optional<set<int>> ret;
   optional<int> best_score;
   for(auto first = blocks.begin(); first != blocks.end(); ++first) {
     uint64_t rem = align_to_power_of_two(first->beg, alignment_power) - first->beg;
     uint64_t size_with_rem = rem + size;
-    std::cout << "loop index" << std::distance(blocks.begin(), first) << ", size_with_rem: " << size_with_rem << std::endl;
 
     uint64_t sz = 0;
     bool success = false;
@@ -461,13 +458,11 @@ optional<set<int>> allocator_t::_find_best_evict_block_ids(
             success = false;
             break;
           } else {
-            DOUT("success!");
             score = std::min(score, s);
             ret_blocks.insert(blk_id);
           }
         }
       }
-      std::cout << "success? " << success << ", bestscore exist?" << !best_score << std::endl;
       if(success && (!best_score || best_score.value() < score)) {
         best_score = score;
         ret = ret_blocks;

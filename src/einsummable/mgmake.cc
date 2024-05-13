@@ -222,7 +222,6 @@ memgraph_t::make_(
   }
 
   optional<memgraph_t> input_memgraph;
-  std::cout << "aaaaa???" << std::endl;
   if(split_off_inputs)
   {
     auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
@@ -682,7 +681,6 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
 void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
 {
   for(int const& tid: tids) {
-    std::cout << "force_allocate_tids with tid = " << tid  << ", taskgraph out size: " << taskgraph.out_size(tid) << std::endl;
     auto const& node = taskgraph.nodes[tid];
     auto iter = task_tensor_to_mem_node.find(tid);
     if(iter != task_tensor_to_mem_node.end()) {
@@ -705,7 +703,6 @@ void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
       // See to it that the memory gets allocated, possibly with evictions.
       int loc = node.op.out_loc();
       uint64_t size = node.op.out_size();
-      std::cout << "node output size: " << node.op.out_size() << std::endl;
       int alloc_mid = allocate_with_evict(loc, size, tids);
       mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
       // make sure to add the memid into task_tensor_to_mem_node
@@ -1282,12 +1279,12 @@ memgraph_make_state_t::find_victim(
     }
     return order_state.value().get(tid);
   };
-  std::cout << "cannot_evict: " << cannot_evict << std::endl;
+
   auto maybe_evict_block_ids = allocators.at(loc)._find_best_evict_block_ids(size, f_score);
 
   if (!maybe_evict_block_ids) {
     // this should be unlikely
-    DOUT("didn't find blocks to evict");
+
     return std::nullopt;
   }
 
@@ -1300,7 +1297,6 @@ memgraph_make_state_t::find_victim(
   }
   
   //check that all the victims are not things we can't evict
-  // std::cout << "chosen evict_tids: " << evict_tids << std::endl;
   for (auto tid: evict_tids) {
     auto find_iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
     if (find_iter != cannot_evict.end()) {
