@@ -1,0 +1,84 @@
+./fusion 0.0.0.0 0 1 8
+
+----------------------HARDWARE SETTINGS-----------------------------
+Cluster Size:                                1 Machine
+Memory Allocated per Machine:                8 GB
+
+exp
+relu
+----------Initializing Both Matrix and Vector with Random Values---------
+
+using given priorities
+----------Executing the Original Graph---------
+executing taskgraph with 0 moves, 0 bytes moved
+printed tg.gv
+Total nodes being saved: 1
+Making exec graph...
+The number of nodes in the exec_graph is 1
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Event Loop finished. Time: 0 ms
+printed tg.gv
+Total nodes being saved: 1
+Number of bytes involved in I/O: {0}
+printed inputs_mg.gv
+printed mg.gv
+Making exec graph...
+The number of nodes in the exec_graph is 1
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Event Loop finished. Time: 0 ms
+Making exec graph...
+The number of nodes in the exec_graph is 7
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Event Loop finished. Time: 3 ms
+Original Graph Finished. Time: 43 ms
+----------Initializing Both Matrix and Vector with Random Values---------
+
+using given priorities
+----------Executing the Optimized Graph ---------
+executing taskgraph with 0 moves, 0 bytes moved
+printed tg.gv
+Total nodes being saved: 1
+Making exec graph...
+The number of nodes in the exec_graph is 1
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Event Loop finished. Time: 0 ms
+printed tg.gv
+Total nodes being saved: 1
+Number of bytes involved in I/O: {0}
+printed inputs_mg.gv
+printed mg.gv
+Making exec graph...
+The number of nodes in the exec_graph is 1
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Event Loop finished. Time: 0 ms
+Making exec graph...
+is_fused_exp_relu
+Started Building the CUDA Graph ...
+Finished Building the CUDA Graph ...
+CUDA Graph BUILD Time: 0 ms
+The number of nodes in the exec_graph is 4
+evict_count: 0, evict_bytes: 0, load_count: 0, load_bytes: 0
+Finished making exec graph...
+using given priorities
+Executing...
+Started Executing the CUDA Graph ...
+CUDA Graph EXECUTION Time: 0 ms
+Finished Executing the CUDA Graph ...
+Event Loop finished. Time: 0 ms
+Optimized Graph Finished. Time: 35 ms
+Destroying stream pool...

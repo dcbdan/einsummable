@@ -42,3 +42,9 @@ void fillTri_dispatch(void* mem, uint64_t nrow, uint64_t ncol, uint64_t start,
 
 void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
   cudaStream_t stream, int dtype_info);
+
+void elementwise_exp(float* out, const float* in, 
+cudaStream_t stream, int n);
+
+void elementwise_relu(float* out, const float* in, 
+cudaStream_t stream, int n);

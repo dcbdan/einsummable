@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+#include <cutensor.h>
 #include <stdexcept>
 
 kernel_manager_t::kernel_manager_t() 
@@ -222,17 +224,167 @@ tuple<float, float> kernel_manager_t::get_increment_scale(einsummable_t e){
 
 // ----- end special case kernels -----
 
+// ///////////////////////////////////////////////////////////////////////
+// // Helper function for "Kernel-Fusion"
+// bool kernel_manager_t::is_fused_exp_relu(const einsummable_t& e) {
+//     scalarop_t op = e.join.simplify();
+//     auto op_str = op.to_cppstr();
+//     if (op_str.find("(f32|0>=_exp(x0)?f32|0:_exp(x0))") == 0) {
+//         return true;
+//     }
+//     return false;
+// }
+
+// // uint64_t kernel_manager_t::calculate_workspace_size_for_fused_exp_relu(einsummable_t const& einsummable) {
+// //     uint64_t a_size = einsummable.join_shape[0]; 
+// //     uint64_t worksize = a_size * sizeof(float);  
+// //     return worksize;
+// // }
+
+
+
+// void kernel_manager_t::build_cuda_graph_for_fused_exp_relu(einsummable_t const& einsummable) {
+
+//   std::cout << "Started Building the CUDA Graph ...\n";
+//   cudaGraph_t graph;
+//   cudaGraphExec_t graphExec;
+//   cudaStream_t captureStream;
+//   cudaError_t err;
+//   err = cudaStreamCreate(&captureStream);
+//   if (err != cudaSuccess) {
+//     std::cerr << "Failed [cudaStreamCreate]: " << cudaGetErrorString(err) << std::endl;
+//     return;
+//   }
+
+//   err = cudaGraphCreate(&graph, 0);
+//   if (err != cudaSuccess) {
+//     std::cerr << "Failed [cudaGraphCreate]: " << cudaGetErrorString(err) << std::endl;
+//     return;
+//   }
+
+
+
+//   // TODO: Should be a general way to do it --> Chris's Idea is sing vector<einsummable_t> that contains the fused nodes
+//   einsummable_t exp_einsum({100, 100}, vector<vector<int>>{{0,1}}, 2, scalarop_t::make_exp());
+//   einsummable_t relu_einsum({100, 100}, vector<vector<int>>{{0,1}}, 2, scalarop_t::make_relu());
+
+
+//   err = cudaStreamBeginCapture(captureStream, cudaStreamCaptureModeGlobal);
+//   if (err != cudaSuccess) {
+//     std::cerr << "Failed [cudaStreamBeginCapture]: " << cudaGetErrorString(err) << std::endl;
+//     return;
+//   }
+
+
+//   optional<list_simple_scalarop_t> maybe_expOp = list_simple_scalarop_t::make(exp_einsum.join);
+//   if (maybe_expOp) {
+//     list_simple_scalarop_t const& expOp = maybe_expOp.value(); 
+//     auto exp_plan = make_elementwise_plans(expOp, exp_einsum.join_shape,
+//                                       exp_einsum.inns, exp_einsum.out_rank);
+//   };
+
+//   optional<list_simple_scalarop_t> maybe_reluOp = list_simple_scalarop_t::make(relu_einsum.join);
+//   if (maybe_reluOp) {
+//     list_simple_scalarop_t const& reluOp = maybe_reluOp.value(); 
+//     auto exp_plan = make_elementwise_plans(reluOp, relu_einsum.join_shape,
+//                                       relu_einsum.inns, relu_einsum.out_rank);
+//   };
+
+
+//   err = cudaStreamEndCapture(captureStream, &graph);
+//   if (err != cudaSuccess) {
+//     std::cerr << "Failed [cudaStreamEndCapture]: " << cudaGetErrorString(err) << std::endl;
+//     return;
+//   }
+  
+//   err = cudaGraphInstantiate(&graphExec, graph, nullptr, nullptr, 0);
+//   if (err != cudaSuccess) {
+//     std::cerr << "Failed [cudaGraphInstantiate]: " << cudaGetErrorString(err) << std::endl;
+//     return;
+//   }
+
+//   // Print the graph to a dot file
+//     // Save the DOT representation to a file
+//     err = cudaGraphDebugDotPrint(graph, "/home/sleem/einsummable/cuda_graph.dot", cudaGraphDebugDotFlagsVerbose);
+//     if (err != cudaSuccess) {
+//         std::cerr << "Failed to print graph to dot file: " << cudaGetErrorString(err) << std::endl;
+//     }
+
+//   cudaGraphExec_handles.insert({einsummable, graphExec});
+//   std::cout << "Finished Building the CUDA Graph ...\n";
+
+//   // // Parameters for kernel nodes (EXP and RELU)
+//   // cudaKernelNodeParams expParams = {/* initialize with cutensor or custom kernel for EXP */};
+//   // cudaKernelNodeParams reluParams = {/* initialize with cutensor or custom kernel for RELU */};
+
+//   // // Add nodes to the graph
+//   // cudaGraphNode_t expNode, reluNode;
+//   // cudaGraphAddKernelNode(&expNode, graph, nullptr, 0, &expParams);
+//   // cudaGraphAddKernelNode(&reluNode, graph, nullptr, 0, &reluParams);
+
+//   // // Set dependencies: EXP must execute before RELU
+//   // cudaGraphAddDependencies(graph, &expNode, &reluNode, 1);
+
+//   // Instantiate and store the graph
+//   // cudaGraphInstantiate(&graphExec, graph, nullptr, nullptr, 0);
+
+//   // You might need a wrapper or manager for CUDA Graph Exec handles
+//   // cudaGraphExec_handles.insert({einsummable, graphExec});
+
+//   // // Assuming workspace calculation (needs implementation)
+//   // uint64_t workspace_size = calculate_workspace_size_for_fused_exp_relu(einsummable);
+//   // return workspace_info_t(workspace_size);
+// }
+// ///////////////////////////////////////////////////////////////////////
+
+
+
 optional<workspace_info_t> 
 kernel_manager_t::build(einsummable_t const& e_)
 {
   cudaSetDevice(device);
-  // DOUT("Building kernel for " << e_);
   auto einsummable = e_.merge_adjacent_dims();
 
   auto iter = kernels.find(einsummable);
   if(iter != kernels.end()) { 
     return workspace_size(iter->second);
   }
+
+  ///////////////////////////////////////////////////////////////////////
+  //"Kernel-Fusion" using CUDA Graphs
+  // if(fusion_t::is_fused_exp_relu(einsummable)) {
+  //   std::cout << "is_fused_exp_relu\n";
+  //   // Main CUDA Graph Build Function
+  //   std::cout << "Started Building the CUDA Graph ...\n";
+  //   auto start = std::chrono::high_resolution_clock::now();
+  //   fusion_t::build_cuda_graph_for_fused_exp_relu(einsummable);
+  //   auto end = std::chrono::high_resolution_clock::now();
+  //   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
+  //   std::cout << "Finished Building the CUDA Graph ...\n";
+  //   DOUT("CUDA Graph BUILD Time: " << duration.count() << " ms");
+    
+  //   // Treat the input einsummable as normal elemntwise!!
+  //   optional<list_simple_scalarop_t> maybe_sops =
+  //     list_simple_scalarop_t::make(einsummable.join);
+  //   if(maybe_sops) {
+  //     list_simple_scalarop_t const& sops = maybe_sops.value(); 
+      
+  //     elementwise_t kernel {
+  //       .sops = sops,
+  //       .plans = make_elementwise_plans(sops, einsummable.join_shape,
+  //                                       einsummable.inns, einsummable.out_rank),
+  //       .join_shape = einsummable.join_shape,
+  //       .inns = einsummable.inns,
+  //       .out_rank = einsummable.out_rank
+  //     };
+
+  //     kernels.insert({einsummable, kernel});
+
+  //     return workspace_info_t(elementwise_workspace_size(kernel));
+  //   }
+  // }
+  // ///////////////////////////////////////////////////////////////////////
+  
 
   {
     auto maybe_matmul = make_matmul(einsummable);
@@ -460,6 +612,19 @@ void kernel_manager_t::operator()(
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
   cudaSetDevice(device);
+  //////////////////////////////////////////////////////////////////
+  // if (fusion_t::is_fused_exp_relu(e)) {
+  //     std::cout << "Started Executing the CUDA Graph ...\n";
+  //     auto start = std::chrono::high_resolution_clock::now();
+  //     fusion_t::execute_cuda_graph_for_fused_exp_relu(e, stream);
+  //     auto end = std::chrono::high_resolution_clock::now();
+  //     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
+  //     std::cout << "Finished Executing the CUDA Graph ...\n";
+  //     DOUT("CUDA Graph EXECUTION Time: " << duration.count() << " ms");
+  //     return;
+  // }
+  // //////////////////////////////////////////////////////////////////
+
   auto const& info = get_built_kernel_info(e);
   call(info, stream, out, inns, maybe_workspace);
 }

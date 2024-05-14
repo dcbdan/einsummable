@@ -644,3 +644,35 @@ void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
   fill_constant<<<gridSize, blockSize,0,stream>>>
     (mem, nelem, value, dtype_info);
 }
+
+
+
+
+// CUDA kernel definitions
+__global__ void exp_kernel(const float* in, float* out, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = expf(in[idx]); // Exponential function
+    }
+}
+
+__global__ void relu_kernel(const float* in, float* out, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = in[idx] > 0 ? in[idx] : 0; // ReLU function
+    }
+}
+
+// Function to apply the exponential function elementwise to an array
+void elementwise_exp(float* out, const float* in, cudaStream_t stream, int n) {
+    int blockSize = 256;  // Number of threads per block
+    int numBlocks = (n + blockSize - 1) / blockSize;  // Number of blocks
+    exp_kernel<<<numBlocks, blockSize, 0, stream>>>(in, out, n);  // Launch kernel
+}
+
+// Function to apply the ReLU function elementwise to an array
+void elementwise_relu(float* out, const float* in, cudaStream_t stream, int n) {
+    int blockSize = 256;  // Number of threads per block
+    int numBlocks = (n + blockSize - 1) / blockSize;  // Number of blocks
+    relu_kernel<<<numBlocks, blockSize, 0, stream>>>(in, out, n);  // Launch kernel
+}

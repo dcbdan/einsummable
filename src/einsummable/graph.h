@@ -9,6 +9,9 @@
 #include "relation.h"
 
 struct graph_t {
+  //////////////////////////////////
+  void removeNode(int nodeId);
+  //////////////////////////////////
   // Methods to construct a graph object
   // {{{
   int insert_input(

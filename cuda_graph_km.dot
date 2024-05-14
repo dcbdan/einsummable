@@ -1,0 +1,22 @@
+digraph dot {
+subgraph cluster_1 {
+label="graph_1" graph[style="dashed"];
+"graph_1_node_0"[style="bold" shape="record" label="{KERNEL
+| {ID | 0 (topoId: 1) | _ZN27cutensor_internal_namespace14tensor_permuteILi61EfffL18cutensorOperator_t126ELS1_126ELS1_126ELi64ELi2ELi1ELi4EEEvT2_PKT0_S2_PKT1_PS6_NS_13PermuteParamsE\<\<\<1,64,0\>\>\>}
+| {{node handle | func handle} | {0x000055A0F7D4DEA0 | 0x000055A0F810AE70}}
+| {accessPolicyWindow | {base_ptr | num_bytes | hitRatio | hitProp | missProp} | {0x0000000000000000 | 0 | 0.000000 | N | N}}
+| {cooperative | 0}
+| {priority | 0}
+}"];
+
+"graph_1_node_1"[style="bold" shape="record" label="{KERNEL
+| {ID | 1 (topoId: 0) | _ZN27cutensor_internal_namespace14tensor_permuteILi61EfffL18cutensorOperator_t126ELS1_126ELS1_126ELi64ELi2ELi1ELi4EEEvT2_PKT0_S2_PKT1_PS6_NS_13PermuteParamsE\<\<\<1,64,0\>\>\>}
+| {{node handle | func handle} | {0x000055A0F7D4ECA0 | 0x000055A0F810AE70}}
+| {accessPolicyWindow | {base_ptr | num_bytes | hitRatio | hitProp | missProp} | {0x0000000000000000 | 0 | 0.000000 | N | N}}
+| {cooperative | 0}
+| {priority | 0}
+}"];
+
+"graph_1_node_0" -> "graph_1_node_1" [headlabel=0];
+}
+}

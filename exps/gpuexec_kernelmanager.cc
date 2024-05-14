@@ -3128,6 +3128,126 @@ void kernel8(dtype_t dtype){
 
 
 
+void cuda_graph() {
+  // Computation to be done is Y = relu(X) followed by Z = exp(Y)
+  DOUT("--------------------+ Computation +---------------------------");
+  DOUT("Inputs: X");
+  DOUT("Y = relu(X)");
+  DOUT("Z = exp(Y)");
+  DOUT("Outputs: Z");
+  DOUT("\n");
+
+  // Initializing Necessary Data Structures
+  cudaGraph_t graph;
+  cudaGraphExec_t graphExec;
+  cutensorHandle_t handle;
+  cutensorCreate(&handle);
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+  kernel_manager_t km(0); // Important Note: kernel_manager_t can ONLY be intialized ONCE per Program
+  
+  // Define the tensor operations, you will need in your computation, as EinSums
+  // Note that here you are not defining any computation yet! (why?)
+  uint64_t a = 2; uint64_t b = 2;
+  einsummable_t exp_einsum({a, b}, vector<vector<int>>{{0,1}}, 2, scalarop_t::make_exp());
+  einsummable_t relu_einsum({a, b}, vector<vector<int>>{{0,1}}, 2, scalarop_t::make_relu());
+
+  // Allocate Memory on Host
+  dtype_t dtype = default_dtype();
+  dbuffer_t X = make_dbuffer(dtype, a*b);
+  dbuffer_t Y = make_dbuffer(dtype, a*b);
+  dbuffer_t Z = make_dbuffer(dtype, a*b);
+  
+  // Initialize Tensors
+  X.random("-1.0", "1.0");
+  Y.zeros();
+  Z.zeros();
+  DOUT("-------------------+ X, Y, and Z Initial Values +-----------------------");
+  DOUT(X);
+  DOUT(Y);
+  DOUT(Z);
+  DOUT("\n");
+
+  // This is for testing correctness later
+  // Idea: Compute Y and Z using GPU --> Then Test that Y = Y_ref and Z = Z_ref 
+  dbuffer_t Y_ref = reference_einsummable(relu_einsum, {X});
+  dbuffer_t Z_ref = reference_einsummable(exp_einsum, {Y_ref});
+  DOUT("-------------------+ Y and Z Expected Values +-----------------------");
+  DOUT(Y_ref);
+  DOUT(Z_ref);
+  DOUT("\n");
+  
+  // Allocate memory on Device
+  size_t sizeX = X.size();
+  size_t sizeY = Y.size();
+  size_t sizeZ = Z.size();
+  void *x, *y, *z;
+  cudaMalloc((void**)&x, sizeX);
+  cudaMalloc((void**)&y, sizeY);
+  cudaMalloc((void**)&z, sizeZ);
+
+  // Copy the previously initialized Tensors to Device
+  float* X_ptr = (float*)X.ptr();
+  float* Y_ptr = (float*)Y.ptr();
+  float* Z_ptr = (float*)Z.ptr();
+  cudaMemcpy(x, X.ptr(), sizeX, cudaMemcpyHostToDevice);
+  cudaMemcpy(y, Y.ptr(), sizeY, cudaMemcpyHostToDevice);
+  cudaMemcpy(z, Z.ptr(), sizeZ, cudaMemcpyHostToDevice);
+  
+  // Use kernel_manager_t to build cuda kernels from the previously defined EinSums.
+  auto relu_workspace_info = km.build(relu_einsum);
+  auto exp_workspace_info = km.build(exp_einsum);
+
+  // More than one thing happening here:
+  // 1. Defining the Computation [ Y = relu(X) followed by Z = exp(Y) ] using kernel_manager_t
+  // 2. Defining the cuda graph using the Stream Capturing method
+  // Result: Single Graph "Template"  
+  cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal);
+  km(relu_einsum,stream,y,{x});
+  km(exp_einsum,stream,z,{y});
+  cudaStreamEndCapture(stream, &graph);
+  
+  // Check: Y and Z should NOT change after Stream Capturing
+  cudaMemcpy(Y.ptr(), y, sizeY, cudaMemcpyDeviceToHost);
+  cudaMemcpy(Z.ptr(), z, sizeZ, cudaMemcpyDeviceToHost);
+  DOUT("-------------------+ Y and Z should NOT change after Stream Capturing +-----------------------");
+  DOUT(Y);
+  DOUT(Z);
+  DOUT("\n");
+
+  // Instantiating one (our case) or multiple "Executable" Graphs
+  // graphInstantiation sets up and initializes GPU execution structures
+  // same graph template but with different parameters (e.g.input sizes) == different executable graphs
+  cudaGraphInstantiate(&graphExec, graph, NULL, NULL, 0);
+  cudaGraphDebugDotPrint(graph, "/home/sleem/einsummable/cuda_graph_km.dot", cudaGraphDebugDotFlagsVerbose);
+
+  // Check: Y and Z should NOT change after Graph Instantiation
+  cudaMemcpy(Y.ptr(), y, sizeY, cudaMemcpyDeviceToHost);
+  cudaMemcpy(Z.ptr(), z, sizeZ, cudaMemcpyDeviceToHost);
+  DOUT("-------------------+ Y and Z should NOT change after Graph Instantiation +-----------------------");
+  DOUT(Y);
+  DOUT(Z);
+  DOUT("\n");
+
+  // Running the executable graphs in cuda streams
+  // Streams used for graphLaunching does NOT have to be the same Streams used for graphStreamCapturing
+  // For Better Performance: we can run same executable graph in different streams in parallel
+  cudaGraphLaunch(graphExec, stream);
+  cudaStreamSynchronize(stream);
+
+  // Check: Y and Z should CHANGE after Graph Launching
+  cudaMemcpy(Y.ptr(), y, sizeY, cudaMemcpyDeviceToHost);
+  cudaMemcpy(Z.ptr(), z, sizeZ, cudaMemcpyDeviceToHost);
+  DOUT("-------------------+ Y and Z should CHANGE after Graph Launching +-----------------------");
+  DOUT(Y);
+  DOUT(Z);
+  DOUT("\n");
+
+  cudaStreamDestroy(stream);
+  cudaFree(x);
+  cudaFree(y);
+  cudaFree(z);
+}
 
 
 
@@ -3148,6 +3268,8 @@ void kernel8(dtype_t dtype){
 
 
 int main(){
+  
+  cuda_graph();
 
   // kernel1(dtype_t::f16, dtype_t::f32);
   
@@ -3167,7 +3289,7 @@ int main(){
 
   // kernel9(dtype_t::f16);
 
-  kernel10(dtype_t::c64);
+  // kernel10(dtype_t::c64);
    
   // //complex contraction
   // kernel11(dtype_t::f16);  

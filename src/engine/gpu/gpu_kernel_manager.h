@@ -11,8 +11,12 @@
 #include <cstdint>
 #include <thread>
 
+#include <cuda_device_runtime_api.h>
+#include <cuda_runtime_api.h>
 #include <cuda_runtime.h>
 #include <cutensor.h>
+
+#include "../../einsummable/fusion.h"
 
 struct workspace_info_t {
   workspace_info_t() {}
@@ -92,6 +96,14 @@ private:
     vector<vector<int>> inns;
     int out_rank;
   };
+
+
+  //////////////////////////////////////////////////////////////////////////////////////
+  // static bool is_fused_exp_relu(const einsummable_t& e);
+  // // uint64_t calculate_workspace_size_for_fused_exp_relu(einsummable_t const& einsummable);
+  // void build_cuda_graph_for_fused_exp_relu(einsummable_t const& einsummable);
+  // //////////////////////////////////////////////////////////////////////////////////////
+
 
   uint64_t elementwise_workspace_size(elementwise_t const& e) const;
 
@@ -274,7 +286,11 @@ private:
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;
   cutensorHandle_t cutensor_handle;
-  cublasHandle_t cublas_handle; 
+  cublasHandle_t cublas_handle;
+
+  // ////////////////////////////////////
+  // std::unordered_map<einsummable_t, cudaGraphExec_t> cudaGraphExec_handles;
+  // //////////////////////////////////// 
 
   float16_t           one_half;
   float               one_float;

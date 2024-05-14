@@ -398,7 +398,11 @@ struct scalarop_t {
   static scalarop_t make_increment(scalar_t val);
 
   static scalarop_t make_exp(dtype_t d = default_dtype());
-
+  
+  ////////////////////////////////////////////////////////////////
+  static scalarop_t make_exp_relu(dtype_t dtype = default_dtype());
+  ////////////////////////////////////////////////////////////////
+  
   static scalarop_t make_log(dtype_t d = default_dtype());
 
   static scalarop_t make_sqrt(dtype_t d = default_dtype());

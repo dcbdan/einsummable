@@ -2078,6 +2078,21 @@ scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
 }
 
+//////////////////////////////////////////////
+scalarop_t scalarop_t::make_exp_relu(dtype_t dtype) {
+    // Create the exponential operation
+    scalarop_t exp_op = make_exp(dtype);
+
+    // Create the ReLU operation
+    scalarop_t relu_op = make_relu(dtype);
+
+    // Combine the exponential and ReLU operations
+    scalarop_t exp_relu_op = combine(relu_op, { exp_op });
+
+    return exp_relu_op;
+}
+//////////////////////////////////////////////
+
 scalarop_t scalarop_t::make_log(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("log["+h0+"]");
