@@ -15,6 +15,12 @@
 static int num_element_print = 20;
 static bool force_debug = false;
 
+void worksize_check(einsummable_t e, uint64_t worksize){
+  if (worksize > 100000000){
+    DOUT("Large worksize: " << e << " worksize in MB: " << worksize/1024/1024);
+  }
+}
+
 kernel_manager_t::kernel_manager_t() 
   : kernel_manager_t(0)
 {
@@ -294,6 +300,67 @@ bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
   return false;
 }
 
+// + ab,a->a | exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]]
+bool kernel_manager_t::is_softmax_v3_reduction(einsummable_t e){
+  if (e.str() != "ab,a->a" || e.castable != castable_t::add){
+    return false;
+  }
+  scalarop_t op = e.join;
+  auto [str, bytes] = op.to_cpp_bytes();
+
+  // build the scalarop and compare
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  scalarop_t neg = scalarop_t::make_neg(dtype_t::f32);
+  scalarop_t add = scalarop_t::make_add(dtype_t::f32);
+  scalarop_t mul = scalarop_t::make_mul(dtype_t::f32);
+  scalarop_t exp = scalarop_t::make_exp(dtype_t::f32);
+  scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
+  scalarop_t c1 = scalarop_t::make_constant(s1);
+  scalarop_t new_ret = scalarop_t::replace_arguments(neg, {arg1});
+  new_ret = scalarop_t::replace_arguments(add, {arg0, new_ret});
+  new_ret = scalarop_t::replace_arguments(mul, {c1, new_ret});
+  new_ret = scalarop_t::replace_arguments(exp, {new_ret});
+
+  if (op == new_ret){
+    return true;
+  }
+  DOUT("op: " << op);
+  DOUT("new_ret: " << new_ret);
+  return false;
+}
+
+// *[exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]],power{-1}[hole|f32@2]]
+bool kernel_manager_t::is_softmax_v3_elementwise(einsummable_t e){
+
+  scalarop_t op = e.join;
+  // auto [str, bytes] = op.to_cpp_bytes();
+
+  // build the scalarop and compare
+  // scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  // scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  // scalarop_t neg = scalarop_t::make_neg(dtype_t::f32);
+  // scalarop_t add = scalarop_t::make_add(dtype_t::f32);
+  // scalarop_t mul = scalarop_t::make_mul(dtype_t::f32);
+  // scalarop_t exp = scalarop_t::make_exp(dtype_t::f32);
+  // scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
+  // scalarop_t c1 = scalarop_t::make_constant(s1);
+  // scalarop_t div = scalarop_t::make_div(dtype_t::f32);
+  // scalarop_t lhs = scalarop_t::replace_arguments(neg, {arg1});
+  // lhs = scalarop_t::replace_arguments(add, {arg0, lhs});
+  // lhs = scalarop_t::replace_arguments(mul, {c1, lhs});
+  // lhs = scalarop_t::replace_arguments(exp, {lhs});
+  // scalarop_t rhs = scalarop_t::make_arg(2, dtype_t::f32);
+  // scalarop_t new_ret = scalarop_t::replace_arguments(div, {lhs, rhs});
+
+  if (op == parse_with_ss<scalarop_t>
+    ("*[exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]],power{-1}[hole|f32@2]]")){
+    // DOUT("Found softmax v3 elementwise");
+    return true;
+  }
+  return false;
+}
+
 // ab -> a with reduction max
 // out[a] = max(in[a][b] for b in range(b))
 bool kernel_manager_t::is_special_max_reduction(einsummable_t e){
@@ -383,11 +450,6 @@ kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsu
   // DOUT("Join shape: " << e.join_shape);
   // DOUT("Join: " << join);
   // print if worksize > 100MB
-  if (custom_kernel.worksize > 100000000){
-    DOUT("Large worksize: " << e << " custom kernel 4 worksize: " << custom_kernel.worksize);
-    DOUT("elementwise worksize: " << elementwise_workspace_size(elementwise));
-    DOUT("reduction worksize: " << reduction.worksize);
-  }
   return custom_kernel;
 }
 
@@ -476,6 +538,7 @@ kernel_manager_t::build(einsummable_t const& e_)
     // DOUT("Building contraction kernel: " << einsummable);
     auto c = make_contraction(einsummable);
     kernels.insert({einsummable,c});
+    worksize_check(einsummable, c.worksize);
     return workspace_info_t(c.worksize);
   }
 
@@ -483,16 +546,27 @@ kernel_manager_t::build(einsummable_t const& e_)
   if(einsummable.has_aggregation()) {
     // DOUT("Building reduction kernel: " << einsummable);
     if(einsummable.inns.size() != 1) {
-      if (!is_custom_kernel4(einsummable)){
-        DOUT("Error: Reduction with more than one input tensor. Einsummable: " << einsummable);
-        auto [str, bytes] = einsummable.join.to_cpp_bytes();
-        DOUT(str);
-        return std::nullopt;
-      }
-      else{
+      if (is_custom_kernel4(einsummable)){
         custom_kernel_4_t custom_kernel = build_custom_kernel4(einsummable);
         kernels.insert({einsummable, custom_kernel});
+        worksize_check(einsummable, custom_kernel.worksize);
         return custom_kernel.worksize;
+      }
+      else if (is_softmax_v3_reduction(einsummable)){
+        auto [str, bytes] = einsummable.join.to_cpp_bytes();
+        scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
+        float scale = s1.f32();
+        v3_softmax_reduction_t v3_softmax {
+          .a = einsummable.join_shape[0],
+          .b = einsummable.join_shape[1],
+          .constant = scale
+        };
+        kernels.insert({einsummable, v3_softmax});
+        return workspace_info_t(0);
+      }
+      else{
+        DOUT("Error: Reduction with more than one input tensor. Einsummable: " << einsummable);
+        return std::nullopt;
       }
     }
 
@@ -554,6 +628,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 
       // we are not returning a workspace size here because we don't know yet
       // see known_workspace_size
+      worksize_check(einsummable, reduct.worksize);
       return workspace_info_t(reduct.worksize);
     }
     DOUT("Error: Reduction with unknown aggregation. Einsummable: " << einsummable);
@@ -669,7 +744,8 @@ kernel_manager_t::build(einsummable_t const& e_)
     };
 
     kernels.insert({einsummable, kernel});
-
+    
+    worksize_check(einsummable, elementwise_workspace_size(kernel));
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
@@ -711,7 +787,21 @@ kernel_manager_t::build(einsummable_t const& e_)
     };
     kernels.insert({einsummable, kernel});
 
+    worksize_check(einsummable, elementwise_workspace_size(kernel));
     return workspace_info_t(elementwise_workspace_size(kernel));
+  }
+
+  if (is_softmax_v3_elementwise(einsummable)){
+    auto [str, bytes] = einsummable.join.to_cpp_bytes();
+    scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
+    float scale = s1.f32();
+    v3_softmax_elementwise_t v3_softmax {
+      .a = einsummable.join_shape[0],
+      .b = einsummable.join_shape[1],
+      .constant = scale
+    };
+    kernels.insert({einsummable, v3_softmax});
+    return workspace_info_t(0);
   }
 
   // Assumption: We can execute all simple scalarops
@@ -733,6 +823,7 @@ kernel_manager_t::build(einsummable_t const& e_)
 
     kernels.insert({einsummable, kernel});
 
+    worksize_check(einsummable, elementwise_workspace_size(kernel));
     return workspace_info_t(elementwise_workspace_size(kernel));
   }
 
@@ -1028,6 +1119,16 @@ void kernel_manager_t::call(
     auto const& [a, b] = get<special_negateSum_reduction_t>(kernel);
     // DOUT("Calling special negate sum reduction");
     special_reduction_negateSum_dispatch(out, a, b, inns[0], stream);
+  } else if (holds_alternative<v3_softmax_reduction_t>(kernel)){
+    auto const& [a, b, constant] = get<v3_softmax_reduction_t>(kernel);
+    // DOUT("Calling v3 softmax");
+    softmax_v3_reduction_dispatch(out, inns[0], inns[1], a, 
+      b, constant, stream);
+  } else if (holds_alternative<v3_softmax_elementwise_t>(kernel)){
+    auto const& [a, b, constant] = get<v3_softmax_elementwise_t>(kernel);
+    // DOUT("Calling v3 softmax elementwise");
+    softmax_v3_elementwise_dispatch(out, inns[0], inns[1], inns[2], a, 
+      b, constant, stream);
   } else {
     throw std::runtime_error("kernel_manager_t: unknown kernel type");
   }

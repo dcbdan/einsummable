@@ -248,6 +248,18 @@ private:
     uint64_t b;
   };
 
+  struct v3_softmax_reduction_t{
+    uint64_t a;
+    uint64_t b;
+    float constant;
+  };
+
+  struct v3_softmax_elementwise_t{
+    uint64_t a;
+    uint64_t b;
+    float constant;
+  };
+
 public:
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -262,6 +274,8 @@ public:
   static bool is_custom_kernel3(einsummable_t e);
   static bool is_custom_kernel4(einsummable_t e);
   static bool is_custom_kernel5(einsummable_t e);
+  static bool is_softmax_v3_reduction(einsummable_t e);
+  static bool is_softmax_v3_elementwise(einsummable_t e);
   static bool is_special_max_reduction(einsummable_t e);
   static bool is_special_sum_reduction(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
@@ -305,7 +319,9 @@ private:
                                       custom_kernel_2_t, custom_kernel_4_t,
                                       special_max_reduction_t,
                                       special_sum_reduction_t,
-                                      special_negateSum_reduction_t>;
+                                      special_negateSum_reduction_t,
+                                      v3_softmax_reduction_t,
+                                      v3_softmax_elementwise_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;

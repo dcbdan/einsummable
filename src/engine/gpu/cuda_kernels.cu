@@ -798,3 +798,54 @@ void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, con
   special_reduction_negateSum<<<gridSize, blockSize,0,stream>>>
     (out, a, b, x, stream);
 }
+
+// + ab,a->a | exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]]
+// out[a] = 0
+// for b in range(nb):
+//   out[a] += exp(s*(lhs[a,b] - rhs[b])) 
+__global__ void softmax_v3_reduction(void* out, const void* lhs, const void* rhs, uint64_t rows, uint64_t cols,
+  float constant){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      float rhs_val = ((float*)rhs)[i];
+      sum += expf(constant * (lhs_val - rhs_val));
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+void softmax_v3_reduction_dispatch(void* out, const void* lhs, const void* rhs, uint64_t rows, uint64_t cols,
+  float constant, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  softmax_v3_reduction<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, rhs, rows, cols, constant);
+}
+
+// ab,a,a->ab | 
+// *[exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]],power{-1}[hole|f32@2]]
+__global__ void softmax_v3_elementwise(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols, float constant){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows * cols){
+    uint64_t row = index / cols;
+    uint64_t col = index % cols;
+    float lhs_val = ((float*)lhs)[index];
+    float rhs_val = ((float*)rhs)[row];
+    float mid_val = ((float*)mid)[row];
+    float exp_val = expf(constant * (lhs_val - mid_val));
+    ((float*)out)[index] = fdividef(exp_val, rhs_val);
+  }
+}
+
+void softmax_v3_elementwise_dispatch(void *out, const void *lhs, const void* mid,
+  const void *rhs, uint64_t rows, 
+  uint64_t cols, float constant, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  softmax_v3_elementwise<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols, constant);
+}

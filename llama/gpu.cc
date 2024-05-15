@@ -257,7 +257,7 @@ void main_rank_zero(
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
   DOUT("nseq:                            " << nseq);
-  DOUT("nbatch:                          " << nbatch);
+  // DOUT("nbatch:                          " << nbatch);
 
   token_maker_t token_maker = make_token_maker_with_shape(nbatch, nseq);
 
@@ -432,7 +432,7 @@ int main(int argc, char** argv) {
 
   string base_data_file(argv[1]);
   // add "../ " to the base_data_file
-  base_data_file = "../" + base_data_file;
+  base_data_file = "/home/zhimin/mytmpfs/" + base_data_file;
   int num_data_files = parse_with_ss<int>(argv[2]);
 
   if(is_rank_zero) {
@@ -449,10 +449,9 @@ int main(int argc, char** argv) {
 
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
-  // 16K: 15lu, 4 computes
-  // 32k: 13lu, 16 computes
+  // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(160lu * 100lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(150lu * 100lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);
@@ -481,8 +480,8 @@ int main(int argc, char** argv) {
   server.set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
   // DOUT("parallel_partialize:             " << server.parallel_partialize_);
-  DOUT("use_storage:                     " << server.use_storage_);
-  DOUT("split_off_inputs:                " << server.split_off_inputs_);
+  // DOUT("use_storage:                     " << server.use_storage_);
+  // DOUT("split_off_inputs:                " << server.split_off_inputs_);
 
   if(is_rank_zero) {
     main_rank_zero(server, reader, args);

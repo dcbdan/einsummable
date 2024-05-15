@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  base_data_file = "../" + base_data_file;
+  base_data_file = "/home/zhimin/mytmpfs/" + base_data_file;
 
   string addr_zero = "0.0.0.0";
   bool is_rank_zero = true;
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(12lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(150lu * 100lu * 1000lu * 1000lu);
   }
 
   auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
@@ -507,7 +507,7 @@ void main_rank_zero(
         }
         return tuple<vector<vector<int>>, vector<int>>(data_tokens, label_tokens);
       }
-      DOUT("random data");
+      // DOUT("random data");
       return data_loader.random_data(margs.batch_size, margs.max_seq_len);
     }();
 
@@ -519,33 +519,19 @@ void main_rank_zero(
         embedding_matrix,
         vector_flatten(data_tokens)));
 
+    DOUT("server inserting labels");
     server->insert_tensor(
       info.labels_id,
       info.get_shape(info.labels_id),
       data_loader.one_hot_encode(dtype, label_tokens));
 
+    DOUT("update vars");
     update_vars(updater_desc, iter, vars);
     /////////////////////////////////
     // DANIEL MODIFICATIONS: Don't bother using all the checkpoint stuff,
     //                       just run 1 big taskgraph...
-    // inspect all tensors in the graph / server
-    // auto gids = server->get_gids();
-    // for (auto gid : gids) {
-    //   auto tensor = server->get_tensor_from_gid(gid);
-    //   if (tensor.dtype != dtype_t::c64){
-    //     DOUT("tensor " << gid << " tensor: ");
-    //     // print_nelems(tensor, 100);
-    //     DOUT("max value: " << tensor.max() << " min value: " << tensor.min() <<
-    //       " Sum: " << tensor.sum_to_f64() << " Nelem: " << tensor.nelem());
-    //   }
-    // }
-    // auto gpu_server = dynamic_cast<gpu_mg_server_t*>(server);
-    // gpu_server->debug_mem(0, 94208);
-    // throw std::runtime_error("stop here");
+    DOUT("server executing graph");
     server->execute_graph(info.full_graph, full_pls, vars);
-    // inspect forward output
-    // auto forward_output = server->get_tensor_from_gid(91);
-    // DOUT("forward_output: " << forward_output.sum_to_f64());
     /////////////////////////////////
     // for(int which = 0; which != taskgraphs.infos.size(); ++which) {
     //   DOUT("server remapping");
@@ -557,13 +543,13 @@ void main_rank_zero(
     // }
     // server->remap_gids(graphs.remaps.back());
 
-    double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
-    DOUT("loss: " << loss_val);
-    if(std::isnan(loss_val) || std::isinf(loss_val)) {
-      throw std::runtime_error("loss is nan or inf");
-    }
+    // double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
+    // DOUT("loss: " << loss_val);
+    // if(std::isnan(loss_val) || std::isinf(loss_val)) {
+    //   throw std::runtime_error("loss is nan or inf");
+    // }
 
-    server->remap_gids(next_iter_remap);
+    // server->remap_gids(next_iter_remap);
   }
 }
 

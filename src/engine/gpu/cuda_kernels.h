@@ -65,3 +65,10 @@ void special_reduction_sum_dispatch(void* out, uint64_t a, uint64_t b, const voi
 
 void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
   cudaStream_t stream);
+
+void softmax_v3_reduction_dispatch(void* out, const void* lhs, const void* rhs, uint64_t rows, uint64_t cols,
+  float constant, cudaStream_t stream);
+
+void softmax_v3_elementwise_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols,
+  float constant, cudaStream_t stream);

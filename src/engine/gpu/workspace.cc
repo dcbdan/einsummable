@@ -71,8 +71,14 @@ gpu_workspace_manager_t::try_to_acquire_impl(
   handle_cuda_error(cudaSetDevice(device));
 
   void* mem;
-  // DOUT("Allocating " << size / 1024 / 1024 << " MB on device " << device);
-  handle_cuda_error(cudaMalloc(&mem, size));
+  if (size / 1024 / 1024 > 100) {
+    DOUT("Allocating " << size / 1024 / 1024 << " MB on device " << device);
+  }
+  cudaError_t error = cudaMalloc(&mem, size);
+  if(error != cudaSuccess) {
+    throw std::runtime_error("gpu_workspace_manager_t. cuda malloc: " 
+      + std::string(cudaGetErrorString(error)));
+  }
   // TODO: currently not setting device back to wtvr it was
 
   return gpu_workspace_resource_t {
