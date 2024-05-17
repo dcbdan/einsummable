@@ -41,9 +41,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   vector<void*> gpu_mems,
   map<string, scalar_t> const& scalar_vars)
 {
-  string file_name = "gpu_mg" + std::to_string(w++) + ".gv";
-  std::ofstream f(file_name);
-  memgraph.print_graphviz(f);
+  // string file_name = "gpu_mg" + std::to_string(w++) + ".gv";
+  // std::ofstream f(file_name);
+  // memgraph.print_graphviz(f);
   exec_graph_t graph;
 
   map<int, int> mid_to_eid;
@@ -252,8 +252,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   // close the file
   failed_einsums.close();
 
-  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
-  fprintf(stdout, "evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
+  // DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
     evict_count, evict_bytes, load_count, load_bytes);
   return graph;
 }

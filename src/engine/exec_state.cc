@@ -114,7 +114,7 @@ exec_state_t::exec_state_t(
 
 void exec_state_t::event_loop() {
 #ifdef EXEC_STATE_COUNTDOWN
-  int decrement_print_at = 5000;
+  int decrement_print_at = 20000;
   if(num_remaining > decrement_print_at) {
     DOUT("eventloop num remaining: " << num_remaining);
   }

@@ -832,7 +832,7 @@ __global__ void softmax_v3_elementwise(void* out, const void* lhs, const void* m
   uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if(index<rows * cols){
     uint64_t row = index / cols;
-    uint64_t col = index % cols;
+    // uint64_t col = index % cols;
     float lhs_val = ((float*)lhs)[index];
     float rhs_val = ((float*)rhs)[row];
     float mid_val = ((float*)mid)[row];
@@ -848,4 +848,97 @@ void softmax_v3_elementwise_dispatch(void *out, const void *lhs, const void* mid
   int gridSize = (rows * cols + blockSize - 1) / blockSize;
   softmax_v3_elementwise<<<gridSize, blockSize,0,stream>>>
     (out, lhs, mid, rhs, rows, cols, constant);
+}
+
+// + ab,ab,a->a
+// *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+// out[a] = Sum(lhs[a, b] )
+__global__ void large_workspace_1(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      float mid_val = ((float*)mid)[index * cols + i];
+      float rhs_val = ((float*)rhs)[i];
+      sum += fdividef(lhs_val * mid_val , (rhs_val * rhs_val) * -1.0f);
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+void large_workspace_1_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  large_workspace_1<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols);
+}
+
+// ab,a,a->ab | *[*[hole|f32@0,power{-1}[hole|f32@1]],hole|f32@2]
+__global__ void large_workspace_2(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows * cols){
+    uint64_t row = index / cols;
+    // uint64_t col = index % cols;
+    float lhs_val = ((float*)lhs)[index];
+    float mid_val = ((float*)mid)[row];
+    float rhs_val = ((float*)rhs)[row];
+    ((float*)out)[index] = fdividef(lhs_val, mid_val) * rhs_val;
+  }
+}
+
+void large_workspace_2_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  large_workspace_2<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols);
+}
+
+// a,a->a | *[hole|f32@0,+[power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@1]]]],*[hole|f32@1,*[constant{f32|-1},*[power{-2}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@1]]]],
+// *[constant{f32|-1},exp[*[constant{f32|-1},hole|f32@1]]]]]]]]
+
+__global__ void large_workspace_3(void* out, const void* lhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      sum += (1.0f + expf(-1.0f * lhs_val)) * (1.0f - expf(-1.0f * lhs_val)) * 
+        (1.0f - expf(-2.0f * (1.0f + expf(-1.0f * lhs_val))) * 
+        (1.0f - expf(-1.0f * lhs_val)));
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+// haven't implemented it yet
+void large_workspace_3_dispatch(void* out, const void* lhs, uint64_t rows, 
+  uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows + blockSize - 1) / blockSize;
+  large_workspace_1<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, lhs, lhs, rows, cols);
+}
+
+// +[*[constant{f32|0.5},hole|f32@0],*[constant{f32|-500},hole|f32@1]]
+__global__ void large_workspace_4(void* out, const void* lhs, const void* rhs, 
+  uint64_t rows, float f1, float f2){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float lhs_val = ((float*)lhs)[index];
+    float rhs_val = ((float*)rhs)[index];
+    ((float*)out)[index] = f1 * lhs_val + f2 * rhs_val;
+  }
+}
+
+void large_workspace_4_dispatch(void* out, const void* lhs, const void* rhs, 
+  uint64_t rows, float f1, float f2, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows + blockSize - 1) / blockSize;
+  large_workspace_4<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, rhs, rows, f1, f2);
 }

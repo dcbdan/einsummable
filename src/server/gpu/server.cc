@@ -93,14 +93,14 @@ void gpu_mg_server_t::execute_memgraph(
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
   auto initial = std::chrono::high_resolution_clock::now();
-  DOUT("Making exec graph...");
+  // DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
       memgraph, comm.get_this_rank(), kernel_managers,
       num_gpus_per_node[comm.get_this_rank()], mems,
       scalar_vars);
-  DOUT("Finished making exec graph...");
+  // DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {

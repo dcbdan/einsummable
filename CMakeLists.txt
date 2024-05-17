@@ -10,7 +10,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-sign-compare")
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
-#set(CMAKE_CXX_FLAGS_DEBUG "-g")
+# set(CMAKE_CXX_FLAGS_RELEASE "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
@@ -203,7 +203,7 @@ if(${SENTENCEPIECE_EXP})
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
   endfunction()
-  # add_sp_application("llama_tokenizer" "llama" "tokenizer")
+  add_sp_application("llama_tokenizer" "llama" "tokenizer")
 
 endif()
 

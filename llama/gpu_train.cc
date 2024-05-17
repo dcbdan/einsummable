@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(150lu * 100lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
   }
 
   auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
@@ -498,7 +498,7 @@ void main_rank_zero(
       if(which_data.size() > 0) {
         vector<vector<int>> data_tokens;
         vector<int> label_tokens;
-        DOUT("which data: " << which_data);
+        // DOUT("which data: " << which_data);
         for(auto const& which_datum: which_data) {
           auto [datum_tokens, label_token] =
             data_loader.datum(which_datum, margs.max_seq_len);
@@ -507,11 +507,10 @@ void main_rank_zero(
         }
         return tuple<vector<vector<int>>, vector<int>>(data_tokens, label_tokens);
       }
-      // DOUT("random data");
+      DOUT("random data");
       return data_loader.random_data(margs.batch_size, margs.max_seq_len);
     }();
 
-    DOUT("server inserting tensors");
     server->insert_tensor(
       info.embeddings_id,
       info.get_shape(info.embeddings_id),
@@ -519,29 +518,27 @@ void main_rank_zero(
         embedding_matrix,
         vector_flatten(data_tokens)));
 
-    DOUT("server inserting labels");
     server->insert_tensor(
       info.labels_id,
       info.get_shape(info.labels_id),
       data_loader.one_hot_encode(dtype, label_tokens));
 
-    DOUT("update vars");
     update_vars(updater_desc, iter, vars);
     /////////////////////////////////
     // DANIEL MODIFICATIONS: Don't bother using all the checkpoint stuff,
     //                       just run 1 big taskgraph...
     DOUT("server executing graph");
-    server->execute_graph(info.full_graph, full_pls, vars);
+    // server->execute_graph(info.full_graph, full_pls, vars);
     /////////////////////////////////
-    // for(int which = 0; which != taskgraphs.infos.size(); ++which) {
-    //   DOUT("server remapping");
-    //   server->remap_gids(graphs.remaps[which]);
-    //   auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
-    //   server->remap(init_rels);
-    //   DOUT("server executing");
-    //   server->execute(taskgraph, save_rels, vars);
-    // }
-    // server->remap_gids(graphs.remaps.back());
+    for(int which = 0; which != taskgraphs.infos.size(); ++which) {
+      // DOUT("server remapping");
+      server->remap_gids(graphs.remaps[which]);
+      auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
+      server->remap(init_rels);
+      DOUT("server executing");
+      server->execute(taskgraph, save_rels, vars);
+    }
+    server->remap_gids(graphs.remaps.back());
 
     // double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     // DOUT("loss: " << loss_val);

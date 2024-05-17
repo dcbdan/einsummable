@@ -451,7 +451,7 @@ int main(int argc, char** argv) {
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(150lu * 100lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(140lu * 100lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);

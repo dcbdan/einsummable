@@ -260,6 +260,27 @@ private:
     float constant;
   };
 
+  struct large_workspace_1_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_2_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_3_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_4_t{
+    uint64_t a;
+    float constant1;
+    float constant2;
+  };
+
 public:
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -274,6 +295,10 @@ public:
   static bool is_custom_kernel3(einsummable_t e);
   static bool is_custom_kernel4(einsummable_t e);
   static bool is_custom_kernel5(einsummable_t e);
+  static bool is_large_workspace1(einsummable_t e);
+  static bool is_large_workspace2(einsummable_t e);
+  static bool is_large_workspace3(einsummable_t e);
+  static bool is_large_workspace4(einsummable_t e);
   static bool is_softmax_v3_reduction(einsummable_t e);
   static bool is_softmax_v3_elementwise(einsummable_t e);
   static bool is_special_max_reduction(einsummable_t e);
@@ -321,7 +346,10 @@ private:
                                       special_sum_reduction_t,
                                       special_negateSum_reduction_t,
                                       v3_softmax_reduction_t,
-                                      v3_softmax_elementwise_t>;
+                                      v3_softmax_elementwise_t,
+                                      large_workspace_1_t,
+                                      large_workspace_2_t,
+                                      large_workspace_4_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;

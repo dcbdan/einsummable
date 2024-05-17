@@ -16,7 +16,8 @@ static int num_element_print = 20;
 static bool force_debug = false;
 
 void worksize_check(einsummable_t e, uint64_t worksize){
-  if (worksize > 100000000){
+  if (worksize > 100*1024*1024){
+    auto [str, bytes] = e.join.to_cpp_bytes();
     DOUT("Large worksize: " << e << " worksize in MB: " << worksize/1024/1024);
   }
 }
@@ -300,6 +301,52 @@ bool kernel_manager_t::is_custom_kernel5(einsummable_t e){
   return false;
 }
 
+// large workspace
+bool kernel_manager_t::is_large_workspace1(einsummable_t e){
+  scalarop_t compare = parse_with_ss<scalarop_t>
+    ("*[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]");
+  if (e.join == compare){
+    // DOUT("Found large workspace 1: " << e);
+    return true;
+  }
+  return false;
+}
+
+// example: +[*[constant{f32|0.5},hole|f32@0],*[constant{f32|-500},hole|f32@1]]
+bool kernel_manager_t::is_large_workspace2(einsummable_t e){
+  if (e.str() != "a,a->a" || e.inns.size() != 2){
+    return false;
+  }
+  scalarop_t compare = parse_with_ss<scalarop_t>
+    ("*[*[hole|f32@0,power{-1}[hole|f32@1]],hole|f32@2]");
+  if (e.join == compare){
+    return true;
+  }
+  return false;
+}
+
+bool kernel_manager_t::is_large_workspace3(einsummable_t e){
+  // scalarop_t compare = parse_with_ss<scalarop_t>
+  //   ("*[hole|f32@0,+[power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},
+  //   hole|f32@1]]]],*[hole|f32@1,*[constant{f32|-1},*[power{-2}[+[constant{f32|1},
+  //   exp[*[constant{f32|-1},hole|f32@1]]]],*[constant{f32|-1},exp[*[constant{f32|-1},hole|f32@1]]]]]]]]");
+  // if (e.join == compare){
+  //   return true;
+  // }
+  return false;
+}
+
+bool kernel_manager_t::is_large_workspace4(einsummable_t e){
+  if (e.str() != "a,a->a" || e.inns.size() != 2){
+    return false;
+  }
+  if (e.join == parse_with_ss<scalarop_t>
+    ("+[*[constant{f32|0.5},hole|f32@0],*[constant{f32|-500},hole|f32@1]]")){
+    return true;
+  }
+  return false;
+}
+
 // + ab,a->a | exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]]
 bool kernel_manager_t::is_softmax_v3_reduction(einsummable_t e){
   if (e.str() != "ab,a->a" || e.castable != castable_t::add){
@@ -546,12 +593,22 @@ kernel_manager_t::build(einsummable_t const& e_)
   if(einsummable.has_aggregation()) {
     // DOUT("Building reduction kernel: " << einsummable);
     if(einsummable.inns.size() != 1) {
-      if (is_custom_kernel4(einsummable)){
-        custom_kernel_4_t custom_kernel = build_custom_kernel4(einsummable);
-        kernels.insert({einsummable, custom_kernel});
-        worksize_check(einsummable, custom_kernel.worksize);
-        return custom_kernel.worksize;
+      if(is_large_workspace1(einsummable)){
+        // DOUT("Building large workspace 1");
+        large_workspace_1_t large_workspace {
+          .a = einsummable.join_shape[0],
+          .b = einsummable.join_shape[1],
+        };
+        kernels.insert({einsummable, large_workspace});
+        return workspace_info_t(0);
       }
+      // if (is_custom_kernel4(einsummable)){
+      //   DOUT("Building custom kernel 4");
+      //   custom_kernel_4_t custom_kernel = build_custom_kernel4(einsummable);
+      //   kernels.insert({einsummable, custom_kernel});
+      //   worksize_check(einsummable, custom_kernel.worksize);
+      //   return custom_kernel.worksize;
+      // }
       else if (is_softmax_v3_reduction(einsummable)){
         auto [str, bytes] = einsummable.join.to_cpp_bytes();
         scalar_t s1(*reinterpret_cast<const float*>(bytes.data()));
@@ -590,6 +647,8 @@ kernel_manager_t::build(einsummable_t const& e_)
       // return workspace_info_t(reduct.worksize);
       return workspace_info_t(0);
     }
+
+    
 
     // if (is_special_max_reduction(einsummable)){
     //   special_max_reduction_t r {
@@ -804,6 +863,38 @@ kernel_manager_t::build(einsummable_t const& e_)
     return workspace_info_t(0);
   }
 
+  if (is_large_workspace2(einsummable)){
+    // DOUT("Building large workspace 2");
+    large_workspace_2_t large_workspace {
+      .a = einsummable.join_shape[0],
+      .b = einsummable.join_shape[1],
+    };
+    kernels.insert({einsummable, large_workspace});
+    return workspace_info_t(0);
+  }
+
+  // if (is_large_workspace3(einsummable)){
+  //   // DOUT("Building large workspace 3");
+  //   large_workspace_3_t large_workspace {
+  //     .a = einsummable.join_shape[0],
+  //     .b = einsummable.join_shape[1],
+  //   };
+  //   kernels.insert({einsummable, large_workspace});
+  //   return workspace_info_t(0);
+  // }
+
+  if (is_large_workspace4(einsummable)){
+    // DOUT("Building large workspace 4");
+    auto [str, bytes] = einsummable.join.to_cpp_bytes();
+    large_workspace_4_t large_workspace {
+      .a = einsummable.join_shape[0],
+      .constant1 = *reinterpret_cast<const float*>(bytes.data()),
+      .constant2 = *reinterpret_cast<const float*>(bytes.data() + 4)
+    };
+    kernels.insert({einsummable, large_workspace});
+    return workspace_info_t(0);
+  }
+
   // Assumption: We can execute all simple scalarops
   // trying to build list of elewise after we tried all the special kernels
   // DOUT("Trying to build elementwise kernel: " << einsummable);
@@ -907,7 +998,6 @@ void kernel_manager_t::operator()(
   auto const& info = get_built_kernel_info(e);
   if (force_debug){
     DOUT("Calling kernel: " << e);
-    DOUT("e.str(): " << e.str());
     auto inn_shape = e.inn_shapes();
     // inspect all inputs
     for (auto i = 0; i < inns.size(); i++) {
@@ -1129,8 +1219,18 @@ void kernel_manager_t::call(
     // DOUT("Calling v3 softmax elementwise");
     softmax_v3_elementwise_dispatch(out, inns[0], inns[1], inns[2], a, 
       b, constant, stream);
+  } else if (holds_alternative<large_workspace_1_t>(kernel)){
+    auto const& [a, b] = get<large_workspace_1_t>(kernel);
+    // DOUT("Calling large workspace 1");
+    large_workspace_1_dispatch(out, inns[0], inns[1], inns[2], a, b, stream);
+  } else if (holds_alternative<large_workspace_2_t>(kernel)){
+    auto const& [a, b] = get<large_workspace_2_t>(kernel);
+    large_workspace_2_dispatch(out, inns[0], inns[1], inns[2], a, b, stream);
+  } else if (holds_alternative<large_workspace_4_t>(kernel)){
+    auto const& [a, constant1, constant2] = get<large_workspace_4_t>(kernel);
+    large_workspace_4_dispatch(out, inns[0], inns[1], a, constant1, constant2, stream);
   } else {
-    throw std::runtime_error("kernel_manager_t: unknown kernel type");
+    throw std::runtime_error("kernel_manager_t::call: unknown kernel type");
   }
 }
 
@@ -1992,11 +2092,11 @@ void kernel_manager_t::execute_elementwise(
         } else if (dtype_b == dtype_t::c64){
           dtype_info = 3;
         }
-        DOUT("NOTE: USING SPECIAL ELEMENTWISE");
+        // DOUT("NOTE: USING SPECIAL ELEMENTWISE");
         special_elementwise_mul_dispatch(this_out_mem, e.join_shape[0], e.join_shape[1], 
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]), stream, dtype_info);
       } else {
-        DOUT("NOTE: USING TERNARY ELEMENTWISE")
+        // DOUT("NOTE: USING TERNARY ELEMENTWISE")
         execute_sop_binary_different_shape(sop.get_binary(), stream, this_out_mem,
           get_inn_memory_at(args[0]), get_inn_memory_at(args[1]),
           plan, false);
@@ -2057,7 +2157,7 @@ vector<cutensorPlan_t> kernel_manager_t::make_elementwise_plans(
         // TODO: we don't need a plan for special elementwise but we need to take the space for it
         // so it doesn't go out of bounds
       } else {
-        DOUT("NOTE: Building TERNARY ELEMENTWISE")
+        // DOUT("NOTE: Building TERNARY ELEMENTWISE")
         ret.push_back(
           sop_binary_plan_different_shape(
             sop.get_binary(), get_inn_idxs_at(args[0]), get_inn_idxs_at(args[1]), join_shape));

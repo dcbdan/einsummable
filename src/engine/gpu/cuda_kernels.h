@@ -72,3 +72,17 @@ void softmax_v3_reduction_dispatch(void* out, const void* lhs, const void* rhs, 
 void softmax_v3_elementwise_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
   uint64_t rows, uint64_t cols,
   float constant, cudaStream_t stream);
+
+void large_workspace_1_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream);
+
+void large_workspace_2_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream);
+
+void large_workspace_3_dispatch(void* out, const void* lhs, uint64_t rows, 
+  uint64_t cols, cudaStream_t stream);
+
+void large_workspace_4_dispatch(void* out, const void* lhs, const void* rhs, 
+  uint64_t rows, float f1, float f2, cudaStream_t stream);
+
+

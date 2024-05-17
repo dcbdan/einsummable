@@ -1,6 +1,8 @@
 #include "storage.h"
 #include <stdlib.h>
 
+static uint64_t storage_size = 700lu*1024lu*1024lu*1024lu;
+
 host_buffer_holder_t::host_buffer_holder_t(uint64_t size)
   : size(size)
 {
@@ -25,13 +27,15 @@ host_buffer_t make_host_buffer(uint64_t size) {
 
 gpu_storage_t::gpu_storage_t()
   : allocator(
-      64lu*1000lu*1000lu*1000lu,
+      storage_size,
       allocator_settings_t {
         .strat = allocator_strat_t::first,
         .alignment_power = 0
       })
 {
-  host_data = make_host_buffer(64lu*1000lu*1000lu*1000lu);
+  DOUT("CudaMallocHost for host_data");
+  host_data = make_host_buffer(storage_size);
+  DOUT("CudaMallocHost for host_data done");
 }
 
 buffer_t gpu_storage_t::alloc(uint64_t size, int id) {
