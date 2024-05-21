@@ -44,23 +44,14 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
-#add_base_application("reference"        "exps" "reference")
-# add_base_application("copyregion"       "exps" "copyregion")
-add_base_application("scalarop"         "exps" "scalarop")
-#add_base_application("allocator_test"   "exps" "allocator_test")
-#add_base_application("gwriter"          "exps" "gwriter")
-#add_base_application("deepff"           "exps" "deepff")
-#add_base_application("base_test"        "exps" "base_test")
-#add_base_application("einsummable_test" "exps" "einsummable_test")
-# add_base_application("memgraph_test"    "exps" "memgraph_test")
-#add_base_application("gwise"            "exps" "gwise")
-#add_base_application("mm"               "exps" "mm")
-#add_base_application("engine"           "exps" "engine")
-add_base_application("autodiff_test"    "exps" "autodiff_test")
-add_base_application("autoplace"        "exps" "autoplace")
-add_base_application("tgsimplify"       "exps" "tgsimplify")
-add_base_application("op" "exps" "simple_scalar_test")
+add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+# add_base_application("reference"        "exps" "reference")        # TODO: delete and turn into tests
+# add_base_application("copyregion"       "exps" "copyregion")       # TODO: delete and turn into tests
+# add_base_application("scalarop"         "exps" "scalarop")         # TODO: delete and turn into tests
+# add_base_application("allocator_test"   "exps" "allocator_test")   # TODO: delete and turn into tests
+# add_base_application("einsummable_test" "exps" "einsummable_test") # TODO: delete and turn into tests
+# add_base_application("gwise"            "exps" "gwise")            # TODO: delete and turn into tests
+# add_base_application("autodiff_test"    "exps" "autodiff_test")    # TODO: delete and turn into tests
 
 add_executable(tests_base tests/base.cc tests/test.cc)
 target_link_libraries(tests_base einsummable proto ${Protobuf_LIBRARIES})
