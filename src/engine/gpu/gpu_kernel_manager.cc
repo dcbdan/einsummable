@@ -312,9 +312,9 @@ bool kernel_manager_t::is_large_workspace1(einsummable_t e){
   return false;
 }
 
-// example: +[*[constant{f32|0.5},hole|f32@0],*[constant{f32|-500},hole|f32@1]]
+// example: ab,a,a->ab | *[*[hole|f32@0,power{-1}[hole|f32@1]],hole|f32@2]
 bool kernel_manager_t::is_large_workspace2(einsummable_t e){
-  if (e.str() != "a,a->a" || e.inns.size() != 2){
+  if (e.str() != "ab,a,a->ab" || e.inns.size() != 3){
     return false;
   }
   scalarop_t compare = parse_with_ss<scalarop_t>

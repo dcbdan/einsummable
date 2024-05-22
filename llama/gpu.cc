@@ -418,7 +418,7 @@ void main_rank_zero(
 // ./gpu_llama 7B 1 max_n_layers n
 int main(int argc, char** argv) {
 
-  set_default_dtype(dtype_t::f32);
+  set_default_dtype(dtype_t::f16);
 
   if(argc < 3) {
     DOUT("argc " << argc);
@@ -451,7 +451,7 @@ int main(int argc, char** argv) {
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(140lu * 100lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(120lu * 100lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);
