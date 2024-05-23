@@ -80,9 +80,8 @@ struct memgraph_make_state_t {
   // return false. If force is true, memory will be allocated and
   // may use evict. If force is false, memory may not be allocated and
   // and evict will not be used.
-  bool allocate_op(
-    _which_op_t const& which_op,
-    bool force = false);
+  bool force_allocate_ops(
+    _which_op_t const& which_op);
   // > get's the required tensors in memory, calling load if necc
   //   > if force: evict tensors as necc
   //   > if not force: don't evict anything
