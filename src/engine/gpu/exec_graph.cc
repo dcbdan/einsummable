@@ -116,7 +116,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .get_einsummable()
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
-        
+
         // vector<uint64_t> join_shape_compare = {8, 256};
         // if (einsum.str() == "ab,b->ab" && einsum.join_shape == join_shape_compare){
         //   DOUT("Found kernel: " << einsum);
@@ -316,7 +316,7 @@ void gpu_einsummable_t::launch(
   //   DOUT("Input offset " << i-1 << ": " << mems[i].offset << " Device: " << device);
   // }
   // DOUT("Output offset: " << mems[0].offset << " Device: " << device);
-  
+
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
@@ -569,6 +569,12 @@ gpu_load_t::resource_description() const
   return resource_manager_t::make_desc(ret);
 }
 
+struct gpu_load_info_t {
+  std::function<void()> callback;
+  gpu_storage_t* storage;
+  int storage_id;
+};
+
 void gpu_load_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
@@ -595,21 +601,21 @@ void gpu_load_t::launch(
     cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
     "cudaMemcpyAsync in gpu_load_t");
 
-  storage.remove(storage_id);
-
-  std::function<void()>* callback_copy = new std::function<void()>(callback);
+  gpu_load_info_t* info = new gpu_load_info_t;
+  info->callback = callback;
+  info->storage = &storage;
+  info->storage_id = storage_id;
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      // DOUT("in gpu_load callback");
-      std::function<void()>* callback_ptr =
-        reinterpret_cast<std::function<void()>*>(user_data);
-      auto& callback = *callback_ptr;
-      callback();
-      delete callback_ptr;
+      gpu_load_info_t* info_ptr = reinterpret_cast<gpu_load_info_t*>(user_data);
+      auto& info = *info_ptr;
+      info.storage->remove(info.storage_id);
+      info.callback();
+      delete info_ptr;
     },
-    reinterpret_cast<void*>(callback_copy), 0),
+    reinterpret_cast<void*>(info), 0),
     "gpu_load_t: callback");
 }
 
@@ -724,7 +730,7 @@ void gpu_lowerTri_t::launch(
 
   gpu_km.lowerTri_fill(gpu_fill, stream, gpu_memory);
 
-  // DOUT("lower tri fill lower: " << fill.lower << " upper: " << fill.upper << " offset: " << gpu_offset 
+  // DOUT("lower tri fill lower: " << fill.lower << " upper: " << fill.upper << " offset: " << gpu_offset
   //   << " nrows: " << fill.nrow << " ncols: " << fill.ncol);
 
   // cudaDeviceSynchronize();
