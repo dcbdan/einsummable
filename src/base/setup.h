@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <stack>
 #include <algorithm>
 #include <numeric>
 #include <complex>

@@ -2307,40 +2307,58 @@ taskgraph_t::prune() const
 }
 
 vector<int> taskgraph_t::get_order() const {
+
+
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
 
   vector<int> counts(nodes.size(), -1);
 
-  for(int i = 0; i != nodes.size(); ++i) {
+  for (int i = 0; i != nodes.size(); ++i) {
     auto const& node = nodes[i];
     counts[i] = node.op.inputs().size();
-    if(counts[i] == 0) {
+    if (counts[i] == 0) {
       ready.push_back(i);
     }
   }
 
   vector<int> ret;
   ret.reserve(nodes.size());
-  while(ready.size() > 0) {
-    ret.push_back(ready.back());
+  vector<bool> visited(nodes.size(), false);
+
+  while (!ready.empty()) {
+    int curr = ready.back();
     ready.pop_back();
 
-    int const& id = ret.back();
-    auto const& node = nodes[id];
-    for(auto const& out: node.outs) {
-      counts[out] -= 1;
-      if(counts[out] == 0) {
-        ready.push_back(out);
+    std::stack<int> stk;
+    stk.push(curr);
+
+    while (!stk.empty()) {
+      int tid = stk.top();
+      stk.pop();
+
+      if (visited[tid]) continue;
+
+      visited[tid] = true;
+      ret.push_back(tid);
+
+      auto const& node = nodes[tid];
+      for (auto const& out : node.outs) {
+        counts[out] -= 1;
+        if (counts[out] == 0) {
+          stk.push(out);
+        }
       }
     }
   }
 
-  for(auto const& cnt: counts) {
-    if(cnt != 0) {
+  for (auto const& cnt : counts) {
+    if (cnt != 0) {
       throw std::runtime_error("all counts should be zero");
     }
   }
+
+  std::cout << "taskgraph order: " << ret << std::endl;
 
   return ret;
 }
