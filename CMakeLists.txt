@@ -296,3 +296,5 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("gpu_llama" "gpu")
 endif()
+
+add_dependencies(einsummable proto)
