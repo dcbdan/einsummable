@@ -11,6 +11,18 @@
 
 //#include <fstream>
 
+struct layer_ids_t {
+  int w1;
+  int w2;
+  int w3;
+  int wq;
+  int wk;
+  int wv;
+  int wo;
+  int fn;
+  int an;
+};
+
 struct token_maker_t {
   token_maker_t(vector<vector<int>> const ps):
     prompts(ps)
@@ -244,7 +256,7 @@ void main_rank_zero(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("gpus", 4);
+  args.set_default<int>("gpus", 8);
   args.set_default<int>("computes", 1);
   args.set_default<int>("nseq", 4096);
   args.set_default<int>("nbatch", 1);
@@ -257,7 +269,7 @@ void main_rank_zero(
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
   DOUT("nseq:                            " << nseq);
-  // DOUT("nbatch:                          " << nbatch);
+  DOUT("nbatch:                          " << nbatch);
 
   token_maker_t token_maker = make_token_maker_with_shape(nbatch, nseq);
 
@@ -276,21 +288,36 @@ void main_rank_zero(
 
   string register_cmd = server.get_registered_cmd();
 
-  model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
+  dtype_t dtype = default_dtype();
 
-  if (nseq > margs.max_seq_len) {
-    throw std::runtime_error("The sequence length is too long for the model parameters.");
-  }
+  model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
 
   args.set_default<int>("max_n_layers", -1);
   {
     int n_layers = args.get<int>("max_n_layers");
+    DLINEOUT("n_layers " << n_layers);
     if(n_layers >= 0) {
       margs.n_layers = std::min(margs.n_layers, n_layers);
     }
   }
 
-  builder_t builder = builder_t::make_first_token(margs, seqlen);
+  margs.batch_size = bsz;
+
+  margs.max_seq_len = seqlen;
+
+  graph_writer_t writer;
+  transformer_t model(&writer, margs, 0);
+
+  tensor_t embeddings = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(margs.max_seq_len),
+    margs.full_dim()
+  }));
+
+  tensor_t predictions = model.forward(embeddings);
+  predictions.save_inplace();
+
+  graph_t const& graph = writer.get_graph();
 
   auto start_reader = std::chrono::high_resolution_clock::now();
 
@@ -315,33 +342,35 @@ void main_rank_zero(
       local_data.insert({ current_tid, { this_rank, data }});
 
       relation_t rel = relation_t::make_singleton(
-        builder.input_dtype(gid),
-        builder.input_shape(gid),
+        graph.nodes[gid].op.out_dtype(),
+        graph.nodes[gid].op.out_shape(),
         current_tid);
       relations.insert({gid, rel});
       current_tid += 1;
     };
 
-    for(auto const& [name, gid]: builder.weights) {
-      auto shape = builder.input_shape(gid);
+    for(auto const& [name, gid]: model.weight_map()) {
+      auto shape = graph.nodes[gid.get_id()].op.out_shape();
       relation_t rel = reader(register_cmd, name, shape, current_tid);
-      insert_reader_rel(gid, rel);
+      insert_reader_rel(gid.get_id(), rel);
     }
 
     {
-      int const& gid = builder.freqs_cis;
+      // TODO check this:
+      // int const& gid = model.full_freqs_cis;
+      int const& gid = model.full_freqs_cis.get_id();
       buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
       insert_local_buffer(gid, freqs_cis);
     }
 
     {
-      int const& gid = builder.embeddings;
-      dbuffer_t embeddings = lookup_embeddings(
+      int const& gid = embeddings.get_id();
+      dbuffer_t embeddings_data = lookup_embeddings(
         margs.vocab_size,
         margs.dim,
         embedding_matrix,
         init_tokens);
-      insert_local_buffer(gid, embeddings.data);
+      insert_local_buffer(gid, embeddings_data.data);
     }
 
     server.local_insert_tensors(local_data);
@@ -360,59 +389,108 @@ void main_rank_zero(
        << std::chrono::duration_cast<std::chrono::milliseconds>(end_reader - start_reader).count()
        << "ms");
 
+  vector<placement_t> pls;
   {
-    autoplace_config_t config = autoplace_config_t::make_default01(
-      num_gpus, num_computes_per_loc);
-    vector<placement_t> pls = autoplace01(builder.graph, config);
-    server.execute_graph(builder.graph, pls);
+    int num_config = num_computes_per_loc;
+
+    args.set_default<string>("partitioner", "auto");
+    string which = args.get<string>("partitioner");
+    vector<partition_t> parts;
+
+    if(which == "auto") {
+      parts = apart01(graph, num_gpus * num_config, 1) ;
+    } else if(which == "data" || which == "dim" || which == "seq") {
+      // w1: hidden_dim, args.full_dim()
+      // w2: args.full_dim(), hidden_dim
+      // w3: hidden_dim, args.full_dim()
+      //
+      // wq: args.full_dim(), args.full_dim()
+      // wk: args.full_dim(), args.full_dim()
+      // wv: args.full_dim(), args.full_dim()
+      // wo: args.full_dim(), args.full_dim()
+      //
+      // fn, an: args.full_dim()
+      vector<layer_ids_t> layer_ids;
+      for(auto const& layer: model.layers) {
+        auto const& ff = layer.feedforward;
+        auto const& aa = layer.attention;
+        layer_ids.push_back(layer_ids_t {
+          .w1 = ff.w1.get_id(),
+          .w2 = ff.w2.get_id(),
+          .w3 = ff.w3.get_id(),
+          .wq = aa.wq.get_id(),
+          .wk = aa.wk.get_id(),
+          .wv = aa.wv.get_id(),
+          .wo = aa.wo.get_id(),
+          .fn = layer.attention_norm.weight.get_id(),
+          .an = layer.feedforward_norm.weight.get_id()
+        });
+      }
+
+      map<tuple<int, int>, partdim_t> pds;
+      if(which == "data") {
+        int id = embeddings.get_id();
+        pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_config) });
+      } else if(which == "dim") {
+        int split_a = num_config;
+        int split_b = 1;
+        while(split_a > margs.n_heads) {
+          if(split_a % 2 != 0) {
+            throw std::runtime_error("make num config more even..");
+          }
+          split_a /= 2;
+          split_b *= 2;
+        }
+
+        partdim_t pda = partdim_t::split(margs.n_heads, split_a);
+        partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
+
+        partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
+        pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
+
+        pds.insert({ {embeddings.get_id(), 2}, pda });
+        pds.insert({ {embeddings.get_id(), 3}, pdb });
+        pds.insert({ {model.norm.weight.get_id(), 0}, pda });
+        pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
+        pds.insert({ {model.w_vocab.get_id(), 1}, pda });
+        pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
+        for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
+          pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
+          pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
+          pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
+
+          pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
+          pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
+          pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
+          pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
+
+          pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
+          pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
+          pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
+          pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
+
+          pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
+          pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
+        }
+      } else if(which == "seq") {
+        partdim_t pd = partdim_t::split(margs.max_seq_len, num_config);
+        pds.insert({ { embeddings.get_id(), 1 }, pd });
+        pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 1 }, pd});
+      } else {
+        throw std::runtime_error("missing case");
+      }
+
+      parts = apart03(graph, pds);
+    } else {
+      throw std::runtime_error("missing partitioner");
+    }
+
+    uint64_t flops_per_byte_moved = 1000;
+    pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
+    server.execute_graph(graph, pls);
   }
-
-  {
-    dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
-
-    uint64_t top_n = 1;
-    vtensor_t<int> top_choices = get_top_choices(
-      scores, bsz, margs.vocab_size, top_n);
-
-    token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
-  }
-
-  // args.set_default("niter", int(100));
-  // int niter = args.get<int>("niter");
-  // for(int i = 0; i != niter; ++i) {
-  //   builder = builder_t::make_next_token(builder);
-  //   server.remap_gids(builder.remap.value());
-
-  //   vector<placement_t> pls = autoplacer(builder.graph);
-
-  //   {
-  //     dbuffer_t embeddings = lookup_embeddings(
-  //       margs.vocab_size,
-  //       margs.dim,
-  //       embedding_matrix,
-  //       token_maker.last_column());
-
-  //     server.insert_tensor(builder.embeddings, pls[builder.embeddings], embeddings);
-  //   }
-
-  //   server.execute_graph(builder.graph, pls);
-
-  //   {
-  //     dbuffer_t scores = server.get_tensor_from_gid(builder.scores);
-
-  //     uint64_t top_n = 1;
-  //     vtensor_t<int> top_choices = get_top_choices(
-  //       scores, bsz, margs.vocab_size, top_n);
-
-  //     token_maker.add_next_tokens(top_choices.subset({ {0, bsz}, {0, 1} }));
-  //   }
-  // }
-
-  // vtensor_t<int> const& tokens = token_maker.get_tokens();
-  // int nrow = tokens.get_shape()[0];
-  // for(int row = 0; row != nrow; ++row) {
-  //   DOUT(tokens.index_subtensor(row).get());
-  // }
 }
 
 // ./gpu_llama 7B 1 max_n_layers n
@@ -436,9 +514,7 @@ int main(int argc, char** argv) {
   int num_data_files = parse_with_ss<int>(argv[2]);
 
   if(is_rank_zero) {
-    DOUT("world size:                      " << world_size);
     DOUT("base data file                   " << base_data_file);
-    DOUT("num data files                   " << num_data_files);
   }
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
@@ -450,8 +526,8 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   // 900GB storage: 14.5GB GPU buffer size
-  for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(120lu * 100lu * 1000lu * 1000lu);
+  for (int i = 0; i < 8; ++i) {
+    buffer_sizes.push_back(28lu * 1000lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);
@@ -485,7 +561,7 @@ int main(int argc, char** argv) {
 
   if(is_rank_zero) {
     main_rank_zero(server, reader, args);
-    
+
     server.shutdown();
   } else {
     server.register_listen(
