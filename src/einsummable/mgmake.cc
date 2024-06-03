@@ -254,6 +254,15 @@ memgraph_t::make_(
   };
 }
 
+/* This is a test for order_taskgraph. I would like to see if order taskgraph differently could help*/
+// vector<_which_op_t>
+// build_tg_ops_test(
+//   taskgraph_t const& taskgraph,
+//   vector<int> const& tids_in_order)
+// {
+//   return null;
+// }
+
 vector<_which_op_t>
 build_tg_ops(
   taskgraph_t const& taskgraph,
@@ -1355,6 +1364,25 @@ int memgraph_make_state_t::allocate_with_evict(
       auto maybe_victim = find_victim(loc, 0, cannot_evict);
       if(!maybe_victim)
       {
+        std::cout << "cannot evict: " << cannot_evict << std::endl;
+        for (auto cannot: cannot_evict) {
+          std::cout << "tid: " << cannot << std::endl;
+          auto iter = task_tensor_to_mem_node.find(cannot);
+          if (iter == task_tensor_to_mem_node.end()){
+            DOUT("cannot find??????");
+            continue;
+          }
+          auto const& memnode = memgraph.nodes[task_tensor_to_mem_node.at(cannot)];
+          auto memstoloc = memnode.op.get_output_memstoloc();
+          if (memstoloc.is_memloc()) {
+            auto memloc = memstoloc.get_memloc();
+            uint64_t size = memloc.size;
+            uint64_t offset = memloc.offset;
+            std::cout << ", size:" << size << ", offset:" << offset << std::endl;
+          }
+        }
+        std::cout << "size: " << size << std::endl;
+        allocators.at(loc).print();
         throw std::runtime_error(
           "allocate_with_evict: there is nothing to evict; no memory left!");
       }

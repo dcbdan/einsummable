@@ -18,19 +18,21 @@ void main_rank_zero_matmul(
   // llama gpu parameters here
   args.set_default<int>("gpus", 1);
   args.set_default<int>("computes", 1);
-  args.set_default<int>("nseq", 4096);
-  args.set_default<int>("nbatch", 1);
+  args.set_default<uint64_t>("ni", 100);
+  args.set_default<uint64_t>("nj", 100);
+  args.set_default<uint64_t>("nk", 100);
   int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
-  int nseq = args.get<int>("nseq");
-  int nbatch = args.get<int>("nbatch");
+  uint64_t ni = args.get<uint64_t>("ni");
+  uint64_t nj = args.get<uint64_t>("nj");
+  uint64_t nk = args.get<uint64_t>("nk");
 
   // print parameters
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
-  DOUT("nseq:                            " << nseq);
-  DOUT("nbatch:                          " << nbatch);
-
+  DOUT("ni:                              " << ni);
+  DOUT("nj:                              " << nj);
+  DOUT("nk:                              " << nk);
 
   {
     // Note: Assuming all is this being set?
@@ -39,36 +41,20 @@ void main_rank_zero_matmul(
     set_seed(seed);
   }
 
-  // string register_cmd = server.get_registered_cmd();
-
-  model_args_t model_args = model_args_t {
-    .dim             = 4096, //was 4096
-    .n_layers        = 1,
-    .n_heads         = 32, //32
-    .multiple_of     = 256, //256
-    .norm_eps        = 1e-6,
-    .batch_size      = 1,
-    .max_seq_len     = 2048, //was 2048
-    .vocab_size      = 32000,
-  };
-
   //build the graph for feedforward only
   graph_writer_t writer;
   graph_t graph;
-  uint64_t hidden_dim = 4 * model_args.dim;
-  hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
-  hidden_dim =
-    model_args.multiple_of * ( (hidden_dim + model_args.multiple_of - 1) / model_args.multiple_of );
-  tensor_t embeddings = writer.input(full_shape_t({
-    full_dim_t::singleton(model_args.batch_size),
-    full_dim_t::singleton(args.get<uint64_t>("nseq")),
-    model_args.full_dim()
-  }));
-  feedforward_t feedforward(&writer, "feed_forward.", model_args.full_dim(), hidden_dim);
-  // rms_norm_t feedforward_norm = rms_norm_t(&writer, "ffn_norm.", model_args.full_dim(), model_args.norm_eps);
-  tensor_t scores = feedforward.forward(embeddings);
-  scores.save_inplace();
+  tensor_t lhs1 = writer.input({ni,nj});
+  tensor_t rhs1 = writer.input({nj,nk});
+  tensor_t lhs2 = writer.input({ni,nj});
+  tensor_t rhs2 = writer.input({nj,nk});
+  tensor_t out1 = writer.matmul(lhs1, rhs1);
+  tensor_t out2 = writer.matmul(lhs2, rhs2);
+  tensor_t out = writer.matmul(out1, out2).save();
+
+
   graph = writer.get_graph();
+  
   {
     std::cout << "g.gv" << std::endl;
     std::ofstream f("g.gv");
@@ -92,17 +78,6 @@ void main_rank_zero_matmul(
   }
   std::cout << "Inputs: " << inputs << std::endl;
 
-  // if (nseq > margs.max_seq_len) {
-  //   throw std::runtime_error("The sequence length is too long for the model parameters.");
-  // }
-
-  args.set_default<int>("max_n_layers", -1);
-  {
-    int n_layers = args.get<int>("max_n_layers");
-    if(n_layers >= 0) {
-      model_args.n_layers = std::min(model_args.n_layers, n_layers);
-    }
-  }
   autoplace_config_t config = autoplace_config_t::make_default01(
     num_gpus, num_computes_per_loc);
     vector<placement_t> placements = autoplace01(graph, config);
@@ -124,7 +99,7 @@ void main_rank_zero(
   // llama gpu parameters here
   args.set_default<int>("gpus", 1);
   args.set_default<int>("computes", 1);
-  args.set_default<int>("nseq", 4096);
+  args.set_default<int>("nseq", 512);
   args.set_default<int>("nbatch", 1);
   int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
@@ -154,7 +129,7 @@ void main_rank_zero(
     .multiple_of     = 256, //256
     .norm_eps        = 1e-6,
     .batch_size      = 1,
-    .max_seq_len     = 2048, //was 2048
+    .max_seq_len     = 512, //was 2048
     .vocab_size      = 32000,
   };
 
@@ -167,7 +142,7 @@ void main_rank_zero(
     model_args.multiple_of * ( (hidden_dim + model_args.multiple_of - 1) / model_args.multiple_of );
   tensor_t embeddings = writer.input(full_shape_t({
     full_dim_t::singleton(model_args.batch_size),
-    full_dim_t::singleton(args.get<uint64_t>("nseq")),
+    full_dim_t::singleton(nseq),
     model_args.full_dim()
   }));
   feedforward_t feedforward(&writer, "feed_forward.", model_args.full_dim(), hidden_dim);
@@ -305,12 +280,6 @@ int main(int argc, char** argv) {
 
   set_default_dtype(dtype_t::f32);
 
-  if(argc < 3) {
-    DOUT("argc " << argc);
-    throw std::runtime_error("required args: "
-       "(1)base_data_file       (2)num_data_files");
-  }
-
   string addr_zero = "0.0.0.0";
   bool is_rank_zero = true;
   int world_size = 1;
@@ -327,7 +296,7 @@ int main(int argc, char** argv) {
 
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 1; ++i) {
     buffer_sizes.push_back(1lu * 1000lu * 1000lu * 1000lu);
   }
 
@@ -362,6 +331,7 @@ int main(int argc, char** argv) {
 
   if(is_rank_zero) {
     main_rank_zero_matmul(server, args);
+    // main_rank_zero(server, args);
     
     server.shutdown();
   } else {
