@@ -48,6 +48,11 @@ order_split_taskgraph(taskgraph_t const &taskgraph);
 vector<_which_op_t>
 order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph);
 
+tuple<vector<_which_op_t>, vector<_which_op_t>>
+split_off_inputs_(
+  taskgraph_t const& taskgraph,
+  vector<_which_op_t> const& all_ops);
+
 vector<uint64_t>
 order_taskgraph_memory_usage(
   taskgraph_t const& taskgraph,

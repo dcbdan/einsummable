@@ -224,13 +224,24 @@ memgraph_t::make_(
   optional<memgraph_t> input_memgraph;
   if(split_off_inputs)
   {
-    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
+    auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
     state.process(input_tg_ops);
     input_memgraph = state.pop_memgraph();
     state.process(core_tg_ops);
   } else {
-    state.process(order_taskgraph(taskgraph));
+    state.process(order_taskgraph_priority_min_delta(taskgraph));
   }
+
+  //if(split_off_inputs)
+  //{
+  //  auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+  //  state.process(input_tg_ops);
+  //  input_memgraph = state.pop_memgraph();
+  //  state.process(core_tg_ops);
+  //} else {
+  //  state.process(order_taskgraph(taskgraph));
+  //}
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
@@ -303,6 +314,66 @@ order_split_taskgraph(taskgraph_t const& taskgraph)
     build_tg_ops(taskgraph, inn_order),
     build_tg_ops(taskgraph, core_order)
   };
+}
+
+tuple<vector<_which_op_t>, vector<_which_op_t>>
+split_off_inputs_(
+  taskgraph_t const& taskgraph,
+  vector<_which_op_t> const& all_ops)
+{
+  auto is_inputable = [](taskgraph_t::op_t const& op) {
+    if(op.is_input()) {
+      return true;
+    } else if(op.is_constant()) {
+      return true; // this can go either way
+    } else if(op.is_partialize()) {
+      auto const& p = op.get_partialize();
+      return !p.does_agg();
+    } else if(op.is_move()) {
+      return true;
+    } else if(op.is_apply()) {
+      return false;
+    } else {
+      throw std::runtime_error("should not reach: is_inputable");
+    }
+  };
+  auto get_id = [](_which_op_t const& x) {
+    if(std::holds_alternative<_which_node_t>(x)) {
+      return std::get<_which_node_t>(x).task_id;
+    } else if(std::holds_alternative<_which_touch_t>(x)) {
+      return std::get<_which_touch_t>(x).task_id;
+    } else {
+      throw std::runtime_error("should not reach");
+    }
+  };
+
+  vector<_which_op_t> inn_order;
+  vector<_which_op_t> core_order;
+
+  set<int> inside_inn_order;
+  for(_which_op_t const& op: all_ops) {
+    int id = get_id(op);
+    auto const& node = taskgraph.nodes[id];
+    if(is_inputable(node.op)) {
+      bool success = true;
+      for(int const& inn: node.op.inputs()) {
+        if(inside_inn_order.count(inn) == 0) {
+          success = false;
+          break;
+        }
+      }
+
+      if(success) {
+        inn_order.push_back(op);
+        inside_inn_order.insert(id);
+      } else {
+        core_order.push_back(op);
+      }
+    } else {
+      core_order.push_back(op);
+    }
+  }
+  return {inn_order, core_order};
 }
 
 // This algorithm keeps selecting ready tasks until all tasks have
