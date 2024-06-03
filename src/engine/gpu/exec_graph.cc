@@ -9,10 +9,14 @@
 #include <cstdio>
 #include <cuda_runtime_api.h>
 #include <driver_types.h>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <sys/types.h>
-#include <thread>
-#include <unordered_set>
+#include <unordered_map>
+
+static int w = 0;
+bool debug_exec_graph = false;
 
 void print_exec_graph(exec_graph_t exec_graph){
   for (int i = 0; i < exec_graph.nodes.size(); ++i) {
@@ -37,8 +41,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   vector<void*> gpu_mems,
   map<string, scalar_t> const& scalar_vars)
 {
+  // string file_name = "gpu_mg" + std::to_string(w++) + ".gv";
+  // std::ofstream f(file_name);
+  // memgraph.print_graphviz(f);
   exec_graph_t graph;
-  auto evict_called = false;
 
   map<int, int> mid_to_eid;
 
@@ -70,7 +76,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   };
 
   // std::unordered_set<einsummable_t> all_einsums;
-  int dummy_count = 0;
+  int evict_count = 0, load_count = 0;
+  uint64_t evict_bytes = 0, load_bytes = 0;
+
+  std::unordered_map<string, einsummable_t> einsums_not_compiled;
+  // open a file
+  std::ofstream failed_einsums;
+  failed_einsums.open("failed_einsums.txt");
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
      DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
@@ -104,6 +117,15 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
 
+        // vector<uint64_t> join_shape_compare = {8, 256};
+        // if (einsum.str() == "ab,b->ab" && einsum.join_shape == join_shape_compare){
+        //   DOUT("Found kernel: " << einsum);
+        //   DOUT("mid: " << mid);
+        //   DOUT("mg file name: " << file_name);
+        // }
+
+        // DOUT("mid: " << mid << " Einsum: " << einsum);
+
         // if (all_einsums.find(einsum) == all_einsums.end()){
         //   DOUT("einsum: " << einsum);
         //   DOUT("einsum join shape: " << einsum.join_shape);
@@ -113,7 +135,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         //   DOUT("einsum castable: " << einsum.castable);
         //   DOUT("");
         //   all_einsums.insert(einsum);
-        // }       
+        // }
 
         // build the op (except the workspace size)
         gpu_einsummable_t* op = new gpu_einsummable_t(
@@ -126,9 +148,17 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         // DOUT("Einsummable: " << einsum);
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
-          DOUT("Einsummable: " << einsum);
-          DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
-          throw std::runtime_error("GPU KM could not compile the kernel");
+          // DOUT("Einsummable: " << einsum);
+          // DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
+          string e_string = einsum.str();
+          if (einsums_not_compiled.find(e_string) == einsums_not_compiled.end()){
+            einsums_not_compiled.emplace(e_string, einsum);
+            failed_einsums << "einsum:" << einsum << std::endl;
+          }
+          // throw std::runtime_error("GPU KM could not compile the kernel");
+          op_ptr_t op = std::make_shared<dummy_t>();
+          insert(op, mid);
+          continue;
         }
         auto workspace_info = maybe_built.value();
         if (workspace_info.known()){
@@ -174,14 +204,14 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
+      evict_count++;
+      evict_bytes += node.op.get_evict().src.size;
       gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
       insert(op_ptr_t(op), mid);
-      if (!evict_called){
-        evict_called = true;
-        DOUT("Inserted evict op for node " << mid);
-      }
       // DOUT("Inserted evict op for node " << mid);
     } else if(node.op.is_load()) {
+      load_count++;
+      load_bytes += node.op.get_load().dst.size;
       gpu_load_t* op = new gpu_load_t(node.op.get_load());
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted load op for node " << mid);
@@ -206,8 +236,25 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   }
   // Debug: print the exec_graph
   // print_exec_graph(graph);
-  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
-  // DOUT("The number of dummy nodes in the exec_graph is " << dummy_count);
+  if (einsums_not_compiled.size() > 0){
+    DOUT("The following einsums were not compiled:");
+    for (auto [e_string, e_value]: einsums_not_compiled){
+      DOUT("einsum: " << e_value);
+      DOUT("einsum simplified: " << e_value.join.simplify().to_cppstr());
+      DOUT("einsum inns: " << e_value.inns);
+      DOUT("einsum out rank: " << e_value.out_rank);
+      DOUT("einsum join: " << e_value.join);
+      DOUT("einsum castable: " << e_value.castable);
+      DOUT("einsum join shape: " << e_value.join_shape);
+    }
+    throw std::runtime_error("GPU KM could not compile some kernels");
+  }
+  // close the file
+  failed_einsums.close();
+
+  // DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
+    evict_count, evict_bytes, load_count, load_bytes);
   return graph;
 }
 
@@ -243,6 +290,15 @@ void gpu_einsummable_t::launch(
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
+  if (debug_exec_graph && device == 0){
+    debug_exec_graph = false;
+    DOUT("debug section on 0: ");
+  //   cudaSetDevice(0);
+    printFloatGPU(increment_void_ptr(global_buffer, 94208), 100);
+  //   init_value((float*)increment_void_ptr(global_buffer, 94208), 256, 1e-9f);
+  //   // printFloatGPU(increment_void_ptr(global_buffer, 94208), 20);
+  }
+
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
@@ -254,6 +310,13 @@ void gpu_einsummable_t::launch(
       global_buffer,
       mems[i].offset));
   }
+
+  // print all the input and output offsets
+  // for (int i = 1; i < mems.size(); ++i){
+  //   DOUT("Input offset " << i-1 << ": " << mems[i].offset << " Device: " << device);
+  // }
+  // DOUT("Output offset: " << mems[0].offset << " Device: " << device);
+
   optional<tuple<void*, uint64_t>> maybe_workspace;
   if(workspace_size > 0) {
     maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
@@ -261,7 +324,6 @@ void gpu_einsummable_t::launch(
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  // cudaSetDevice(device);
   gpu_km(
     einsummable,
     stream,
@@ -274,6 +336,7 @@ void gpu_einsummable_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+    // DOUT("in gpu_einsummable callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -322,6 +385,10 @@ void gpu_touch_t::launch(
     global_buffer,
     mems[1].offset);
 
+  // print the offsets
+  // DOUT("Touch Output offset: " << mems[0].offset);
+  // DOUT("Touch Input offset: " << mems[1].offset);
+
   bool is_first = false;
   if(group_id >= 0) {
     tuple<int, bool> const& info = group_manager_t::get_resource(resources[2]);
@@ -352,6 +419,7 @@ void gpu_touch_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_touch callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -402,25 +470,18 @@ void gpu_copy_t::launch(
     dst_buffer,
     dst_offset);
 
+  // print 100 elements of src
+
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
-  // cudaError_t cudaError = cudaMemcpy(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice);
   if (cudaError != cudaSuccess) {
     // print the error code and error string
-    fprintf(stderr, "cudaMemcpy failed with error: %s\n", cudaGetErrorString(cudaError));
-    // print src and dst loc
-    fprintf(stdout, "src_loc: %d\n", src_loc);
-    fprintf(stdout, "dst_loc: %d\n", dst_loc);
-    // print src and dst buffer
-    fprintf(stdout, "src_buffer: %p\n", src_buffer);
-    fprintf(stdout, "dst_buffer: %p\n", dst_buffer);
-    // print src and dst mem
-    fprintf(stdout, "src_mem: %p\n", src_mem);
-    fprintf(stdout, "dst_mem: %p\n", dst_mem);
-    // print cpy size
-    fprintf(stderr, "cpy size: %zu\n", move.size);
+    DOUT("cudaMemcpy failed with error: " << cudaGetErrorString(cudaError));
+    DOUT("src loc, offset: " << src_loc << " " << src_offset);
+    DOUT("dst loc, offset: " << dst_loc << " " << dst_offset);
+    DOUT("size:    " << move.size);
 
-    throw std::runtime_error("CudaMemcpy failed");
+    throw std::runtime_error("CudaMemcpy failed @ gpu_copy_t");
   }
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
@@ -428,6 +489,7 @@ void gpu_copy_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_copy callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -435,7 +497,7 @@ void gpu_copy_t::launch(
       delete callback_ptr;
     },
     reinterpret_cast<void*>(callback_copy), 0),
-    "gpu_einsummable_t: callback");
+    "gpu_copy_t: adding callback");
 }
 
 desc_ptr_t
@@ -469,19 +531,20 @@ void gpu_evict_t::launch(
   cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
-  buffer_t buffer = make_buffer(size);
-  cudaMemcpyAsync(buffer->data, gpu_memory, size, cudaMemcpyDeviceToHost, stream);
 
-  // tell storage that we already have the data inserted
-  auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
-  gpu_storage->insert(storage_id, buffer);
-  // DOUT("gpu_evict_t::launch: inserted buffer into storage, id = " << storage_id);
+  auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
+  buffer_t buffer = storage.alloc(size, storage_id);
+
+  handle_cuda_error(
+    cudaMemcpyAsync(buffer->raw(), gpu_memory, size, cudaMemcpyDeviceToHost, stream),
+    "cudaMemcpyAsync in gpu_evict_t");
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_evict callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -506,6 +569,12 @@ gpu_load_t::resource_description() const
   return resource_manager_t::make_desc(ret);
 }
 
+struct gpu_load_info_t {
+  std::function<void()> callback;
+  gpu_storage_t* storage;
+  int storage_id;
+};
+
 void gpu_load_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
@@ -524,23 +593,29 @@ void gpu_load_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  auto gpu_storage = gpu_storage_manager_t::get_resource(resources[2]).ptr;
-  // DOUT("gpu_load_t::launch: loading buffer from storage, id = " << storage_id);
-  buffer_t buffer = gpu_storage->load(storage_id);
-  cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream);
+  auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
 
-  std::function<void()>* callback_copy = new std::function<void()>(callback);
+  buffer_t buffer = storage.reference(storage_id);
+
+  handle_cuda_error(
+    cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
+    "cudaMemcpyAsync in gpu_load_t");
+
+  gpu_load_info_t* info = new gpu_load_info_t;
+  info->callback = callback;
+  info->storage = &storage;
+  info->storage_id = storage_id;
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      std::function<void()>* callback_ptr =
-        reinterpret_cast<std::function<void()>*>(user_data);
-      auto& callback = *callback_ptr;
-      callback();
-      delete callback_ptr;
+      gpu_load_info_t* info_ptr = reinterpret_cast<gpu_load_info_t*>(user_data);
+      auto& info = *info_ptr;
+      info.storage->remove(info.storage_id);
+      info.callback();
+      delete info_ptr;
     },
-    reinterpret_cast<void*>(callback_copy), 0),
+    reinterpret_cast<void*>(info), 0),
     "gpu_load_t: callback");
 }
 
@@ -593,13 +668,22 @@ void gpu_constant_t::launch(
     num_elements *= dim;
   }
 
+  // DOUT("fill: " << fill.value << " offset: " << gpu_offset << " nelms: " << num_elements);
+
   gpu_km.constant_fill(fill, stream, gpu_memory);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
+  // cudaDeviceSynchronize();
+  // DOUT("Output from constant: ");
+  // printFloatGPU(gpu_memory, 20);
+
+  // callback();
+
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_constant callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -628,13 +712,38 @@ void gpu_lowerTri_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  gpu_km.lowerTri_fill(fill, stream, gpu_memory);
+  auto gpu_fill = fill;
+
+  if (fill.upper == scalar_t::negative_inf(dtype_t::f32)){
+    // DOUT("Found negative infinity lower triangular fill");
+    scalar_t new_upper(-1 * 1e30);
+    auto l = fill_t::lowertri_t {
+      .lower = fill.lower,
+      .upper = new_upper,
+      .nrow = fill.nrow,
+      .ncol = fill.ncol,
+      .start = fill.start
+    };
+    gpu_fill = l;
+  }
+  // DOUT("new upper: " << gpu_fill.upper);
+
+  gpu_km.lowerTri_fill(gpu_fill, stream, gpu_memory);
+
+  // DOUT("lower tri fill lower: " << fill.lower << " upper: " << fill.upper << " offset: " << gpu_offset
+  //   << " nrows: " << fill.nrow << " ncols: " << fill.ncol);
+
+  // cudaDeviceSynchronize();
+  // DOUT("Output from lower_tri fill: ");
+  // printFloatGPU(gpu_memory, 20);
+  // callback();
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_lowerTri callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;

@@ -3,26 +3,47 @@
 
 #include "../../base/buffer.h"
 
-// for allocator_t
 #include "../../einsummable/memgraph.h"
+#include "../../einsummable/mgallocator.h"
+
 #include "utility.h"
+
+struct host_buffer_holder_t {
+  host_buffer_holder_t(uint64_t size);
+  ~host_buffer_holder_t();
+
+  void*       raw()       { return data; }
+  void const* raw() const { return data; }
+
+  uint8_t*       as_uint8()       { return reinterpret_cast<uint8_t*>(      data); }
+  uint8_t const* as_uint8() const { return reinterpret_cast<uint8_t const*>(data); }
+
+  uint64_t size;
+  void* data;
+};
+
+using host_buffer_t = std::shared_ptr<host_buffer_holder_t>;
+
+host_buffer_t make_host_buffer(uint64_t size);
 
 struct gpu_storage_t
 {
   gpu_storage_t();
 
-  // inserts a copy of data into the storage
-  void write(buffer_t data, int id);
+  // inserts a copy of d into the storage
+  void write(buffer_t d, int id);
 
-  // inserts id, data into buffer; does not copy the
-  // data object
-  void insert(int id, buffer_t data);
+  // insert id and get a reference to the data
+  buffer_t alloc(uint64_t size, int id);
 
-  // gets a copy of the data
+  // gets a copy of the bytes at id
   buffer_t read(int id);
 
-  // same as read but removes the id from storage
+  // gets a copy of the bytes at id and removes id
   buffer_t load(int id);
+
+  // gets a reference / shallow copy of the data at id
+  buffer_t reference(int id);
 
   // removes the id
   void remove(int id);
@@ -43,6 +64,13 @@ struct gpu_storage_t
 private:
   std::mutex m;
 
-  map<int, buffer_t> data;
+  allocator_t allocator;
+  host_buffer_t host_data;
+  map<int, mem_t> info;
+
+  buffer_t make_reference(mem_t const&);
+  buffer_t make_reference(uint64_t offset, uint64_t size);
+  buffer_t _read(int id);
+  void _remove(int id);
 };
 

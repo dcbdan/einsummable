@@ -92,6 +92,11 @@ einsummable_t::einsummable_t(
   }
 
   if(!valid_inns_out(inns, out_rank)) {
+    DOUT("join " << join);
+    DOUT("inns " << inns);
+    DOUT("out_rank " << out_rank);
+    DOUT("join_shape " << join_shape);
+    DOUT("castable " << castable);
     throw std::runtime_error("einsummable: invalid inns, out rank");
   }
 }

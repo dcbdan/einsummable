@@ -9,6 +9,7 @@
 #include "../../einsummable/taskgraph.h" // touch_t
 
 #include <cstdint>
+#include <sys/types.h>
 #include <thread>
 
 #include <cuda_runtime.h>
@@ -76,6 +77,7 @@ private:
   };
 
   reduction_t make_reduction(einsummable_t const& e);
+  reduction_t make_reduction_negate(einsummable_t const& e);
 
   void execute_reduction(
     reduction_t const& r,
@@ -125,7 +127,13 @@ private:
     simple_scalarop_t::binary_t const& op,
     vector<int> const& lhs_idxs,
     vector<int> const& rhs_idxs,
-    vector<uint64_t> const& out_shape) const;                    
+    vector<uint64_t> const& out_shape) const;   
+
+  cutensorPlan_t sop_binary_plan_different_shape(
+    simple_scalarop_t::binary_t const& op,
+    vector<int> const& lhs_idxs,
+    vector<int> const& rhs_idxs,
+    vector<uint64_t> const& out_shape) const;                  
 
   void execute_sop_scale(
     simple_scalarop_t::scale_t const& op,
@@ -156,6 +164,15 @@ private:
     cutensorPlan_t plan) const;
 
   void execute_sop_binary(
+    simple_scalarop_t::binary_t const& op,
+    cudaStream_t stream,
+    void* out_mem,
+    void const* lhs_mem,
+    void const* rhs_mem,
+    cutensorPlan_t plan,
+    bool swapped) const;
+
+  void execute_sop_binary_different_shape(
     simple_scalarop_t::binary_t const& op,
     cudaStream_t stream,
     void* out_mem,
@@ -197,6 +214,73 @@ private:
     cutensor_elementwise_kernel_t kernel;
   };
 
+  struct custom_kernel_2_t{
+    uint64_t nrows;
+    uint64_t ncols;
+    dtype_t dtype;
+  };
+
+  struct custom_kernel_4_t{
+    // three steps:
+    // 1)rewrite the scalarop to an elementwise we can compile
+    // 2)compile the elementwise
+    // 3)compile the reduction
+    elementwise_t elementwise;
+    reduction_t reduction;
+    // we need 3 workspace: 1. for elementwise 2. for output of elementwise 3.reduction
+    uint64_t worksize;
+    uint64_t elementwise_output_offset;
+    uint64_t reduction_offset;
+  };
+
+  struct special_max_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct special_sum_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct special_negateSum_reduction_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct v3_softmax_reduction_t{
+    uint64_t a;
+    uint64_t b;
+    float constant;
+  };
+
+  struct v3_softmax_elementwise_t{
+    uint64_t a;
+    uint64_t b;
+    float constant;
+  };
+
+  struct large_workspace_1_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_2_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_3_t{
+    uint64_t a;
+    uint64_t b;
+  };
+
+  struct large_workspace_4_t{
+    uint64_t a;
+    float constant1;
+    float constant2;
+  };
+
 public:
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -207,10 +291,24 @@ public:
   static bool is_type_conversion(einsummable_t e);
   static bool is_elementwise_with_pow(einsummable_t e);
   static bool is_custom_kernel1(einsummable_t e);
+  static bool is_custom_kernel2(einsummable_t e);
+  static bool is_custom_kernel3(einsummable_t e);
+  static bool is_custom_kernel4(einsummable_t e);
+  static bool is_custom_kernel5(einsummable_t e);
+  static bool is_large_workspace1(einsummable_t e);
+  static bool is_large_workspace2(einsummable_t e);
+  static bool is_large_workspace3(einsummable_t e);
+  static bool is_large_workspace4(einsummable_t e);
+  static bool is_softmax_v3_reduction(einsummable_t e);
+  static bool is_softmax_v3_elementwise(einsummable_t e);
+  static bool is_special_max_reduction(einsummable_t e);
+  static bool is_special_sum_reduction(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
   static double get_power(einsummable_t e);
   static bool is_scale_and_increment(einsummable_t e);
   static tuple<float, float> get_increment_scale(einsummable_t e);
+
+  custom_kernel_4_t build_custom_kernel4(einsummable_t const& e);
 
   optional<workspace_info_t> build(einsummable_t const& e);
 
@@ -242,7 +340,16 @@ public:
 private:
   using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
                                       type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
-                                      power_t, scale_t>;
+                                      power_t, scale_t, 
+                                      custom_kernel_2_t, custom_kernel_4_t,
+                                      special_max_reduction_t,
+                                      special_sum_reduction_t,
+                                      special_negateSum_reduction_t,
+                                      v3_softmax_reduction_t,
+                                      v3_softmax_elementwise_t,
+                                      large_workspace_1_t,
+                                      large_workspace_2_t,
+                                      large_workspace_4_t>;
 
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;

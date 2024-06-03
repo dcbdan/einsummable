@@ -45,6 +45,8 @@ struct gpu_mg_server_t : server_mg_base_t
 
   bool is_local_gpu(int global_loc) const;
 
+  void debug_mem(int device, uint64_t counts);
+
 private:
 // location is to the local gpu, not global
   map<int, memstoloc_t> data_locs;

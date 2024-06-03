@@ -47,9 +47,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   }
 
   // print all mems
-  // for (auto i = 0; i < mems.size(); i++){
-  //   DOUT("mems GPU[" << i << "]: " << mems[i]);
-  // }
+  for (auto i = 0; i < mems.size(); i++){
+    DOUT("mems GPU[" << i << "]: " << mems[i]);
+  }
 
   // initialize the stream pool now that we have num_gpus_per_node
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
@@ -61,7 +61,10 @@ gpu_mg_server_t::gpu_mg_server_t(
     for (int j = 0; j < deviceCount; ++j) {
       if (i != j) {
         cudaSetDevice(i);
+        // enable p2p access
         cudaDeviceEnablePeerAccess(j, 0);
+        // enable host memory mapping access by cudaHostAlloc
+        cudaSetDeviceFlags(cudaDeviceMapHost);
       }
     }
   }
@@ -90,14 +93,14 @@ void gpu_mg_server_t::execute_memgraph(
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
   auto initial = std::chrono::high_resolution_clock::now();
-  DOUT("Making exec graph...");
+  // DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
       memgraph, comm.get_this_rank(), kernel_managers,
       num_gpus_per_node[comm.get_this_rank()], mems,
       scalar_vars);
-  DOUT("Finished making exec graph...");
+  // DOUT("Finished making exec graph...");
 
   rm_ptr_t resource_manager(new resource_manager_t(
     vector<rm_ptr_t> {
@@ -319,7 +322,9 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
       auto const& [offset, size, global_gpu] = memstoloc.get_memloc();
       int local_gpu = which_local_gpu(global_gpu);
       auto& allocator = allocators[local_gpu];
-      allocator.allocate_at_without_deps(offset, size);
+      if(!allocator.allocate_at_without_deps(offset, size)) {
+        throw std::runtime_error("could not setup allocator");
+      }
     }
   }
 
@@ -327,7 +332,7 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
     auto const& [global_gpu, tensor] = loc_tensor;
     int local_gpu = which_local_gpu(global_gpu);
     auto& allocator = allocators[local_gpu];
-    auto maybe_offset = allocator.try_to_allocate_without_deps(tensor->size);
+    auto maybe_offset = allocator.allocate_without_deps(tensor->size);
 
     memstoloc_t memstoloc;
     if(maybe_offset) {
@@ -424,5 +429,11 @@ gpu_mg_server_t::~gpu_mg_server_t(){
   for (auto mem : mems){
     cudaFree(mem);
   }
+}
+
+void gpu_mg_server_t::debug_mem(int device, uint64_t counts){
+  DOUT("Debugging memory on device: " << device);
+  DOUT("Counts: " << counts);
+  printFloatGPU(mems[device], counts);
 }
 

@@ -26,51 +26,6 @@ bool merge_into_nodeconst_map(
   return true;
 }
 
-// Consider relu == ite compare(zero, hole0) zero hole0
-// Then the recursion will hit hole0 multiple times and the
-// maps will have to be checked.
-//
-// Consider lambda x: x + x  (hole0 + hole0)
-// Here, we will have to merge {arg0, node_from_x}
-optional<map<int, node_t const*>>
-_pop_match(node_t const* skeleton, node_t const* node)
-{
-  if(skeleton->dtype != node->dtype) {
-    return std::nullopt;
-  }
-
-  // This is the base case of the recursion
-  if(skeleton->op.is_hole()) {
-    int which_arg = skeleton->op.get_which_input();
-    return map<int, node_t const*>{ { which_arg, node } };
-  }
-
-  if(skeleton->op != node->op) {
-    return std::nullopt;
-  }
-
-  // now recurse!
-
-  int num_children = skeleton->children.size();
-  if(num_children != node->children.size()) {
-    throw std::runtime_error(
-      "should not happen: same op, different number of children");
-  }
-  map<int, node_t const*> ret;
-  for(int which = 0; which != num_children; ++which) {
-    auto maybe = _pop_match(
-      &skeleton->children[which], &node->children[which]);
-    if(!maybe) {
-      return std::nullopt;
-    }
-    bool success = merge_into_nodeconst_map(ret, maybe.value());
-    if(!success) {
-      return std::nullopt;
-    }
-  }
-  return ret;
-}
-
 static 
 tuple<scalar_t, node_t const*> _pop_mul_scale(node_t const* node)
 {
@@ -104,16 +59,23 @@ _pop_with_unary(node_t const* node_with_scale)
 
   {
     vector<tuple<uop_t, scalarop_t>> ms;
-    // NOTE: sort this from most complicated to least complicated
-    // for example, sigmoid can be matched with rcp. exp
-    ms.emplace_back(uop_t::sigmoid, scalarop_t::make_sigmoid(node->dtype));
-    ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
-    ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
-    ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
-    ms.emplace_back(uop_t::neg, scalarop_t::make_neg(node->dtype));
-    ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
-    ms.emplace_back(uop_t::rcp, scalarop_t::make_rcp(node->dtype));
-    ms.emplace_back(uop_t::square, scalarop_t::make_square(node->dtype));
+    if (node->dtype == dtype_t::c64) {
+      // it seems that conjugate is the only unary operation we can add
+      // but we can always add more later
+      ms.emplace_back(uop_t::conj, scalarop_t::make_conjugate(node->dtype));
+    }
+    else{
+      // NOTE: sort this from most complicated to least complicated
+      // for example, sigmoid can be matched with rcp. exp
+      ms.emplace_back(uop_t::sigmoid, scalarop_t::make_sigmoid(node->dtype));
+      ms.emplace_back(uop_t::log, scalarop_t::make_log(node->dtype));
+      ms.emplace_back(uop_t::exp, scalarop_t::make_exp(node->dtype));
+      ms.emplace_back(uop_t::relu, scalarop_t::make_relu(node->dtype));
+      ms.emplace_back(uop_t::neg, scalarop_t::make_neg(node->dtype));
+      ms.emplace_back(uop_t::sqrt, scalarop_t::make_sqrt(node->dtype));
+      ms.emplace_back(uop_t::rcp, scalarop_t::make_rcp(node->dtype));
+      ms.emplace_back(uop_t::square, scalarop_t::make_square(node->dtype));
+    }
     
 
     for(auto const& [uop, m]: ms) {

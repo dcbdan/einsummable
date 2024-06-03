@@ -12,7 +12,7 @@ struct timetracker_t {
   using interval_t = tuple<timestamp_t, timestamp_t>;
 
   struct gremlin_t {
-    gremlin_t(timetracker_t& self, string name_, bool is_interval, bool is_total);
+    gremlin_t(timetracker_t& self, string name_, bool is_interval, bool is_total, uint64_t f = 0);
 
     ~gremlin_t();
 
@@ -20,18 +20,19 @@ struct timetracker_t {
     string name;
     bool is_interval;
     bool is_total;
+    uint64_t flops;
     timestamp_t start;
   };
 
   static timestamp_t now();
 
-  void insert_full(string name, timestamp_t start, timestamp_t end);
-  void insert_interval(string name, timestamp_t start, timestamp_t end);
-  void insert_total(string name, timestamp_t start, timestamp_t end);
+  void insert_full(string name, timestamp_t start, timestamp_t end, uint64_t f = 0);
+  void insert_interval(string name, timestamp_t start, timestamp_t end, uint64_t f = 0);
+  void insert_total(string name, timestamp_t start, timestamp_t end, uint64_t f = 0);
 
-  gremlin_t make_full_gremlin(string name);
-  gremlin_t make_interval_gremlin(string name);
-  gremlin_t make_totals_gremlin(string name);
+  gremlin_t make_full_gremlin(string name, uint64_t f = 0);
+  gremlin_t make_interval_gremlin(string name, uint64_t f = 0);
+  gremlin_t make_totals_gremlin(string name, uint64_t f = 0);
 
   void print_intervals(std::ostream& out);
   void print_totals(std::ostream& out);
@@ -42,6 +43,8 @@ private:
 
   std::mutex m;
 
+  map<string, int> counts;
+  map<string, uint64_t> flops;
   map<string, duration_t> totals;
   map<string, vector<interval_t>> intervals;
 

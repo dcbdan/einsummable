@@ -4,6 +4,8 @@
 
 #include <fstream>
 
+#include <fstream>
+
 void usage() {
   std::cout << "Usage: pi pj pk di dj dk num_processors memsize\n"
             << "\n"
@@ -51,7 +53,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  auto g = three_dimensional_matrix_multiplication(
+  graph_constructor_t g = three_dimensional_matrix_multiplication(
     pi,pj,pk, di,dj,dk, num_processors);
 
   print_graphviz(g.graph, "g.gv");

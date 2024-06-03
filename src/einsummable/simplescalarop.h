@@ -57,7 +57,7 @@ struct simple_scalarop_t {
       case log: std::cout << "log"; break;
       case exp: std::cout << "exp"; break;
       case relu: std::cout << "relu"; break;
-      default: throw std::runtime_error("Unknown uop");
+      default: throw std::runtime_error("uop_print: Unknown uop");
     }
     std::cout << std::endl;
   }

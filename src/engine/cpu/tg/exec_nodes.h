@@ -30,6 +30,67 @@ struct cpu_tg_einsummable_t : exec_graph_t::op_base_t {
   int get_priority() const { return 200; }
 };
 
+struct cpu_tg_batchmatmul_t : exec_graph_t::op_base_t {
+  cpu_tg_batchmatmul_t(
+    map<int, data_manager_t::info_t>& dinfos,
+    dtype_t dtype,
+    uint64_t nb, uint64_t offset_b, uint64_t size_b,
+    uint64_t ni, uint64_t offset_i, uint64_t size_i,
+    uint64_t nj, uint64_t nk,
+    bool trans_lhs, bool trans_rhs,
+    int out_tid, int lhs_tid, int rhs_tid)
+    : dtype(dtype),
+      nb(nb), offset_b(offset_b), size_b(size_b),
+      ni(ni), offset_i(offset_i), size_i(size_i),
+      nj(nj), nk(nk), trans_lhs(trans_lhs), trans_rhs(trans_rhs),
+      out_tid(out_tid), lhs_tid(lhs_tid), rhs_tid(rhs_tid)
+  {
+    dinfos.at(out_tid).usage_rem++;
+    dinfos.at(lhs_tid).usage_rem++;
+    dinfos.at(rhs_tid).usage_rem++;
+  }
+
+  dtype_t dtype;
+  uint64_t nb, offset_b, size_b;
+  uint64_t ni, offset_i, size_i;
+  uint64_t nj, nk;
+  bool trans_lhs, trans_rhs;
+  int out_tid, lhs_tid, rhs_tid;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "cpu_tg_batchmatmul"; }
+
+  int get_priority() const { return 200; }
+};
+
+struct cpu_tg_permute_t : exec_graph_t::op_base_t {
+  cpu_tg_permute_t(
+    map<int, data_manager_t::info_t>& dinfos,
+    dtype_t dtype,
+    vector<uint64_t> const& inn_shape,
+    vector<int> const& out_perm,
+    int out_tid, int inn_tid)
+    : dtype(dtype),
+      inn_shape(inn_shape), out_perm(out_perm),
+      out_tid(out_tid), inn_tid(inn_tid)
+  {
+    dinfos.at(out_tid).usage_rem++;
+    dinfos.at(inn_tid).usage_rem++;
+  }
+
+  dtype_t dtype;
+  vector<uint64_t> inn_shape;
+  vector<int> out_perm;
+  int out_tid, inn_tid;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "cpu_tg_permute"; }
+
+  int get_priority() const { return 200; }
+};
+
 struct cpu_tg_fill_constant_t : exec_graph_t::op_base_t {
   cpu_tg_fill_constant_t(
     map<int, data_manager_t::info_t>& dinfos,

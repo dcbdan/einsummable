@@ -10,7 +10,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-sign-compare")
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
-#set(CMAKE_CXX_FLAGS_DEBUG "-g")
+# set(CMAKE_CXX_FLAGS_RELEASE "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
@@ -30,6 +30,7 @@ file(GLOB BA_FILES ${PROJECT_SOURCE_DIR}/src/base/*.cc)
 file(GLOB ES_FILES ${PROJECT_SOURCE_DIR}/src/einsummable/*.cc)
 file(GLOB MG_FILES ${PROJECT_SOURCE_DIR}/src/matrixgraph/*.cc)
 file(GLOB AP_FILES ${PROJECT_SOURCE_DIR}/src/autoplace/*.cc)
+file(GLOB MS_FILES ${PROJECT_SOURCE_DIR}/src/misc/*.cc)
 
 add_library(einsummable
   STATIC
@@ -37,6 +38,7 @@ add_library(einsummable
   ${ES_FILES}
   ${MG_FILES}
   ${AP_FILES}
+  ${MS_FILES}
 )
 
 function(add_base_application exec dir filename)
@@ -62,12 +64,14 @@ add_executable(${exec} llama/${filename}.cc
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
+add_llama_application("exp_apart03" "exp_apart03")
+
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
 #add_llama_application("llama_exp02" "exp02")
 #add_llama_application("llama_exp03" "exp03")
 #add_llama_application("llama_autodiff_test" "autodiff_test")
-
+add_llama_application("cpoint"               "cpoint")
 
 if(${CPU_EXECUTION_ENGINE})
   if(NOT MKL_THREADING)
@@ -84,6 +88,7 @@ if(${CPU_EXECUTION_ENGINE})
   set(MKL_ENABLE_INSTRUCTIONS AVX512_E4)
 
   find_package(MKL REQUIRED)
+
 
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
@@ -109,6 +114,7 @@ if(${CPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${EG_FILES}
     ${SE_FILES}
     ${CP_FILES}
@@ -123,6 +129,8 @@ if(${CPU_EXECUTION_ENGINE})
     cpu_execution_engine
     MKL::MKL
     ucx::ucp ucx::ucs
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece.so
+    #${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so
     ${Protobuf_LIBRARIES}
     proto)
   endfunction()
@@ -132,7 +140,7 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpuexec_mm"            "exps" "cpuexec_mm")
   #add_cpu_application("cpuexec_touch"         "exps" "cpuexec_touch")
   #add_cpu_application("cpuexec_permute"       "exps" "cpuexec_permute")
-  #add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
+  add_cpu_application("cpuexec_kernels"       "exps" "cpuexec_kernels")
   add_cpu_application("cpuexec_gen"           "exps" "cpuexec_gen")
   #add_cpu_application("cpumanager"            "exps" "cpumanager")
   #add_cpu_application("cpukerneltime"         "exps" "cpukerneltime")
@@ -144,8 +152,11 @@ if(${CPU_EXECUTION_ENGINE})
   #add_cpu_application("cpu_comm"              "exps" "cpu_comm")
   #add_cpu_application("eventloop"             "exps" "eventloop")
   #add_cpu_application("cpu_engine_run"        "exps" "cpu_engine_run")
-  add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
-  add_cpu_application("senexp"                "exps" "senexp")
+  #add_cpu_application("ff_autodiff"           "exps" "ff_autodiff")
+  #add_cpu_application("senexp"                "exps" "senexp")
+  add_cpu_application("xtreme"                "exps" "xtreme")
+  add_cpu_application("abc"                   "exps" "abc")
+  add_cpu_application("cpuexeccompare"        "exps" "cpuexeccompare")
 
   function(add_cpu_llama_application exec filename)
     add_executable(${exec} llama/${filename}.cc
@@ -153,14 +164,15 @@ if(${CPU_EXECUTION_ENGINE})
       llama/dataset_reader.cc llama/piper.cc)
     target_link_libraries(${exec}
       cpu_execution_engine
-      proto
-      ${Protobuf_LIBRARIES}
       MKL::MKL
-      ucx::ucp ucx::ucs)
+      ucx::ucp ucx::ucs
+      ${Protobuf_LIBRARIES}
+      proto)
   endfunction()
 
   #add_cpu_llama_application("llama_cpu" "cpu2")
   #add_cpu_llama_application("inference_exp" "inference_exp")
+  add_cpu_llama_application("llama_first_token" "first_token")
 
   # For some reason sentencepiece + protocolbuffers + this application
   # isn't cooperating well. Something to do with symbols + protocol
@@ -169,7 +181,8 @@ if(${CPU_EXECUTION_ENGINE})
   # executable and reads and writes from it.
   # And the tokenizer executable calls sentencepiece.
 
-  add_cpu_llama_application("train1" "train1")
+  #add_cpu_llama_application("train1" "train1")
+  add_cpu_llama_application("train2" "train2")
   add_cpu_llama_application("trainsize" "trainsize")
 
 endif()
@@ -185,6 +198,7 @@ if(${SENTENCEPIECE_EXP})
     ${SENTENCEPIECE_DIR}/lib/libsentencepiece_train.so)
   endfunction()
   add_sp_application("llama_tokenizer" "llama" "tokenizer")
+
 endif()
 
 if(${GPU_EXECUTION_ENGINE})
@@ -237,6 +251,7 @@ if(${GPU_EXECUTION_ENGINE})
     ${ES_FILES}
     ${MG_FILES}
     ${AP_FILES}
+    ${MS_FILES}
     ${CU_FILES}
     ${EG_FILES}
     ${GP_FILES}
@@ -295,6 +310,7 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("exp2" "exps" "GPU_xtreme")
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("gpu_llama" "gpu")
+  add_gpu_llama_application("gpu_llama2" "gpu_train")
 endif()
 
 add_dependencies(einsummable proto)

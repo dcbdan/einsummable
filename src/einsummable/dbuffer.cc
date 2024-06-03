@@ -1,4 +1,5 @@
 #include "dbuffer.h"
+#include <cstdint>
 
 dbuffer_t::dbuffer_t()
   : dtype(default_dtype()),
@@ -503,6 +504,24 @@ std::ostream& operator<<(std::ostream& out, dbuffer_t const& dbuffer)
   }
   out << "}";
   return out;
+}
+
+void print_nelems(dbuffer_t const& dbuffer, uint64_t n_print = 100) {
+  auto const& dtype = dbuffer.dtype;
+  uint64_t n = dbuffer.nelem();
+  uint64_t m = std::min(n, n_print);
+  if(dtype == dtype_t::f16) {
+    _print_elems(std::cout, dbuffer.f16(), m);
+  } else if(dtype == dtype_t::f32) {
+    _print_elems(std::cout, dbuffer.f32(), m);
+  } else if(dtype == dtype_t::f64) {
+    _print_elems(std::cout, dbuffer.f64(), m);
+  } else if(dtype == dtype_t::c64) {
+    _print_elems(std::cout, dbuffer.c64(), m);
+  } else {
+    throw std::runtime_error("should not reach");
+  }
+  std::cout << std::endl;
 }
 
 bool operator==(dbuffer_t const& lhs, dbuffer_t const& rhs) {

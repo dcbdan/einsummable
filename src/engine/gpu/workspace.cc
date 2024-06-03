@@ -8,16 +8,16 @@ gpu_workspace_manager_t::gpu_workspace_manager_t() {
   data.resize(num_gpus);
   for (int gpu = 0; gpu < num_gpus; ++gpu) {
     handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
-    for (int i = 0; i < 2; ++i) {
-      void* mem;
-      handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-      data[gpu].emplace_back(mem, 16 * 1024 * 1024);
-    }
-    for (int i = 0; i < num_gpus; ++i) {
-      void* mem;
-      handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-      data[gpu].emplace_back(mem, 32 * 1024 * 1024);
-    }
+    // for (int i = 0; i < 2; ++i) {
+    //   void* mem;
+    //   handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+    //   data[gpu].emplace_back(mem, 16 * 1024 * 1024);
+    // }
+    // for (int i = 0; i < num_gpus; ++i) {
+    //   void* mem;
+    //   handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+    //   data[gpu].emplace_back(mem, 32 * 1024 * 1024);
+    // }
   }
 }
 
@@ -71,9 +71,14 @@ gpu_workspace_manager_t::try_to_acquire_impl(
   handle_cuda_error(cudaSetDevice(device));
 
   void* mem;
-  handle_cuda_error(cudaMalloc(&mem, size));
-  // print the allocated size in MB
-  DOUT("Allocated " << size / 1024 / 1024 << " MB on device " << device << "\n");
+  // if (size / 1024 / 1024 > 100) {
+  //   DOUT("Allocating " << size / 1024 / 1024 << " MB on device " << device);
+  // }
+  cudaError_t error = cudaMalloc(&mem, size);
+  if(error != cudaSuccess) {
+    throw std::runtime_error("gpu_workspace_manager_t. cuda malloc: " 
+      + std::string(cudaGetErrorString(error)));
+  }
   // TODO: currently not setting device back to wtvr it was
 
   return gpu_workspace_resource_t {
@@ -88,6 +93,7 @@ void gpu_workspace_manager_t::release_impl(
 {
   std::unique_lock lk(m);
   auto const& [device, ptr, size] = resource;
+  // DOUT("Releasing " << size / 1024 / 1024 << " MB on device " << device)
   data[device].emplace_back(ptr, size);
 }
 

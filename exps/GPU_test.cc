@@ -882,6 +882,130 @@ void mm_test2() {
 //   auto 
 // }
 
+scalarop_t scalarop_km(){
+  dtype_t dtype = dtype_t::f32;
+  // build the scalarop:
+  //  a,a->a | +[*[constant{f32|0.999},hole|f32@0],*[constant{f32|0.000999987},power{2}[hole|f32@1]]]
+  scalar_t coeff1 = scalar_t(dtype, "0.999");
+  scalar_t coeff2 = scalar_t(dtype, "0.000999987");
+  scalarop_t constant1 = scalarop_t::make_constant(coeff1);
+  scalarop_t constant2 = scalarop_t::make_constant(coeff2);
+  scalarop_t power = scalarop_t::make_power(2);
+  scalarop_t mul = scalarop_t::make_mul(dtype);
+  scalarop_t add = scalarop_t::make_add(dtype);
+  scalarop_t arg = scalarop_t::make_arg(0, dtype);
+  scalarop_t ret1 = scalarop_t::combine(mul, {constant1, arg});
+  scalarop_t ret2 = scalarop_t::combine(mul, {constant2, scalarop_t::combine(power, {arg})});
+  scalarop_t ret = scalarop_t::combine(add, {ret1, ret2});
+  // auto [str, bytes] = ret.to_cpp_bytes();
+  // DOUT(str);
+  // // cast bytes to a float and print it
+  // float* f = (float*)bytes.data();
+  // DOUT(*f);
+  // // cast bytes + 4 to a float and print it
+  // f = (float*)(bytes.data() + 4);
+  // DOUT(*f);
+
+  // build the scalarop: +[*[constant{f32|0.999},hole|f32@0],*[constant{f32|0.000999987}, *[hole|f32@1, [hole|f32@1]]
+  scalarop_t ret2_new = scalarop_t::combine(mul, {constant2, scalarop_t::replace_arguments(mul, {arg, arg})});
+  scalarop_t ret_new = scalarop_t::combine(add, {ret1, ret2_new});
+
+  DOUT(ret_new);
+
+  return ret;
+}
+
+scalarop_t scalarop_km2(){
+  // build es[512,64]+ ab,ab,a->a | *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+  dtype_t dtype = dtype_t::f32;
+  scalarop_t one = scalarop_t::make_constant(scalar_t::one(dtype));
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype);
+  scalarop_t arg2 = scalarop_t::make_arg(2, dtype);
+  scalarop_t mul = scalarop_t::make_mul(dtype);
+  scalarop_t neg = scalarop_t::make_neg(dtype);
+  scalarop_t power = scalarop_t::make_power(-2);
+  scalarop_t ret = scalarop_t::replace_arguments(power, {arg2});
+  ret = scalarop_t::replace_arguments(neg, {ret});
+  ret = scalarop_t::replace_arguments(mul, {arg1, ret});
+  ret = scalarop_t::replace_arguments(mul, {arg0, ret});
+  DOUT(ret);
+  auto [str, bytes] = ret.to_cpp_bytes();
+  DOUT(str);
+  auto power_num = *((double*)(bytes.data() + 4));
+  DOUT("Power is " << power_num);
+  if (power_num == -2){
+    DOUT("Power is -2");
+  }
+
+  // x**(-2) = 1/(x**2) = 1/(x*x)
+  scalarop_t div = scalarop_t::make_div(dtype);
+  scalarop_t new_ret = scalarop_t::replace_arguments(div, {one, scalarop_t::replace_arguments(mul, {arg2, arg2})});
+  DOUT("new_ret 1): " << new_ret);
+  new_ret = scalarop_t::replace_arguments(neg, {new_ret});
+  DOUT("new_ret 2): " << new_ret);
+  new_ret = scalarop_t::replace_arguments(mul, {arg1, new_ret});
+  DOUT("new ret 3): " << new_ret);
+  new_ret = scalarop_t::replace_arguments(mul, {arg0, new_ret});
+  DOUT("new ret is " << new_ret);
+  return ret;
+}
+
+// ite_==[hole|f32@0,hole|f32@1,constant{f32|1},constant{f32|0}]
+scalarop_t scalarop_km3(){
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  scalarop_t is_equal = scalarop_t::make_is_equal(dtype_t::f32);
+  scalarop_t ret = scalarop_t::replace_arguments(is_equal, {arg0, arg1});
+  DOUT(ret);
+  DOUT(ret.to_cppstr());
+
+  return ret;
+}
+
+// ab,ab,a->a | *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+scalarop_t scalarop_km4(){
+  scalarop_t arg0 = scalarop_t::make_arg(0, dtype_t::f32);
+  scalarop_t arg1 = scalarop_t::make_arg(1, dtype_t::f32);
+  scalarop_t arg2 = scalarop_t::make_arg(2, dtype_t::f32);
+  scalarop_t mul = scalarop_t::make_mul(dtype_t::f32);
+  scalarop_t neg = scalarop_t::make_neg(dtype_t::f32);
+  scalarop_t power = scalarop_t::make_power(-2);
+  scalarop_t ret = scalarop_t::replace_arguments(power, {arg2});
+  ret = scalarop_t::replace_arguments(neg, {ret});
+  ret = scalarop_t::replace_arguments(mul, {arg1, ret});
+  ret = scalarop_t::replace_arguments(mul, {arg0, ret});
+  DOUT(ret);
+  DOUT(ret.to_cppstr());
+  return ret;
+}
+
+void km_test(){
+  scalarop_t s = scalarop_km4();
+  kernel_manager_t km(0);
+  auto join_shape {8, 4};
+  auto inns = {{0,1},{0,1},{0}};
+  auto rank = 1;
+  einsumable_t e = einsumable_t(join_shape, inns, rank, s, castable_t:add);
+  // make three buffers 
+  dbuffer_t a = make_dbuffer(dtype_t::f32, 8*4);
+  dbuffer_t b = make_dbuffer(dtype_t::f32, 8*4);
+  dbuffer_t c = make_dbuffer(dtype_t::f32, 8);
+  a.ones();
+  b.ones();
+  c.ones();
+  dbuffer_t out_ref = reference_einsummable(custom, {lhs,middle,rhs});
+
+  auto workspace_info = km.build(matmul);
+  uint64_t size = workspace_info.value().value();
+  void* work;
+  cudaMalloc(&work, size);
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+
+
+}
+
 int main(int argc, char **argv) {
   // server_1(argc, argv);
   // server_3d_mamtmul(argc, argv);
@@ -895,5 +1019,6 @@ int main(int argc, char **argv) {
   // server_mm_partition(argc, argv);
   // lowerTri_test();
   // constant_test(); 
-  ew_test();
+  // ew_test();
+  scalarop_km4();
 }

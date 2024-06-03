@@ -23,10 +23,19 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
   bool keystrcd = false)
 {
   vector<string> ks = {
-    "*[constant{f32|1024},to_f32[hole|f16@0]]",
-    "*[constant{f32|9.99024},to_f32[hole|f16@0]]",
-    "to_f16[+[to_f32[hole|f16@0],*[constant{f32|-1},*[constant{f32|5.00679e-06},hole|f32@1]]]]"
-  };
+    "*[constant{f32|0.0883883},hole|f32@0]",
+    "*[hole|c64@0,hole|c64@1]",
+    "*[hole|f32@0,hole|f32@1]",
+    "*[hole|f32@0,power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@0]]]]]",
+    "*[hole|f32@0,power{-1}[hole|f32@1]]",
+    "+[constant{f32|1e-06},*[constant{f32|0.000244141},hole|f32@0]]",
+    "+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]",
+    "+[hole|f32@0,hole|f32@1]",
+    "exp[hole|f32@0]",
+    "hole|f32@0",
+    "power{-0.5}[hole|f32@0]",
+    "power{2}[hole|f32@0]"
+	};
 
   auto to_type_str = [](dtype_t const& d) {
     if(d == dtype_t::f16) {
@@ -42,8 +51,8 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
     }
   };
 
-  int nu = 30;
-  int nb = 44;
+  int nu = 0;
+  int nb = 0;
   int nf = 0;
   set<string> seen;
   for(auto const& s: ks) {
@@ -90,8 +99,7 @@ void print_loop_kernel_info(bool unary, bool binary, bool keystr, bool opstr,
           ss << "_binary_ew_loop(b" << nb << ",c" << nb << ",d" << nb << ","
             << tout << "," << tlhs << "," << trhs << ","
             << op_str << ")";
-          string str = replace_substrs(ss.str(), "x0[i]", "x0[i0]");
-          str =        replace_substrs(str,      "x1[i]", "x1[i1]");
+          string str = ss.str();
           std::cout << str << std::endl;
         }
         nb++;

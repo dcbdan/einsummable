@@ -84,4 +84,3 @@ private:
 
   exec_state_t::priority_t priority_type;
 };
-

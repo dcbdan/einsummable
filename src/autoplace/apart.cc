@@ -143,6 +143,7 @@ vector<vector<int>> compute_equal_sums(int n, int d) {
 
 struct get_parts_t {
   graph_t const& graph;
+  int n_compute;
   int log2_n;
   parts_space_t search_space;
   optional<vector<partition_t>> set_parts;
@@ -167,10 +168,18 @@ struct get_parts_t {
       }
     } else if(search_space == parts_space_t::all) {
       vector<uint64_t> shape = op.shape();
+      if(product(shape) < n_compute) {
+        vector<vector<int>> pps(1, vector<int>(shape.size(), 0));
+        return fix(shape, pps);
+      }
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       return fix(shape, pps);
     } else if(search_space == parts_space_t::all_range) {
       vector<uint64_t> shape = op.shape();
+      if(product(shape) < n_compute) {
+        vector<vector<int>> pps(1, vector<int>(shape.size(), 0));
+        return fix(shape, pps);
+      }
       vector<vector<int>> pps = compute_equal_sums(log2_n, shape.size());
       vector_concatenate_into(
         pps,
@@ -663,8 +672,10 @@ vector<partition_t> apart01(
   // 3.
   get_parts_t get_possible_partitions {
     .graph = graph,
+    .n_compute = n_compute,
     .log2_n = log2_n,
-    .search_space = search_space
+    .search_space = search_space,
+    .set_parts = std::nullopt
   };
   compute_cost_t compute_cost {
     .graph = graph,
@@ -880,6 +891,7 @@ vector<partition_t> apart02(
 
   get_parts_t get_possible_parts {
     .graph = graph,
+    .n_compute = n_compute,
     .log2_n = safe_log2(n_compute),
     .search_space = parts_space_t::contraction,
     .set_parts = std::nullopt
@@ -943,4 +955,327 @@ vector<partition_t> apart02(
   }
 
   return parts;
+}
+
+vector<partition_t> apart03(
+  graph_t const& graph,
+  map<tuple<int, int>, partdim_t> const& init_parts)
+{
+  // ugh, no default constructor for partition.. Just gonna do this
+  partition_t dummy(vector<partdim_t>(1, partdim_t::singleton(1)));
+  vector<partition_t> ret(graph.nodes.size(), dummy);
+
+  for(int const& gid: graph.get_order()) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input() || node.op.is_fill()) {
+      vector<uint64_t> shape = node.op.out_shape();
+      vector<partdim_t> pds;
+      for(int which = 0; which != shape.size(); ++which) {
+        auto iter = init_parts.find({gid,which});
+        if(iter == init_parts.end()) {
+          pds.push_back(partdim_t::singleton(shape[which]));
+        } else {
+          pds.push_back(iter->second);
+          if(pds.back().total() != shape[which]) {
+            throw std::runtime_error("invalid init_parts value");
+          }
+        }
+      }
+      ret[gid] = partition_t(pds);
+    } else if(node.op.is_formation()) {
+      int rank = node.op.out_shape().size();
+      int inn_gid = node.inns[0];
+      auto const& inn_pds = ret[inn_gid].partdims;
+      ret[gid] = partition_t(vector<partdim_t>(
+        inn_pds.begin(), inn_pds.begin() + rank));
+    } else if(node.op.is_complexer()) {
+      int inn_gid = node.inns[0];
+      auto const& inn_pds = ret[inn_gid].partdims;
+      vector<partdim_t> out_pds = inn_pds;
+
+      auto const& complexer = node.op.get_complexer();
+
+      if(dtype_is_real(complexer.dtype)) {
+        // complex -> real ;; the last dim is doubled
+        partdim_t& pd = out_pds.back();
+        pd = partdim_t::from_sizes(vector_double(pd.sizes()));
+      } else {
+        // real -> complex ;; the last dim is halved
+        partdim_t& pd = out_pds.back();
+        pd = partdim_t::from_sizes(vector_halve(pd.sizes()));
+      }
+
+      if(out_pds.back().total() != complexer.shape.back()) {
+        throw std::runtime_error("complexer deduction partition failed");
+      }
+
+      ret[gid] = partition_t(out_pds);
+    } else if(node.op.is_squeezer()) {
+      auto const& [dtype, inn_shape, out_shape] = node.op.get_squeezer();
+
+      int inn_gid = node.inns[0];
+      auto const& inn_pds = ret[inn_gid].partdims;
+
+      auto iter = inn_pds.begin();
+      vector<partdim_t> out_pds;
+      for(int i = 0; i != out_shape.size(); ++i) {
+        if(out_shape[i] == 1) {
+          out_pds.push_back(partdim_t::singleton(1));
+        } else {
+          while(iter->total() == 1 && iter != inn_pds.end()) {
+            iter++;
+          }
+          if(iter == inn_pds.end()) {
+            throw std::runtime_error("should not happen: at inn_pds.end()");
+          }
+          if(iter->total() != out_shape[i]) {
+            throw std::runtime_error("selected pd shape is incorrect");
+          }
+          out_pds.push_back(*iter++);
+        }
+      }
+      ret[gid] = partition_t(out_pds);
+    } else if(node.op.is_select()) {
+      // For this one, just compute the refinement partition as that
+      // is easier to implement than some scheme that verifies everything
+      // matches and is the same
+      auto const& select = node.op.get_select();
+      vector<partdim_t> out_pds;
+      for(uint64_t const& sz: select.out_shape) {
+        out_pds.push_back(partdim_t::singleton(sz));
+      }
+      for(auto const& [inn_gid, inn_region]:
+        vector_zip(node.inns, select.inn_regions))
+      {
+        auto const& inn_pds = ret[inn_gid].partdims;
+        for(int d = 0; d != out_pds.size(); ++d) {
+          auto const& inn_pd = inn_pds[d];
+          auto const& selectdim = inn_region[d];
+          partdim_t part_portion_pd = inn_pd.subset(
+            selectdim.offset_inn,
+            selectdim.offset_inn + selectdim.size);
+
+          vector<uint64_t> portion_sizes;
+          if(selectdim.offset_out > 0) {
+            portion_sizes.push_back(selectdim.offset_out);
+          }
+          vector_concatenate_into(portion_sizes, part_portion_pd.sizes());
+          if(selectdim.offset_out + selectdim.size < select.out_shape[d]) {
+            portion_sizes.push_back(
+              select.out_shape[d] - (selectdim.offset_out + selectdim.size));
+          }
+          partdim_t portion_pd = partdim_t::from_sizes(portion_sizes);
+
+          out_pds[d] = partdim_t::unions({
+            out_pds[d],
+            portion_pd});
+        }
+      }
+      ret[gid] = partition_t(out_pds);
+    } else if(node.op.is_einsummable()) {
+      map<int, partdim_t> out_pds;
+      auto const& e = node.op.get_einsummable();
+      for(auto const& [inn_gid, inns]: vector_zip(node.inns, e.inns)) {
+        auto const& inn_pds = ret[inn_gid].partdims;
+        for(auto const& [d, pd]: vector_zip(inns, inn_pds)) {
+          auto iter = out_pds.find(d);
+          if(iter == out_pds.end()) {
+            out_pds.insert({d, pd});
+          } else {
+            if(pd != iter->second) {
+              throw std::runtime_error("the pd does not match!");
+            }
+          }
+        }
+      }
+      // any missing partdims in out_pds would've been a broadcast,
+      // which will just be set to singleton
+      vector<partdim_t> out_pds_;
+      for(int i = 0; i != e.join_shape.size(); ++i) {
+        auto iter = out_pds.find(i);
+        if(iter == out_pds.end()) {
+          out_pds_.push_back(partdim_t::singleton(e.join_shape[i]));
+        } else {
+          out_pds_.push_back(iter->second);
+        }
+      }
+
+      ret[gid] = partition_t(out_pds_);
+    } else {
+      throw std::runtime_error("MISSING dtype: apart03 heurstic");
+    }
+  }
+
+  return ret;
+}
+
+static
+partition_t cutoff_part(vector<uint64_t> shape, uint64_t cutoff) {
+  vector<uint64_t> splits(shape.size(), 1);
+
+  auto div = [](uint64_t a, uint64_t b) {
+    return (a + b - 1) / b;
+  };
+
+  auto block_size = [&] {
+    uint64_t ret = 1;
+    for(auto const& [dim, split]: vector_zip(shape, splits)) {
+      ret *= div(dim, split);
+    }
+    return ret;
+  };
+
+  auto split = [&] {
+    int which = -1;
+    uint64_t bestm = 0;
+    for(int i = 0; i != shape.size(); ++i) {
+      uint64_t const& dim = shape[i];
+      uint64_t const& split = splits[i];
+      if(split * 2 < dim) {
+        uint64_t m = div(dim, split);
+        if(which < 0 || m > bestm) {
+          which = i;
+          bestm = m;
+        }
+      }
+    }
+    if(which >= 0) {
+      splits[which] *= 2;
+      return true;
+    } else {
+      return false;
+    }
+  };
+
+  while(block_size() > cutoff) {
+    if(!split()) {
+      break;
+    }
+  }
+
+  vector<partdim_t> pds;
+  for(auto const& [dim, split]: vector_zip(shape, splits)) {
+    pds.push_back(partdim_t::split(dim, int(split)));
+  }
+  return partition_t(pds);
+}
+
+vector<partition_t> apart04(
+  graph_t const& graph,
+  uint64_t cutoff)
+{
+  partition_t dummy(vector<partdim_t>(1, partdim_t::singleton(1)));
+  vector<optional<partition_t>> ret(graph.nodes.size(), std::nullopt);
+
+  vector<int> pending;
+  auto add_to_pending = [&](int gid) {
+    auto const& node = graph.nodes[gid];
+    for(auto const& inn_gid: node.get_inns_set()) {
+      pending.push_back(inn_gid);
+    }
+    for(auto const& out_gid: node.outs) {
+      pending.push_back(out_gid);
+    }
+  };
+
+  int count = 0;
+  auto set_partition = [&](int gid, partition_t const& part) {
+    count++;
+    ret[gid] = part;
+    add_to_pending(gid);
+  };
+
+  auto deduce_partition = [&](int gid) -> optional<partition_t> {
+    if(ret[gid]) {
+      return std::nullopt;
+    }
+
+    auto const& node = graph.nodes[gid];
+
+    // formation nodes are exclusively computed from inputs
+    if(node.op.is_formation()) {
+      int rank = node.op.out_shape().size();
+      int inn_gid = node.inns[0];
+      auto const& inn_part = ret[inn_gid];
+      if(inn_part) {
+        auto const& inn_pds = inn_part.value().partdims;
+        return partition_t(vector<partdim_t>(
+          inn_pds.begin(), inn_pds.begin() + rank));
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    if(node.op.is_einsummable()) {
+      auto const& e = node.op.get_einsummable();
+      if(e.is_broadcast()) {
+        return std::nullopt;
+      }
+      if(e.is_contraction()) {
+        return std::nullopt;
+      }
+      map<int, partdim_t> pds;
+      for(auto const& [inn_gid, inns]: vector_zip(node.inns, e.inns)) {
+        auto maybe = ret[inn_gid];
+        if(!maybe) {
+          continue;
+        }
+        auto const& inn_pds = maybe.value().partdims;
+        for(auto const& [d, pd]: vector_zip(inns, inn_pds)) {
+          pds.insert({d, pd});
+        }
+      }
+
+      vector<partdim_t> xs;
+      for(int i = 0; i != e.join_shape.size(); ++i) {
+        auto iter = pds.find(i);
+        if(iter == pds.end()) {
+          break;
+        }
+        xs.push_back(iter->second);
+      }
+      if(xs.size() == e.join_shape.size()) {
+        return partition_t(xs);
+      }
+    }
+
+    // TODO
+
+    vector<uint64_t> shape = node.op.shape();
+    return cutoff_part(shape, cutoff);
+  };
+
+  // Step 1: partition all contractions
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_einsummable()) {
+      auto const& e = node.op.get_einsummable();
+      if(e.is_contraction()) {
+        set_partition(gid, cutoff_part(e.join_shape, cutoff));
+      }
+    }
+  }
+
+  while(count != graph.nodes.size()) {
+    if(pending.size() == 0) {
+      throw std::runtime_error("oops... apart04 has nodes to process but nothing in penidng");
+    }
+    vector<int> old_pending = pending;
+    pending.resize(0);
+    for(auto const& gid: old_pending) {
+      optional<partition_t> part = deduce_partition(gid);
+      if(part) {
+        set_partition(gid, part.value());
+      } else {
+        pending.push_back(gid);
+      }
+    }
+  }
+
+  //return ret;
+  vector<partition_t> ps;
+  for(auto const& p: ret) {
+    ps.push_back(p.value());
+  }
+  return ps;
 }

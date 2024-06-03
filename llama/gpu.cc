@@ -257,7 +257,7 @@ void main_rank_zero(
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
   DOUT("nseq:                            " << nseq);
-  DOUT("nbatch:                          " << nbatch);
+  // DOUT("nbatch:                          " << nbatch);
 
   token_maker_t token_maker = make_token_maker_with_shape(nbatch, nseq);
 
@@ -278,6 +278,10 @@ void main_rank_zero(
 
   model_args_t margs = model_args_t::llama(reader.num_files(), bsz);
 
+  if (nseq > margs.max_seq_len) {
+    throw std::runtime_error("The sequence length is too long for the model parameters.");
+  }
+
   args.set_default<int>("max_n_layers", -1);
   {
     int n_layers = args.get<int>("max_n_layers");
@@ -287,6 +291,8 @@ void main_rank_zero(
   }
 
   builder_t builder = builder_t::make_first_token(margs, seqlen);
+
+  auto start_reader = std::chrono::high_resolution_clock::now();
 
   dbuffer_t embedding_matrix;
   {
@@ -348,6 +354,11 @@ void main_rank_zero(
   }
 
   reader.shutdown(register_cmd);
+  // time it
+  auto end_reader = std::chrono::high_resolution_clock::now();
+  DOUT("Reader shutdown. Time: "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(end_reader - start_reader).count()
+       << "ms");
 
   {
     autoplace_config_t config = autoplace_config_t::make_default01(
@@ -407,7 +418,7 @@ void main_rank_zero(
 // ./gpu_llama 7B 1 max_n_layers n
 int main(int argc, char** argv) {
 
-  set_default_dtype(dtype_t::f32);
+  set_default_dtype(dtype_t::f16);
 
   if(argc < 3) {
     DOUT("argc " << argc);
@@ -420,6 +431,8 @@ int main(int argc, char** argv) {
   int world_size = 1;
 
   string base_data_file(argv[1]);
+  // add "../ " to the base_data_file
+  base_data_file = "/home/zhimin/mytmpfs/" + base_data_file;
   int num_data_files = parse_with_ss<int>(argv[2]);
 
   if(is_rank_zero) {
@@ -436,8 +449,9 @@ int main(int argc, char** argv) {
 
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
+  // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(15lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(120lu * 100lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);
@@ -462,9 +476,16 @@ int main(int argc, char** argv) {
   args.set_default("use_storage", true);
   server.set_use_storage(args.get<bool>("use_storage"));
 
+  args.set_default("split_off_inputs", true);
+  server.set_split_off_inputs(args.get<bool>("split_off_inputs"));
+
+  // DOUT("parallel_partialize:             " << server.parallel_partialize_);
+  // DOUT("use_storage:                     " << server.use_storage_);
+  // DOUT("split_off_inputs:                " << server.split_off_inputs_);
+
   if(is_rank_zero) {
     main_rank_zero(server, reader, args);
-    
+
     server.shutdown();
   } else {
     server.register_listen(

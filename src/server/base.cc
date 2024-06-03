@@ -43,23 +43,32 @@ void server_base_t::execute_graph(
       num_bytes += node.op.get_move().size;
     }
   }
-  //DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
+  DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
-  //{
-  //  std::ofstream f("tg.gv");
-  //  taskgraph.print_graphviz(f);
-  //  DOUT("printed tg.gv");
-  //}
+  {
+   std::ofstream f("tg.gv");
+   taskgraph.print_graphviz(f);
+   DOUT("printed tg.gv");
+  }
 
+  // inn_g_to_t is input id to taskid in taskgraph 
+  //TODO: this remap(remap_relations_t r) kind of function signature only appear in server_dist_base_t. We need to remove this 
   remap_relations_t r;
   for(auto const& [gid, dst_tids]: inn_g_to_t) {
+    //map the previous gid,relation to new gid,relation after we make taskgraph
     r.insert(
       get_relation(gid),             // src relation
       make_relation(gid, dst_tids)   // dst relation
     );
   }
 
+  // auto remap_start_time = std::chrono::high_resolution_clock::now();
+
   remap(r);
+
+  // auto remap_end_time = std::chrono::high_resolution_clock::now();
+  // std::chrono::duration<double, std::milli> elapsed = remap_end_time - remap_start_time;
+  // std::cout << "Remap elapsed time is " << elapsed.count() << " milliseconds" << std::endl;
 
   execute(taskgraph, scalar_vars);
 
@@ -170,6 +179,17 @@ void server_base_t::insert_constant(
 void server_base_t::remap(
   map<int, relation_t> const& gid_to_new_relations)
 {
+  // Get all tids that are not going to be used and delete them.
+  {
+    vector<int> erase_gids;
+    for(auto const& [gid, _]: gid_map) {
+      if(gid_to_new_relations.count(gid) == 0) {
+        erase_gids.push_back(gid);
+      }
+    }
+    erase(erase_gids);
+  }
+
   remap_relations_t r;
   for(auto const& [gid, new_rel]: gid_to_new_relations) {
     r.insert(gid_map.at(gid), new_rel);
@@ -184,11 +204,47 @@ void server_base_t::remap_gids(vector<tuple<int,int>> const& remap)
 {
   map<int, relation_t> ret;
 
+  // Get all tids that are not going to be used and delete them.
+  {
+    set<int> src_gids;
+    {
+      auto tmp = vector_mapfst(remap);
+      src_gids = set<int>(tmp.begin(), tmp.end());
+    }
+    vector<int> erase_gids;
+    {
+      for(auto const& [gid,_]: gid_map) {
+        if(src_gids.count(gid) == 0) {
+          erase_gids.push_back(gid);
+        }
+      }
+    }
+    erase(erase_gids);
+  }
+
   for(auto const& [src,dst]: remap) {
     ret.insert({dst, gid_map.at(src)});
   }
 
   gid_map = ret;
+}
+
+void server_base_t::erase(vector<int> const& gids) {
+  vector<tuple<int, int>> loc_tid_pairs;
+  for(auto const& gid: gids) {
+    auto const& rel = gid_map.at(gid);
+    auto const& locs = rel.placement.locations.get();
+    auto const& tids = rel.tids.get();
+    vector_concatenate_into(
+      loc_tid_pairs,
+      vector_zip(locs, tids));
+  }
+
+  erase_tids(loc_tid_pairs);
+
+  for(auto const& gid: gids) {
+    gid_map.erase(gid);
+  }
 }
 
 map<string, scalar_t> scalar_vars_from_wire(string const& s) {

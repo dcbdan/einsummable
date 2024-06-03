@@ -84,12 +84,13 @@ private:
   };
 
   struct broadcast_b_ab_t {
+    scalar_t scalar;
     uint64_t nelem_a;
-    uint64_t sz_b;
+    uint64_t nelem_b;
   };
 
   struct broadcast_a_ab_t {
-    dtype_t dtype;
+    scalar_t scalar;
     uint64_t nelem_a;
     uint64_t nelem_b;
   };
@@ -213,24 +214,24 @@ build_ab_a_reduction_kernel(
 // F           T          ji,jk->ik
 // T           T          ji,kj->ik
 void matrix_multiply_update(
-  dtype_t const& dtype,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
+  dtype_t dtype,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
   void* out,
   void const* lhs,
   void const* rhs,
-  bool is_zero_else_one);
+  bool do_update);
 
 void matrix_multiply(
-  dtype_t const& dtype,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
+  dtype_t dtype,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
   void* out,
   void const* lhs,
   void const* rhs);
@@ -243,20 +244,24 @@ void matrix_multiply(
 //   ij,jk->bik
 //   bij,bjk->ik
 // by just looping over the batched dimension
+//
+// In addition, not all of the b and i dimensions are computed,
+// only [offset_b, offset_b+size_b) and [offset_i, offset_i + size_i)
 void batch_matrix_multiply(
-  dtype_t const& dtype,
-  uint64_t const& nb,
-  bool const& batched_out,
-  bool const& batched_lhs,
-  bool const& batched_rhs,
-  uint64_t const& ni,
-  uint64_t const& nj,
-  uint64_t const& nk,
-  bool const& trans_lhs,
-  bool const& trans_rhs,
+  dtype_t dtype,
+  uint64_t offset_b, uint64_t size_b,
+  bool batched_out,
+  bool batched_lhs,
+  bool batched_rhs,
+  uint64_t ni, uint64_t offset_i, uint64_t size_i,
+  uint64_t nj,
+  uint64_t nk,
+  bool trans_lhs,
+  bool trans_rhs,
   void* out,
   void const* lhs,
-  void const* rhs);
+  void const* rhs,
+  bool do_update);
 
 void c64_mul_abcd_bd_to_abcd(
   uint64_t na,
@@ -283,14 +288,20 @@ void permute_kernel(
   void* out,
   void const* inn);
 
+void scale_kernel(
+  scalar_t const& scalar,
+  uint64_t nelem,
+  void* out);
+
 void broadcast_b_ab_kernel(
+  scalar_t const& scalar,
   uint64_t nelem_a,
-  uint64_t sz_b,
+  uint64_t nelem_b,
   void* out,
   void const* inn);
 
 void broadcast_a_ab_kernel(
-  dtype_t dtype,
+  scalar_t const& scalar,
   uint64_t nelem_a,
   uint64_t nelem_b,
   void* out,

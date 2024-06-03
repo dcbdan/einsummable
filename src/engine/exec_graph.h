@@ -31,7 +31,8 @@ struct exec_graph_t {
     taskgraph_t const& taskgraph,
     int this_rank,
     cpu_kernel_executor_t& cpu_executor,
-    int num_channels_per_move,
+    int num_channels_per_move = 1,
+    int num_threads_per_contraction = 1,
     map<string, scalar_t> const& scalar_vars = {});
 #endif
 

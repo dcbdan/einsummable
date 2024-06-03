@@ -6,6 +6,7 @@
 #include "../einsummable/memgraph.h"
 #include "../einsummable/relation.h"
 #include "../einsummable/dbuffer.h"
+#include "../einsummable/mgmake.h"
 
 #include "../engine/communicator.h"
 #include "../engine/threadpool.h"
@@ -111,6 +112,10 @@ public:
   // Note: gid_map will only contain the dst tids after this
   void remap_gids(vector<tuple<int,int>> const& remap);
 
+  void erase(vector<int> const& gids);
+
+  virtual void erase_tids(vector<tuple<int, int>> const& loc_tid_pairs) = 0;
+
   // Get the max tid across all data objects on all ranks.
   // Useful for creating new relations that won't overwrite
   // existing data
@@ -133,6 +138,8 @@ public:
   virtual void local_erase_tensors(vector<int> const& tids) = 0;
 
   virtual bool make_parallel_partialize_groups() const = 0;
+
+  virtual bool is_local_location(int loc) const = 0;
 
   // This is used for the repartition funciton, which will create a threadpool
   // if none is given
@@ -176,6 +183,8 @@ public:
 
   void remap(remap_relations_t const& remap);
 
+  void erase_tids(vector<tuple<int, int>> const& loc_tid_pairs);
+
   int get_max_tid();
 
   void shutdown();
@@ -197,6 +206,7 @@ private:
   enum class cmd_t {
     execute_tg = 0,
     remap,
+    erase_tids,
     get_tensor,
     insert_constant,
     insert_relation,
@@ -209,6 +219,7 @@ private:
     static vector<string> ret {
       "execute_tg",
       "remap",
+      "erase_tids",
       "get_tensor",
       "insert_constant",
       "insert_relation",
@@ -245,13 +256,20 @@ protected:
   virtual void remap_server(remap_relations_t const& remap_relations) = 0;
   virtual void remap_client() = 0;
 
+  void erase_tids_server(
+    vector<tuple<int, int>> const& loc_tid_pairs);
+  void erase_tids_client();
+
   virtual int local_get_max_tid() const = 0;
 
   // return a location that exists at this compute-node
   virtual int local_candidate_location() const = 0;
 
-  bool is_local_location(int loc) {
-    return comm.get_this_rank() == loc_to_compute_node(loc);
+  bool is_local_location_to(int loc, int rank) const {
+    return rank == loc_to_compute_node(loc);
+  }
+  bool is_local_location(int loc) const {
+    return is_local_location_to(loc, comm.get_this_rank());
   }
   virtual int loc_to_compute_node(int loc) const = 0;
 
@@ -339,6 +357,7 @@ public:
   bool use_storage_;
   bool split_off_inputs_;
 };
+
 
 map<string, scalar_t> scalar_vars_from_wire(string const& s);
 string scalar_vars_to_wire(map<string, scalar_t> const& vars);

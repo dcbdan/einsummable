@@ -40,7 +40,8 @@ void main_rank_zero(
     map<int, placement_t> const& fixed_pls,
     vector<tuple<int,int>> const& equal_pls)
   {
-    return autoplace02(graph, config, fixed_pls, equal_pls);
+    return autoplace01(graph, config);
+    //return autoplace02(graph, config, fixed_pls, equal_pls);
   };
 
   pargs.set_default<int>("lora_rank", 32);
@@ -224,7 +225,8 @@ void main_rank_zero(
         vector<vector<int>> data_tokens;
         vector<int> label_tokens;
         for(auto const& which_datum: which_data) {
-          auto [datum_tokens, label_token] = data_loader.datum(which_datum, margs.max_seq_len);
+          auto [datum_tokens, label_token] = 
+            data_loader.datum(which_datum, margs.max_seq_len);
           data_tokens.push_back(datum_tokens);
           label_tokens.push_back(label_token);
         }
@@ -267,7 +269,7 @@ void main_rank_zero(
 int main(int argc, char** argv) {
   set_default_dtype(dtype_t::f32);
 
-  int expected_argc = 9;
+  int expected_argc = 10;
   if(argc < expected_argc) {
     usage();
     return 1;
@@ -287,7 +289,8 @@ int main(int argc, char** argv) {
   int num_data_files = parse_with_ss<int>(argv[7]);
 
   int num_threads = parse_with_ss<int>(argv[8]);
-  int num_channels = 4;
+  int num_contraction_threads = parse_with_ss<int>(argv[9]);
+  int num_channels = 1;
   int num_channels_per_move = 1;
 
   DOUT("n_locs " << world_size << " | num_threads_per_loc " << num_threads);
@@ -301,7 +304,7 @@ int main(int argc, char** argv) {
       new cpu_mg_server_t(communicator, mem_size, num_threads));
   } else if(which_server == "tg") {
     server = std::unique_ptr<server_base_t>(
-      new cpu_tg_server_t(communicator, mem_size, num_threads));
+      new cpu_tg_server_t(communicator, mem_size, num_threads, num_contraction_threads));
   } else {
     throw std::runtime_error("invalid server arg");
   }
@@ -338,7 +341,9 @@ int main(int argc, char** argv) {
   args.set_default("config_threads", 8);
   int num_config_threads_per_machine = args.get<int>("config_threads");
   DOUT("num config threads per machine " << num_config_threads_per_machine);
-  autoplace_config_t config = autoplace_config_t::make_default02(
+  //autoplace_config_t config = autoplace_config_t::make_default02(
+  //  world_size, num_config_threads_per_machine);
+  autoplace_config_t config = autoplace_config_t::make_default01(
     world_size, num_config_threads_per_machine);
 
   main_rank_zero(server, reader, args, config);

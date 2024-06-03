@@ -20,7 +20,12 @@ void*       offset_increment(void*       ptr, uint64_t offset) {
 // prints float starting from ptr with count number of elements
 void printFloatCPU(const float *cpu_ptr, int count) {
   for (int i = 0; i < count; ++i) {
-    printf("%.2f ", cpu_ptr[i]);
+    // if cpu_ptr[i] is 0 then print 0 else print the value
+    if (cpu_ptr[i] == 0) {
+      printf("0 ");
+    } else {
+      printf("%.4f ", cpu_ptr[i]);
+    }
   }
   printf("\n");
 }
@@ -49,13 +54,13 @@ void* gpu_allocate_memory(size_t size, int device_id) {
 void init_value(float *ptr, int count, float value) {
   // malloc memory on cpu and cudamemcpy to gpu
   float *tmp = (float *)malloc(count * sizeof(float));
-  float *check = (float *)malloc(count * sizeof(float));
+  // float *check = (float *)malloc(count * sizeof(float));
   for (int i = 0; i < count; ++i) {
     tmp[i] = value;
   }
   cudaMemcpy(ptr, tmp, count * sizeof(float), cudaMemcpyHostToDevice);
-  cudaMemcpy(tmp, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(check, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
+  // cudaMemcpy(tmp, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
+  // cudaMemcpy(check, ptr, count * sizeof(float), cudaMemcpyDeviceToHost);
 }
 
 void handle_cutensor_error(cutensorStatus_t error, string msg) {

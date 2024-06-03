@@ -94,6 +94,12 @@ std::ostream& operator<<(std::ostream& out, tuple<T, U> const& x12) {
   return out;
 }
 
+template <typename T>
+void print_vec(vector<T> const& xs)
+{
+  print_vec(std::cout, xs);
+}
+
 
 template <typename T>
 void print_vec(std::ostream& out, vector<T> const& xs)
@@ -110,11 +116,6 @@ void print_vec(std::ostream& out, vector<T> const& xs)
   out << "}";
 }
 
-template <typename T>
-void print_vec(vector<T> const& xs)
-{
-  print_vec(std::cout, xs);
-}
 
 template <typename T>
 std::ostream& operator<<(std::ostream& out, vector<T> const& ts) {
@@ -134,7 +135,7 @@ vector<T> vector_mapfst(vector<tuple<T, U>> const& xys) {
 
 template <typename T, typename U>
 vector<U> vector_mapsnd(vector<tuple<T, U>> const& xys) {
-  return vector_from_each_tuple(xys, T, 1);
+  return vector_from_each_tuple(xys, U, 1);
 }
 
 template <typename T>

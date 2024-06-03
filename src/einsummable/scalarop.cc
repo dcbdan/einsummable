@@ -1236,6 +1236,24 @@ node_t node_t::simplify_once() const {
       return make_constant(scalar_t::zero(dtype));
     }
 
+    // Check for (constant * (constant * hole))
+    //           (c0 * (c1 * h))
+    if(lhs.op.is_constant() && rhs.op.is_mul()) {
+      node_t& c0 = lhs; 
+      node_t& c1 = rhs.children[0];
+      node_t& h  = rhs.children[1];
+      if(c1.op.is_constant() && h.op.is_hole()) {
+        scalar_t val = scalarop_t::make_mul(c0.dtype).eval(
+          {c0.op.get_constant(), c1.op.get_constant()});
+
+        return node_t {
+          .op = op, // op is just a mul
+          .dtype = c0.dtype,
+          .children = { node_t::make_constant(val), h }
+        };
+      }
+    }
+
     // Check for 1*x or x*1
     scalar_t one = dtype_is_complex(dtype)    ?
       scalar_t(std::complex<float>(1.0, 0.0)) :
@@ -1245,6 +1263,24 @@ node_t node_t::simplify_once() const {
     }
     if(rhs.op.is_constant() && rhs.op.get_constant() == one) {
       return lhs;
+    }
+
+    // Check for (constant * (constant * hole))
+    //           (c0 * (c1 * h))
+    if(lhs.op.is_constant() && rhs.op.is_mul()) {
+      node_t& c0 = lhs; 
+      node_t& c1 = rhs.children[0];
+      node_t& h  = rhs.children[1];
+      if(c1.op.is_constant() && h.op.is_hole()) {
+        scalar_t val = scalarop_t::make_mul(c0.dtype).eval(
+          {c0.op.get_constant(), c1.op.get_constant()});
+
+        return node_t {
+          .op = op, // op is just a mul
+          .dtype = c0.dtype,
+          .children = { node_t::make_constant(val), h }
+        };
+      }
     }
 
     // TODO: Check for 0.5*(x+x)
@@ -1468,8 +1504,92 @@ string access_data_str(string type, string data, uint64_t offset) {
   return "(*(("+type+"*)("+data+"+"+std::to_string(offset)+")))";
 }
 
+static
+vector<tuple<std::function<string(string const&)>, scalarop_t>>
+_unary_matches(dtype_t dtype)
+{
+  using make_t = std::function<string(string const&)>;
+  vector<tuple<make_t, scalarop_t>> ret;
+
+  make_t f_sqrt = [](string const& inn) {
+    return "_sqrt(" + inn + ")"; 
+  };
+  make_t f_square = [](string const& inn) {
+    return "_square(" + inn + ")";
+  };
+  make_t f_invsqrt = [](string const& inn) {
+    return "_invsqrt(" + inn + ")";
+  };
+
+  ret.emplace_back(f_sqrt,    scalarop_t::make_sqrt(dtype));
+  ret.emplace_back(f_square,  scalarop_t::make_square(dtype));
+  ret.emplace_back(f_invsqrt, scalarop_t::make_inverse_sqrt(dtype));
+
+  return ret;
+}
+
+static
+vector<tuple<std::function<string(string const&, string const&)>, scalarop_t>>
+_binary_matches(dtype_t dtype)
+{
+  using make_t = std::function<string(string const&, string const&)>;
+  vector<tuple<make_t, scalarop_t>> ret;
+
+  make_t f_sub = [](string const& lhs, string const& rhs) {
+    return "(" + lhs + "-" + rhs + ")";
+  };
+  make_t f_div = [](string const& lhs, string const& rhs) {
+    return "(" + lhs + "/" + rhs + ")";
+  };
+  make_t f_max = [](string const& lhs, string const& rhs) {
+    return "_max(" + lhs + "," + rhs + ")";
+  };
+  make_t f_min = [](string const& lhs, string const& rhs) {
+    return "_min(" + lhs + "," + rhs + ")";
+  };
+
+  ret.emplace_back(f_sub, scalarop_t::make_sub(dtype));
+  ret.emplace_back(f_div, scalarop_t::make_div(dtype));
+  ret.emplace_back(f_max, scalarop_t::make_max(dtype));
+  ret.emplace_back(f_min, scalarop_t::make_min(dtype));
+
+  return ret;
+}
+
 string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
 {
+  // Some special cases we should match:
+  //   sqrt
+  //   square
+  //   subtraction
+  //   division
+  //   max
+  //   min
+
+  if(dtype_is_real(dtype)) {
+    for(auto const& [make_str, skeleton]: _unary_matches(dtype)) {
+      auto maybe = _pop_match(skeleton.get_node(), this);
+      if(maybe) {
+        map<int, node_t const*> const& cs = maybe.value();
+        string inn = cs.at(0)->to_cpp_bytes(bytes);
+        return make_str(inn);
+      }
+    }
+
+    for(auto const& [make_str, skeleton]: _binary_matches(dtype)) 
+	  {
+      auto maybe = _pop_match(skeleton.get_node(), this);
+      if(maybe) {
+        map<int, node_t const*> const& cs = maybe.value();
+        string lhs = cs.at(0)->to_cpp_bytes(bytes);
+        string rhs = cs.at(1)->to_cpp_bytes(bytes);
+        return make_str(lhs, rhs);
+      }
+	  }
+  } else {
+    // TODO: implement complex cases
+  }
+
   if(op.is_constant()) {
     auto const& v = op.get_constant();
     if(v.dtype == dtype_t::f32) {
@@ -1548,7 +1668,6 @@ string node_t::to_cpp_bytes(vector<uint8_t>& bytes) const
     throw std::runtime_error("to_cpp_bytes: should not reach");
   }
 }
-
 
 void node_t::which_inputs(set<int>& items) const {
   if(op.is_hole()) {
@@ -1657,6 +1776,73 @@ void node_t::_hole_types(map<int, dtype_t>& ret) const {
       child._hole_types(ret);
     }
   }
+}
+
+static
+bool merge_into_nodeconst_map(
+  map<int, node_t const*>      & ret,
+  map<int, node_t const*> const& values)
+{
+  for(auto const& [key, value]: values) {
+    auto [iter, did_insert] = ret.insert({key, value});
+    if(did_insert) {
+      // Case 1: we have inserted a new key, value pair into ret
+    } else {
+      // Case 2: we did not insert a new key, value pair into ret.
+      // It better be the case that ret[key] == value !
+      node_t const& from_ret = *(iter->second);
+      node_t const& from_value = *value;
+      if(from_ret != from_value) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Consider relu == ite compare(zero, hole0) zero hole0
+// Then the recursion will hit hole0 multiple times and the
+// maps will have to be checked.
+//
+// Consider lambda x: x + x  (hole0 + hole0)
+// Here, we will have to merge {arg0, node_from_x}
+optional<map<int, node_t const*>>
+_pop_match(node_t const* skeleton, node_t const* node)
+{
+  if(skeleton->dtype != node->dtype) {
+    return std::nullopt;
+  }
+
+  // This is the base case of the recursion
+  if(skeleton->op.is_hole()) {
+    int which_arg = skeleton->op.get_which_input();
+    return map<int, node_t const*>{ { which_arg, node } };
+  }
+
+  if(skeleton->op != node->op) {
+    return std::nullopt;
+  }
+
+  // now recurse!
+
+  int num_children = skeleton->children.size();
+  if(num_children != node->children.size()) {
+    throw std::runtime_error(
+      "should not happen: same op, different number of children");
+  }
+  map<int, node_t const*> ret;
+  for(int which = 0; which != num_children; ++which) {
+    auto maybe = _pop_match(
+      &skeleton->children[which], &node->children[which]);
+    if(!maybe) {
+      return std::nullopt;
+    }
+    bool success = merge_into_nodeconst_map(ret, maybe.value());
+    if(!success) {
+      return std::nullopt;
+    }
+  }
+  return ret;
 }
 
 } // scalar_ns
@@ -2073,9 +2259,23 @@ scalarop_t scalarop_t::make_increment(scalar_t val) {
   return parse_with_ss<scalarop_t>("+["+h0+"," + constant + "]");
 }
 
+// e^x0
 scalarop_t scalarop_t::make_exp(dtype_t dtype) {
   string h0 = op_t::h_str(0, dtype);
   return parse_with_ss<scalarop_t>("exp["+h0+"]");
+}
+
+// 1 / (1 + e^x0)
+scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {
+  scalar_t n_one = scalar_t::negative_one(dtype);
+  scalar_t one   = scalar_t::one(dtype);
+
+  scalarop_t ret = make_scale(n_one);            // -1*x0
+  ret = combine(make_exp(dtype), { ret });       // e^(-1*x0)
+  ret = combine(make_increment(one), { ret });   // 1 + e^(-1*x0)
+  ret = combine(make_rcp(dtype), { ret });       // 1 / (1 + e^(-1*x0))
+
+  return ret;
 }
 
 scalarop_t scalarop_t::make_log(dtype_t dtype) {
@@ -2144,19 +2344,6 @@ scalarop_t scalarop_t::make_silu(dtype_t dtype) {
   ret = "*["+x+","+ret+"]";
 
   return parse_with_ss<scalarop_t>(ret);
-}
-
-// 1 / (1 + e^x0)
-scalarop_t scalarop_t::make_sigmoid(dtype_t dtype) {
-  scalar_t n_one = scalar_t::negative_one(dtype);
-  scalar_t one   = scalar_t::one(dtype);
-
-  scalarop_t ret = make_scale(n_one);            // -1*x0
-  ret = combine(make_exp(dtype), { ret });       // e^(-1*x0)
-  ret = combine(make_increment(one), { ret });   // 1 + e^(-1*x0)
-  ret = combine(make_rcp(dtype), { ret });       // 1 / (1 + e^(-1*x0))
-
-  return ret;
 }
 
 scalarop_t scalarop_t::make_rcp(dtype_t dtype)

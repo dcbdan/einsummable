@@ -14,10 +14,12 @@ struct cpu_tg_server_t : server_dist_base_t {
     communicator_t& c_,
     uint64_t max_memory_usage,
     int num_threads,
+    int num_threads_per_contraction = 1,
     int num_channels_per_move = 1)
     : server_dist_base_t(c_),
       max_memory_usage(max_memory_usage),
       threadpool(num_threads),
+      num_threads_per_contraction(num_threads_per_contraction),
       num_channels_per_move(num_channels_per_move)
   {
     if(num_channels_per_move > num_threads) {
@@ -73,6 +75,8 @@ private:
   cpu_kernel_executor_t kernel_executor;
 
   threadpool_t threadpool;
+
+  int num_threads_per_contraction;
 
   int num_channels_per_move;
 };

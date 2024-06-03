@@ -47,12 +47,12 @@ exec_state_t::exec_state_t(
 
   priorities.reserve(num_nodes);
   if(p == priority_t::given) {
-    DOUT("using given priorities");
+    // DOUT("using given priorities");
     for(auto const& node: exec_graph.nodes) {
       priorities.push_back(node.priority);
     }
   } else if(p == priority_t::bfs) {
-    DOUT("using bfs priorities");
+    // DOUT("using bfs priorities");
     vector<int> deps = num_deps_remaining;
     vector<int> order = ready_to_run_;
     order.reserve(num_nodes); // this prevents iterators from being invalidated
@@ -76,7 +76,7 @@ exec_state_t::exec_state_t(
       priorities[id] = idx;
     }
   } else if(p == priority_t::dfs) {
-    DOUT("using dfs priorities");
+    // DOUT("using dfs priorities");
     int cnt = 0;
     priorities.resize(num_nodes);
     vector<int> deps = num_deps_remaining;
@@ -114,7 +114,7 @@ exec_state_t::exec_state_t(
 
 void exec_state_t::event_loop() {
 #ifdef EXEC_STATE_COUNTDOWN
-  int decrement_print_at = 5000;
+  int decrement_print_at = 20000;
   if(num_remaining > decrement_print_at) {
     DOUT("eventloop num remaining: " << num_remaining);
   }
@@ -211,7 +211,7 @@ bool exec_state_t::try_to_launch(int id) {
 
       cv_notify.notify_one();
     };
-
+    // DOUT("launching " << id);
     node.launch(resources, callback);
     is_running.insert({id, resources});
 
