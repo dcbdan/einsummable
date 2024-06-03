@@ -71,6 +71,8 @@ target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
 add_llama_application("exp_apart03" "exp_apart03")
+add_llama_application("tg_order"    "tg_order")
+
 
 #add_llama_application("llama_main"  "main")
 #add_llama_application("llama_exp01" "exp01")
@@ -95,7 +97,7 @@ if(${CPU_EXECUTION_ENGINE})
 
   find_package(MKL REQUIRED)
 
-  
+
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
