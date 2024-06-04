@@ -72,6 +72,16 @@ struct memgraph_make_state_t {
 
   bool input_has_been_initialized(int inn);
 
+  //a helper function that finds the used tids for a given op. (inns)
+  vector<int> find_used_tids(_which_op_t const& which_op);
+
+  //This is a modified version of force_allocate_tids, only allocate one output tensor
+  void force_allocate_tid(_which_op_t const& which_op);
+
+  //This is used at the first if statement of process loop. allocates without evict. 
+  // Effect: create alloc node if possible, then add to task_tensor_to_mem_node
+  bool allocate_tid_without_evict(_which_op_t const& which_op);
+
   // This calls add to memgraph for every op, but also sets up all metadata
   // for eviction and loading
   void process(vector<_which_op_t> const& all_ops);
@@ -80,6 +90,7 @@ struct memgraph_make_state_t {
   // return false. If force is true, memory will be allocated and
   // may use evict. If force is false, memory may not be allocated and
   // and evict will not be used.
+  //TODO: never used...
   bool force_allocate_ops(
     _which_op_t const& which_op);
   // > get's the required tensors in memory, calling load if necc
@@ -101,7 +112,7 @@ struct memgraph_make_state_t {
   bool allocate_tids_without_evict(vector<int> const& tids);
 
   // make sure that all of these tids are on memory
-  void force_allocate_tids(vector<int> const& tids);
+  void force_allocate_tids(_which_op_t const& which_op);
 
   // Insert an allocate node and return the alloc_t mem id
   int allocate_with_evict(

@@ -524,14 +524,17 @@ vector<int> memgraph_make_state_t::find_used_tids(_which_op_t const& which_op)
   // Make sure to add any input_t nodes before proceeding, 
   // otherwise uninitialized input_t nodes will be treated as 
   // new tensors below and would get mistakenly allocated.
-  for(int const& inn: node.op.inputs())
-  {
-    auto const& inn_node = taskgraph.nodes[inn];
-    if(inn_node.op.is_input() && !input_has_been_initialized(inn))
-    {
-      initialize_input(inn);
-    }
-  }
+  // Here we don't want to initialize the inputs, because this function's
+  //  solely purpose is to get the inns. If the inns are still not initialized, 
+  //  then we need to either put it on mem or on sto 
+  // for(int const& inn: node.op.inputs())
+  // {
+  //   auto const& inn_node = taskgraph.nodes[inn];
+  //   if(inn_node.op.is_input() && !input_has_been_initialized(inn))
+  //   {
+  //     initialize_input(inn);
+  //   }
+  // }
 
   // Set used_tids 
   vector<int> used_tids;
@@ -562,17 +565,27 @@ vector<int> memgraph_make_state_t::find_used_tids(_which_op_t const& which_op)
   } else {
     throw std::runtime_error("should not reach");
   }
-
+  return used_tids;
 }
 
 //This is a modified version of force_allocate_tids, only allocate one output tensor
-void memgraph_make_state_t::force_allocate_tid(int const& tid) {
+void memgraph_make_state_t::force_allocate_tid(_which_op_t const& which_op) {
 
+  int tid;
+  if(std::holds_alternative<_which_node_t>(which_op))
+  {
+    tid = std::get<_which_node_t>(which_op).task_id;
+  }
+  else
+  {
+    tid = std::get<_which_touch_t>(which_op).task_id;
+  }
   vector<int> tids = find_used_tids(which_op);
 
   auto const& node = taskgraph.nodes[tid];
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter != task_tensor_to_mem_node.end()) {
+    throw std::runtime_error("shouldn't be already in task_tensor_to_mem. Should be new node");
     // We have this tensor, but it may be on storage,
     // so move it to memory
     int const& memid = iter->second;
@@ -583,21 +596,36 @@ void memgraph_make_state_t::force_allocate_tid(int const& tid) {
       int const& memid = task_tensor_to_mem_node.at(tid);
     } 
   } else { 
-    // This is an output tid that needs to be allocated
-    // See to it that the memory gets allocated, possibly with evictions.
-    int loc = node.op.out_loc();
-    uint64_t size = node.op.out_size();
-    int alloc_mid = allocate_with_evict(loc, size, tids);
-    mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
-    // make sure to add the memid into task_tensor_to_mem_node
-    // so we don't keep allocating this output memory!
-    task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
+    // This is either needs an output mem for the op, either it's a never-initialized inputnode
+    // See to it that the memory gets allocated, possibly with evictions. (for input we can't do evict bc we are dependency free)
+    if (node.op.is_input()) {
+      initialize_input(tid);
+    } else {
+      int loc = node.op.out_loc();
+      uint64_t size = node.op.out_size();
+      int alloc_mid = allocate_with_evict(loc, size, tids);
+      mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
+      // make sure to add the memid into task_tensor_to_mem_node
+      // so we don't keep allocating this output memory!
+      task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
+    }
   }
 }
 
 //This is used at the first if statement of process loop. allocates without evict. 
 // Effect: create alloc node if possible, then add to task_tensor_to_mem_node
-bool memgraph_make_state_t::allocate_tid_without_evict(int const& tid){
+bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_op){
+
+  int tid;
+
+  if(std::holds_alternative<_which_node_t>(which_op))
+  {
+    tid = std::get<_which_node_t>(which_op).task_id;
+  }
+  else
+  {
+    tid = std::get<_which_touch_t>(which_op).task_id;
+  }
 
   auto const& node = taskgraph.nodes[tid];
   int loc = node.op.out_loc();
@@ -619,8 +647,10 @@ bool memgraph_make_state_t::allocate_tid_without_evict(int const& tid){
     // This mustve been a new tensor, so get it setup 
     task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
   }
+  return true;
 }
 
+//seems to be never used.
 bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_tids)
 {
   // Note: it may be the case that these tids do not all belong to the
@@ -797,13 +827,7 @@ memgraph_make_state_t::add_op(
   optional<int> touch_output_memid;
 
   if(node.op.is_input()){
-    auto const& [loc, size] = node.op.get_input();
-    op = op_t(input_t{
-      .loc = loc,
-      .size = size
-    })
-    auto [???, ???] = vector_unzip(get_tensors_in_memory_without_alloc(???));
-    deps = ???;
+    return false;
   } else if(node.op.is_apply()) {
     // DOUT("addop: is apply");
     auto const& [loc, inns, es] = node.op.get_apply();
@@ -1007,7 +1031,7 @@ void memgraph_make_state_t::process(
       force_allocate_tid(all_ops.at(alloc_oid));
       alloc_oid++;
     } else { //simulate run for next op
-      force_allocate_tids(all_ops.at(alloc_oid))
+      force_allocate_tids(all_ops.at(alloc_oid));
       do_alloc = add_op(all_ops.at(done_oid));
       done_oid++;
     }
