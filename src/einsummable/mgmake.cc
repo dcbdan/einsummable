@@ -1014,7 +1014,7 @@ void memgraph_make_state_t::process(
         .threshold = 0
     };
   }
-
+  DOUT("starting the loop");
   // Do each op, updating ostate threshold so that items can be compared
   // based on when they'll be used next
   auto& ostate = order_state.value();
@@ -1025,13 +1025,13 @@ void memgraph_make_state_t::process(
   {
     ostate.threshold = done_oid;
     if (alloc_oid < all_ops.size() && allocate_tid_without_evict(all_ops.at(alloc_oid))){
-        alloc_oid++;
+      alloc_oid++;
     } else if(alloc_oid == done_oid){
       //unable to allocate for the next execution without evict
       force_allocate_tid(all_ops.at(alloc_oid));
       alloc_oid++;
     } else { //simulate run for next op
-      force_allocate_tids(all_ops.at(alloc_oid));
+      force_allocate_tids(all_ops.at(done_oid));
       do_alloc = add_op(all_ops.at(done_oid));
       done_oid++;
     }
