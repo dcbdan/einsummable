@@ -28,7 +28,7 @@ host_buffer_t make_host_buffer(uint64_t size);
 
 struct gpu_storage_t
 {
-  gpu_storage_t();
+  gpu_storage_t(uint64_t storage_size);
 
   // inserts a copy of d into the storage
   void write(buffer_t d, int id);

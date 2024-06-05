@@ -4,7 +4,6 @@
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
 
-
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
   // one buffer per gpu
@@ -84,6 +83,19 @@ gpu_mg_server_t::gpu_mg_server_t(
   }
 }
 
+gpu_mg_server_t::gpu_mg_server_t(
+  communicator_t& c,
+  vector<uint64_t> buffer_sizes,
+  uint64_t storage_size)
+  : gpu_mg_server_t(c, buffer_sizes)
+{
+  storage = std::make_shared<gpu_storage_t>(storage_size);
+}
+
+bool gpu_mg_server_t::has_storage() const {
+  return bool(storage);
+}
+
 void gpu_mg_server_t::execute_memgraph(
   memgraph_t const& memgraph,
   bool for_remap,
@@ -102,15 +114,16 @@ void gpu_mg_server_t::execute_memgraph(
       scalar_vars);
   // DOUT("Finished making exec graph...");
 
-  rm_ptr_t resource_manager(new resource_manager_t(
-    vector<rm_ptr_t> {
-      rm_ptr_t(new gpu_workspace_manager_t()),
-      rm_ptr_t(new group_manager_t()),
-      rm_ptr_t(new global_buffers_t(mems)),
-      rm_ptr_t(new gpu_storage_manager_t(&storage)),
-      rm_ptr_t(new streampool_manager_t(stream_pool))
-    }
-  ));
+  vector<rm_ptr_t> rms {
+    rm_ptr_t(new gpu_workspace_manager_t()),
+    rm_ptr_t(new group_manager_t()),
+    rm_ptr_t(new global_buffers_t(mems)),
+    rm_ptr_t(new streampool_manager_t(stream_pool))
+  };
+  if(storage) {
+    rms.push_back(rm_ptr_t(new gpu_storage_manager_t(storage.get())));
+  }
+  rm_ptr_t resource_manager(new resource_manager_t(rms));
 
   // exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
   exec_state_t state(graph, resource_manager);
@@ -200,9 +213,13 @@ void gpu_mg_server_t::send_make_mg_info()
 void gpu_mg_server_t::storage_remap_server(
   vector<vector<std::array<int, 2>>> const& remaps)
 {
+  if(!bool(storage)) {
+    throw std::runtime_error("storage not initialized");
+  }
+
   int world_size = comm.get_world_size();
 
-  storage.remap(remaps[0]);
+  storage->remap(remaps[0]);
 
   for(int dst = 1; dst != world_size; ++dst) {
     comm.send_vector(dst, remaps[dst]);
@@ -211,8 +228,12 @@ void gpu_mg_server_t::storage_remap_server(
 
 void gpu_mg_server_t::storage_remap_client()
 {
+  if(!bool(storage)) {
+    throw std::runtime_error("storage not initialized");
+  }
+
   auto remap = comm.recv_vector<std::array<int, 2>>(0);
-  storage.remap(remap);
+  storage->remap(remap);
 }
 
 void gpu_mg_server_t::rewrite_data_locs_server(
@@ -297,7 +318,7 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     if(sto_loc != this_rank) {
       throw std::runtime_error("invalid storage location");
     }
-    return storage.read(sto_id);
+    return storage->read(sto_id);
   } else {
     throw std::runtime_error("local_copy_data should not reach");
   }
@@ -353,13 +374,13 @@ void gpu_mg_server_t::local_insert_tensors(map<int, tuple<int, buffer_t>> data) 
 
       memstoloc = memstoloc_t(memloc);
     } else {
-      if (!use_storage_){
+      if (!has_storage()){
         throw std::runtime_error("could not allocate memory; not using storage");
       }
-      int id = 1 + storage.get_max_id();
+      int id = 1 + storage->get_max_id();
 
       // DOUT("Inserting into storage... id: " << id << " size: " << tensor->size);
-      storage.write(tensor, id);
+      storage->write(tensor, id);
 
       stoloc_t stoloc {
         .loc = comm.get_this_rank(),
@@ -387,7 +408,7 @@ void gpu_mg_server_t::local_erase_tensors(vector<int> const& tids) {
       // nothing to do
     } else {
       auto const& [_,id] = memstoloc.get_stoloc();
-      storage.remove(id);
+      storage->remove(id);
     }
     data_locs.erase(iter);
   }

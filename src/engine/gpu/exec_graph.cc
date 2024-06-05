@@ -91,7 +91,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     }
 
     auto const& node = memgraph.nodes[mid];
-    // DOUT("Making exec graph for node " << mid);
 
     if(
       node.op.is_inputmem()   ||
@@ -102,8 +101,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
-      // DOUT("Inserted dummy op for node " << mid);
-      dummy_count++;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       int loc = node.op.get_apply_loc();

@@ -15,7 +15,15 @@ struct gpu_mg_server_t : server_mg_base_t
     // one buffer per gpu
     vector<uint64_t> buffer_sizes);
 
+  gpu_mg_server_t(
+    communicator_t& c,
+    // one buffer per gpu
+    vector<uint64_t> buffer_sizes,
+    uint64_t storage_size);
+
   ~gpu_mg_server_t();
+
+  bool has_storage() const;
 
   void execute_memgraph(
     memgraph_t const& memgraph,
@@ -71,7 +79,7 @@ private:
 
   vector<kernel_manager_t> kernel_managers;
 
-  gpu_storage_t storage;
+  std::shared_ptr<gpu_storage_t> storage;
 
   // NOTE: Change the streams per device as needed
   // 5 is enough in initial experiments
