@@ -3,6 +3,8 @@
 #include "../src/autoplace/autoplace.h"
 #include "../src/einsummable/gwriter.h"
 
+#include "modules.h"
+
 void exp01(args_t& args, server_base_t* server) {
   uint64_t nrow = args.get<uint64_t>("nrow");
   uint64_t ncol = args.get<uint64_t>("ncol");
@@ -25,6 +27,59 @@ void exp01(args_t& args, server_base_t* server) {
     dbuffer_t dX = make_dbuffer(default_dtype(), nrow*ncol);
     dX.random("-0.0", "1.0");
     server->insert_tensor(X.get_id(), pls[X.get_id()], dX);
+  }
+
+  server->execute_graph(graph, pls);
+}
+
+void exp02(args_t& args, server_base_t* server) {
+  set_default_dtype(dtype_t::f16);
+
+  args.set_default<uint64_t>("seqlen", 1000); 
+  args.set_default<int>("n_attention", 4);
+
+  uint64_t seqlen = args.get<uint64_t>("seqlen");
+  int n_attention = args.get<int>("n_attention");
+
+  DOUT("seqlen is " << seqlen);
+  DOUT("n_attention is " << n_attention);
+
+  model_args_t margs = model_args_t::llama_65B(1);
+  graph_writer_t writer;
+  auto full_freqs_cis = writer.input(
+    { seqlen, uint64_div(margs.head_dim(), 2) },
+    dtype_t::c64);
+
+  auto x = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(seqlen),
+    margs.full_dim()
+  }));
+  vector<attention_t> attentions;
+  for(int i = 0; i != n_attention; ++i) {
+    attentions.emplace_back(&writer, "attention.", margs, 0, std::nullopt);
+    x = attentions.back().forward(x, full_freqs_cis, std::nullopt);
+  }
+
+  graph_t const& graph = writer.get_graph();
+  vector<placement_t> pls;
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    pls.push_back(partition_t::singleton(node.op.shape()));
+
+    if(gid == full_freqs_cis.get_id()) {
+      auto dtype = node.op.out_dtype();
+      auto shape = node.op.shape();
+      dbuffer_t d = transformer_t::form_full_freqs_cis(margs.dim, margs.n_heads, seqlen);
+      server->insert_tensor(gid, pls.back(), d);
+    } else if(node.op.is_input()) {
+      auto dtype = node.op.out_dtype();
+      auto shape = node.op.shape();
+      dbuffer_t d = make_dbuffer(dtype, product(shape));
+      d.random("-0.0001", "0.0001");
+      server->insert_tensor(gid, pls.back(), d);
+    }
   }
 
   server->execute_graph(graph, pls);
@@ -62,7 +117,7 @@ int main(int argc, char** argv) {
 
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_ptr);
 
-  exp01(args, gpu_ptr);
+  exp02(args, gpu_ptr);
 
   return 0;
 }
