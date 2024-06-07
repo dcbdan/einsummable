@@ -398,7 +398,8 @@ void main_rank_zero(
     vector<partition_t> parts;
 
     if(which == "auto") {
-      parts = apart01(graph, num_gpus * num_config, 1) ;
+      parts = apart01(graph, num_gpus * num_config, 1);
+      // parts = apart01(graph, num_gpus * num_config, 1, 1, parts_space_t::all_range);
     } else if(which == "data" || which == "dim" || which == "seq") {
       // w1: hidden_dim, args.full_dim()
       // w2: args.full_dim(), hidden_dim
@@ -527,7 +528,7 @@ int main(int argc, char** argv) {
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 8; ++i) {
-    buffer_sizes.push_back(28lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(31lu * 1000lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);

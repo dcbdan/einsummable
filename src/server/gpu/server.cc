@@ -47,9 +47,9 @@ gpu_mg_server_t::gpu_mg_server_t(
   }
 
   // print all mems
-  for (auto i = 0; i < mems.size(); i++){
-    DOUT("mems GPU[" << i << "]: " << mems[i]);
-  }
+  // for (auto i = 0; i < mems.size(); i++){
+  //   DOUT("mems GPU[" << i << "]: " << mems[i]);
+  // }
 
   // initialize the stream pool now that we have num_gpus_per_node
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
@@ -115,7 +115,7 @@ void gpu_mg_server_t::execute_memgraph(
   // exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
   exec_state_t state(graph, resource_manager);
 
-  DOUT("Executing...");
+  // DOUT("Executing...");
   // print the execution time of event_loop()
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();

@@ -77,8 +77,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   // std::unordered_set<einsummable_t> all_einsums;
 
-  int evict_count = 0, load_count = 0;
-  uint64_t evict_bytes = 0, load_bytes = 0;
+  int evict_count = 0, load_count = 0, move_count = 0;
+  uint64_t evict_bytes = 0, load_bytes = 0, move_bytes = 0;
 
   std::unordered_map<string, einsummable_t> einsums_not_compiled;
   // open a file
@@ -195,6 +195,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     } else if(node.op.is_move()) {
       // check if the move is local to this gpu
       auto const& move = node.op.get_move();
+      move_count++;
+      move_bytes += node.op.get_move().size;
       auto const& src = move.get_src_loc();
       auto const& dst = move.get_dst_loc();
       if (std::floor(src/num_gpus_per_node) != std::floor(dst/num_gpus_per_node)) {
@@ -253,8 +255,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   failed_einsums.close();
 
   // DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
-  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n",
-    evict_count, evict_bytes, load_count, load_bytes);
+  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n, move_count: %d, move_bytes: %lu\n",
+    evict_count, evict_bytes, load_count, load_bytes, move_count, move_bytes);
   return graph;
 }
 

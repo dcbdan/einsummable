@@ -222,26 +222,29 @@ memgraph_t::make_(
   }
 
   optional<memgraph_t> input_memgraph;
+  // new ordering
+  // if(split_off_inputs)
+  // {
+  //   DOUT("Splitting off inputs with priority_min_delta");
+  //   auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
+  //   auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
+  //   state.process(input_tg_ops);
+  //   input_memgraph = state.pop_memgraph();
+  //   state.process(core_tg_ops);
+  // } else {
+  //   state.process(order_taskgraph_priority_min_delta(taskgraph));
+  // }
+
+  // old ordering
   if(split_off_inputs)
   {
-    auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
-    auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
-    state.process(input_tg_ops);
-    input_memgraph = state.pop_memgraph();
-    state.process(core_tg_ops);
+   auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+   state.process(input_tg_ops);
+   input_memgraph = state.pop_memgraph();
+   state.process(core_tg_ops);
   } else {
-    state.process(order_taskgraph_priority_min_delta(taskgraph));
+   state.process(order_taskgraph(taskgraph));
   }
-
-  //if(split_off_inputs)
-  //{
-  //  auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
-  //  state.process(input_tg_ops);
-  //  input_memgraph = state.pop_memgraph();
-  //  state.process(core_tg_ops);
-  //} else {
-  //  state.process(order_taskgraph(taskgraph));
-  //}
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
@@ -319,8 +322,18 @@ order_split_taskgraph(taskgraph_t const& taskgraph)
 tuple<vector<_which_op_t>, vector<_which_op_t>>
 split_off_inputs_(
   taskgraph_t const& taskgraph,
-  vector<_which_op_t> const& all_ops)
+  vector<_which_op_t> const& all_ops_)
 {
+  vector<_which_op_t> all_inputs;
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_input()) {
+      all_inputs.push_back(_which_node_t { .task_id = tid });
+    }
+  }
+
+  vector<_which_op_t> all_ops = vector_concatenate(all_inputs, all_ops_);
+
   auto is_inputable = [](taskgraph_t::op_t const& op) {
     if(op.is_input()) {
       return true;
@@ -364,7 +377,9 @@ split_off_inputs_(
       }
 
       if(success) {
-        inn_order.push_back(op);
+        if(!node.op.is_input()) {
+          inn_order.push_back(op);
+        }
         inside_inn_order.insert(id);
       } else {
         core_order.push_back(op);
@@ -372,6 +387,10 @@ split_off_inputs_(
     } else {
       core_order.push_back(op);
     }
+  }
+
+  if(inn_order.size() + core_order.size() != all_ops_.size()) {
+    throw std::runtime_error("inn order + core order incorrect in split_off_inputs_");
   }
   return {inn_order, core_order};
 }

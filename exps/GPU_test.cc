@@ -404,7 +404,7 @@ void server_mm_partition(int argc, char** argv){
 
 
 // do 3d matmul on the server
-void server_3d_mamtmul (int argc, char** argv){
+void server_3d_matmul (int argc, char** argv){
   if (argc != 8) {
     DOUT("pi pj pk di dj dk np");
     return;
@@ -431,15 +431,29 @@ void server_3d_mamtmul (int argc, char** argv){
   auto start = std::chrono::high_resolution_clock::now();
 
   auto g = three_dimensional_matrix_multiplication(pi, pj, pk, di, dj, dk, np);
+  
   auto graph = g.graph;
+
   auto pls = g.get_placements();
+
+  {
+    std::ofstream f("3d_matmul.gv");
+    vector<partition_t> part;
+    for (auto const& p : pls) {
+      part.push_back(p.partition);
+    }
+
+    graph.print_graphviz(f, part);
+    DOUT("printed 3d_matmul.gv");
+  }
+
   int world_size = 1;
 
   communicator_t c("0.0.0.0", true, world_size);
 
   // create a map for local insert tensors
   map<int, tuple<int, buffer_t>> data;
-  uint64_t mem_size = 6lu * 1024lu * 1024lu * 1024lu;
+  uint64_t mem_size = 4lu * 1024lu * 1024lu * 1024lu;
   // uint64_t mem_size = 0.001 * 1024lu * 1024lu * 1024lu;
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < np; ++i){
@@ -447,7 +461,7 @@ void server_3d_mamtmul (int argc, char** argv){
   }
 
   gpu_mg_server_t server(c, buffer_sizes);
-  server.set_split_off_inputs(true);
+  server.set_split_off_inputs(false);
 
   // initialize input tensors and distribute across the cluster
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
@@ -489,6 +503,103 @@ void server_3d_mamtmul (int argc, char** argv){
   auto stop = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop-start);
   DOUT("Total server time: " << duration.count() / 1000000.0 << " seconds");
+
+  server.shutdown();
+
+}
+
+// do softmax on the server
+void server_softmax (int argc, char** argv){
+
+  int np;
+  try {
+    np = parse_with_ss<int>(argv[1]);
+  } catch (...) {
+    std::cout << "Parse error." << std::endl << std::endl;
+    DOUT("np matrix_dimension partition");
+    return;
+  }
+
+  np = 2;
+
+  graph_writer_t g;
+
+  auto input = g.input({1000, 1000});
+  auto out = g.softmax_v3_scale(scalar_t(float(0.1)), input);
+  
+  auto graph = g.get_graph();
+  // auto pls = autoplace(graph, np);
+
+  // manually create the partitions
+  vector<partition_t> partitions;
+  partition_t my_part({partdim_t::split(1000, 1), partdim_t::split(1000, 2)});
+  partition_t my_part2({partdim_t::split(1000, 1)});
+  partitions.emplace_back(my_part);
+  partitions.emplace_back(my_part);
+  partitions.emplace_back(my_part2);
+  partitions.emplace_back(my_part);
+  partitions.emplace_back(my_part2);
+  partitions.emplace_back(my_part);
+
+  vector<placement_t> pls;
+  for (auto part: partitions){
+    pls.emplace_back(part);
+    vector<int>& locs = pls.back().locations.get();
+    for (int i = 0; i < locs.size(); ++i){
+      locs[i] = i;
+    }
+  }
+
+  {
+    std::ofstream f("softmax.gv");
+    // vector<partition_t> part;
+    // for (auto const& p : pls) {
+    //   part.push_back(p.partition);
+    // }
+
+    graph.print_graphviz(f, partitions);
+    DOUT("printed softmax.gv");
+  }
+
+  int world_size = 1;
+
+  communicator_t c("0.0.0.0", true, world_size);
+
+  // create a map for local insert tensors
+  map<int, tuple<int, buffer_t>> data;
+  uint64_t mem_size = 4lu * 1024lu * 1024lu * 1024lu;
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < np; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  gpu_mg_server_t server(c, buffer_sizes);
+  server.set_split_off_inputs(false);
+
+  // initialize input tensors and distribute across the cluster
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_input()) {
+      auto const& input = node.op.get_input();
+      dbuffer_t tensor = make_dbuffer(input.dtype, product(input.shape));
+      tensor.random("-0.01", "0.01");
+      // tensor.ones();
+      // DOUT(tensor);
+      server.insert_tensor(gid, pls[gid], tensor);
+    }
+  }
+
+  server.execute_graph(graph, pls);
+
+  //// get the outputs to here
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT(tensor);
+      //DOUT("gid sum is: " << tensor.sum());
+    }
+  }
 
   server.shutdown();
 
@@ -980,35 +1091,9 @@ scalarop_t scalarop_km4(){
   return ret;
 }
 
-void km_test(){
-  scalarop_t s = scalarop_km4();
-  kernel_manager_t km(0);
-  auto join_shape {8, 4};
-  auto inns = {{0,1},{0,1},{0}};
-  auto rank = 1;
-  einsumable_t e = einsumable_t(join_shape, inns, rank, s, castable_t:add);
-  // make three buffers 
-  dbuffer_t a = make_dbuffer(dtype_t::f32, 8*4);
-  dbuffer_t b = make_dbuffer(dtype_t::f32, 8*4);
-  dbuffer_t c = make_dbuffer(dtype_t::f32, 8);
-  a.ones();
-  b.ones();
-  c.ones();
-  dbuffer_t out_ref = reference_einsummable(custom, {lhs,middle,rhs});
-
-  auto workspace_info = km.build(matmul);
-  uint64_t size = workspace_info.value().value();
-  void* work;
-  cudaMalloc(&work, size);
-  cudaStream_t stream;
-  cudaStreamCreate(&stream);
-
-
-}
-
 int main(int argc, char **argv) {
   // server_1(argc, argv);
-  // server_3d_mamtmul(argc, argv);
+  // server_3d_matmul(argc, argv);
   // server_multiple_mm(argc, argv);
   // engine_1(argc, argv);
   // cublaMatmulCheck();
@@ -1020,5 +1105,6 @@ int main(int argc, char **argv) {
   // lowerTri_test();
   // constant_test(); 
   // ew_test();
-  scalarop_km4();
+  // scalarop_km4();
+  server_softmax(argc, argv);
 }
