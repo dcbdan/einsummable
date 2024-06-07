@@ -87,12 +87,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
-    //  DOUT("Skipping node " << mid << " because it is not local to this gpu")
+     DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
      continue;
     }
 
     auto const& node = memgraph.nodes[mid];
-    // DOUT("Making exec graph for node " << mid);
 
     if(
       node.op.is_inputmem()   ||
@@ -103,7 +102,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     {
       op_ptr_t op = std::make_shared<dummy_t>();
       insert(op, mid);
-      // DOUT("Inserted dummy op for node " << mid);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       int loc = node.op.get_apply_loc();

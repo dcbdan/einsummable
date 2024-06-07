@@ -290,7 +290,6 @@ struct server_mg_base_t : server_dist_base_t {
     allocator_settings_t s = allocator_settings_t::default_settings())
     : server_dist_base_t(c), alloc_settings(s),
       make_parallel_partialize_groups_(false),
-      use_storage_(true),
       split_off_inputs_(true)
   {}
 
@@ -298,13 +297,11 @@ struct server_mg_base_t : server_dist_base_t {
     this->make_parallel_partialize_groups_ = new_val;
   }
 
-  void set_use_storage(bool new_val) {
-    this->use_storage_ = new_val;
-  }
-
   void set_split_off_inputs(bool new_val) {
     this->split_off_inputs_ = new_val;
   }
+
+  virtual bool has_storage() const = 0;
 
   // this must be called from all locations
   virtual void execute_memgraph(
@@ -354,7 +351,6 @@ public:
   allocator_settings_t alloc_settings;
 
   bool make_parallel_partialize_groups_;
-  bool use_storage_;
   bool split_off_inputs_;
 };
 

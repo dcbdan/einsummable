@@ -17,7 +17,7 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
   auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
     memgraph_t::make(
       taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, use_storage_);
+      full_data_locs, alloc_settings, has_storage());
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
@@ -72,7 +72,7 @@ void server_mg_base_t::execute_tg_server(
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
       taskgraph, which_storage, mem_sizes,
-      full_data_locs, alloc_settings, use_storage_, split_off_inputs_);
+      full_data_locs, alloc_settings, has_storage(), split_off_inputs_);
   //delete gremlin;
 
   vector<uint64_t> io_bytes_each_loc = core_mg.get_numbyte_on_evict();
