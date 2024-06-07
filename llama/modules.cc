@@ -501,12 +501,15 @@ tensor_t transformer_block_t::forward(
   tensor_t freqs_cis,
   optional<tensor_t> mask)
 {
+  mark1 = writer->get_graph().nodes.size();
   tensor_t h = writer->add(
     x,
     attention.forward(attention_norm.forward(x), freqs_cis, mask));
+  mark2 = writer->get_graph().nodes.size();
   tensor_t out = writer->add(
     h,
     feedforward.forward(feedforward_norm.forward(h)));
+  mark3 = writer->get_graph().nodes.size();
   return out;
 }
 

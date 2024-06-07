@@ -17,10 +17,14 @@ struct autoplace_config_t {
       _flops_per_byte_moved(__fps_per_byte)
   {}
 
-  static autoplace_config_t make_default01(int n_locs, int n_compute_per_loc) {
+  static autoplace_config_t make_default01(
+    int n_locs, 
+    int n_compute_per_loc,
+    uint64_t discount_input_factor_ = 1)
+  {
     autoplace_config_t ret(n_locs, n_compute_per_loc, 1000);
     ret._max_branching = 2;
-    ret._discount_input_factor = 1;
+    ret._discount_input_factor = discount_input_factor_;
     // all range seem to work well with GPU llama setting
     ret._search_space = parts_space_t::all_range;
     return ret;

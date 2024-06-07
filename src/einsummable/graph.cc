@@ -774,6 +774,7 @@ void graph_t::print_graphviz(
       label += "\n" + write_with_ss(op.out_shape());
     } else if(op.is_complexer()) {
       label = "complexer" + write_with_ss(id);
+      color = "purple";
     } else if(op.is_squeezer()) {
       label = "squeezer" + write_with_ss(id);
       color = "azure2";
@@ -788,8 +789,10 @@ void graph_t::print_graphviz(
     } else if(op.is_fill()) {
       auto const& f = node.op.get_fill();
       label = write_with_ss(f);
+      color = "brown";
     } else if(op.is_select()) {
       label = "select" + write_with_ss(id);
+      color = "gold";
     } else {
       throw std::runtime_error("printgraphviz missing graph node type");
     }
@@ -818,6 +821,94 @@ void graph_t::print_graphviz(
         "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
     }
   }
+  out << "}" << endl;
+}
+
+void graph_t::print_subset_graphviz(
+  std::ostream& out,
+  set<int> const& gids,
+  vector<partition_t> const& parts) const
+{
+  using std::endl;
+  string tab = "  ";
+  out << "digraph {" << endl;
+
+  set<int> extras;
+  for(int id = 0; id != nodes.size(); ++id) {
+    if(gids.count(id) == 0) {
+      continue;
+    }
+
+    node_t const& node = nodes[id];
+    op_t const& op = node.op;
+
+    string label;
+    string color = "";
+    if(op.is_input()) {
+      label = "input" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.shape());
+      color = "green";
+    } else if(op.is_formation()) {
+      label = "form" + write_with_ss(id);
+      label += "\n" + write_with_ss(op.out_shape());
+    } else if(op.is_complexer()) {
+      label = "complexer" + write_with_ss(id);
+    } else if(op.is_squeezer()) {
+      label = "squeezer" + write_with_ss(id);
+      color = "azure2";
+    } else if(op.is_einsummable()) {
+      auto const& e = op.get_einsummable();
+      label = "einsummable" + write_with_ss(id) +
+        ":" + e.str();
+      if(e.is_contraction()) {
+        color = "pink";
+      }
+      label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
+    } else if(op.is_fill()) {
+      auto const& f = node.op.get_fill();
+      label = write_with_ss(f);
+    } else if(op.is_select()) {
+      label = "select" + write_with_ss(id);
+    } else {
+      throw std::runtime_error("printgraphviz missing graph node type");
+    }
+    label += "\n" + write_with_ss(parts[id].block_shape());
+    out << tab
+      << "n" << id
+      << " [style=filled,label=\"" << label << "\"";
+
+    if(color != "") {
+      out << ",color=\"" << color << "\"";
+    }
+    out << "]" << endl;
+
+    int _i = 0;
+    for(auto const& inn: node.inns) {
+      if(gids.count(inn) == 0 && extras.count(inn) == 0) {
+        extras.insert(inn);
+
+        string _label = "";
+        string _color = "";
+
+        _label = "subset_input" + write_with_ss(inn);
+        _label += "\n" + write_with_ss(op.out_shape());
+        _color = "silver";
+        _label += "\n" + write_with_ss(parts[inn].block_shape());
+
+        out << tab
+          << "n" << inn
+          << " [style=filled,label=\"" << _label << "\"";
+        if(_color != "") {
+          out << ",color=\"" << _color << "\"";
+        }
+        out << "]" << endl;
+      }
+
+      out << tab << "n" << inn << " -> " << "n" << id <<
+        "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
+    }
+  }
+
   out << "}" << endl;
 }
 
