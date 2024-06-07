@@ -108,6 +108,10 @@ struct graph_t {
     std::ostream& out,
     vector<partition_t> const& p,
     map<int, string> get_color = map<int,string>{}) const;
+  void print_subset_graphviz(
+    std::ostream& out,
+    set<int> const& gids,
+    vector<partition_t> const& p) const;
 
   vector<int> get_inputs() const;
 

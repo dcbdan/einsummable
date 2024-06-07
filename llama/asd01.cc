@@ -85,7 +85,109 @@ void exp02(args_t& args, server_base_t* server) {
   server->execute_graph(graph, pls);
 }
 
+void exp03(args_t& args) {
+  auto margs = model_args_t::llama_65B(1); 
+
+  args.set_default<uint64_t>("seqlen", 1000); 
+  args.set_default<int>("n_locs", 8);
+  args.set_default<int>("n_config", 1);
+  args.set_default<uint64_t>("discount_input_factor", 1);
+
+  uint64_t seqlen = args.get<uint64_t>("seqlen");
+
+  graph_writer_t writer;
+
+  transformer_t model(&writer, margs, 0);
+
+  auto x = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(seqlen),
+    margs.full_dim()
+  }));
+  auto y = model.forward(x).save();
+
+  for(auto [key, weight]: model.weight_map()) {
+    weight.save_inplace();
+  }
+  for(auto [k,v]: model.get_new_kvs()) {
+    k.save_inplace();
+    v.save_inplace();
+  }
+
+  graph_t const& graph = writer.get_graph();
+
+  map<int, set<int>> layer_to_gids; // For each layer, the graph nodes
+  {
+    for(int i = 0; i != model.layers.size(); ++i) {
+      auto& layer = model.layers[i];
+      for(auto const& [_, weight]: layer.weight_map()) {
+        layer_to_gids[i].insert(weight.get_id());
+        for(int gid = layer.mark1 + 1; gid <= layer.mark3; ++gid) {
+          layer_to_gids[i].insert(gid);
+        }
+      }
+    }
+  
+  //  map<int, int> w_inns; // For each weight, the layer
+  //  for(int i = 0; i != model.layers.size(); ++i) {
+  //    auto& layer = model.layers[i];
+  //    for(auto const& [_, weight]: layer.weight_map()) {
+  //      w_inns.insert({weight.get_id(), i});
+  //      layer_to_gids[i].insert(weight.get_id());
+  //    }
+  //  }
+
+  //  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+  //    auto const& node = graph.nodes[gid];
+  //    for(int inn: node.get_inns_set()) {
+  //      auto iter = w_inns.find(inn);
+  //      if(iter != w_inns.end()) {
+  //        auto const& which_layer = iter->second;
+  //        layer_to_gids[which_layer].insert(gid);
+  //      }
+  //    }
+  //  }
+  }
+
+  autoplace_config_t config = [&] {
+    int n_locs = args.get<int>("n_locs");
+    int n_config = args.get<int>("n_config");
+    uint64_t discount_input_factor = args.get<uint64_t>("discount_input_factor");
+    return autoplace_config_t::make_default01(
+      n_locs, n_config, discount_input_factor);
+  }();
+
+  vector<partition_t> parts = apart01(
+    graph, 
+    config.n_compute(),
+    config.max_branching(),
+    config.discount_input_factor(),
+    config.search_space());
+
+  std::ofstream f("g.gv");
+  graph.print_graphviz(f, parts);
+  DOUT("printed g.gv");
+
+  for(auto const& [which_layer, gids]: layer_to_gids) {
+    string name = "g" + write_with_ss(which_layer) + ".gv";
+    std::ofstream f(name);
+    graph.print_subset_graphviz(f, gids, parts);
+    DOUT("printed " << name);
+  }
+}
+
 int main(int argc, char** argv) {
+  {
+    args_t args(argc, argv);
+    exp03(args);
+    return 0;
+  }
+  /////////////////////////////////////////////////
+  /////////////////////////////////////////////////
+  /////////////////////////////////////////////////
+  /////////////////////////////////////////////////
+  /////////////////////////////////////////////////
+
   set_default_dtype(dtype_t::f16);
 
   int world_size = 1;

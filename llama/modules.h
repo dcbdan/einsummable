@@ -167,6 +167,10 @@ struct transformer_block_t {
   feedforward_t feedforward;
   rms_norm_t attention_norm;
   rms_norm_t feedforward_norm;
+
+  int mark1;
+  int mark2;
+  int mark3;
 };
 
 struct transformer_t {
