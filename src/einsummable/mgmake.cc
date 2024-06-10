@@ -621,10 +621,12 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
   if(std::holds_alternative<_which_node_t>(which_op))
   {
     tid = std::get<_which_node_t>(which_op).task_id;
+    // std::cout << "tid to alloc node: " << tid << std::endl;
   }
   else
   {
     tid = std::get<_which_touch_t>(which_op).task_id;
+    // std::cout << "tid to alloc touch: " << tid << std::endl;
   }
 
   auto const& node = taskgraph.nodes[tid];
@@ -639,11 +641,18 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
   int alloc_mid = maybe.value();
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter != task_tensor_to_mem_node.end()) {
+    //TODO: this might be a partialize that has a touch already on memory, and the new one not on memory.
+    //      what we need to do is ...
     // In this case, the tensor was on storage, so load it into
     // the memory at alloc_mid
-    _load_tensor_helper(tid, alloc_mid);
+    int const& memid = iter->second;
+    auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
+    if(maybe_mem.is_stoloc()) {
+      DOUT("allocate_tid_without_evict");
+      _load_tensor_helper(tid, alloc_mid);
+      DOUT("allocate_tid_without_evict");
+    }
   } else {
-    //这里可以handle如果是input的情况
     // This mustve been a new tensor, so get it setup 
     task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
   }
@@ -746,7 +755,9 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
     if(iter != task_tensor_to_mem_node.end()) {
       // In this case, the tensor was on storage, so load it into
       // the memory at alloc_mid
+      DOUT("allocate_tids_without_evict");
       _load_tensor_helper(tid, alloc_mid);
+      DOUT("allocate_tids_without_evict");
     } else {
       //这里可以handle如果是input的情况
       // This mustve been a new tensor, so get it setup 
@@ -1017,12 +1028,15 @@ void memgraph_make_state_t::process(
   DOUT("starting the loop");
   // Do each op, updating ostate threshold so that items can be compared
   // based on when they'll be used next
+  _task_tensor_to_mem_node_print();
   auto& ostate = order_state.value();
   int alloc_oid = 0;
   int done_oid = 0;
   bool do_alloc = false; // if we deleted any tensor in the last iteration
   while(done_oid < all_ops.size())
   {
+    // std::cout << ", alloc_oid: " << alloc_oid << ", done_oid: " << done_oid << std::endl;
+
     ostate.threshold = done_oid;
     if (alloc_oid < all_ops.size() && allocate_tid_without_evict(all_ops.at(alloc_oid))){
       alloc_oid++;
@@ -1288,6 +1302,14 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_erase(int tid)
   task_tensor_to_mem_node.erase(iter);
 }
 
+void memgraph_make_state_t::_task_tensor_to_mem_node_print()
+{
+  for (auto iter = task_tensor_to_mem_node.begin(); iter != task_tensor_to_mem_node.end(); ++iter) {
+    std::cout << iter->first << ": " << iter->second << ", ";
+  }
+  std::cout << std::endl;
+}
+
 int memgraph_make_state_t::order_state_t::get(int tid)
 {
   auto& xs = when_used.at(tid);
@@ -1494,7 +1516,9 @@ void memgraph_make_state_t::load_tensor_with_evict(
   uint64_t size = node.op.out_size();
 
   int alloc_mid = allocate_with_evict(loc, size, cannot_evict);
+  DOUT("load_tensor_with_evict");
   _load_tensor_helper(tid, alloc_mid);
+  DOUT("load_tensor_with_evict");
 }
 
 bool memgraph_make_state_t::load_tensor_without_evict(int tid)
@@ -1510,7 +1534,9 @@ bool memgraph_make_state_t::load_tensor_without_evict(int tid)
   auto maybe_alloc_mid = allocate_without_evict(loc, size);
   if(maybe_alloc_mid) {
     int const& alloc_mid = maybe_alloc_mid.value();
+    DOUT("load_tensor_without_evict");
     _load_tensor_helper(tid, alloc_mid);
+    DOUT("load_tensor_without_evict");
     return true;
   } else {
     return false;
@@ -1521,10 +1547,12 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
 {
   int const& sto_mid = task_tensor_to_mem_node.at(tid);
 
+  DOUT("before line 1527");
   load_t load {
     .src = memgraph.nodes.at(sto_mid).op.get_stoloc(),
     .dst = memgraph.nodes.at(alloc_mid).op.get_output_memloc()
   };
+  DOUT("after line 1527");
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
   task_tensor_to_mem_node_update_on_memory(tid, mid);
