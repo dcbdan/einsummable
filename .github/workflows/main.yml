@@ -1,0 +1,32 @@
+#.github/workflows/main.yml
+name: CI for einsummable
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+  runs-on: ubuntu-latest
+
+  steps:
+  - name: Checkout code
+    uses: actions/checkout@v3
+  
+  - name: Echo Hello World
+    run: echo "Hello World"
+
+  - name: Run tests
+    run: |
+      echo "Running tests..."
+      # Develop test commands here
+    
+  - name: SSH into Anton server and echo "Hello World"
+    if: success() # get this to run only if previous steps are succesful
+    uses: appleboy/ssh-action@v0.1.3
+    with:
+      host: ${{ secrets.SSH_HOST }}
+      username: ${{ secrets.SSH_USER }}
+      key: ${{ secrets.SSH_PRIVATE_KEY }}
+      script: echo "Hello Anton!"
