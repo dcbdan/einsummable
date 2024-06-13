@@ -17,6 +17,8 @@ static uint16_t server_port     = 13337;
 static sa_family_t ai_family    = AF_INET;
 double _timeout = 10.0;
 
+communicator_t::communicator_t() : communicator_t::communicator_t("0.0.0.0", true, 1, 1) {}
+
 // Server (rank == 0):
 //   for(int rank = 1; rank != world_size; ++rank) {
 //     connect oob

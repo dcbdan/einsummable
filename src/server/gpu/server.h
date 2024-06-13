@@ -16,6 +16,9 @@ struct gpu_mg_server_t : server_mg_base_t
     vector<uint64_t> buffer_sizes);
 
   gpu_mg_server_t(
+    vector<uint64_t> buffer_sizes, uint64_t storage_size);
+
+  gpu_mg_server_t(
     communicator_t& c,
     // one buffer per gpu
     vector<uint64_t> buffer_sizes,
@@ -54,6 +57,8 @@ struct gpu_mg_server_t : server_mg_base_t
   bool is_local_gpu(int global_loc) const;
 
   void debug_mem(int device, uint64_t counts);
+
+    static communicator_t null_comm;
 
 private:
 // location is to the local gpu, not global

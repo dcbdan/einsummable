@@ -84,6 +84,12 @@ gpu_mg_server_t::gpu_mg_server_t(
 }
 
 gpu_mg_server_t::gpu_mg_server_t(
+  vector<uint64_t> buffer_sizes, uint64_t storage_size)
+  : gpu_mg_server_t(this->null_comm, buffer_sizes, storage_size) 
+{}
+
+
+gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
   vector<uint64_t> buffer_sizes,
   uint64_t storage_size)

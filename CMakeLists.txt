@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 # set(CMAKE_CXX_FLAGS_RELEASE "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -312,6 +312,39 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_llama2" "gpu_train")
+endif()
+
+if(${PYTHON_LIBRARY})
+
+  # Add PyBind11 module
+  # Include CMake's FetchContent module
+  include(FetchContent)
+
+  # Fetch PyBind11 from GitHub
+  FetchContent_Declare(
+    pybind11
+    GIT_REPOSITORY https://github.com/pybind/pybind11.git
+    GIT_TAG        v2.8.0 # You can specify a specific version here
+  )
+
+  # Fetch PyBind11 as part of the CMake configure step
+  FetchContent_MakeAvailable(pybind11)
+  find_package(Python COMPONENTS Interpreter Development)
+
+  pybind11_add_module(PyEinsummable ${PROJECT_SOURCE_DIR}/python/src/bindings.cc)
+  target_link_libraries(PyEinsummable PRIVATE pybind11::pybind11  einsummable gpu_execution_engine
+  proto
+  ${Protobuf_LIBRARIES}
+  ${CUDA_LIBRARIES}
+  cutensor
+  /usr/local/cuda-11.8/lib64/libcudart.so
+  /usr/local/cuda-11.8/lib64/libcublasLt.so
+  /usr/local/cuda-11.8/lib64/libcublas.so
+  ucx::ucp ucx::ucs)
+  # Determine output directory for library
+  #set_target_properties(PyEinsummable PROPERTIES LIBRARY_OUTPUT_DIRECTORY ../python)
+
+  set_target_properties(gpu_execution_engine PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 endif()
 
 add_dependencies(einsummable proto)

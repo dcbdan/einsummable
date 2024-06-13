@@ -12,6 +12,8 @@
 #include "threadpool.h"
 
 struct communicator_t {
+  communicator_t();
+
   communicator_t(
     string addr_zero, bool is_server, int world_size_, int n_channels = 1);
 
