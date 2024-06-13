@@ -2341,6 +2341,7 @@ vector<int> taskgraph_t::get_order() const {
       throw std::runtime_error("all counts should be zero");
     }
   }
+  std::cout << "ret from get_order():"<<ret << "size of nodes: " << nodes.size() << std::endl;
 
   return ret;
 }

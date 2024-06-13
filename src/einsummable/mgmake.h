@@ -108,9 +108,6 @@ struct memgraph_make_state_t {
   // > register usage for all input tensors
   // > return whether or not a delete occurred in one of the register usages
 
-  // return whether or not we can bring all of these tids into memory
-  bool allocate_tids_without_evict(vector<int> const& tids);
-
   // make sure that all of these tids are on memory
   void force_allocate_tids(_which_op_t const& which_op);
 

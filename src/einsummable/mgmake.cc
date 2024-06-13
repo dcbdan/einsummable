@@ -259,13 +259,15 @@ build_tg_ops(
   taskgraph_t const& taskgraph,
   vector<int> const& tids_in_order)
 {
+  DOUT("inside build_tg_ops");
+  std::cout << "tids_in_order: " << tids_in_order << std::endl;
   vector<_which_op_t> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
   for(auto const& id: tids_in_order) {
     auto const& node = taskgraph.nodes[id];
     if(node.op.is_input()) {
-      // Input nodes have already been provided
+      ret.emplace_back(_which_node_t { .task_id = id });
     } else if(node.op.is_partialize()) {
       auto const& p = node.op.get_partialize();
       for(int which_unit = 0; which_unit != p.units.size(); ++which_unit) {
@@ -387,6 +389,7 @@ memgraph_make_state_t::memgraph_make_state_t(
   // - insert onto task_tensor_to_mem_node
   for(auto const& [tid, memstoloc] : input_tid_to_data)
   {
+    std::cout << "inserting ittd: " << tid << std::endl;
     if(memstoloc.is_memloc())
     {
       auto const& [offset, size, loc] = memstoloc.get_memloc();
@@ -476,6 +479,7 @@ void memgraph_make_state_t::initialize_input(int inn)
     op_t input_op = op_t(input_mem);
     int memid = memgraph.insert(input_op, {});
 
+    std::cout << "inn: " << inn << ", memid: " << memid << std::endl;
     task_tensor_to_mem_node_insert_on_memory(inn, memid);
   } else {
     // If we are not able to allocate on memory, insert into inputsto_t
@@ -538,7 +542,10 @@ vector<int> memgraph_make_state_t::find_used_tids(_which_op_t const& which_op)
 
   // Set used_tids 
   vector<int> used_tids;
-  if(node.op.is_apply()) {
+  if (node.op.is_input()) {
+    used_tids = {id};
+    std::cout << "usedtid for input node: " << used_tids << std::endl;
+  } else if(node.op.is_apply()) {
     auto const& [loc, inns, es] = node.op.get_apply();
 
     vector<int>& inns_then_out = used_tids;
@@ -563,7 +570,7 @@ vector<int> memgraph_make_state_t::find_used_tids(_which_op_t const& which_op)
 
     used_tids = {task_inn, id};
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach, type incorrect");
   }
   return used_tids;
 }
@@ -585,7 +592,7 @@ void memgraph_make_state_t::force_allocate_tid(_which_op_t const& which_op) {
   auto const& node = taskgraph.nodes[tid];
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter != task_tensor_to_mem_node.end()) {
-    throw std::runtime_error("shouldn't be already in task_tensor_to_mem. Should be new node");
+    // throw std::runtime_error("shouldn't be already in task_tensor_to_mem. Should be new node");
     // We have this tensor, but it may be on storage,
     // so move it to memory
     int const& memid = iter->second;
@@ -596,10 +603,10 @@ void memgraph_make_state_t::force_allocate_tid(_which_op_t const& which_op) {
       int const& memid = task_tensor_to_mem_node.at(tid);
     } 
   } else { 
-    // This is either needs an output mem for the op, either it's a never-initialized inputnode
     // See to it that the memory gets allocated, possibly with evictions. (for input we can't do evict bc we are dependency free)
     if (node.op.is_input()) {
-      initialize_input(tid);
+      //TODO: this should not be initializing. should be loading. the initialize should happen in allocate_tid_without_evict
+      //but if loading, then it should go to the above case, because in allocate_tid_without_evict we add inputmem/sto nomatter what
     } else {
       int loc = node.op.out_loc();
       uint64_t size = node.op.out_size();
@@ -632,6 +639,15 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
   auto const& node = taskgraph.nodes[tid];
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
+  if (node.op.is_input()) {
+    auto iter = task_tensor_to_mem_node.find(tid);
+    if(iter == task_tensor_to_mem_node.end()) {
+      //if node is input, and it has never been added to graph (used not provided)
+      // then we have to call initialize_input separately bc we have to call allocate_without_deps
+      initialize_input(tid);
+      return true;
+    }
+  }
 
   auto maybe = allocate_without_evict(loc, size);
 
@@ -641,130 +657,18 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
   int alloc_mid = maybe.value();
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter != task_tensor_to_mem_node.end()) {
-    //TODO: this might be a partialize that has a touch already on memory, and the new one not on memory.
-    //      what we need to do is ...
-    // In this case, the tensor was on storage, so load it into
+    // throw std::runtime_error("shouldn't be already in task_tensor_to_mem. Should be new node");
+    // In this case, if the tensor was provided by user on storage, load it into
     // the memory at alloc_mid
     int const& memid = iter->second;
     auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
     if(maybe_mem.is_stoloc()) {
-      DOUT("allocate_tid_without_evict");
       _load_tensor_helper(tid, alloc_mid);
-      DOUT("allocate_tid_without_evict");
     }
   } else {
     // This mustve been a new tensor, so get it setup 
     task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
   }
-  return true;
-}
-
-//seems to be never used.
-bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_tids)
-{
-  // Note: it may be the case that these tids do not all belong to the
-  //       same memory location!
-
-  // All the save states
-  vector<allocator_t::save_t> saves(allocators.size());
-  bool failed = false;
-
-  // A quick wrapper to only form saves as needed;; 
-  // doing this prevents us from calling the naive save 
-  // for every allocator
-  auto do_allocate = [&](int loc, uint64_t size) {
-    auto& allocator = allocators.at(loc);
-    auto& save = saves.at(loc);
-    if(!save) {
-      save = allocator.checkpoint();
-    }
-    auto ret = allocator.allocate(size);
-    return ret;
-  };
-
-  vector<int> tids_need_alloc;
-  vector<tuple<uint64_t, set<int>>> allocs;
-  for(int const& tid: used_tids) {
-    auto const& node = taskgraph.nodes[tid];
-    auto iter = task_tensor_to_mem_node.find(tid);
-    if(iter != task_tensor_to_mem_node.end()) { 
-      // We have this tensor, but it may be on storage,
-      // so move it to memory
-      int const& memid = iter->second;
-      auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
-      if(maybe_mem.is_stoloc()) {
-        auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
-        if(!maybe) {
-          failed = true;
-          break;
-        } else {
-          tids_need_alloc.push_back(tid);
-          allocs.push_back(maybe.value());
-        }
-      } else {
-        // that's fine, we don't have to allocate it then
-      }
-    } else {
-      // This is an output tid that needs to be allocated
-      if(node.op.is_input()) { //not necessarily
-        throw std::runtime_error(
-          "The input node must already be in task_tensor_to_mem_node!");
-      }
-      auto maybe = do_allocate(node.op.out_loc(), node.op.out_size());
-      if(!maybe) {
-        failed = true;
-        break;
-      } else {
-        tids_need_alloc.push_back(tid);
-        allocs.push_back(maybe.value());
-      }
-    }
-  }
-
-  if(failed) {
-    for(int loc = 0; loc != allocators.size(); ++loc) {
-      auto& save = saves[loc];
-      if(save) {
-        allocators.at(loc).reset(save);
-      }
-    }
-    return false;
-  } else {
-    // clear up the saves
-    saves.resize(0);
-  }
-
-  vector<int> alloc_mids;
-  alloc_mids.reserve(allocs.size());
-  for(auto const& [tid, info]: vector_zip(tids_need_alloc, allocs)) {
-    int loc = taskgraph.out_loc(tid);
-    uint64_t size = taskgraph.out_size(tid);
-    auto const& [offset, deps] = info;
-    alloc_t alloc{
-      .loc = loc,
-      .offset = offset,
-      .size =  size
-    };
-    int mid = memgraph.insert(op_t(alloc), deps);
-    alloc_mids.push_back(mid);
-  }
-
-  for(auto const& [tid, alloc_mid]: vector_zip(tids_need_alloc, alloc_mids))
-  {
-    auto iter = task_tensor_to_mem_node.find(tid);
-    if(iter != task_tensor_to_mem_node.end()) {
-      // In this case, the tensor was on storage, so load it into
-      // the memory at alloc_mid
-      DOUT("allocate_tids_without_evict");
-      _load_tensor_helper(tid, alloc_mid);
-      DOUT("allocate_tids_without_evict");
-    } else {
-      //这里可以handle如果是input的情况
-      // This mustve been a new tensor, so get it setup 
-      task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
-    }
-  }
-
   return true;
 }
 
@@ -924,7 +828,7 @@ memgraph_make_state_t::add_op(
         .op = touch,
         .group = get_group_at(id, unit_id)});
   } else {
-    throw std::runtime_error("should not reach");
+    throw std::runtime_error("should not reach (probably not this)");
   }
 
   int new_memid = memgraph.insert(op.value(), deps);
@@ -1025,18 +929,30 @@ void memgraph_make_state_t::process(
         .threshold = 0
     };
   }
+  for(int oid = 0; oid != all_ops.size(); ++oid) {
+    auto which_op = all_ops.at(oid);
+    int tid;
+    if(std::holds_alternative<_which_node_t>(which_op))
+    {
+      tid = std::get<_which_node_t>(which_op).task_id;
+    }
+    else
+    {
+      tid = std::get<_which_touch_t>(which_op).task_id;
+    }
+    std::cout << tid << " ";
+  }
+  std::cout << std::endl;
   DOUT("starting the loop");
   // Do each op, updating ostate threshold so that items can be compared
   // based on when they'll be used next
-  _task_tensor_to_mem_node_print();
   auto& ostate = order_state.value();
   int alloc_oid = 0;
   int done_oid = 0;
   bool do_alloc = false; // if we deleted any tensor in the last iteration
   while(done_oid < all_ops.size())
   {
-    // std::cout << ", alloc_oid: " << alloc_oid << ", done_oid: " << done_oid << std::endl;
-
+    std::cout << ", alloc_oid: " << alloc_oid << ", done_oid: " << done_oid << std::endl;
     ostate.threshold = done_oid;
     if (alloc_oid < all_ops.size() && allocate_tid_without_evict(all_ops.at(alloc_oid))){
       alloc_oid++;
@@ -1207,6 +1123,7 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
   {
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
+  std::cout << "inserting pair: " << tid << ": " << mid << std::endl;
   task_tensor_to_mem_node.insert({tid, mid});
 }
 
