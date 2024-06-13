@@ -389,7 +389,6 @@ memgraph_make_state_t::memgraph_make_state_t(
   // - insert onto task_tensor_to_mem_node
   for(auto const& [tid, memstoloc] : input_tid_to_data)
   {
-    std::cout << "inserting ittd: " << tid << std::endl;
     if(memstoloc.is_memloc())
     {
       auto const& [offset, size, loc] = memstoloc.get_memloc();
@@ -645,8 +644,9 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
       //if node is input, and it has never been added to graph (used not provided)
       // then we have to call initialize_input separately bc we have to call allocate_without_deps
       initialize_input(tid);
-      return true;
     }
+    //whether it's a user-provided input or not, we all return bc we're about to create alloc_t node. (no alloc node for inputs)
+    return true;
   }
 
   auto maybe = allocate_without_evict(loc, size);
