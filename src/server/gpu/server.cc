@@ -3,6 +3,7 @@
 #include "../../engine/exec_graph.h"
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
+#include <cuda_profiler_api.h>
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -130,11 +131,18 @@ void gpu_mg_server_t::execute_memgraph(
 
   // DOUT("Executing...");
   // print the execution time of event_loop()
+  if (!for_remap){
+    cudaProfilerStart();
+  }
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
+  // print the duration in milliseconds with 4 decimal places
   DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+  if (!for_remap){
+    cudaProfilerStop();
+  }
   auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
   if (duration2.count() - duration.count() > 10){
     DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
