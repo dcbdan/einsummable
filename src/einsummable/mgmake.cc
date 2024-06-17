@@ -922,7 +922,10 @@ void memgraph_make_state_t::process(
       DLINEOUT("unused input");
       // If an input isn't actually used, initialize it but don't intentionally
       // move it into memory
-      initialize_input(all_ops[alloc_oid].get_tid());
+      int tid = all_ops[alloc_oid].get_tid();
+      if(!input_has_been_initialized(tid)) {
+        initialize_input(tid);
+      }
       increment_alloc_oid();
     } else if(alloc_oid < all_ops.size() && is_unused_input(all_ops[doing_oid].get_tid())) {
       DLINEOUT("unused input");
