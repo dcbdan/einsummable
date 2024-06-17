@@ -44,7 +44,7 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
 #add_base_application("reference"        "exps" "reference")
 # add_base_application("copyregion"       "exps" "copyregion")
 add_base_application("scalarop"         "exps" "scalarop")
@@ -90,7 +90,7 @@ if(${CPU_EXECUTION_ENGINE})
 
   find_package(MKL REQUIRED)
 
-  
+
   if(NOT DEFINED UCX_PATH)
     message( SEND_ERROR "Pleased define UCX_PATH")
   endif()
@@ -309,4 +309,5 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_exec_llama" "gpuexecllama")
   add_gpu_llama_application("gpu_matmul" "gpu_matmul")
+  add_gpu_llama_application("asd" "asd")
 endif()

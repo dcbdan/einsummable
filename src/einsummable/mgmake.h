@@ -13,7 +13,34 @@ struct _which_touch_t {
   int touch_id;
 };
 
-using _which_op_t = std::variant<_which_node_t, _which_touch_t>;
+struct _which_op_t {
+  _which_op_t(_which_node_t const& x): _op(x) {}
+  _which_op_t(_which_touch_t const& x): _op(x) {}
+
+  int get_tid() const {
+    if(is_which_node())  { return get_which_node().task_id; }
+    if(is_which_touch()) { return get_which_touch().task_id; }
+    throw std::runtime_error("get_tid _which_op_t: missing case, should not reach");
+  }
+
+  bool is_which_node() const {
+    return std::holds_alternative<_which_node_t>(_op);
+  }
+  bool is_which_touch() const {
+    return std::holds_alternative<_which_touch_t>(_op);
+  }
+
+  _which_node_t const& get_which_node() const {
+    return std::get<_which_node_t>(_op);
+  }
+  _which_touch_t const& get_which_touch() const {
+    return std::get<_which_touch_t>(_op);
+  }
+
+  std::variant<_which_node_t, _which_touch_t> _op;
+};
+
+std::ostream& operator<<(std::ostream&, _which_op_t const&);
 
 bool operator==(_which_node_t const& lhs, _which_node_t const& rhs);
 bool operator< (_which_node_t const& lhs, _which_node_t const& rhs);
@@ -70,46 +97,26 @@ struct memgraph_make_state_t {
 
   void initialize_input(int inn);
 
-  bool input_has_been_initialized(int inn);
+  bool input_has_been_initialized(int inn) const;
+
+  bool is_unused_input(int inn) const;
 
   //a helper function that finds the used tids for a given op. (inns)
-  vector<int> find_used_tids(_which_op_t const& which_op);
-
-  //This is a modified version of force_allocate_tids, only allocate one output tensor
-  void force_allocate_tid(_which_op_t const& which_op);
-
-  //This is used at the first if statement of process loop. allocates without evict. 
-  // Effect: create alloc node if possible, then add to task_tensor_to_mem_node
-  bool allocate_tid_without_evict(_which_op_t const& which_op);
+  vector<int> find_used_tids(_which_op_t const& which_op) const;
 
   // This calls add to memgraph for every op, but also sets up all metadata
   // for eviction and loading
   void process(vector<_which_op_t> const& all_ops);
 
-  // Allocate memory for the provided op. If memory wasn't allocated,
-  // return false. If force is true, memory will be allocated and
-  // may use evict. If force is false, memory may not be allocated and
-  // and evict will not be used.
-  //TODO: never used...
-  bool force_allocate_ops(
-    _which_op_t const& which_op);
-  // > get's the required tensors in memory, calling load if necc
-  //   > if force: evict tensors as necc
-  //   > if not force: don't evict anything
-  // > return whether or not the op at oid could be allocated for
-  //   > if force, then this must return true or throw an error
+  bool allocate_op_output(_which_op_t const& op, bool force);
 
-  // Do the provided op. Return whether or not any tensors
-  // are delteted
-  bool add_op(
-    _which_op_t const& which_op);
-  // > assumption: allocate_op(oid) was called and successful for oid
-  // > insert memgraph-op into the memgraph
-  // > register usage for all input tensors
-  // > return whether or not a delete occurred in one of the register usages
+  bool allocate_tensor_without_evict(int tid);
 
-  // make sure that all of these tids are on memory
-  void force_allocate_tids(_which_op_t const& which_op);
+  void allocate_tensor_force(
+    int tid,
+    vector<int> const& keep_tids);
+
+  void add_op(_which_op_t const& which_op);
 
   // Insert an allocate node and return the alloc_t mem id
   int allocate_with_evict(
@@ -117,34 +124,23 @@ struct memgraph_make_state_t {
     vector<int> cannot_evict = {});
 
   // Try to insert an allocate node and return the alloc_t mem id
-  optional<int> 
+  optional<int>
   allocate_without_evict(int loc, uint64_t size);
 
-  // find the tid that
-  // 1. is bigger than size and
-  // 2. not in `cannot_evict` and
-  // 3. will be used latest into the future among tids that
-  //    satisfy 1 and 2
-  // optional<int> find_victim(
-  //   int loc, 
-  //   uint64_t size, 
-  //   vector<int> cannot_evict = {});
-  // If not tensors satisfy 1 and 2, return None.
-
-  optional<vector<int>> find_victim(
-  int loc,
-  uint64_t size,
-  vector<int> cannot_evict = {});
+  optional<vector<int>> find_victims(
+    int loc,
+    uint64_t size,
+    vector<int> cannot_evict = {});
 
   // load tid on storage into memory, possibly evicting tensors.
   // Don't evict any items in cannot_evict
   void load_tensor_with_evict(
-    int tid, 
+    int tid,
     vector<int> cannot_evict = {});
 
   void _load_tensor_helper(int tid, int alloc_mid);
 
-  vector<tuple<int, mem_t>> 
+  vector<tuple<int, mem_t>>
   get_tensors_in_memory_without_alloc(vector<int> const& task_ids);
 
   // this tensor was used, see if you can free the memory
@@ -182,7 +178,7 @@ struct memgraph_make_state_t {
   void task_tensor_to_mem_node_erase_on_storage(int tid);
   void task_tensor_to_mem_node_erase_on_memory(int tid);
   void _task_tensor_to_mem_node_erase(int tid);
-  void int_map_print(map<int, int> map);
+  void _task_tensor_to_mem_node_print();
 
   taskgraph_t const& taskgraph;
 
