@@ -478,7 +478,6 @@ void memgraph_make_state_t::initialize_input(int inn)
     op_t input_op = op_t(input_mem);
     int memid = memgraph.insert(input_op, {});
 
-    std::cout << "inn: " << inn << ", memid: " << memid << std::endl;
     task_tensor_to_mem_node_insert_on_memory(inn, memid);
   } else {
     // If we are not able to allocate on memory, insert into inputsto_t
@@ -649,24 +648,27 @@ bool memgraph_make_state_t::allocate_tid_without_evict(_which_op_t const& which_
     return true;
   }
 
-  auto maybe = allocate_without_evict(loc, size);
-
-  if(!maybe){
-    return false;
-  }
-  int alloc_mid = maybe.value();
   auto iter = task_tensor_to_mem_node.find(tid);
   if(iter != task_tensor_to_mem_node.end()) {
-    // throw std::runtime_error("shouldn't be already in task_tensor_to_mem. Should be new node");
     // In this case, if the tensor was provided by user on storage, load it into
     // the memory at alloc_mid
     int const& memid = iter->second;
     auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
     if(maybe_mem.is_stoloc()) {
+      auto maybe = allocate_without_evict(loc, size);
+      if(!maybe){
+        return false;
+      }
+      int alloc_mid = maybe.value();
       _load_tensor_helper(tid, alloc_mid);
     }
   } else {
     // This mustve been a new tensor, so get it setup 
+    auto maybe = allocate_without_evict(loc, size);
+    if(!maybe){
+      return false;
+    }
+    int alloc_mid = maybe.value();
     task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
   }
   return true;
@@ -1123,7 +1125,6 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_insert(
   {
     throw std::runtime_error("this tid is already in task_tensor_to_mem_node");
   }
-  std::cout << "inserting pair: " << tid << ": " << mid << std::endl;
   task_tensor_to_mem_node.insert({tid, mid});
 }
 
@@ -1219,9 +1220,9 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_erase(int tid)
   task_tensor_to_mem_node.erase(iter);
 }
 
-void memgraph_make_state_t::_task_tensor_to_mem_node_print()
+void memgraph_make_state_t::int_map_print(map<int, int> map)
 {
-  for (auto iter = task_tensor_to_mem_node.begin(); iter != task_tensor_to_mem_node.end(); ++iter) {
+  for (auto iter = map.begin(); iter != map.end(); ++iter) {
     std::cout << iter->first << ": " << iter->second << ", ";
   }
   std::cout << std::endl;
@@ -1278,7 +1279,6 @@ memgraph_make_state_t::find_victim(
   // _find_best_evict_block_ids.
   // Use order_state in the overload function.
   auto f_score = [&, this, cannot_evict](int bid) {
-    // std::cout << "aaaa new inside lambda cannot evict: " << cannot_evict << std::endl; 
     int tid = bid2tid.at(bid);
     auto iter = std::find(cannot_evict.begin(), cannot_evict.end(), tid);
     if(iter != cannot_evict.end()) {
@@ -1291,7 +1291,6 @@ memgraph_make_state_t::find_victim(
 
   if (!maybe_evict_block_ids) {
     // this should be unlikely
-
     return std::nullopt;
   }
 
@@ -1464,12 +1463,10 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
 {
   int const& sto_mid = task_tensor_to_mem_node.at(tid);
 
-  DOUT("before line 1527");
   load_t load {
     .src = memgraph.nodes.at(sto_mid).op.get_stoloc(),
     .dst = memgraph.nodes.at(alloc_mid).op.get_output_memloc()
   };
-  DOUT("after line 1527");
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
   task_tensor_to_mem_node_update_on_memory(tid, mid);

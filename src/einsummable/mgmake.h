@@ -182,7 +182,7 @@ struct memgraph_make_state_t {
   void task_tensor_to_mem_node_erase_on_storage(int tid);
   void task_tensor_to_mem_node_erase_on_memory(int tid);
   void _task_tensor_to_mem_node_erase(int tid);
-  void _task_tensor_to_mem_node_print();
+  void int_map_print(map<int, int> map);
 
   taskgraph_t const& taskgraph;
 

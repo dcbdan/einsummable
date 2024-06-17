@@ -31,16 +31,18 @@ int main() {
 
   auto const& graph = writer.get_graph();
 
-  vector<placement_t> pls;
-  for(auto const& part: graph.make_singleton_partition()) {
-    pls.emplace_back(part);
-  }
+  int num_gpus = 2;
+  int num_computes_per_loc = 1;
 
-  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
+  autoplace_config_t config = autoplace_config_t::make_default01(
+    num_gpus, num_computes_per_loc);
+    vector<placement_t> placements = autoplace01(graph, config);
 
-  uint64_t GB = 1000000000;
-  uint64_t nGB = 10;
-  vector<uint64_t> mem_sizes(1, nGB*GB);
+
+  auto [_0, _1, taskgraph] = taskgraph_t::make(graph, placements);
+
+
+  vector<uint64_t> mem_sizes(2, 100000);
 
   auto [_2, _3, memgraph] = memgraph_t::make(taskgraph, {},  mem_sizes);
 
