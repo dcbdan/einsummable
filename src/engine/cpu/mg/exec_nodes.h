@@ -22,6 +22,22 @@ struct cpu_einsummable_t : exec_graph_t::op_base_t {
   int get_priority() const { return 200; }
 };
 
+struct cpu_copy_t : exec_graph_t::op_base_t {
+  cpu_copy_t(uint64_t a, uint64_t b, uint64_t c)
+    : size(a), src_offset(b), dst_offset(c)
+  {}
+
+  uint64_t size;
+  uint64_t src_offset;
+  uint64_t dst_offset;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+  desc_ptr_t resource_description() const;
+  void print(std::ostream& out) const { out << "cpu_copy"; }
+
+  int get_priority() const { return 200; }
+};
+
 struct cpu_fill_constant_t : exec_graph_t::op_base_t {
   cpu_fill_constant_t(
     uint64_t offset_,
