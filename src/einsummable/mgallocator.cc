@@ -292,6 +292,88 @@ bool allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size)
   return true;
 }
 
+tuple<int, set<int>>
+allocator_t::allocate_at(uint64_t offset, uint64_t size)
+{
+  auto beg = binary_search_find(blocks.begin(), blocks.end(),
+    [&offset](block_t const& blk)
+    {
+      return blk.beg <= offset;
+    }
+  );
+  // beg points to the last block that has the beg <= offset.
+
+  auto last = binary_search_find(beg, blocks.end(),
+    [&offset, &size](block_t const& blk)
+    {
+      return blk.beg < offset + size;
+    }
+  );
+
+  // last points to the last block with an element in [offset,offset+size).
+  if(last == blocks.end())
+  {
+    throw std::runtime_error("the offset and size requested goes beyond buffer limit");
+  }
+
+  auto end = last + 1;
+
+  set<int> deps;
+  for(auto iter = beg; iter != end; ++iter)
+  {
+    if(!iter->dep) {
+      //this block is occupied, fail and return
+      std::set<int> empty_set;
+      return std::make_tuple(iter->beg, empty_set);
+    } else {
+      int const& d = iter->dep.value();
+      if(d >= 0)
+      {
+        deps.insert(d);
+      }
+    }
+  }
+
+  uint64_t unused_begin = beg->beg;
+  uint64_t unused_begin_size = offset - unused_begin;
+
+  uint64_t unused_end = offset + size;
+  uint64_t unused_end_size = last->end - unused_end;
+
+  auto iter = blocks.erase(beg, end);
+
+  // iter = the spot to insert before,
+  // so insert the unused end segment,
+  // the used segment and then the unused
+  // begin segment.
+
+  if(unused_end_size != 0)
+  {
+    iter = blocks.insert(iter, block_t {
+      .beg = unused_end,
+      .end = unused_end + unused_end_size,
+      .dep = optional<int>(-1)
+    });
+  }
+
+  iter = blocks.insert(iter, block_t{
+    .beg = offset,
+    .end = offset + size,
+    .dep = optional<int>()
+  });
+
+  if(unused_begin_size != 0)
+  {
+    iter = blocks.insert(iter, block_t {
+      .beg = unused_begin,
+      .end = unused_begin + unused_begin_size,
+      .dep = optional<int>(-1)}
+    );
+  }
+
+  return std::make_tuple(-1, deps);
+}
+
 void allocator_t::free(uint64_t offset, int del)
 {
   auto iter = binary_search_find(blocks.begin(), blocks.end(),

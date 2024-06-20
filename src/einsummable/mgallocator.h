@@ -29,6 +29,10 @@ struct allocator_t {
   [[nodiscard]] bool 
   allocate_at_without_deps(uint64_t offset, uint64_t size);
 
+  //if success, return the set of dependencies. Else, return std::nullopt
+  tuple<int, set<int>>
+  allocate_at(uint64_t offset, uint64_t size);
+
   void set_strategy(allocator_strat_t s) { strat = s; };
   allocator_strat_t get_strategy() const { return strat; }
 

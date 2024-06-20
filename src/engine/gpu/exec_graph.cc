@@ -200,6 +200,15 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
       // DOUT("Inserted copy op for node " << mid);
+    } else if(node.op.is_copy()) {
+      auto const& [loc,size,src_offset,dst_offset] = node.op.get_copy();
+      memgraph_t::move_t move {
+        .src = {loc,src_offset},
+        .dst = {loc,dst_offset},
+        .size = size
+      };
+      gpu_copy_t* op = new gpu_copy_t(move);
+      insert(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
       evict_count++;
       evict_bytes += node.op.get_evict().src.size;

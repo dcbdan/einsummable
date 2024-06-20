@@ -1564,6 +1564,77 @@ memgraph_make_state_t::get_tensors_in_memory_without_alloc(
   return ret;
 }
 
+
+void memgraph_make_state_t::move_tensors(vector<tuple<uint64_t /*offset*/, uint64_t /*size*/, int/*loc*/, uint64_t /*new_offset*/, int /*new_loc*/>> new_mapping) {
+  // set<tuple<uint64_t, uint64_t>> dep_graph; // Set of "edges", where each edge is a (new_offset, offset) pair where offset <= new_offset <= offset+size,
+  //                                           // i.e. the memory at offset must be moved before the memory at new_offset is placed
+
+  // map<uint64_t, uint64_t> dep_graph; // Map of offsets to new_offsets that cannot be placed til offset is moved. 
+  
+  for (auto &tensor_locations : new_mapping) {
+    uint64_t offset = std::get<0>(tensor_locations);
+    uint64_t size = std::get<1>(tensor_locations);
+    int loc = std::get<2>(tensor_locations);
+    uint64_t new_offset = std::get<3>(tensor_locations);
+    int new_loc = std::get<4>(tensor_locations);
+
+
+    auto deps = allocators[new_loc].allocate_at(new_offset, size);
+    int return_code = std::get<0>(deps);
+    while (return_code >= 0) {
+      // TODO Efficiently move memory based on later blocks maybe?
+      uint64_t blocking_block_offset = return_code; // Assuming that this is just the offset of the block
+      auto interval = allocators[new_loc].get_allocated_region(blocking_block_offset);
+      uint64_t blocking_block_size = std::get<1>(interval.value()) - std::get<0>(interval.value());
+
+      auto move_alloc = allocators[new_loc].allocate(blocking_block_size);
+      if (!move_alloc || (std::get<0>(move_alloc.value()) >= new_offset && new_offset <= std::get<0>(move_alloc.value()) + size)) { // No space or the block is attempting to be reallocated where we need to allocate
+        // TODO can maybe make second case more efficient rather than just evicting
+        int del_val = memgraph.insert(op_t(evict_t({
+          .src = memloc_t{
+            .offset = blocking_block_offset,
+            .size = blocking_block_size
+          },
+          .dst = stoloc_t{
+            .loc = 0, // TODO What to put these values as?
+            .id = 0
+          }
+        })), std::get<1>(move_alloc.value()));
+        allocators[new_loc].free(blocking_block_offset, del_val);
+      } else { // We are good to copy over and free memory
+        int del_val = memgraph.insert(op_t(copy_t{
+          .loc = new_loc,
+          .size = blocking_block_size,
+          .src_offset = blocking_block_offset,
+          .dst_offset = std::get<0>(move_alloc.value())}), std::get<1>(move_alloc.value()));
+        allocators[new_loc].free(blocking_block_offset, del_val);
+      }
+
+      // Attempt allocation again
+      deps = allocators[new_loc].allocate_at(new_offset, size);
+      return_code = std::get<0>(deps);
+
+    }
+    if (return_code == -1) {
+      if (loc == new_loc) {
+        memgraph.insert(op_t(copy_t{
+          .loc = loc,
+          .size = size,
+          .src_offset = offset,
+          .dst_offset = new_offset}), std::get<1>(deps));
+      } else {
+        memgraph.insert(op_t(move_t{
+          .src = {loc, offset},
+          .dst = {new_loc, new_offset},
+          .size = size}), std::get<1>(deps));
+      }
+    } else {
+      DOUT("Extending memgraph to move memory back failed, somehow offset + size larger than buffer");
+    }
+  }
+}
+
+
 bool operator==(_which_node_t const& lhs, _which_node_t const& rhs)
 {
   return lhs.task_id == rhs.task_id;

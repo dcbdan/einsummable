@@ -35,6 +35,14 @@ graph_constructor_t matmul_graph_con(int pi, int pj, int pk, int di, int dj, int
   return g;
 }
 
+float scalar_to_float(scalar_t s) {
+    return s.f32();
+}
+
+void print_dbuf(dbuffer_t dbuf) {
+    DOUT(dbuf);
+}   
+
 taskgraph_t matmul_taskgraph(int pi, int pj, int pk, int di, int dj, int dk, int num_processors, int mem_size) {
   auto g = three_dimensional_matrix_multiplication(
   pi,pj,pk, di,dj,dk, num_processors);
@@ -81,8 +89,6 @@ PYBIND11_MODULE(PyEinsummable, m) {
     // Binding for dbuffer_t
     py::class_<dbuffer_t>(m, "tensor", py::buffer_protocol())
         .def_buffer([](dbuffer_t &m) -> py::buffer_info {
-            DOUT(dtype_size(m.dtype));
-            DOUT(m.size() / dtype_size(m.dtype))
               return py::buffer_info(
                   m.raw(),
                   dtype_size(m.dtype),
@@ -92,7 +98,9 @@ PYBIND11_MODULE(PyEinsummable, m) {
                   {dtype_size(m.dtype)}
               );
         })
-        .def("get", &dbuffer_t::get);
+        .def("get", &dbuffer_t::get)
+        .def("sum", &dbuffer_t::sum)
+        .def("sumf64", &dbuffer_t::sum_to_f64);
         // .def(py::init([](py::buffer) {
         //     py::buffer_info info = b.request();
             
@@ -129,4 +137,6 @@ PYBIND11_MODULE(PyEinsummable, m) {
     m.def("matmul_graph", &matmul_graph);
     m.def("matmul_graph_con", &matmul_graph_con);
     m.def("dbuf_from_numpy", &dbuf_from_numpy);
+    m.def("scalar_to_float", &scalar_to_float);
+    m.def("print_dbuf", &print_dbuf);
 }

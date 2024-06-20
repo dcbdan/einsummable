@@ -46,6 +46,8 @@ struct einsummable_t {
   void to_proto(es_proto::Einsummable& e) const;
   static einsummable_t from_proto(es_proto::Einsummable const& e);
 
+  static einsummable_t make_identity(dtype_t dtype, vector<uint64_t> const& shape);
+
   // ij,jk->ik
   // 02 21  01
   static einsummable_t from_matmul(

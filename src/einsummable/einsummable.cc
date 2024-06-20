@@ -280,6 +280,15 @@ einsummable_t einsummable_t::from_proto(es_proto::Einsummable const& e) {
   return einsummable_t(join_shape, inns, out_rank, join, castable);
 }
 
+einsummable_t einsummable_t::make_identity(dtype_t dtype, vector<uint64_t> const& shape)
+{
+  return einsummable_t(
+    shape,
+    vector<vector<int>>(1, vector_iota<int>(shape.size())),
+    shape.size(),
+    scalarop_t::make_identity(dtype));
+}
+
 einsummable_t einsummable_t::from_wire(string const& str)
 {
   es_proto::Einsummable e;

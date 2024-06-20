@@ -172,6 +172,13 @@ message MGMove {
   required uint64 size = 5;
 }
 
+message MGCopy {
+  required int32 loc = 1;
+  required uint64 size = 2;
+  required uint64 src_offset = 3;
+  required uint64 dst_offset = 4;
+};
+
 message MGEvict {
   required int32 storage_loc = 1;
   required int32 storage_id = 2;
@@ -213,6 +220,7 @@ message MemGraphNode {
     MGConstant constant = 3;
     MGApply apply = 4;
     MGMove move = 5;
+    MGCopy copy = 100;
     MGEvict evict = 6;
     MGLoad load = 7;
     MGPartialize partialize = 8;

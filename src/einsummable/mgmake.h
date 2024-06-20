@@ -69,6 +69,7 @@ struct memgraph_make_state_t {
   using del_t        = memgraph_t::del_t;
   using evict_t      = memgraph_t::evict_t;
   using load_t       = memgraph_t::load_t;
+  using copy_t       = memgraph_t::copy_t;
 
   void initialize_input(int inn);
 
@@ -177,6 +178,10 @@ struct memgraph_make_state_t {
   void task_tensor_to_mem_node_erase_on_storage(int tid);
   void task_tensor_to_mem_node_erase_on_memory(int tid);
   void _task_tensor_to_mem_node_erase(int tid);
+
+  // Input is a vector of tuples that each represent one block of memory to move
+  // Tuple should be of the form current offset, size, current location, new offset, new location
+  void move_tensors(vector<tuple<uint64_t, uint64_t, int, uint64_t, int>> new_mapping);
 
   taskgraph_t const& taskgraph;
 

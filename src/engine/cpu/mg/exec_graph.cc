@@ -187,6 +187,10 @@ exec_graph_t::make_cpu_exec_graph(
         int eid = graph.insert(op, partial_move_eids);
         mid_to_eid.insert({mid, eid});
       }
+    } else if(node.op.is_copy()) {
+      auto const& [loc,size,src_offset,dst_offset] = node.op.get_copy();
+      cpu_copy_t* op = new cpu_copy_t(size, src_offset, dst_offset);
+      insert_from_mid(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
       auto const& evict = node.op.get_evict();
       cpu_evict_t* op = new cpu_evict_t(
@@ -256,6 +260,44 @@ void cpu_einsummable_t::launch(
       cpu_executor(einsummable, out_mem, inn_mems, maybe_workspace);
       callback();
     });
+  // Note: capturing this under the assumption that the exec_graph will not
+  //       change and invalidate the this pointer
+}
+
+desc_ptr_t
+cpu_copy_t::resource_description() const
+{
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc());
+  ret.emplace_back(threadpool_manager_t::make_desc());
+  return resource_manager_t::make_desc(ret);
+}
+
+void cpu_copy_t::launch(
+  resource_ptr_t rsrc,
+  std::function<void()> callback) const
+{
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  void* global_buffer = global_buffers_t::get_resource(resources[0]);
+
+  auto& thread_resource = threadpool_manager_t::get_resource(resources[1]);
+
+  void* inn_mem = reinterpret_cast<uint8_t const*>(increment_void_ptr(
+    global_buffer,
+    src_offset));
+
+  void* out_mem = reinterpret_cast<uint8_t*>(increment_void_ptr(
+    global_buffer,
+    dst_offset));
+
+  thread_resource.launch(
+      [this, callback, out_mem, inn_mem]
+      {
+        std::copy(inn_mem, inn_mem + size, out_mem);
+        callback();
+      });
   // Note: capturing this under the assumption that the exec_graph will not
   //       change and invalidate the this pointer
 }

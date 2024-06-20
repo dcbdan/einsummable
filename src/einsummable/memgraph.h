@@ -190,6 +190,8 @@ struct memgraph_t {
   // that node "occurs" at that device.
   bool is_local_to(int id, int loc) const;
 
+  vector<uint64_t> get_numbyte_on_evict() const;
+
 public:
   struct inputmem_t {
     int loc;
@@ -233,8 +235,6 @@ public:
     touch_t const& get_touch() const;
     dtype_t out_dtype() const;
   };
-  
-  vector<uint64_t> get_numbyte_on_evict() const;
   // Consider an aggregation Y = X1 + X2 + X3 + X4 + X5
   // where the order that X1, ..., X5 comes available is
   // unknown and may be very different. We don't want to
@@ -267,6 +267,13 @@ public:
 
     int const& get_src_loc() const { return std::get<0>(src); }
     int const& get_dst_loc() const { return std::get<0>(dst); }
+  };
+
+  struct copy_t {
+    int loc;
+    uint64_t size;
+    uint64_t src_offset;
+    uint64_t dst_offset;
   };
 
   // Note: every location has one storage, but a
@@ -327,7 +334,7 @@ public:
   private:
     using _op_t = std::variant<
       inputmem_t, inputsto_t, constant_t,
-      apply_t, move_t,
+      apply_t, move_t, copy_t,
       evict_t, load_t, partialize_t,
       alloc_t, del_t>;
   public:
@@ -338,6 +345,7 @@ public:
     op_t(constant_t   x): op_t(_op_t(x)) {}
     op_t(apply_t      x): op_t(_op_t(x)) {}
     op_t(move_t       x): op_t(_op_t(x)) {}
+    op_t(copy_t       x): op_t(_op_t(x)) {}
     op_t(evict_t      x): op_t(_op_t(x)) {}
     op_t(load_t       x): op_t(_op_t(x)) {}
     op_t(partialize_t x): op_t(_op_t(x)) {}
@@ -349,6 +357,7 @@ public:
     bool is_constant()   const { return std::holds_alternative<constant_t>(op);   }
     bool is_apply()      const { return std::holds_alternative<apply_t>(op);      }
     bool is_move()       const { return std::holds_alternative<move_t>(op);       }
+    bool is_copy()       const { return std::holds_alternative<copy_t>(op);       }
     bool is_evict()      const { return std::holds_alternative<evict_t>(op);      }
     bool is_load()       const { return std::holds_alternative<load_t>(op);       }
     bool is_partialize() const { return std::holds_alternative<partialize_t>(op); }
@@ -360,6 +369,7 @@ public:
     constant_t   const& get_constant()   const { return std::get<constant_t>(op);   }
     apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
     move_t       const& get_move()       const { return std::get<move_t>(op);       }
+    copy_t       const& get_copy()       const { return std::get<copy_t>(op);       }
     evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
     load_t       const& get_load()       const { return std::get<load_t>(op);       }
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
@@ -383,6 +393,7 @@ public:
       if (is_inputmem() || is_inputsto())      std::cout << "input";
       if (is_constant())   std::cout << "constant";
       if (is_move())       std::cout << "move";
+      if (is_copy())       std::cout << "copy";
       if (is_evict())      std::cout << "evict";
       if (is_load())       std::cout << "load";
       if (is_partialize()) std::cout << "partialize";
@@ -401,6 +412,7 @@ public:
       if (is_constant())   return get_constant().loc;
       if (is_apply())      return get_apply_loc();
       if (is_move())       return get_move().get_dst_loc();
+      if (is_copy())       return get_copy().loc;
       if (is_evict())      return get_evict().src.loc;
       if (is_load())       return get_load().dst.loc;
       if (is_partialize()) return get_partialize().loc;
@@ -442,6 +454,7 @@ public:
     void check_constant()   const;
     void check_apply()      const;
     void check_move()       const;
+    void check_copy()       const;
     void check_evict()      const;
     void check_load()       const;
     void check_partialize() const;

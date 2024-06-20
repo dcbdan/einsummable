@@ -164,6 +164,14 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
               write_with_ss(memloc_t{dst_offset, size, dst_loc});
       // label = "move " + write_with_ss(id);
       color = "pink";
+    } else if(op.is_copy()) {
+      auto const& [loc,size,src_offset,dst_offset] = op.get_copy();
+
+      label = "copy@" + 
+        write_with_ss(memloc_t{src_offset, size, loc}) +
+        "->" + 
+        write_with_ss(memloc_t{dst_offset, size, loc});
+        color = "yellow";
     } else if(op.is_evict()) {
       auto const& [memloc, stoloc] = node.op.get_evict();
       label = "evict@" +
@@ -362,6 +370,13 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       m->set_dst_loc(dst_loc);
       m->set_dst_offset(dst_offset);
       m->set_size(size);
+    } else if(node.op.is_copy()) {
+      auto const& [loc,size,src_offset,dst_offset] = node.op.get_copy();
+      es_proto::MGCopy *c = n->mutable_copy();
+      c->set_loc(loc);
+      c->set_size(size);
+      c->set_src_offset(src_offset);
+      c->set_dst_offset(dst_offset);
     } else if(node.op.is_evict()) {
       auto const& [memloc, stoloc] = node.op.get_evict();
       es_proto::MGEvict *e = n->mutable_evict();
@@ -492,6 +507,13 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
           .src = {m.src_loc(), m.src_offset()},
           .dst = {m.dst_loc(), m.dst_offset()},
           .size = m.size()});
+    } else if(n.has_copy()) {
+      auto const& c = n.copy();
+      op = op_t(copy_t{
+        .loc = c.loc(),
+        .size = c.size(),
+        .src_offset = c.src_offset(),
+        .dst_offset = c.dst_offset()});
     } else if(n.has_evict()) {
       auto const& e = n.evict();
       op = op_t(evict_t{
@@ -694,6 +716,8 @@ string memgraph_t::op_t::get_name() const
     return "inputsto";
   } else if(is_move()) {
     return "move";
+  } else if(is_copy()) {
+    return "copy";
   } else if(is_del()) {
     return "del";
   } else if(is_inputmem()) {
@@ -719,6 +743,8 @@ void memgraph_t::op_t::check_op() const
     check_apply();
   } else if(is_move()) {
     check_move();
+  } else if(is_copy()) {
+    check_copy();
   } else if(is_evict()) {
     check_evict();
   } else if(is_load()) {
@@ -748,6 +774,7 @@ void memgraph_t::op_t::check_move() const
     throw std::runtime_error("move cannot be to same location; that's an apply");
   }
 }
+void memgraph_t::op_t::check_copy()       const {}
 void memgraph_t::op_t::check_evict()      const {}
 void memgraph_t::op_t::check_load()       const {}
 void memgraph_t::op_t::check_partialize() const {}
@@ -779,6 +806,11 @@ vector<memloc_t> memgraph_t::op_t::get_memlocs() const
     return {
         memloc_t{.offset = src_offset, .size = move.size, .loc = src_loc},
         memloc_t{.offset = dst_offset, .size = move.size, .loc = dst_loc}};
+  } else if(is_copy()) {
+    auto const& [loc, size, src_offset, dst_offset] = get_copy();
+    return {
+        memloc_t{.offset = src_offset, .size = size, .loc = loc},
+        memloc_t{.offset = dst_offset, .size = size, .loc = loc}};
   } else if(is_evict()) {
     auto const& evict = get_evict();
     return {
@@ -823,6 +855,12 @@ memstoloc_t memgraph_t::op_t::get_output_memstoloc() const
         .offset = dst_offset,
         .size = move.size,
         .loc = dst_loc};
+  } else if(is_copy()) {
+    auto const& copy = get_copy();
+    return memloc_t{
+      .offset = copy.dst_offset,
+      .size = copy.size,
+      .loc = copy.loc};
   } else if(is_evict()) {
     return get_evict().dst;
   } else if(is_load()) {
@@ -909,6 +947,8 @@ bool memgraph_t::op_t::is_local_to(int loc) const
   } else if(is_move()) {
     auto const& move = get_move();
     return loc == move.get_src_loc() || loc == move.get_dst_loc();
+  } else if(is_copy()) {
+    return loc == get_copy().loc;
   } else if(is_evict()) {
     return loc == get_evict().src.loc;
   } else if(is_load()) {
