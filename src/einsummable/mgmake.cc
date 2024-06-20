@@ -258,6 +258,7 @@ build_tg_ops(
   taskgraph_t const& taskgraph,
   vector<int> const& tids_in_order)
 {
+  std::cout << "tid in order: " << tids_in_order << std::endl;
   vector<_which_op_t> ret;
   ret.reserve(2*taskgraph.nodes.size());
 
@@ -510,7 +511,7 @@ bool memgraph_make_state_t::is_unused_input(int inn) const {
 vector<int>
 memgraph_make_state_t::find_used_tids(_which_op_t const& which_op) const
 {
-  DLINEOUT("find_used_tids " << which_op);
+  // DLINEOUT("find_used_tids " << which_op);
   int id = which_op.get_tid();
   auto const& node = taskgraph.nodes[id];
 
@@ -540,19 +541,19 @@ memgraph_make_state_t::find_used_tids(_which_op_t const& which_op) const
 
 bool memgraph_make_state_t::allocate_op_output(_which_op_t const& op, bool force) {
   int tid = op.get_tid();
-  DLINEOUT("allocate_op_output " << tid);
+  // DLINEOUT("allocate_op_output " << tid);
   if(allocate_tensor_without_evict(tid)) {
-    DLINEOUT("allocate_op_output:success " << tid);
+    // DLINEOUT("allocate_op_output:success " << tid);
     return true;
   }
   if(force) {
     vector<int> keep_tids = find_used_tids(op);
     allocate_tensor_force(tid, keep_tids);
-    DLINEOUT("allocate_op_output:success " << tid);
+    // DLINEOUT("allocate_op_output:success " << tid);
     return true;
   }
 
-  DLINEOUT("allocate_op_output:fail " << tid);
+  // DLINEOUT("allocate_op_output:fail " << tid);
   return false;
 }
 
@@ -711,6 +712,16 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   optional<int> touch_output_memid;
 
   if(node.op.is_input()) {
+
+    /* For performance debugging */
+    //add the input node to mem_to_done with current threshold
+    auto iter = task_tensor_to_mem_node.find(id);
+    if (iter == task_tensor_to_mem_node.end()) {
+      throw std::runtime_error("input node is not initialized");
+    }
+    mem_to_done_insert(iter->second);
+    /* End performance debugging*/
+
     // We don't actually do anything in this case
     return;
   } else if(node.op.is_apply()) {
@@ -799,6 +810,9 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   }
 
   int new_memid = memgraph.insert(op.value(), deps);
+  /* For performance debugging */
+  mem_to_done_insert(new_memid);
+  /* End performance debugging*/
 
   // notify tensors_on_memory that these tensors were used
   for(auto const& used_tid: used_tids) {
@@ -842,6 +856,9 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
         int partialize_memid = memgraph.insert(
           op_t(new_partialize),
           set<int>(in_progress.begin(), in_progress.end()));
+        /* For performance debugging */
+        mem_to_done_insert(partialize_memid);
+        /* End performance debugging*/
         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
       }
       partializes_in_progress.erase(id);
@@ -906,6 +923,7 @@ void memgraph_make_state_t::process(
   auto increment_doing_oid = [&] {
     doing_oid++;
     ostate.threshold = doing_oid;
+    // std::cout << "incremented ostate.threshold to " << doing_oid << std::endl;
   };
   auto increment_alloc_oid = [&] {
     alloc_oid++;
@@ -916,10 +934,10 @@ void memgraph_make_state_t::process(
   // }
 
   while(doing_oid < all_ops.size()) {
-    DLINEOUT("alloc, doing: " << alloc_oid << ", " << doing_oid);
+    // DLINEOUT("alloc, doing: " << alloc_oid << ", " << doing_oid);
 
     if(alloc_oid < all_ops.size() && is_unused_input(all_ops[alloc_oid].get_tid())) {
-      DLINEOUT("unused input");
+      // DLINEOUT("unused input");
       // If an input isn't actually used, initialize it but don't intentionally
       // move it into memory
       int tid = all_ops[alloc_oid].get_tid();
@@ -928,29 +946,31 @@ void memgraph_make_state_t::process(
       }
       increment_alloc_oid();
     } else if(alloc_oid < all_ops.size() && is_unused_input(all_ops[doing_oid].get_tid())) {
-      DLINEOUT("unused input");
+      // DLINEOUT("unused input");
       // If an input isn't actually used, don't add the op as add_op
       // would pull the output tensor into memory
       increment_doing_oid();
     } else if(alloc_oid < all_ops.size() && allocate_op_output(all_ops[alloc_oid], false)) {
-      DLINEOUT("case: did allocate");
+      // DLINEOUT("case: did allocate");
       // In this case, we have allocated the output for the alloc op without doing
       // any eviction
       increment_alloc_oid();
     } else if(alloc_oid == doing_oid) {
-      DLINEOUT("case: must allocate");
+      // DLINEOUT("case: must allocate");
       // Here, we allocate the op using eviction if needed
       allocate_op_output(all_ops[alloc_oid], true);
       increment_alloc_oid();
     } else {
-      DLINEOUT("case: do");
+      // DLINEOUT("case: do");
       // At this point, the output tensor is in memory as add_op expects.
       // If inputs aren't in memory, add_op pulls them into memory
       add_op(all_ops[doing_oid]);
       increment_doing_oid();
     }
-    DLINE;
+    // DLINE;
   }
+  /* For performance debugging */
+  _int_map_print(mem_to_done);
 }
 
 int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
@@ -1077,6 +1097,9 @@ bool memgraph_make_state_t::register_usage(int task_id)
     }
 
     int del_id = memgraph.insert(op_t(del), del_deps);
+    /* For performance debugging */
+    mem_to_done_insert(del_id);
+    /* End performance debugging*/
 
     allocators.at(memloc.loc).free(memloc.offset, del_id);
 
@@ -1203,9 +1226,9 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_erase(int tid)
   task_tensor_to_mem_node.erase(iter);
 }
 
-void memgraph_make_state_t::_task_tensor_to_mem_node_print()
+void memgraph_make_state_t::_int_map_print(map<int, int> map)
 {
-  for (auto iter = task_tensor_to_mem_node.begin(); iter != task_tensor_to_mem_node.end(); ++iter) {
+  for (auto iter = map.begin(); iter != map.end(); ++iter) {
     std::cout << iter->first << ": " << iter->second << ", ";
   }
   std::cout << std::endl;
@@ -1344,6 +1367,9 @@ optional<int> memgraph_make_state_t::allocate_without_evict(
       .size = size
     };
     int new_memid = memgraph.insert(op_t(alloc), deps);
+    /* For performance debugging */
+    mem_to_done_insert(new_memid);
+    /* End performance debugging*/
     return new_memid;
   } else {
     return std::nullopt;
@@ -1471,3 +1497,43 @@ std::ostream& operator<<(std::ostream& out, _which_op_t const& op) {
   }
   return out;
 }
+
+  //every node should only be called once with this function
+  void memgraph_make_state_t::mem_to_done_insert(int memid) {
+    auto iter = mem_to_done.find(memid);
+    if (iter != mem_to_done.end()){
+      throw std::runtime_error("memid already exist in mem_to_done");
+    }
+    int curr_threshold = order_state.value().threshold;
+    // std::cout << "    -- inserting " << memid << ": " << curr_threshold << " to mem_to_done" << std::endl;
+    mem_to_done.insert({memid, curr_threshold});
+  }
+  
+  //this should be called after we call mem_to_node_insert for both in_mid and out_mid
+  void memgraph_make_state_t::mem_deps_insert(int in_mid, int out_mid) {
+    auto iter_in = mem_to_done.find(in_mid);
+    auto iter_out = mem_to_done.find(out_mid);
+    if (iter_in == mem_to_done.end() || iter_out == mem_to_done.end()) {
+      throw std::runtime_error("either in_mid or out_mid is not in mem_to_done yet");
+    }
+    int in_time = mem_to_done.at(in_mid);
+    int out_time = mem_to_done.at(out_mid);
+    if (out_time < in_time) {
+      throw std::runtime_error("time of out node cannot be smaller than time of in node, something wrong");
+    }
+    mem_deps.insert({std::make_tuple(in_mid, out_mid), out_time - in_time});
+  }
+
+  void memgraph_make_state_t::all_deps_insert(int in_mid, int out_mid) {
+    auto iter_in = mem_to_done.find(in_mid);
+    auto iter_out = mem_to_done.find(out_mid);
+    if (iter_in == mem_to_done.end() || iter_out == mem_to_done.end()) {
+      throw std::runtime_error("either in_mid or out_mid is not in mem_to_done yet");
+    }
+    int in_time = mem_to_done.at(in_mid);
+    int out_time = mem_to_done.at(out_mid);
+    if (out_time < in_time) {
+      throw std::runtime_error("time of out node cannot be smaller than time of in node, something wrong");
+    }
+    all_deps.insert({std::make_tuple(in_mid, out_mid), out_time - in_time});
+  }

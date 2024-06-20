@@ -178,7 +178,7 @@ struct memgraph_make_state_t {
   void task_tensor_to_mem_node_erase_on_storage(int tid);
   void task_tensor_to_mem_node_erase_on_memory(int tid);
   void _task_tensor_to_mem_node_erase(int tid);
-  void _task_tensor_to_mem_node_print();
+  void _int_map_print(map<int, int> map);
 
   taskgraph_t const& taskgraph;
 
@@ -239,4 +239,20 @@ struct memgraph_make_state_t {
     // increased.
   };
   optional<order_state_t> order_state;
+
+  /*For performance debugging*/
+  //mapping from memid to doneoid (add to this map when we add a node to memgraph)
+  map<int, int> mem_to_done; 
+
+  //mapping from each memory dependency edge (memid -> memid) to the distance of it
+  map<tuple<int, int>, int> mem_deps; 
+
+  //mapping from each edge to the distance of it.
+  //  Added everytime we add a node, no matter what it is. 
+  map<tuple<int, int>, int> all_deps;
+
+  void mem_to_done_insert(int memid);
+  void mem_deps_insert(int in_mid, int out_mid);
+  void all_deps_insert(int in_mid, int out_mid);
+  
 };
