@@ -312,6 +312,374 @@ order_split_taskgraph(taskgraph_t const& taskgraph)
   };
 }
 
+// This algorithm keeps selecting ready tasks until all tasks have
+// completed. Amongst ready tasks, the task selected is the task that
+// will result in the greatest memory reduction or the least memory gain.
+// For instance, the last time a tensor is used, it is deleted. So executing
+// a task that uses a tensor for the last time may be a good choice.
+//
+// The algorithm:
+//   Collect all the ready tasks
+//   while there are ready tasks:
+//     * Execute the ready task that would result in the greatest
+//       memory reduction / least memory gain
+//     * Update the ready tasks
+//
+// Some caveats and things to note:
+// 1. if a tensor is to be saved, for it's last usage, it won't get freed
+// 2. when allocating a partialize output, execute all ready touches--
+//    this is uniformly better than executing the touches individually
+// 3. a node can be output into multiple touches on the same partialize
+// 4. There are different memory buffers for different locations,
+//    but we just ignore location information here
+struct priority_min_delta_state_t {
+  taskgraph_t const& taskgraph;
+
+  // Types of pending tasks:
+  // 1 allocate partialize + execute touches
+  // 2 execute touch on partialize already allocated
+  // 3 execute node
+
+  map<int, vector<int>> pending;
+  // Given key, value:
+  //   If the key is partialize id,
+  //      If the partialize id has not been allocated,
+  //        Case 1
+  //      Else
+  //        Case 2
+  //   Else
+  //     Case 3
+  //
+  // Note: For Case 3, vector<int> is empty
+  //       For Case 2, vector<int> is singleton
+  //       For Case 1, vector<int> is size >= 1
+
+  // These are all partializes that have been started
+  // but not yet completed
+  set<int> allocated_partializes;
+
+  // Tensors get used and then maybe deleted
+  vector<int> remaining_usage;
+
+  // Nodes get executed when all events occur
+  vector<int> remaining_events;
+
+  bool is_ready() const {
+    return pending.size() > 0;
+  }
+
+  bool is_save(int tid) const {
+    return taskgraph.nodes[tid].is_save;
+  }
+  int64_t size(int tid) const {
+    return int64_t(taskgraph.nodes[tid].op.out_size());
+  }
+  bool will_delete_after_usage(int tid) const {
+    return remaining_usage[tid] == 1 && !is_save(tid);
+  }
+
+  enum class exec_case_t {
+    start_partialize,
+    to_partialize,
+    exec
+  };
+  exec_case_t get_case(int tid, vector<int> const& maybe_touch_inns) const {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_partialize()) {
+      if(allocated_partializes.count(tid) > 0) {
+        if(maybe_touch_inns.size() != 1) {
+          throw std::runtime_error("is allocated, must be touch(es) from one input");
+        }
+        return exec_case_t::to_partialize;
+      } else {
+        if(maybe_touch_inns.size() == 0) {
+          throw std::runtime_error("does not make sense: alloc partialize but no inns?");
+        }
+        return exec_case_t::start_partialize;
+      }
+    } else {
+      if(maybe_touch_inns.size() != 0) {
+        throw std::runtime_error("exec can't have touch inns");
+      }
+      return exec_case_t::exec;
+    }
+  }
+
+  int64_t compute_delta(int tid, vector<int> const& maybe_touch_inns) const {
+    switch(get_case(tid, maybe_touch_inns)) {
+      case exec_case_t::start_partialize:
+        return delta_start_partialize(tid, maybe_touch_inns);
+      case exec_case_t::to_partialize:
+        return delta_to_partialize(tid, maybe_touch_inns[0]);
+      case exec_case_t::exec:
+        return delta_exec(tid);
+      default:
+        throw std::runtime_error("should not reach");
+    };
+  }
+
+  int64_t delta_start_partialize(
+    int partialize,
+    vector<int> const& inns) const
+  {
+    int64_t ret = size(partialize);
+    for(auto const& inn: inns) {
+      if(will_delete_after_usage(inn)) {
+        ret -= size(inn);
+      }
+    }
+    return ret;
+  }
+
+  int64_t delta_to_partialize(int partialize, int inn) const
+  {
+    if(will_delete_after_usage(inn)) {
+      return -1*size(inn);
+    } else {
+      return 0;
+    }
+  }
+
+  int64_t delta_exec(int tid) const
+  {
+    int64_t ret = size(tid);
+    auto const& node = taskgraph.nodes[tid];
+    for(int const& inn: node.op.inputs()) {
+      if(will_delete_after_usage(inn)) {
+        ret -= size(inn);
+      }
+    }
+    return ret;
+  }
+
+  priority_min_delta_state_t(taskgraph_t const& tg)
+    : taskgraph(tg)
+  {
+    // setup remaining_usage
+    remaining_usage.reserve(taskgraph.nodes.size());
+    remaining_events.reserve(taskgraph.nodes.size());
+    for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+      auto const& node = taskgraph.nodes[tid];
+      remaining_usage.push_back(node.outs.size());
+      remaining_events.push_back(node.op.inputs().size());
+    }
+
+    // initialize all the ready ops
+    for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+      auto const& node = taskgraph.nodes[tid];
+      if(node.op.is_input()) {
+        complete_tensor(tid);
+      } else if(node.op.is_constant()) {
+        pending.insert({ tid, vector<int>{} });
+      }
+    }
+  }
+
+  void exec(int tid, vector<int> const& maybe_touch_inns) {
+    auto which_case = get_case(tid, maybe_touch_inns);
+
+    if(which_case == exec_case_t::start_partialize) {
+      allocated_partializes.insert(tid);
+      for(auto const& inn: maybe_touch_inns) {
+        complete_touch(tid, inn);
+      }
+    } else if(which_case == exec_case_t::to_partialize) {
+      int const& inn = maybe_touch_inns[0];
+      complete_touch(tid, inn);
+    } else if(which_case == exec_case_t::exec) {
+      complete_exec(tid);
+    } else {
+      throw std::runtime_error("should not reach");
+    };
+  }
+
+  void complete_tensor(int tid) {
+    auto const& node = taskgraph.nodes[tid];
+    for(int const& out_tid: node.outs) {
+      auto const& out_node = taskgraph.nodes[out_tid];
+      if(out_node.op.is_partialize()) {
+        make_touch_ready(out_tid, tid);
+      } else {
+        remaining_events[out_tid] -= 1;
+        if(remaining_events[out_tid] == 0) {
+          pending.insert({out_tid, vector<int>{} });
+        }
+      }
+    }
+  }
+
+  void complete_exec(int tid) {
+    auto const& node = taskgraph.nodes[tid];
+    for(auto const inn: node.op.inputs()) {
+      remaining_usage[inn] -= 1;
+    }
+
+    complete_tensor(tid);
+  }
+
+  void complete_touch(int partialize, int inn) {
+    remaining_usage[inn] -= 1;
+
+    remaining_events[partialize] -= 1;
+    if(remaining_events[partialize] == 0) {
+      allocated_partializes.erase(partialize);
+      complete_tensor(partialize);
+    }
+  }
+
+  void make_touch_ready(int partialize, int inn) {
+    pending[partialize].push_back(inn);
+  }
+
+  tuple<int, vector<int>> pop() {
+    optional<int64_t> best_delta;
+    int ret;
+
+    for(auto const& [key, maybe_touch_inns]: pending) {
+      int64_t delta = compute_delta(key, maybe_touch_inns);
+      if(!best_delta || delta < best_delta.value()) {
+        best_delta = delta;
+        ret = key;
+      }
+    }
+
+    // The best delta op has been found.
+    auto iter = pending.find(ret);
+    vector<int> maybe_touch_inns = iter->second;
+    pending.erase(iter);
+
+    // Update the state so we can compute new deltas
+    exec(ret, maybe_touch_inns);
+
+    return { ret, maybe_touch_inns };
+  }
+};
+
+vector<_which_op_t>
+order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
+{
+  vector<_which_op_t> ret;
+  ret.reserve(taskgraph.nodes.size()); // a close enough guess
+
+  priority_min_delta_state_t state(taskgraph);
+  while(state.is_ready()) {
+    auto [tid, maybe_touch_inns] = state.pop();
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_partialize()) {
+      set<int> all_inns(maybe_touch_inns.begin(), maybe_touch_inns.end());
+      auto const& partialize = taskgraph.nodes[tid].op.get_partialize();
+      for(int unit_id = 0; unit_id != partialize.units.size(); ++unit_id) {
+        auto const& unit = partialize.units[unit_id];
+        for(int touch_id = 0; touch_id != unit.inputs.size(); ++touch_id) {
+          int const& inn_tid = unit.inputs[touch_id].id;
+          if(all_inns.count(inn_tid) > 0) {
+            ret.push_back(_which_touch_t {
+              .task_id = tid,
+              .unit_id = unit_id,
+              .touch_id = touch_id
+            });
+          }
+        }
+      }
+    } else {
+      ret.push_back(_which_node_t{ .task_id = tid });
+    }
+  }
+
+  // TODO: remove check
+  int expected_size = 0;
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_input()) {
+      //
+    } else if(node.op.is_partialize()) {
+      expected_size += node.op.get_partialize().as_touches_from_flat().size();
+    } else {
+      expected_size += 1;
+    }
+  }
+
+  if(expected_size != ret.size()) {
+    throw std::runtime_error("state ret has failed us..");
+  }
+
+  return ret;
+}
+
+vector<uint64_t>
+order_taskgraph_memory_usage(
+  taskgraph_t const& taskgraph,
+  vector<_which_op_t> const& ops)
+{
+  uint64_t total = 0;
+  vector<int> remaining_usage(taskgraph.nodes.size(), 0);
+
+  for(auto const& node: taskgraph.nodes) {
+    if(node.op.is_input()) {
+      total += node.op.out_size();
+    }
+
+    if(node.op.is_partialize()) {
+      vector<int> inns = vector_mapfst(node.op.get_partialize().as_touches_from_flat());
+      for(int const& inn: inns) {
+        remaining_usage[inn] += 1;
+      }
+    } else {
+      for(int const& inn: node.op.inputs()) {
+        remaining_usage[inn] += 1;
+      }
+    }
+  }
+
+  auto get_touch_inn = [&](int p, int u, int i) {
+    return std::get<0>(
+      taskgraph.nodes[p].op.get_partialize().get_touch(u, i)
+    );
+  };
+
+  auto use_tid = [&](int tid) {
+    auto const& node = taskgraph.nodes[tid];
+    int& cnt = remaining_usage[tid];
+    cnt -= 1;
+    if(cnt == 0 && !node.is_save) {
+      total -= node.op.out_size();
+    }
+  };
+
+  set<int> allocated_partializes;
+
+  vector<uint64_t> ret;
+  ret.push_back(total);
+  for(auto const& x: ops) {
+    if(std::holds_alternative<_which_node_t>(x)) {
+      int const& tid = std::get<_which_node_t>(x).task_id;
+      auto const& node = taskgraph.nodes[tid];
+      total += node.op.out_size();
+      for(int const& inn: node.op.inputs()) {
+        use_tid(inn);
+      }
+    } else if(std::holds_alternative<_which_touch_t>(x)) {
+      auto const& [partialize_id, which_unit, which_touch] =
+        std::get<_which_touch_t>(x);
+
+      if(allocated_partializes.count(partialize_id) == 0) {
+        allocated_partializes.insert(partialize_id);
+
+        auto const& node = taskgraph.nodes[partialize_id];
+        total += node.op.out_size();
+      }
+
+      int inn = get_touch_inn(partialize_id, which_unit, which_touch);
+      use_tid(inn);
+    } else {
+      throw std::runtime_error("invalid.. missing case");
+    }
+
+    ret.push_back(total);
+  }
+
+  return ret;
+}
+
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
   taskgraph_t const& taskgraph,
   int out)
@@ -950,7 +1318,7 @@ void memgraph_make_state_t::process(
     // DLINEOUT("alloc, doing: " << alloc_oid << ", " << doing_oid);
 
     if(alloc_oid < all_ops.size() && is_unused_input(all_ops[alloc_oid].get_tid())) {
-      // DLINEOUT("unused input");
+      DLINEOUT("unused input");
       // If an input isn't actually used, initialize it but don't intentionally
       // move it into memory
       int tid = all_ops[alloc_oid].get_tid();
@@ -982,7 +1350,7 @@ void memgraph_make_state_t::process(
     }
     // DLINE;
   }
-  // print_performance_debugging();
+  print_performance_debugging();
 }
 
 int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
@@ -1436,6 +1804,9 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
   evict_deps.insert(node_mid); // in case it wasn't used
 
   int evict_mid = memgraph.insert(evict, evict_deps);
+  /* For performance debugging */
+  mem_to_done_insert(evict_mid);
+  /* End performance debugging*/
 
   // now free the memory, depending on the eviction having been completed
   allocators.at(evict_memloc.loc).free(evict_memloc.offset, evict_mid);
@@ -1537,6 +1908,11 @@ std::ostream& operator<<(std::ostream& out, _which_op_t const& op) {
       auto iter_in = mem_to_done.find(in_mid);
       auto iter_out = mem_to_done.find(out_mid);
       if (iter_in == mem_to_done.end() || iter_out == mem_to_done.end()) {
+        if (iter_in == mem_to_done.end()) {
+          std::cout << in_mid << " is not in mem_to_done" << std::endl;
+        } else {
+          std::cout << out_mid << " is not in mem_to_done" << std::endl;
+        }
         throw std::runtime_error("either in_mid or out_mid is not in mem_to_done yet");
       }
       int in_time = mem_to_done.at(in_mid);
@@ -1581,4 +1957,16 @@ void memgraph_make_state_t::print_performance_debugging(){
     std::cout << "<" << std::get<0>(iter->first) << ", " << std::get<1>(iter->first) << ">: " << iter->second << ", ";
   }
   std::cout << std::endl;
+}
+
+std::ostream& operator<<(std::ostream& out, _which_op_t const& x) {
+  if(std::holds_alternative<_which_node_t>(x)) {
+    out << "e" << std::get<_which_node_t>(x).task_id;
+  } else if(std::holds_alternative<_which_touch_t>(x)) {
+    auto const& [tid,uid,touch_id] = std::get<_which_touch_t>(x);
+    out << "t" << tid << "|" << uid << "|" << touch_id;
+  } else {
+    throw std::runtime_error("print _which_op_t: missing case");
+  }
+  return out;
 }

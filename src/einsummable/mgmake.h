@@ -48,6 +48,8 @@ bool operator< (_which_node_t const& lhs, _which_node_t const& rhs);
 bool operator==(_which_touch_t const& lhs, _which_touch_t const& rhs);
 bool operator< (_which_touch_t const& lhs, _which_touch_t const& rhs);
 
+std::ostream& operator<<(std::ostream& out, _which_op_t const& x);
+
 // Get all (inn, which_touch_t) from partialize node out
 vector<tuple<int, _which_touch_t>> get_which_touches_from(
   taskgraph_t const &taskgraph,
@@ -67,6 +69,14 @@ order_taskgraph(taskgraph_t const &taskgraph);
 
 tuple<vector<_which_op_t>, vector<_which_op_t>>
 order_split_taskgraph(taskgraph_t const &taskgraph);
+
+vector<_which_op_t>
+order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph);
+
+vector<uint64_t>
+order_taskgraph_memory_usage(
+  taskgraph_t const& taskgraph,
+  vector<_which_op_t> const& ops);
 
 vector<_which_op_t>
 build_tg_ops(
