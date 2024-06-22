@@ -252,7 +252,7 @@ struct memgraph_make_state_t {
   map<tuple<int, int>, int> all_deps;
 
   void mem_to_done_insert(int memid);
-  void mem_deps_insert(int in_mid, int out_mid);
-  void all_deps_insert(int in_mid, int out_mid);
-  
+  void mem_deps_insert(set<int> deps, int out_mid);
+  void all_deps_insert(set<int> deps, int out_mid);
+  void print_performance_debugging();
 };
