@@ -180,8 +180,8 @@ struct memgraph_make_state_t {
   void _task_tensor_to_mem_node_erase(int tid);
 
   // Input is a vector of tuples that each represent one block of memory to move
-  // Tuple should be of the form current offset, size, current location, new offset, new location
-  void move_tensors(vector<tuple<uint64_t, uint64_t, int, uint64_t, int>> new_mapping);
+  // Tuple should be of the form current offset, size, current location, new offset, new location, task_id of the node that computes the value at offset
+  void move_tensors(vector<tuple<uint64_t, uint64_t, int, uint64_t, int, int>> new_mapping);
 
   taskgraph_t const& taskgraph;
 

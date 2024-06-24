@@ -58,13 +58,14 @@ struct gpu_mg_server_t : server_mg_base_t
 
   void debug_mem(int device, uint64_t counts);
 
-    static communicator_t null_comm;
+  static communicator_t null_comm;
+  vector<void*> mems;
 
 private:
 // location is to the local gpu, not global
   map<int, memstoloc_t> data_locs;
 
-  vector<void*> mems;
+
 
   // Example:
   //   compute-node 0: 4 gpus,
@@ -92,4 +93,3 @@ private:
 
   streampool_t stream_pool;
 };
-

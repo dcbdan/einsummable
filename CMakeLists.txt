@@ -309,6 +309,16 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("exp1" "exps" "GPU_chain_mul")
   add_gpu_application("exp2" "exps" "GPU_xtreme")
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
+  add_executable("multiple_mg" exps/multiple_mg.cc)
+  target_link_libraries(multiple_mg einsummable gpu_execution_engine
+  proto
+  ${Protobuf_LIBRARIES}
+  ${CUDA_LIBRARIES}
+  cutensor
+  /usr/local/cuda-11.8/lib64/libcudart.so
+  /usr/local/cuda-11.8/lib64/libcublasLt.so
+  /usr/local/cuda-11.8/lib64/libcublas.so
+  ucx::ucp ucx::ucs)
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_llama2" "gpu_train")
