@@ -224,6 +224,7 @@ memgraph_t::make_(
   optional<memgraph_t> input_memgraph;
   if(split_off_inputs)
   {
+    DOUT("splitting order taskgraph");
     auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
     DOUT("process for input ops");
     state.process(input_tg_ops);
@@ -236,7 +237,8 @@ memgraph_t::make_(
     state.process(core_tg_ops);
     DOUT("done process for core ops");
   } else {
-    state.process(order_taskgraph(taskgraph));
+    DOUT("not splitting order taskgraph");
+    state.process(order_taskgraph_priority_min_delta(taskgraph));
   }
 
   map<int, memstoloc_t> save_to_data;
@@ -558,6 +560,7 @@ struct priority_min_delta_state_t {
 vector<_which_op_t>
 order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
 {
+  DOUT("AHHHHHHHHHHHHHHH");
   vector<_which_op_t> ret;
   ret.reserve(taskgraph.nodes.size()); // a close enough guess
 
@@ -650,16 +653,16 @@ order_taskgraph_memory_usage(
   vector<uint64_t> ret;
   ret.push_back(total);
   for(auto const& x: ops) {
-    if(std::holds_alternative<_which_node_t>(x)) {
-      int const& tid = std::get<_which_node_t>(x).task_id;
+    if(x.is_which_node()) {
+      int const& tid = x.get_which_node().task_id;
       auto const& node = taskgraph.nodes[tid];
       total += node.op.out_size();
       for(int const& inn: node.op.inputs()) {
         use_tid(inn);
       }
-    } else if(std::holds_alternative<_which_touch_t>(x)) {
+    } else if(x.is_which_touch()) {
       auto const& [partialize_id, which_unit, which_touch] =
-        std::get<_which_touch_t>(x);
+        x.get_which_touch();
 
       if(allocated_partializes.count(partialize_id) == 0) {
         allocated_partializes.insert(partialize_id);
@@ -1087,7 +1090,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   optional<int> touch_output_memid;
 
   if(node.op.is_input()) {
-    std::cout << "inserting input tid: " << id << std::endl;
+    // std::cout << "inserting input tid: " << id << std::endl;
     /* For performance debugging */
     //add the input node to mem_to_done with current threshold
     auto iter = task_tensor_to_mem_node.find(id);
@@ -1187,9 +1190,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   int new_memid = memgraph.insert(op.value(), deps);
   /* For performance debugging */
   mem_to_done_insert(new_memid);
-  DLINEOUT("before add_op all_deps insert");
   // all_deps_insert(deps, new_memid);
-  DLINEOUT("before add_op all_deps insert");
   /* End performance debugging*/
 
   // notify tensors_on_memory that these tensors were used
@@ -1236,9 +1237,9 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
           set<int>(in_progress.begin(), in_progress.end()));
         /* For performance debugging */
         mem_to_done_insert(partialize_memid);
-        DLINEOUT("before partialize all_deps insert");
+        // DLINEOUT("before partialize all_deps insert");
         // all_deps_insert(set<int>(in_progress.begin(), in_progress.end()), partialize_memid);
-        DLINEOUT("after partialize all_deps insert");
+        // DLINEOUT("after partialize all_deps insert");
         /* End performance debugging*/
         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
       }
@@ -1304,7 +1305,7 @@ void memgraph_make_state_t::process(
   auto increment_doing_oid = [&] {
     doing_oid++;
     ostate.threshold = doing_oid;
-    std::cout << "incremented ostate.threshold to " << doing_oid << std::endl;
+    // std::cout << "incremented ostate.threshold to " << doing_oid << std::endl;
   };
   auto increment_alloc_oid = [&] {
     alloc_oid++;
@@ -1926,7 +1927,7 @@ std::ostream& operator<<(std::ostream& out, _which_op_t const& op) {
 
 void memgraph_make_state_t::all_deps_insert(set<int> deps, int out_mid) {
   DOUT("start in all_deps_insert, mem_to_done: ");
-  _int_map_print(mem_to_done);
+  // _int_map_print(mem_to_done);
   std::cout << "out_mid: " << out_mid << std::endl;
   
   for (auto in_mid: deps) {
@@ -1950,23 +1951,37 @@ void memgraph_make_state_t::all_deps_insert(set<int> deps, int out_mid) {
 }
 
 void memgraph_make_state_t::print_performance_debugging(){
-  DOUT("mem_to_node: ");
-  _int_map_print(mem_to_done);
+  // DOUT("mem_to_node: ");
+  // _int_map_print(mem_to_done);
   DOUT("mem_deps: ");
-  for (auto iter = mem_deps.begin(); iter != mem_deps.end(); ++iter) {
-    std::cout << "<" << std::get<0>(iter->first) << ", " << std::get<1>(iter->first) << ">: " << iter->second << ", ";
+  vector<int> distances;
+  for (const auto& entry : mem_deps) {
+    distances.push_back(entry.second);
   }
-  std::cout << std::endl;
-}
+  vector<std::pair<int, int>> bins = {
+    {0, 10},
+    {11, 50},
+    {51, 100},
+    {101, 200}
+  };
+  vector<int> bin_counts(bins.size(), 0);
+  // Calculate frequency distribution
+  for (int distance : distances) {
+    for (size_t i = 0; i < bins.size(); ++i) {
+      if (distance >= bins.at(i).first && distance <= bins.at(i).second) {
+        bin_counts[i]++;
+        break;
+      }
+    }
+  }
 
-std::ostream& operator<<(std::ostream& out, _which_op_t const& x) {
-  if(std::holds_alternative<_which_node_t>(x)) {
-    out << "e" << std::get<_which_node_t>(x).task_id;
-  } else if(std::holds_alternative<_which_touch_t>(x)) {
-    auto const& [tid,uid,touch_id] = std::get<_which_touch_t>(x);
-    out << "t" << tid << "|" << uid << "|" << touch_id;
-  } else {
-    throw std::runtime_error("print _which_op_t: missing case");
+  // Output the bins and their frequencies
+  std::cout << "Bin-separated frequency distribution:\n";
+  for (size_t i = 0; i < bins.size(); ++i) {
+    std::cout << "[" << bins[i].first << " - " << bins[i].second << "]: " << bin_counts[i] << std::endl;
   }
-  return out;
+  // for (auto iter = mem_deps.begin(); iter != mem_deps.end(); ++iter) {
+  //   std::cout << "<" << std::get<0>(iter->first) << ", " << std::get<1>(iter->first) << ">: " << iter->second << ", ";
+  // }
+  std::cout << std::endl;
 }
