@@ -238,7 +238,7 @@ memgraph_t::make_(
     DOUT("done process for core ops");
   } else {
     DOUT("not splitting order taskgraph");
-    state.process(order_taskgraph_priority_min_delta(taskgraph));
+    state.process(order_taskgraph(taskgraph));
   }
 
   map<int, memstoloc_t> save_to_data;
@@ -299,6 +299,7 @@ build_tg_ops(
 vector<_which_op_t>
 order_taskgraph(taskgraph_t const& taskgraph)
 {
+  DOUT("Running order taskgraph version");
   return build_tg_ops(taskgraph, taskgraph.get_order());
 }
 
@@ -329,8 +330,8 @@ order_split_taskgraph(taskgraph_t const& taskgraph)
 //
 // Some caveats and things to note:
 // 1. if a tensor is to be saved, for it's last usage, it won't get freed
-// 2. when allocating a partialize output, execute all ready touches--
-//    this is uniformly better than executing the touches individually
+// 2. when executing a ready touch, execute all ready touches on that partialize
+//    since that is uniformly better than executing touches individiaully
 // 3. a node can be output into multiple touches on the same partialize
 // 4. There are different memory buffers for different locations,
 //    but we just ignore location information here
@@ -339,7 +340,7 @@ struct priority_min_delta_state_t {
 
   // Types of pending tasks:
   // 1 allocate partialize + execute touches
-  // 2 execute touch on partialize already allocated
+  // 2 execute touches on partialize already allocated
   // 3 execute node
 
   map<int, vector<int>> pending;
@@ -353,7 +354,7 @@ struct priority_min_delta_state_t {
   //     Case 3
   //
   // Note: For Case 3, vector<int> is empty
-  //       For Case 2, vector<int> is singleton
+  //       For Case 2, vector<int> is size >= 1
   //       For Case 1, vector<int> is size >= 1
 
   // These are all partializes that have been started
@@ -389,8 +390,8 @@ struct priority_min_delta_state_t {
     auto const& node = taskgraph.nodes[tid];
     if(node.op.is_partialize()) {
       if(allocated_partializes.count(tid) > 0) {
-        if(maybe_touch_inns.size() != 1) {
-          throw std::runtime_error("is allocated, must be touch(es) from one input");
+        if(maybe_touch_inns.size() == 0) {
+          throw std::runtime_error("does not make sense: to partialize bu no inns?");
         }
         return exec_case_t::to_partialize;
       } else {
@@ -486,8 +487,9 @@ struct priority_min_delta_state_t {
         complete_touch(tid, inn);
       }
     } else if(which_case == exec_case_t::to_partialize) {
-      int const& inn = maybe_touch_inns[0];
-      complete_touch(tid, inn);
+      for(auto const& inn: maybe_touch_inns) {
+        complete_touch(tid, inn);
+      }
     } else if(which_case == exec_case_t::exec) {
       complete_exec(tid);
     } else {
@@ -560,7 +562,7 @@ struct priority_min_delta_state_t {
 vector<_which_op_t>
 order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
 {
-  DOUT("AHHHHHHHHHHHHHHH");
+  DOUT("running priority_min_delta version");
   vector<_which_op_t> ret;
   ret.reserve(taskgraph.nodes.size()); // a close enough guess
 
