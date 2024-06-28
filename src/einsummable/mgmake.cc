@@ -238,7 +238,7 @@ memgraph_t::make_(
     DOUT("done process for core ops");
   } else {
     DOUT("not splitting order taskgraph");
-    state.process(order_taskgraph(taskgraph));
+    state.process(order_taskgraph_priority_min_delta(taskgraph));
   }
 
   map<int, memstoloc_t> save_to_data;
@@ -471,7 +471,8 @@ struct priority_min_delta_state_t {
     for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
       auto const& node = taskgraph.nodes[tid];
       if(node.op.is_input()) {
-        complete_tensor(tid);
+        // complete_tensor(tid);
+        pending.insert({tid, vector<int>{} });
       } else if(node.op.is_constant()) {
         pending.insert({ tid, vector<int>{} });
       }
@@ -587,6 +588,9 @@ order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
         }
       }
     } else {
+      // if (node.op.is_input()){
+      //   DOUT("Yayyyy there's input here!");
+      // }
       ret.push_back(_which_node_t{ .task_id = tid });
     }
   }
@@ -596,6 +600,7 @@ order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
   for(auto const& node: taskgraph.nodes) {
     if(node.op.is_input()) {
       //
+      expected_size += 1;
     } else if(node.op.is_partialize()) {
       expected_size += node.op.get_partialize().as_touches_from_flat().size();
     } else {
@@ -1964,7 +1969,8 @@ void memgraph_make_state_t::print_performance_debugging(){
     {0, 10},
     {11, 50},
     {51, 100},
-    {101, 200}
+    {101, 200},
+    {201, std::numeric_limits<int>::max()}  // Using max int value to represent infinity
   };
   vector<int> bin_counts(bins.size(), 0);
   // Calculate frequency distribution
@@ -1980,10 +1986,13 @@ void memgraph_make_state_t::print_performance_debugging(){
   // Output the bins and their frequencies
   std::cout << "Bin-separated frequency distribution:\n";
   for (size_t i = 0; i < bins.size(); ++i) {
-    std::cout << "[" << bins[i].first << " - " << bins[i].second << "]: " << bin_counts[i] << std::endl;
+    std::cout << "[" << bins[i].first << " - ";
+    if (bins[i].second == std::numeric_limits<int>::max()) {
+      std::cout << "infinity";
+    } else {
+      std::cout << bins[i].second;
+    }
+    std::cout << "]: " << bin_counts[i] << std::endl;
   }
-  // for (auto iter = mem_deps.begin(); iter != mem_deps.end(); ++iter) {
-  //   std::cout << "<" << std::get<0>(iter->first) << ", " << std::get<1>(iter->first) << ">: " << iter->second << ", ";
-  // }
   std::cout << std::endl;
 }
