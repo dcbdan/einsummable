@@ -6,26 +6,26 @@ gpu_workspace_manager_t::gpu_workspace_manager_t() {
   // NOTE: this is hard-coded and we assume that we have enough memory for this
   auto num_gpus = 8;
   data.resize(num_gpus);
-  // for (int gpu = 0; gpu < num_gpus; ++gpu) {
-  //   handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
-    // for (int i = 0; i < 2; ++i) {
-    //   void* mem;
-    //   handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-    //   data[gpu].emplace_back(mem, 16 * 1024 * 1024);
-    // }
-    // for (int i = 0; i < num_gpus; ++i) {
-    //   void* mem;
-    //   handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-    //   data[gpu].emplace_back(mem, 32 * 1024 * 1024);
-    // }
-  // }
+  for (int gpu = 0; gpu < num_gpus; ++gpu) {
+    handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
+    for (int i = 0; i < 2; ++i) {
+      void* mem;
+      handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+      data[gpu].emplace_back(mem, 16 * 1024 * 1024);
+    }
+    for (int i = 0; i < num_gpus; ++i) {
+      void* mem;
+      handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+      data[gpu].emplace_back(mem, 32 * 1024 * 1024);
+    }
+  }
 }
 
 gpu_workspace_manager_t::~gpu_workspace_manager_t() {
   int flag = 0;
   for(int gpu = 0; gpu != data.size(); ++gpu) {
     // DOUT("The number of workspaces for device " << gpu << " is " << data[gpu].size() << "\n");
-    handle_cuda_error(cudaSetDevice(gpu), "~gpu_workspace_manager_t. set device");
+    handle_cuda_error(cudaSetDevice(gpu), "~gpu_workspace_manager_t. set device(device_id= " + std::to_string(gpu) + ")");
     for(auto const& [mem, size]: data[gpu]) {
       // TODO: for ffnn graph (ffnn_specific), 
       // there's error what():  ~workspace_maanger_t. cuda free: invalid argument

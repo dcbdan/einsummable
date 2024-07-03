@@ -139,12 +139,12 @@ void gpu_mg_server_t::execute_memgraph(
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
   // print the duration in milliseconds with 4 decimal places
-  DOUT("Event Loop finished. Time: " << duration.count() << " ms");
   if (!for_remap){
+    DOUT("Event Loop finished. Time: " << duration.count() << " ms");
     cudaProfilerStop();
   }
   auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
-  if (duration2.count() - duration.count() > 10){
+  if (duration2.count() - duration.count() > 10 && !for_remap){
     DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
   }
 }

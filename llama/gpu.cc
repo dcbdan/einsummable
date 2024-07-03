@@ -531,7 +531,9 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(31lu * 1000lu * 1000lu * 1000lu);
   }
 
-  gpu_mg_server_t server(communicator, buffer_sizes);
+  auto storage_size = 4lu * 1000lu * 1000lu * 1000lu;
+
+  gpu_mg_server_t server(communicator, buffer_sizes, storage_size);
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
     map<int, tuple<int, buffer_t>> data;
@@ -549,9 +551,6 @@ int main(int argc, char** argv) {
 
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
-
-  args.set_default("use_storage", true);
-  server.set_use_storage(args.get<bool>("use_storage"));
 
   args.set_default("split_off_inputs", true);
   server.set_split_off_inputs(args.get<bool>("split_off_inputs"));
