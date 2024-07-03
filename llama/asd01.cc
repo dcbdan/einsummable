@@ -2,13 +2,18 @@
 #include "../src/server/gpu/server.h"
 #include "../src/autoplace/autoplace.h"
 #include "../src/einsummable/gwriter.h"
+#include <cuda_profiler_api.h>
+
 
 #include "modules.h"
 
 void exp01(args_t& args, server_base_t* server) {
+  args.set_default<uint64_t>("nrow", 10000);
+  args.set_default<uint64_t>("ncol", 10000);
   uint64_t nrow = args.get<uint64_t>("nrow");
   uint64_t ncol = args.get<uint64_t>("ncol");
 
+  auto num_gpu = args.get<int>("num_gpus");
   graph_writer_t writer;
   auto X = writer.input({10000, 10000});
   auto Y = writer.softmax_v1(X);
@@ -18,10 +23,14 @@ void exp01(args_t& args, server_base_t* server) {
 
   graph_t const& graph = writer.get_graph();
   
+  vector<partition_t> parts;
   vector<placement_t> pls;
   for(auto const& node: graph.nodes) {
     pls.push_back(partition_t::singleton(node.op.shape()));
   }
+
+  parts = apart01(graph, num_gpu, 1);
+  pls = alocate01(graph, parts, num_gpu, 1000);
 
   {
     dbuffer_t dX = make_dbuffer(default_dtype(), nrow*ncol);
@@ -34,6 +43,8 @@ void exp01(args_t& args, server_base_t* server) {
 
 void exp02(args_t& args, server_base_t* server) {
   set_default_dtype(dtype_t::f16);
+
+  auto num_gpu = args.get<int>("num_gpus");
 
   args.set_default<uint64_t>("seqlen", 1000); 
   args.set_default<int>("n_attention", 4);
@@ -62,6 +73,7 @@ void exp02(args_t& args, server_base_t* server) {
   }
 
   graph_t const& graph = writer.get_graph();
+  vector<partition_t> parts;
   vector<placement_t> pls;
   for(int gid = 0; gid != graph.nodes.size(); ++gid) {
     auto const& node = graph.nodes[gid];
@@ -81,7 +93,16 @@ void exp02(args_t& args, server_base_t* server) {
       server->insert_tensor(gid, pls.back(), d);
     }
   }
-
+  // creating partitions and placements for multiple gpus
+  args.set_default<int>("mv_bytes", 1000);
+  int flops_per_byte_moved = args.get<int>("mv_bytes");
+  parts = apart01(graph, num_gpu, 1);
+  pls = alocate01(graph, parts, num_gpu, flops_per_byte_moved);
+  // print all the placements
+  // for(auto const& pl: pls) {
+  //   DOUT("partition: " << pl.partition << " locs: " << pl.locations);
+  // }
+  
   server->execute_graph(graph, pls);
 }
 
@@ -177,11 +198,11 @@ void exp03(args_t& args) {
 }
 
 int main(int argc, char** argv) {
-  {
-    args_t args(argc, argv);
-    exp03(args);
-    return 0;
-  }
+  // {
+  //   args_t args(argc, argv);
+  //   exp03(args);
+  //   return 0;
+  // }
   /////////////////////////////////////////////////
   /////////////////////////////////////////////////
   /////////////////////////////////////////////////
@@ -196,8 +217,8 @@ int main(int argc, char** argv) {
   communicator_t communicator("0.0.0.0", is_rank_zero, world_size);
 
   args_t args(argc, argv);
-  args.set_default<int>("num_gpus", 1);
-  args.set_default<uint64_t>("mem_size", 16);
+  args.set_default<int>("num_gpus", 4);
+  args.set_default<uint64_t>("mem_size", 32);
   args.set_default<uint64_t>("storage_size", 20);
 
   int num_gpus = args.get<int>("num_gpus");
@@ -219,7 +240,11 @@ int main(int argc, char** argv) {
 
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_ptr);
 
-  exp02(args, gpu_ptr);
+  auto num_iter = 2;
+  for(int i = 0; i != num_iter; ++i) {
+    exp02(args, gpu_ptr);
+  }
+  // exp01(args, gpu_ptr);
 
   return 0;
 }
