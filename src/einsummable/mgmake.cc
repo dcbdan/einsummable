@@ -1379,7 +1379,8 @@ memgraph_make_state_t::add_op(
   bool just_deleted = false;
   for(auto const& used_task_id: used_task_tensors)
   {
-    bool has_delete = register_usage(used_task_id);
+    // bool has_delete = register_usage(used_task_id);
+    bool has_delete = false;
     just_deleted = just_deleted || has_delete;
   }
 
