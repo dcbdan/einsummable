@@ -48,18 +48,32 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   map<int, int> mid_to_eid;
 
+  auto is_dummy = [](memgraph_t::node_t const& node) {
+  return node.op.is_inputmem()   ||
+          node.op.is_inputsto()   ||
+          node.op.is_partialize() ||
+          node.op.is_alloc()      ||
+          node.op.is_del()         ;
+  };
+
   auto insert = [&](op_ptr_t op, int mid)
   {
     auto const& node = memgraph.nodes[mid];
-    auto const& mid_inns = node.inns;
-    auto const& mid_outs = node.outs;
+    vector<int> mid_inns(node.inns.begin(), node.inns.end());
 
-    vector<int> inns;
-    for(auto const& mid_inn: mid_inns) {
-      inns.push_back(mid_to_eid.at(mid_inn));
+    set<int> inns;
+    for(int idx = 0; idx != mid_inns.size(); ++idx) {
+      int mid_inn = mid_inns[idx];
+      auto const& inn_node = memgraph.nodes[mid_inn];
+      if(is_dummy(inn_node)) {
+        vector<int> more_inns(inn_node.inns.begin(), inn_node.inns.end());
+        vector_concatenate_into(mid_inns, more_inns);
+      } else {
+        inns.insert(mid_to_eid.at(mid_inn));
+      }
     }
 
-    int eid = graph.insert(op, inns);
+    int eid = graph.insert(op, vector<int>(inns.begin(), inns.end()));
 
     mid_to_eid.insert({mid, eid});
   };
@@ -85,6 +99,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   std::ofstream failed_einsums;
   failed_einsums.open("failed_einsums.txt");
 
+  int num_deletes = 0;
+
+  std::ofstream e_flops;
+  e_flops.open("einsum_flops.txt");
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
      DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
@@ -93,15 +112,13 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
     auto const& node = memgraph.nodes[mid];
 
-    if(
-      node.op.is_inputmem()   ||
-      node.op.is_inputsto()   ||
-      node.op.is_partialize() ||
-      node.op.is_alloc()      ||
-      node.op.is_del())
-    {
-      op_ptr_t op = std::make_shared<dummy_t>();
-      insert(op, mid);
+    if (node.op.is_del()){
+      num_deletes++;
+    }
+
+    if(is_dummy(node)){
+      // DOUT("Skipping dummy node " << mid);
+      continue;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
       int loc = node.op.get_apply_loc();
@@ -115,49 +132,35 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
 
-        // vector<uint64_t> join_shape_compare = {8, 256};
-        // if (einsum.str() == "ab,b->ab" && einsum.join_shape == join_shape_compare){
-        //   DOUT("Found kernel: " << einsum);
-        //   DOUT("mid: " << mid);
-        //   DOUT("mg file name: " << file_name);
-        // }
-
-        // DOUT("mid: " << mid << " Einsum: " << einsum);
-
-        // if (all_einsums.find(einsum) == all_einsums.end()){
-        //   DOUT("einsum: " << einsum);
-        //   DOUT("einsum join shape: " << einsum.join_shape);
-        //   DOUT("einsum inns: " << einsum.inns);
-        //   DOUT("einsum out rank: " << einsum.out_rank);
-        //   DOUT("einsum join: " << einsum.join);
-        //   DOUT("einsum castable: " << einsum.castable);
-        //   DOUT("");
-        //   all_einsums.insert(einsum);
-        // }
+        
+        e_flops << "einsum: " << einsum << std::endl;
+        e_flops << "flops: " << product(einsum.join_shape) << std::endl;
 
         // build the op (except the workspace size)
-        gpu_einsummable_t* op = new gpu_einsummable_t(
-          gpu_kms[loc],
-          einsum,
-          apply.mems,
-          node.op.get_apply_loc()
-        );
+
         // Note: op->einsummable and einsum should be the same here
         // DOUT("Einsummable: " << einsum);
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
-          // DOUT("Einsummable: " << einsum);
-          // DOUT("Debug OP simplified: " << einsum.join.simplify().to_cppstr());
+          // if we can't build it, we record it and pretend it's a dummy
           string e_string = einsum.str();
           if (einsums_not_compiled.find(e_string) == einsums_not_compiled.end()){
             einsums_not_compiled.emplace(e_string, einsum);
             failed_einsums << "einsum:" << einsum << std::endl;
           }
-          // throw std::runtime_error("GPU KM could not compile the kernel");
           op_ptr_t op = std::make_shared<dummy_t>();
           insert(op, mid);
           continue;
         }
+
+        gpu_einsummable_t* op = new gpu_einsummable_t(
+          gpu_kms[loc],
+          einsum,
+          apply.mems,
+          node.op.get_apply_loc(),
+          gpu_kms[loc].get_built_kernel_info(einsum)
+        );
+        
         auto workspace_info = maybe_built.value();
         if (workspace_info.known()){
           // DOUT(einsum << " workspace size: " << workspace_info.value());
@@ -252,9 +255,10 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   // close the file
   failed_einsums.close();
 
-  // DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
   fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n, move_count: %d, move_bytes: %lu\n",
     evict_count, evict_bytes, load_count, load_bytes, move_count, move_bytes);
+  fprintf(stdout, "Number of deletes: %d\n", num_deletes);
   return graph;
 }
 
@@ -282,22 +286,29 @@ void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_einsummable_t::launch");
   // DOUT("launching einsummable: " << einsummable);
   // DOUT("gpu_einsummable_t::launch: getting resources")
+
+  auto start_resources = get_rm_timetracker().now();
+
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
   // DOUT("number of resources: " << resources.size());
 
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
-  if (debug_exec_graph && device == 0){
-    debug_exec_graph = false;
-    DOUT("debug section on 0: ");
-  //   cudaSetDevice(0);
-    printFloatGPU(increment_void_ptr(global_buffer, 94208), 100);
-  //   init_value((float*)increment_void_ptr(global_buffer, 94208), 256, 1e-9f);
-  //   // printFloatGPU(increment_void_ptr(global_buffer, 94208), 20);
+  optional<tuple<void*, uint64_t>> maybe_workspace;
+  if(workspace_size > 0) {
+    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
   }
+
+  cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
+
+  auto stop_resources = get_rm_timetracker().now();
+  get_rm_timetracker().insert_total("launch: get resources", start_resources, stop_resources);
+
+  auto start_increment = get_rm_timetracker().now();
 
   void* out_mem = increment_void_ptr(
     global_buffer,
@@ -311,43 +322,51 @@ void gpu_einsummable_t::launch(
       mems[i].offset));
   }
 
+  auto stop_increment = get_rm_timetracker().now();
+  get_rm_timetracker().insert_total("launch: increment pointers", start_increment, stop_increment);
+
   // print all the input and output offsets
   // for (int i = 1; i < mems.size(); ++i){
   //   DOUT("Input offset " << i-1 << ": " << mems[i].offset << " Device: " << device);
   // }
   // DOUT("Output offset: " << mems[0].offset << " Device: " << device);
 
-  optional<tuple<void*, uint64_t>> maybe_workspace;
-  if(workspace_size > 0) {
-    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
+  // cudaEventRecord(start, stream);
+  {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("launch: gpu_km");
+    gpu_km(
+      einsummable,
+      stream,
+      out_mem,
+      inn_mems,
+      my_kernel_info,
+      maybe_workspace);
   }
 
-  cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
+  // cudaEventRecord(stop, stream);
 
-  gpu_km(
-    einsummable,
-    stream,
-    out_mem,
-    inn_mems,
-    maybe_workspace);
+  {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("launch: callback");
 
-  std::function<void()>* callback_copy = new std::function<void()>(callback);
+    std::function<void()>* callback_copy = new std::function<void()>(callback);
 
-  handle_cuda_error(cudaStreamAddCallback(
-    stream,
-    [](cudaStream_t stream, cudaError_t status, void* user_data) {
-    // DOUT("in gpu_einsummable callback");
-      std::function<void()>* callback_ptr =
-        reinterpret_cast<std::function<void()>*>(user_data);
-      auto& callback = *callback_ptr;
-      callback();
-      delete callback_ptr;
-    },
-    reinterpret_cast<void*>(callback_copy), 0),
-    "gpu_einsummable_t: callback");
+    handle_cuda_error(cudaStreamAddCallback(
+      stream,
+      [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_einsummable callback");
+        std::function<void()>* callback_ptr =
+          reinterpret_cast<std::function<void()>*>(user_data);
+        auto& callback = *callback_ptr;
+        callback();
+        delete callback_ptr;
+      },
+      reinterpret_cast<void*>(callback_copy), 0),
+      "gpu_einsummable_t: callback");
 
-  // cudaDeviceSynchronize();
+    // cudaEventRecord(callback_event, stream);
 
+    // cudaDeviceSynchronize();
+  }
 }
 
 desc_ptr_t
@@ -372,6 +391,7 @@ void gpu_touch_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_touch_t::launch");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
@@ -405,11 +425,16 @@ void gpu_touch_t::launch(
   // cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+
+  cudaEventRecord(start, stream);
+
   gpu_km(
     this_touch,
     stream,
     out_mem,
     inn_mem);
+
+  cudaEventRecord(stop, stream);
 
   // cudaDeviceSynchronize();
   // callback();
@@ -429,6 +454,7 @@ void gpu_touch_t::launch(
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_touch_t: callback");
 
+  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -451,6 +477,7 @@ void gpu_copy_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_copy_t::launch");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
@@ -473,7 +500,13 @@ void gpu_copy_t::launch(
   // print 100 elements of src
 
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
+
+  cudaEventRecord(start, stream);
+
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
+
+  cudaEventRecord(stop, stream);
+
   if (cudaError != cudaSuccess) {
     // print the error code and error string
     DOUT("cudaMemcpy failed with error: " << cudaGetErrorString(cudaError));
@@ -498,6 +531,8 @@ void gpu_copy_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_copy_t: adding callback");
+
+  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -532,12 +567,16 @@ void gpu_evict_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
+  cudaEventRecord(start, stream);
+
   auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
   buffer_t buffer = storage.alloc(size, storage_id);
 
   handle_cuda_error(
     cudaMemcpyAsync(buffer->raw(), gpu_memory, size, cudaMemcpyDeviceToHost, stream),
     "cudaMemcpyAsync in gpu_evict_t");
+
+  cudaEventRecord(stop, stream);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -553,6 +592,8 @@ void gpu_evict_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_evict_t: callback");
+
+  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -593,6 +634,8 @@ void gpu_load_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
+  cudaEventRecord(start, stream);
+
   auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
 
   buffer_t buffer = storage.reference(storage_id);
@@ -600,6 +643,8 @@ void gpu_load_t::launch(
   handle_cuda_error(
     cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
     "cudaMemcpyAsync in gpu_load_t");
+
+  cudaEventRecord(stop, stream);
 
   gpu_load_info_t* info = new gpu_load_info_t;
   info->callback = callback;
@@ -617,6 +662,8 @@ void gpu_load_t::launch(
     },
     reinterpret_cast<void*>(info), 0),
     "gpu_load_t: callback");
+
+  cudaEventRecord(callback_event, stream);
 }
 
 // constant and lowerTri need the same resources since they are the same memgraph nodes

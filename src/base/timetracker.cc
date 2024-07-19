@@ -6,6 +6,11 @@ timetracker_t& get_timetracker() {
   return _global_timetracker;
 }
 
+timetracker_t& get_rm_timetracker() {
+  static timetracker_t ret;
+  return ret;
+}
+
 timetracker_t::timetracker_t()
   : world_start(now())
 {}

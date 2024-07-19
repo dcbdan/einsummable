@@ -4,8 +4,9 @@
 #include "../src/einsummable/gwriter.h"
 #include <cuda_profiler_api.h>
 
-
 #include "modules.h"
+
+extern "C" void moncontrol(int);
 
 void exp01(args_t& args, server_base_t* server) {
   args.set_default<uint64_t>("nrow", 10000);
@@ -198,6 +199,7 @@ void exp03(args_t& args) {
 }
 
 int main(int argc, char** argv) {
+  moncontrol(0);
   // {
   //   args_t args(argc, argv);
   //   exp03(args);
@@ -242,6 +244,7 @@ int main(int argc, char** argv) {
 
   auto num_iter = 2;
   for(int i = 0; i != num_iter; ++i) {
+    DOUT("----- iteration " << i << " -----");
     exp02(args, gpu_ptr);
   }
   // exp01(args, gpu_ptr);

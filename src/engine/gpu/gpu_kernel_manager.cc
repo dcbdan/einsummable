@@ -3,6 +3,7 @@
 #include "cuda_kernels.h"
 #include "kernels.h"
 #include "utility.h"
+#include <chrono>
 #include <cstdint>
 #include <cuda_device_runtime_api.h>
 #include <cuda_runtime_api.h>
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <variant>
+#include "../base/timetracker.h"
 
 static int num_element_print = 20;
 static bool force_debug = false;
@@ -995,10 +997,16 @@ void kernel_manager_t::operator()(
   cudaStream_t stream,
   void* out,
   vector<void const*> inns,
+  kernel_info_t k,
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
   cudaSetDevice(device);
-  auto const& info = get_built_kernel_info(e);
+  
+  // auto start = get_rm_timetracker().now();
+  // const kernel_info_t& info = get_built_kernel_info(e);
+  // auto stop = get_rm_timetracker().now();
+  // get_rm_timetracker().insert_total("gpu_km: get info", start, stop);
+
   if (force_debug){
     DOUT("Calling kernel: " << e);
     auto inn_shape = e.inn_shapes();
@@ -1013,7 +1021,11 @@ void kernel_manager_t::operator()(
     }
   }
 
-  call(info, stream, out, inns, maybe_workspace);
+  {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_km: call");
+    call(k, stream, out, inns, maybe_workspace);
+  }
+  
 
   if (force_debug){
     // inspect the output for debug

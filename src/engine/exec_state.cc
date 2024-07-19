@@ -112,55 +112,117 @@ exec_state_t::exec_state_t(
   }
 }
 
+// void exec_state_t::event_loop() {
+// #ifdef EXEC_STATE_COUNTDOWN
+//   int decrement_print_at = 20000;
+//   if(num_remaining > decrement_print_at) {
+//     DOUT("eventloop num remaining: " << num_remaining);
+//   }
+//   int print_at = num_remaining - decrement_print_at;
+// #endif
+//   vector<int> processing;
+//   while(true) {
+//     while(processing.size() > 0) {
+//       int id = processing.back();
+//       processing.pop_back();
+
+// #ifdef EXEC_STATE_PRINT
+//       out << "finished " << id << std::endl;
+// #endif
+
+//       auto iter = is_running.find(id);
+
+//       resource_manager->release(iter->second);
+
+//       is_running.erase(iter);
+
+//       decrement_outs(id);
+
+//       num_remaining--;
+//     }
+
+// #ifdef EXEC_STATE_COUNTDOWN
+//     if(num_remaining < print_at) {
+//       DOUT("eventloop num remaining: " << num_remaining);
+//       print_at = num_remaining - decrement_print_at;
+//     }
+// #endif
+//     if(num_remaining == 0) {
+//       return;
+//     }
+
+//     {
+//       queue_t failed(this);
+//       while(ready_to_run.size() > 0) {
+//         int id = ready_to_run.top();
+//         ready_to_run.pop();
+//         if(try_to_launch(id)) {
+//           // started id
+// #ifdef EXEC_STATE_PRINT
+//           out << "started " << id << std::endl;
+// #endif
+//         } else {
+//           failed.push(id);
+//         }
+//       }
+//       ready_to_run = failed;
+//     }
+
+//     // for each thing in ready to run:
+//     //   try to grab resource
+//     //   launch
+//     //     > inside call back, release resource
+//     //       and add to just_completed
+//     std::unique_lock lk(m_notify);
+//     cv_notify.wait(lk, [&, this] {
+//       if(just_completed.size() > 0) {
+//         processing = just_completed;
+//         just_completed.resize(0);
+//         return true;
+//       } else {
+//         return false;
+//       }
+//     });
+//   }
+// }
+
+
 void exec_state_t::event_loop() {
-#ifdef EXEC_STATE_COUNTDOWN
-  int decrement_print_at = 20000;
-  if(num_remaining > decrement_print_at) {
-    DOUT("eventloop num remaining: " << num_remaining);
-  }
-  int print_at = num_remaining - decrement_print_at;
-#endif
+  timetracker_t tracker;
   vector<int> processing;
   while(true) {
-    while(processing.size() > 0) {
-      int id = processing.back();
-      processing.pop_back();
+    {
+      auto gremlin = tracker.make_totals_gremlin("processing");
+      while(processing.size() > 0) {
+        int id = processing.back();
+        processing.pop_back();
 
-#ifdef EXEC_STATE_PRINT
-      out << "finished " << id << std::endl;
-#endif
+        auto iter = is_running.find(id);
 
-      auto iter = is_running.find(id);
+        resource_manager->release(iter->second);
 
-      resource_manager->release(iter->second);
+        is_running.erase(iter);
 
-      is_running.erase(iter);
+        decrement_outs(id);
 
-      decrement_outs(id);
-
-      num_remaining--;
+        num_remaining--;
+      }
     }
 
-#ifdef EXEC_STATE_COUNTDOWN
-    if(num_remaining < print_at) {
-      DOUT("eventloop num remaining: " << num_remaining);
-      print_at = num_remaining - decrement_print_at;
-    }
-#endif
     if(num_remaining == 0) {
+      DOUT("PRINT TOTALS");
+      tracker.print_totals(std::cout);
       return;
     }
 
     {
+      auto gremlin = tracker.make_totals_gremlin("try_to_launch");
       queue_t failed(this);
       while(ready_to_run.size() > 0) {
         int id = ready_to_run.top();
         ready_to_run.pop();
         if(try_to_launch(id)) {
           // started id
-#ifdef EXEC_STATE_PRINT
-          out << "started " << id << std::endl;
-#endif
         } else {
           failed.push(id);
         }
@@ -168,21 +230,24 @@ void exec_state_t::event_loop() {
       ready_to_run = failed;
     }
 
-    // for each thing in ready to run:
-    //   try to grab resource
-    //   launch
-    //     > inside call back, release resource
-    //       and add to just_completed
-    std::unique_lock lk(m_notify);
-    cv_notify.wait(lk, [&, this] {
-      if(just_completed.size() > 0) {
-        processing = just_completed;
-        just_completed.resize(0);
-        return true;
-      } else {
-        return false;
-      }
-    });
+    {
+      auto gremlin = tracker.make_totals_gremlin("waiting");
+      // for each thing in ready to run:
+      //   try to grab resource
+      //   launch
+      //     > inside call back, release resource
+      //       and add to just_completed
+      std::unique_lock lk(m_notify);
+      cv_notify.wait(lk, [&, this] {
+        if(just_completed.size() > 0) {
+          processing = just_completed;
+          just_completed.resize(0);
+          return true;
+        } else {
+          return false;
+        }
+      });
+    }
   }
 }
 

@@ -54,3 +54,5 @@ private:
 
 timetracker_t& get_timetracker();
 
+timetracker_t& get_rm_timetracker();
+

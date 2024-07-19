@@ -21,6 +21,7 @@ struct gpu_storage_manager_t
 
 private:
   optional<gpu_storage_resource_t> try_to_acquire_impl(unit_t const&){
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("storage_manager_t::try_to_acquire_impl");
     return gpu_storage_resource_t{ .ptr = ptr };
   }
 

@@ -4,6 +4,9 @@
 #include "../../engine/exec_state.h"
 #include "../../engine/managers.h"
 #include <cuda_profiler_api.h>
+#include <sys/gmon.h>
+
+extern "C" void moncontrol(int);
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -133,6 +136,8 @@ void gpu_mg_server_t::execute_memgraph(
   // print the execution time of event_loop()
   if (!for_remap){
     cudaProfilerStart();
+    moncontrol(1);
+    get_rm_timetracker().clear();
   }
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();
@@ -141,7 +146,14 @@ void gpu_mg_server_t::execute_memgraph(
   // print the duration in milliseconds with 4 decimal places
   if (!for_remap){
     DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+    moncontrol(0);
     cudaProfilerStop();
+    // print the time for each node in the exec graph
+    // for (auto const& node: graph.nodes){
+    //   node.op->line(std::cout);
+    // }
+    DOUT("PRINTING TRY TO ACQUIRE TIMES")
+    get_rm_timetracker().print_totals(std::cout);
   }
   auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
   if (duration2.count() - duration.count() > 10 && !for_remap){

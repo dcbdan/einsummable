@@ -23,6 +23,7 @@ struct global_buffers_t
 
 private:
   optional<void*> try_to_acquire_impl(int const& which) {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("global_buffers_t::try_to_acquire_impl");
     return ptrs.at(which);
   }
 

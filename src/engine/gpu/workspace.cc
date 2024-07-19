@@ -47,6 +47,7 @@ gpu_workspace_manager_t::try_to_acquire_impl(
     gpu_workspace_desc_t const& desc)
 {
   std::unique_lock lk(m);
+  get_rm_timetracker().make_totals_gremlin("gpu_workspace_manager_t::try_to_acquire_impl");
 
   auto const& [device, size] = desc;
 

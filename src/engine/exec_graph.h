@@ -53,6 +53,10 @@ struct exec_graph_t {
     virtual desc_ptr_t resource_description() const = 0;
     virtual void print(std::ostream& out) const = 0;
 
+    virtual void line(std::ostream& out) const {
+      out << "op_base_t, default line (no time measurements)" << std::endl;
+    }
+
     virtual int get_priority() const { return 100; }
   };
 

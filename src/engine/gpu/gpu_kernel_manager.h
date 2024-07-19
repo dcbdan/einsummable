@@ -282,6 +282,19 @@ private:
   };
 
 public:
+  using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
+                                      type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
+                                      power_t, scale_t, 
+                                      custom_kernel_2_t, custom_kernel_4_t,
+                                      special_max_reduction_t,
+                                      special_sum_reduction_t,
+                                      special_negateSum_reduction_t,
+                                      v3_softmax_reduction_t,
+                                      v3_softmax_elementwise_t,
+                                      large_workspace_1_t,
+                                      large_workspace_2_t,
+                                      large_workspace_4_t>;
+
   kernel_manager_t();
   kernel_manager_t(int device);
   ~kernel_manager_t();
@@ -325,6 +338,7 @@ public:
     cudaStream_t stream,
     void* out,
     vector<void const*> inns,
+    kernel_info_t k,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
   void operator()(
@@ -337,23 +351,10 @@ public:
   void lowerTri_fill(fill_t::lowertri_t const& l, cudaStream_t stream, void* out) const;
   void constant_fill(fill_t::constant_t const& c, cudaStream_t stream, void* out) const;
 
-private:
-  using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
-                                      type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
-                                      power_t, scale_t, 
-                                      custom_kernel_2_t, custom_kernel_4_t,
-                                      special_max_reduction_t,
-                                      special_sum_reduction_t,
-                                      special_negateSum_reduction_t,
-                                      v3_softmax_reduction_t,
-                                      v3_softmax_elementwise_t,
-                                      large_workspace_1_t,
-                                      large_workspace_2_t,
-                                      large_workspace_4_t>;
-
   kernel_info_t const& 
   get_built_kernel_info(einsummable_t const& e) const;
 
+private:
   workspace_info_t workspace_size(kernel_info_t const& kernel) const;
 
   void call(

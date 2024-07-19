@@ -46,8 +46,11 @@ streampool_manager_t::streampool_manager_t(streampool_t& streampool): stream_poo
 
 optional<streampool_resource_t> streampool_manager_t::
   try_to_acquire_impl(streampool_desc_t const& desc){
-  
+
   std::unique_lock lk(m);
+
+  get_rm_timetracker().make_totals_gremlin("streampool_manager_t::try_to_acquire_impl");
+
   int dev = desc.device;
   if(stream_pools.stream_pools[dev].size() == 0){
     return std::nullopt;

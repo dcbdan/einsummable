@@ -2,6 +2,7 @@
 
 optional<tuple<int, bool>>
 group_manager_t::try_to_acquire_impl(int const& group_id) {
+  auto gremlin = get_rm_timetracker().make_totals_gremlin("group_manager_t::try_to_acquire_impl");
   if(busy_groups.count(group_id) == 0) {
     busy_groups.insert(group_id);
     bool is_first = seen_groups.count(group_id) == 0;
