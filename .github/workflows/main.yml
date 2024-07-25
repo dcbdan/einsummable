@@ -23,14 +23,22 @@ jobs:
     - name: List Installed Binaries
       run: ls -al /usr/bin && ls -al /usr/local/bin
 
+    - name: List Installed Binaries
+      run: |
+        ls -al /usr/bin
+        ls -al /usr/local/bin
+        ls -al /opt/llvm/bin
+
     - name: Find Clang-Format
-      run: find / -name clang-format*
-    
+      run: |
+        find /usr -name clang-format*
+        find /opt -name clang-format*
+
     - name: Display Clang-Format Version
-      run: clang-format --version || true
+      run: /usr/bin/clang-format --version || /opt/llvm/bin/clang-format --version || true
 
     - name: Run Clang-Format
-      run: clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h') || true
+      run: /usr/bin/clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h') || /opt/llvm/bin/clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h') || true
 
     - name: Show Differences
       run: git diff
