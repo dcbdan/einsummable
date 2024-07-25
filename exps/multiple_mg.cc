@@ -53,7 +53,7 @@ int main() {
 
   print_graphviz(taskgraph, "tg.gv");
 
-  vector<uint64_t> mem_sizes(num_gpus, 500000);
+  vector<uint64_t> mem_sizes(num_gpus, 200000);
 
   vector<allocator_t> allocs;
   for (auto m : mem_sizes) {
@@ -85,6 +85,23 @@ int main() {
   state.process(order_taskgraph(taskgraph));
 
   // auto [_2, _3, memgraph] = memgraph_t::make(taskgraph, {},  mem_sizes);
+
+  DOUT("Input gids to tids")
+  for (auto &[gid, tids]: _0) {
+    DOUT("GID: " << gid << ", TIDS: ");
+    for (auto &tid : tids.get()) {
+      DOUT(tid);
+    }
+  }
+
+  DOUT("\n\nSave gids to tids")
+  for (auto &[gid, tids]: _1) {
+    DOUT("GID: " << gid << ", TIDS: ");
+    for (auto &tid : tids.get()) {
+      DOUT(tid);
+      DOUT("corresponding mid: " << state.task_tensor_to_mem_node[tid]);
+    }
+  }
 
   std::cout << "Memgraph nodes before move: " << std::to_string(state.memgraph.nodes.size()) << std::endl;
 

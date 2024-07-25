@@ -277,6 +277,10 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
   out << "}" << endl;
 }
 
+void memgraph_t::set_prune(bool val) {
+  prune_edges = val;
+}
+
 vector<uint64_t> memgraph_t::mem_sizes() const
 {
   vector<uint64_t> ret(num_compute_locs, 0);

@@ -29,8 +29,11 @@ struct allocator_t {
   [[nodiscard]] bool 
   allocate_at_without_deps(uint64_t offset, uint64_t size);
 
-  //if success, return the set of dependencies. Else, return std::nullopt
-  tuple<int, set<int>>
+  // Returns a return code and a set of dependencies. If the return code is 
+  // >=0, the return code is the block_id of the occupying block and the set
+  // should be empty. If the return code is -1, the allocation was successful
+  // and the set should contain the nodes that area must depend on.
+  tuple<uint64_t, set<int>>
   allocate_at(uint64_t offset, uint64_t size);
 
   void set_strategy(allocator_strat_t s) { strat = s; };
@@ -52,6 +55,9 @@ struct allocator_t {
 
   // Remove all dependencies from available memory
   void clear_dependencies();
+
+  // For this offset, get the occupied block id at that offset
+  int _get_block_id(uint64_t const& offset);
 
 private:
   struct block_t {
@@ -134,8 +140,7 @@ public:
     // Example: We have blocks [3,4,5] with score [9,20,8]. Then the score for this range of blocks
     //          is min(9,20,8) = 8.
 
-  // For this offset, get the occupied block id at that offset
-  int _get_block_id(uint64_t const& offset);
+
 
   double buffer_utilization() const;
   ///////////////////////////////////////////////////////////////////

@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 # set(CMAKE_CXX_FLAGS_RELEASE "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fPIC -g")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -265,9 +265,10 @@ if(${GPU_EXECUTION_ENGINE})
   function(add_gpu_llama_application exec filename)
   add_executable(${exec} llama/${filename}.cc
     llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
-    llama/dataset_reader.cc llama/piper.cc)
+    llama/dataset_reader.cc llama/piper.cc llama/gpu_llama.cc)
   target_link_libraries(${exec}
     gpu_execution_engine
+    einsummable
     proto
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
@@ -322,6 +323,7 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_llama2" "gpu_train")
+  add_gpu_llama_application("gpu_no_server" "gpu_no_server")
 endif()
 
 if(${PYTHON_LIBRARY})

@@ -232,6 +232,17 @@ void gpu_mg_server_t::storage_remap_server(
   }
 }
 
+void gpu_mg_server_t::storage_remap_server_without_erase(
+  vector<vector<std::array<int, 2>>> const& remaps)
+{
+  if(!bool(storage)) {
+    throw std::runtime_error("storage not initialized");
+  }
+
+  //storage->remap_without_erase(remaps[0]);
+}
+
+
 void gpu_mg_server_t::storage_remap_client()
 {
   if(!bool(storage)) {
@@ -294,6 +305,14 @@ int gpu_mg_server_t::loc_to_compute_node(int loc) const {
     start_gpus_per_node.end(),
     loc);
   return std::distance(start_gpus_per_node.begin(), iter) - 1;
+}
+
+buffer_t gpu_mg_server_t::get_storage_buf(int id) {
+  return storage->read(id);
+}
+
+void gpu_mg_server_t::set_storage_buf(buffer_t d, int id) {
+  storage->write(d, id);
 }
 
 buffer_t gpu_mg_server_t::local_copy_data(int tid) {

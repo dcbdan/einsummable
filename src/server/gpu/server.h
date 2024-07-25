@@ -39,6 +39,8 @@ struct gpu_mg_server_t : server_mg_base_t
 
   void storage_remap_server(
     vector<vector<std::array<int, 2>>> const& remaps);
+  void storage_remap_server_without_erase(
+    vector<vector<std::array<int, 2>>> const& remaps);
   void storage_remap_client();
 
   void rewrite_data_locs_server(map<int, memstoloc_t> const& out_tg_to_loc);
@@ -50,6 +52,9 @@ struct gpu_mg_server_t : server_mg_base_t
   int loc_to_compute_node(int loc) const;
 
   buffer_t local_copy_data(int tid);
+
+  buffer_t get_storage_buf(int id);
+  void set_storage_buf(buffer_t d, int id);
 
   void local_insert_tensors(map<int, tuple<int, buffer_t>> data);
   void local_erase_tensors(vector<int> const& tids);

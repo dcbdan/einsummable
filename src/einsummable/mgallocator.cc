@@ -292,7 +292,7 @@ bool allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size)
   return true;
 }
 
-tuple<int, set<int>>
+tuple<uint64_t, set<int>>
 allocator_t::allocate_at(uint64_t offset, uint64_t size)
 {
   auto beg = binary_search_find(blocks.begin(), blocks.end(),
@@ -309,8 +309,8 @@ allocator_t::allocate_at(uint64_t offset, uint64_t size)
       return blk.beg < offset + size;
     }
   );
-
   // last points to the last block with an element in [offset,offset+size).
+  
   if(last == blocks.end())
   {
     throw std::runtime_error("the offset and size requested goes beyond buffer limit");

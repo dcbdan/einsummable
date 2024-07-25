@@ -158,6 +158,8 @@ struct memgraph_t {
 
   void print_graphviz(std::ostream& out) const;
 
+  void set_prune(bool val);
+
   // Get the amount of memory used by each location
   vector<uint64_t> mem_sizes() const;
 

@@ -183,6 +183,16 @@ struct memgraph_make_state_t {
   // Tuple should be of the form current offset, size, current location, new offset, new location, task_id of the node that computes the value at offset
   void move_tensors(vector<tuple<uint64_t, uint64_t, int, uint64_t, int, int>> new_mapping);
 
+  // Move tensors given a memstoloc to move from, a memstoloc to move to, and the mid for the compute dependency
+  vector<std::array<int, 2>> move_tensors(vector<tuple<memstoloc_t, memstoloc_t, int>> new_mapping);
+
+  // Essentially the same as above move tensors, but will move from first tid to second tid
+  void move_tensors_by_tid(vector<tuple<int, int>> new_mapping);
+
+  set<int> free_block(memloc_t block,
+    map<tuple<int, uint64_t>, tuple<int, int>>& memloc_to_stoid,
+    map<tuple<int, uint64_t>, tuple<int, uint64_t, int>>& memloc_to_newloc);
+
   taskgraph_t const& taskgraph;
 
   memgraph_t memgraph;
