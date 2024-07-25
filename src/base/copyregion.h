@@ -54,34 +54,31 @@
 //       out shape, inn shape, copy shape, offset inn, offset out
 //   } while(indexer.increment());
 struct copyregion_t {
-  struct diminfo_t {
-    int idx;
-    uint64_t offset_inn;
-    uint64_t offset_out;
-    uint64_t size;
-  };
+    struct diminfo_t {
+        int      idx;
+        uint64_t offset_inn;
+        uint64_t offset_out;
+        uint64_t size;
+    };
 
-  copyregion_t(
-    partition_t const& out,
-    partition_t const& inn,
-    vector<int> const& inn_index);
+    copyregion_t(partition_t const& out, partition_t const& inn, vector<int> const& inn_index);
 
-  vector<diminfo_t> info;
+    vector<diminfo_t> info;
 
-  bool increment();
+    bool increment();
 
 private:
-  partition_t const& out;
-  partition_t const& inn;
-  vector<int> const& inn_index;
+    partition_t const& out;
+    partition_t const& inn;
+    vector<int> const& inn_index;
 
-  vector<tuple<uint64_t, uint64_t>> inn_hrect;
-  vector<tuple<uint64_t, uint64_t>> out_hrect;
-  vector<tuple<int,int>> region;
-  vector<int> index;
+    vector<tuple<uint64_t, uint64_t>> inn_hrect;
+    vector<tuple<uint64_t, uint64_t>> out_hrect;
+    vector<tuple<int, int>>           region;
+    vector<int>                       index;
 
-  // use index to set the op info
-  void set_info();
+    // use index to set the op info
+    void set_info();
 };
 
 // This is like copy region except doesn't take
@@ -94,43 +91,43 @@ private:
 // (Here, the offset is with respect to the refined block,
 //  not with respect to the full relation / partition aa or bb)
 struct copyregion_full_t {
-  copyregion_full_t(
-    partition_t const& aa,
-    partition_t const& bb);
+    copyregion_full_t(partition_t const& aa, partition_t const& bb);
 
-  bool increment();
+    bool increment();
 
-  int idx_aa;
-  vector<int> index_aa;
-  vector<uint64_t> offset_aa;
+    int              idx_aa;
+    vector<int>      index_aa;
+    vector<uint64_t> offset_aa;
 
-  int idx_bb;
-  vector<int> index_bb;
-  vector<uint64_t> offset_bb;
+    int              idx_bb;
+    vector<int>      index_bb;
+    vector<uint64_t> offset_bb;
 
-  vector<uint64_t> size;
+    vector<uint64_t> size;
 
-  void reset_strides_bb(vector<int> const& new_strides_bb) {
-    strides_bb = new_strides_bb;
-  }
+    void reset_strides_bb(vector<int> const& new_strides_bb)
+    {
+        strides_bb = new_strides_bb;
+    }
+
 private:
-  int idx_rr;
-  vector<int> index_rr;
-  vector<int> block_shape_rr;
+    int         idx_rr;
+    vector<int> index_rr;
+    vector<int> block_shape_rr;
 
-  vector<int> strides_aa;
-  vector<vector<int>> breaks_aa;
-  vector<int> rem_idx_aa;
-  vector<int> rem_aa;
+    vector<int>         strides_aa;
+    vector<vector<int>> breaks_aa;
+    vector<int>         rem_idx_aa;
+    vector<int>         rem_aa;
 
-  vector<int> strides_bb;
-  vector<vector<int>> breaks_bb;
-  vector<int> rem_idx_bb;
-  vector<int> rem_bb;
+    vector<int>         strides_bb;
+    vector<vector<int>> breaks_bb;
+    vector<int>         rem_idx_bb;
+    vector<int>         rem_bb;
 
-  partition_t const& aa;
-  partition_t const& bb;
-  partition_t        rr;
+    partition_t const& aa;
+    partition_t const& bb;
+    partition_t        rr;
 };
 
 // This is similar to copyregion_full_t,
@@ -145,20 +142,26 @@ private:
 // (TODO: not sure how much performance would be gained if
 //        instead this didn't dispatch to copyregion_full_t)
 struct copyregion_join_inn_t {
-  copyregion_join_inn_t(
-    partition_t const& partition_join,
-    partition_t const& partition_inn,
-    vector<int> const& inns);
+    copyregion_join_inn_t(partition_t const& partition_join,
+                          partition_t const& partition_inn,
+                          vector<int> const& inns);
 
-  int idx_join() const { return cr->idx_aa; }
-  int idx_inn()  const { return cr->idx_bb; }
+    int idx_join() const
+    {
+        return cr->idx_aa;
+    }
+    int idx_inn() const
+    {
+        return cr->idx_bb;
+    }
 
-  bool increment() {
-    return cr->increment();
-  }
+    bool increment()
+    {
+        return cr->increment();
+    }
+
 private:
-  partition_t partition_inn;
+    partition_t partition_inn;
 
-  std::shared_ptr<copyregion_full_t> cr;
+    std::shared_ptr<copyregion_full_t> cr;
 };
-
