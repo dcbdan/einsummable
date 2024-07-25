@@ -296,7 +296,8 @@ struct bgraph_t {
                 << ",color=\"" << color << "\""
                 << "]" << endl;
             for (auto const& inn : node.inns) {
-                out << tab << "n" << inn << " -> " << "n" << id << endl;
+                out << tab << "n" << inn << " -> "
+                    << "n" << id << endl;
             }
         }
         out << "}" << endl;

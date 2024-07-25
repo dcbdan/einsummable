@@ -39,13 +39,16 @@ int main()
     copyregion_t c2(split2, singleton, {0, 0});
     copyregion_t c3(split2, split3, {1, 1});
 
-    std::cout << "### " << "split2[1,1] to singleton" << std::endl;
+    std::cout << "### "
+              << "split2[1,1] to singleton" << std::endl;
     print(c1);
 
-    std::cout << "### " << "singleton[0,0] to split2" << std::endl;
+    std::cout << "### "
+              << "singleton[0,0] to split2" << std::endl;
     print(c2);
 
-    std::cout << "### " << "split3[1,1] to split2" << std::endl;
+    std::cout << "### "
+              << "split3[1,1] to split2" << std::endl;
     print(c3);
 
     // std::cout << "### " << "" << std::endl;

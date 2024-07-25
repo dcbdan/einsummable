@@ -476,7 +476,7 @@ void cpu_kernel_executor_t::operator()(einsummable_t const& e,
                                        optional<buffer_t>   maybe_workspace) const
 {
     if (maybe_workspace) {
-        buffer_t& b = maybe_workspace.value();
+        buffer_t&    b = maybe_workspace.value();
         return this->operator()(e, out, inns, tuple<void*, uint64_t>{b->raw(), b->size});
     } else {
         return this->operator()(e, out, inns, optional<tuple<void*, uint64_t>>());

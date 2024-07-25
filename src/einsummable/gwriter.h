@@ -15,9 +15,9 @@ struct graph_writer_t {
         struct all {
         };
 
-        idx_t(rng x) : op(x) {};
-        idx_t(idx x) : op(x) {};
-        idx_t(all x) : op(x) {};
+        idx_t(rng x) : op(x){};
+        idx_t(idx x) : op(x){};
+        idx_t(all x) : op(x){};
 
         std::variant<rng, idx, all> op;
 

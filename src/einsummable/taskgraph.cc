@@ -3431,15 +3431,18 @@ void taskgraph_t::print_graphviz(std::ostream& out, vector<string> const& colors
             auto const& inns = op.get_apply().inns;
             for (int i = 0; i != inns.size(); ++i) {
                 int const& inn_id = inns[i];
-                out << tab << "n" << inn_id << " -> " << "n" << id;
+                out << tab << "n" << inn_id << " -> "
+                    << "n" << id;
                 out << "[label=\"" << write_with_ss(i) << "\"]" << endl;
             }
         } else if (op.is_move()) {
             int const& inn_id = op.get_move().inn;
-            out << tab << "n" << inn_id << " -> " << "n" << id << endl;
+            out << tab << "n" << inn_id << " -> "
+                << "n" << id << endl;
         } else if (op.is_partialize()) {
             for (auto const& inn_id : op.inputs()) {
-                out << tab << "n" << inn_id << " -> " << "n" << id << endl;
+                out << tab << "n" << inn_id << " -> "
+                    << "n" << id << endl;
             }
         }
     }

@@ -744,8 +744,8 @@ void graph_t::print_graphviz(std::ostream&              out,
 
         int _i = 0;
         for (auto const& inn : node.inns) {
-            out << tab << "n" << inn << " -> " << "n" << id << "[label=\"" << write_with_ss(_i++)
-                << "\"]" << endl;
+            out << tab << "n" << inn << " -> "
+                << "n" << id << "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
         }
     }
     out << "}" << endl;
@@ -825,8 +825,8 @@ void graph_t::print_subset_graphviz(std::ostream&              out,
                 out << "]" << endl;
             }
 
-            out << tab << "n" << inn << " -> " << "n" << id << "[label=\"" << write_with_ss(_i++)
-                << "\"]" << endl;
+            out << tab << "n" << inn << " -> "
+                << "n" << id << "[label=\"" << write_with_ss(_i++) << "\"]" << endl;
         }
     }
 

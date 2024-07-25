@@ -66,16 +66,20 @@
 
 #define _touch1_line(name, op)                                                                     \
     template <typename T>                                                                          \
-    _touch1_frame(name, T, for (uint64_t i = 0; i != t0.size; ++i) { op; })
+    _touch1_frame(                                                                                 \
+        name, T, for (uint64_t i = 0; i != t0.size; ++i) { op; })
 #define _touch2_line(name, op)                                                                     \
     template <typename T>                                                                          \
-    _touch2_frame(name, T, for (uint64_t i = 0; i != t1.size; ++i) { op; })
+    _touch2_frame(                                                                                 \
+        name, T, for (uint64_t i = 0; i != t1.size; ++i) { op; })
 #define _touch3_line(name, op)                                                                     \
     template <typename T>                                                                          \
-    _touch3_frame(name, T, for (uint64_t i = 0; i != t2.size; ++i) { op; })
+    _touch3_frame(                                                                                 \
+        name, T, for (uint64_t i = 0; i != t2.size; ++i) { op; })
 #define _touch4_line(name, op)                                                                     \
     template <typename T>                                                                          \
-    _touch4_frame(name, T, for (uint64_t i = 0; i != t3.size; ++i) { op; })
+    _touch4_frame(                                                                                 \
+        name, T, for (uint64_t i = 0; i != t3.size; ++i) { op; })
 
 template <typename T>
 _touch1_frame(touch1_none,

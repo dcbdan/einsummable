@@ -25,7 +25,7 @@ struct streampool_resource_t {
 struct streampool_manager_t;
 
 struct streampool_t {
-    streampool_t() {};
+    streampool_t(){};
 
     // don't allow this to be copied otherwise
     // the streampools will get deleted twice

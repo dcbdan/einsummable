@@ -141,13 +141,15 @@ void builder_t::print_info() const
     if (prev_kv) {
         std::cout << "prev_kv: " << std::endl;
         for (auto const& [k, v] : prev_kv.value()) {
-            std::cout << "  " << "kv: " << k << ", " << v << std::endl;
+            std::cout << "  "
+                      << "kv: " << k << ", " << v << std::endl;
         }
     }
     if (next_kv) {
         std::cout << "next_kv: " << std::endl;
         for (auto const& [k, v] : next_kv.value()) {
-            std::cout << "  " << "kv: " << k << ", " << v << std::endl;
+            std::cout << "  "
+                      << "kv: " << k << ", " << v << std::endl;
         }
     }
 }

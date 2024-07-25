@@ -53,7 +53,7 @@ struct token_maker_t {
 
     vtensor_t<int> last_column() const
     {
-        auto shape = tokens.get_shape();
+        auto         shape = tokens.get_shape();
         return this->operator()(shape[1] - 1, shape[1]);
     }
 
