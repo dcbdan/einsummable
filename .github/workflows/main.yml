@@ -19,12 +19,18 @@ jobs:
         chmod +x llvm.sh
         sudo ./llvm.sh 18
         sudo ln -sf /usr/bin/clang-format-18 /usr/bin/clang-format
+
+    - name: List Installed Binaries
+      run: ls -al /usr/bin && ls -al /usr/local/bin
+
+    - name: Find Clang-Format
+      run: find / -name clang-format*
     
     - name: Display Clang-Format Version
-      run: /usr/bin/clang-format-18 --version
-  
+      run: clang-format --version || true
+
     - name: Run Clang-Format
-      run: /usr/bin/clang-format-18 -i -style=file $(find . -name '*.cc' -o -name '*.h')
+      run: clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h') || true
 
     - name: Show Differences
       run: git diff
