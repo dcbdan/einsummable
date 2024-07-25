@@ -21,10 +21,10 @@ jobs:
         sudo ln -sf /usr/bin/clang-format-18 /usr/bin/clang-format
     
     - name: Display Clang-Format Version
-      run: clang-format --version
-
+      run: /usr/bin/clang-format-18 --version
+  
     - name: Run Clang-Format
-      run: clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h')
+      run: /usr/bin/clang-format-18 -i -style=file $(find . -name '*.cc' -o -name '*.h')
 
     - name: Show Differences
       run: git diff
