@@ -2,22 +2,18 @@
 #include "../base/setup.h"
 
 struct agg_plan_t {
-  agg_plan_t()
-    : agg_plan_t(0,1)
-  {}
+    agg_plan_t() : agg_plan_t(0, 1) {}
 
-  agg_plan_t(int bloc, int eloc)
-    : bloc(bloc), eloc(eloc)
-  {}
+    agg_plan_t(int bloc, int eloc) : bloc(bloc), eloc(eloc) {}
 
-  set<int> source_locs() const;
+    set<int> source_locs() const;
 
-  int loc_at(int i) const;
+    int loc_at(int i) const;
 
-  vector<int> as_vector(int nagg) const;
+    vector<int> as_vector(int nagg) const;
 
-  int bloc;
-  int eloc;
+    int bloc;
+    int eloc;
 };
 
 // Example:

@@ -1,10 +1,7 @@
 # .github/workflows/main.yml
 name: CI for einsummable
 
-on:
-  pull_request:
-    branches:
-      - main
+on: [push, pull_request]
 
 jobs:
   build:
@@ -14,10 +11,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Echo Hello World
-      run: echo "Hello, World!"
-
-    - name: Run tests
+    - name: Install Clang-Format
       run: |
-        echo "Running tests..."
-        # Develop test commands here
+        sudo apt-get update
+        sudo apt-get install -y clang-format-14
+        sudo ln -sf /usr/bin/clang-format-14 /usr/bin/clang-format
+
+    - name: Display Clang-Format Version
+      run: clang-format --version
+
+    - name: Run Clang-Format
+      run: clang-format -i -style=file $(find . -name '*.cc' -o -name '*.h')
+      
+    - name: Show Differences
+      run: git diff
+
+    - name: Check for formatting changes
+      run: git diff --exit-code

@@ -4,9 +4,9 @@
 #include "../einsummable/graph.h"
 
 enum class parts_space_t {
-  contraction,  // contractions nodes at 1x, other nodes at <=1x
-  all,          // all nodes at 1x
-  all_range     // all nodes at 1x,2x or 4x
+    contraction, // contractions nodes at 1x, other nodes at <=1x
+    all,         // all nodes at 1x
+    all_range    // all nodes at 1x,2x or 4x
 };
 
 // 1. Flip the edges of the graph so that output nodes come first and then
@@ -35,41 +35,34 @@ enum class parts_space_t {
 // Note:
 // 1. all formation nodes will have the same partition as it's input
 // 2. all aggs must be followed by a formation
-vector<partition_t> apart01(
-  graph_t const& graph,
-  int n_compute,
-  int max_branching = 2,
-  uint64_t discount_input_factor = 1,
-  parts_space_t search_space = parts_space_t::contraction);
+vector<partition_t> apart01(graph_t const& graph,
+                            int            n_compute,
+                            int            max_branching = 2,
+                            uint64_t       discount_input_factor = 1,
+                            parts_space_t  search_space = parts_space_t::contraction);
 
 // Note: all formation nodes have the same partition as it's input
-uint64_t apart01_cost(
-  graph_t const& graph,
-  vector<partition_t> const& partitions);
+uint64_t apart01_cost(graph_t const& graph, vector<partition_t> const& partitions);
 
 // This does not put restrictions on formation nodes.
 //
 // Step 1: Go through in reverse order and pick the best partition from the same
 //         space as apart01, subject to fixed placements and equal placement constraints
 // Step 2:
-vector<partition_t> apart02(
-  graph_t const& graph,
-  int n_compute,
-  map<int, partition_t> const& fixed_parts,
-  vector<tuple<int,int>> const& equal_parts);
+vector<partition_t> apart02(graph_t const&                 graph,
+                            int                            n_compute,
+                            map<int, partition_t> const&   fixed_parts,
+                            vector<tuple<int, int>> const& equal_parts);
 
-// Here is a hueristic partitioner. A user provides 
+// Here is a hueristic partitioner. A user provides
 // A list of partitions for (input, which_dim) and those are
 // propagated throughout the graph. All unspecified partitions
 // are unset.
-vector<partition_t> apart03(
-  graph_t const& graph,
-  map<tuple<int, int>, partdim_t> const& init_parts);
+vector<partition_t> apart03(graph_t const&                         graph,
+                            map<tuple<int, int>, partdim_t> const& init_parts);
 
 // The algorithm:
 // 1. partition all the contraction nodes by recursively splitting the largest
 //    dimension of the node.
 // 2. recurse where all other nodes are deduced from inputs and outputs
-vector<partition_t> apart04(
-  graph_t const& graph,
-  uint64_t cutoff);
+vector<partition_t> apart04(graph_t const& graph, uint64_t cutoff);
