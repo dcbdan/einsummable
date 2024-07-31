@@ -76,7 +76,10 @@ memgraph_t::memgraph_t(
     all_deps(mg.all_deps)
 {}
 
-void memgraph_t::print_graphviz(std::ostream &out) const {
+void memgraph_t::print_graphviz(
+  std::ostream &out,
+  map<int, string> get_color) const
+{ 
   using std::endl;
 
   vector<string> colors{
@@ -252,6 +255,13 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
     //     color = "green";
     //   }
     // }
+
+    {
+      auto iter = get_color.find(id);
+      if(iter != get_color.end()) {
+        color = iter->second;
+      }
+    }
 
     out << tab
         << "n" << id

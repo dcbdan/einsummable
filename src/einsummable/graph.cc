@@ -1139,3 +1139,153 @@ create_remap_graph_constructor(
 
   return {remap_gid, g};
 }
+
+tuple<einsummable_t, vector<int>>
+recurse_construct_einsummable_op(
+  graph_t const& graph,
+  map<int, int> const& gid_to_fid,
+  einsummable_t const& e,
+  vector<int> const& gid_inns)
+{
+  vector<int> fid_inns;
+  for(int which_inn = 0; which_inn != gid_inns.size(); ++which_inn) {
+    int const& gid_inn = gid_inns[which_inn];
+    auto iter = gid_to_fid.find(gid_inn);
+    if(iter == gid_to_fid.end()) {
+      // This input must be fused!
+      einsummable_t new_e = einsummable_t::merge(
+        which_inn,
+        graph.nodes[gid_inn].op.get_einsummable(),
+        e);
+
+      vector<int> new_gid_inns;
+      for(int wid = 0; wid != gid_inns.size(); ++wid) {
+        if(wid != which_inn) {
+          new_gid_inns.push_back(gid_inns[wid]);
+        } else {
+          vector_concatenate_into(new_gid_inns, graph.nodes[gid_inn].inns);
+        }
+      }
+
+      return recurse_construct_einsummable_op(graph, gid_to_fid, new_e, new_gid_inns);
+    } else {
+      fid_inns.push_back(iter->second);
+    }
+  }
+
+  return {e, fid_inns};
+}
+
+tuple<
+  graph_t,
+  map<int, int>, 
+  map<int, int>> 
+graph_t::fuse(bool absorb_into_contraction, bool duplicate_elementwise) const
+{
+  // Make sure all formations have a single einsummable w/ agg input
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    if(node.op.is_formation()) {
+      if(node.inns.size() != 1) {
+        throw std::runtime_error("expecting formation to have 1 input");
+      }
+      int const& inn = node.inns[0];
+      if(!nodes[inn].op.is_einsummable()) {
+        throw std::runtime_error("expecting formations to have einsummable input");
+      }
+      auto const& e = nodes[inn].op.get_einsummable();
+      if(!e.has_aggregation()) {
+        throw std::runtime_error("expecting formations to have einsummable w/ agg input");
+      }
+    }
+  }
+
+  auto can_fuse_later = [&](int gid) {
+    auto const& node = nodes[gid];
+    if(!node.op.is_einsummable()) {
+      return false;
+    }
+    auto const& e = node.op.get_einsummable();
+    if(e.has_aggregation()) {
+      return false;
+    }
+    if(node.op.is_save()) {
+      return false;
+    }
+    if(node.outs.size() == 0) {
+      throw std::runtime_error("if not outs, must be save");
+    }
+    for(auto const& out: node.outs) {
+      if(!nodes[out].op.is_einsummable()) {
+        return false;
+      }
+    }
+
+    // This is an elementwise op,
+    //   with one or more outputs that are all einsummable,
+    //   that isn't being saved.
+    // Therefore, it can be fused into all subsequent einsummables.
+    // But we stll have to respect `absorb_into_contraction` and
+    // `duplicate_elementwise`. 
+
+    if(node.outs.size() > 1 && !duplicate_elementwise) {
+      return false;
+    }
+
+    if(!absorb_into_contraction) {
+      for(auto const& out: node.outs) {
+        if(nodes[out].op.get_einsummable().is_contraction()) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  graph_t ret;
+  map<int, int> gid_to_fid;
+  for(int gid: get_order()) {
+    auto const& node = nodes[gid]; 
+    if(node.op.is_input() || node.op.is_formation() || node.op.is_complexer() ||
+       node.op.is_squeezer() || node.op.is_fill() || node.op.is_select())
+    {
+      vector<int> fid_inns;
+      for(int const& gid_inn: node.inns) {
+        fid_inns.push_back(gid_to_fid.at(gid_inn));
+      }
+      int fid = ret.insert(node.op, fid_inns);
+      gid_to_fid.insert({gid, fid});
+    } else if(node.op.is_einsummable()) {
+      bool later = can_fuse_later(gid);
+      if(later) {
+        // Nothing to do: we'll pick up this node later.
+      } else {
+        auto [e, fid_inns] = recurse_construct_einsummable_op(
+          *this,
+          gid_to_fid,
+          node.op.get_einsummable(),
+          node.inns);
+        int fid = ret.insert(e, fid_inns);
+        gid_to_fid.insert({gid, fid});
+      }
+    } else {
+      throw std::runtime_error("missing case!");
+    }
+  }
+
+  map<int, int> gid_inn_to_fid;
+  map<int, int> gid_save_to_fid;
+  for(int gid = 0; gid != nodes.size(); ++gid) {
+    auto const& node = nodes[gid];
+    if(node.op.is_input()) {
+      gid_inn_to_fid.insert({gid, gid_to_fid.at(gid)});
+    } 
+    if(node.op.is_save()) {
+      gid_save_to_fid.insert({gid, gid_to_fid.at(gid)});
+    }
+  }
+
+  return {ret, gid_inn_to_fid, gid_save_to_fid};
+}
+

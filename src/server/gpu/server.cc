@@ -6,8 +6,6 @@
 #include <cuda_profiler_api.h>
 #include <sys/gmon.h>
 
-extern "C" void moncontrol(int);
-
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
   // one buffer per gpu
@@ -112,11 +110,14 @@ void gpu_mg_server_t::execute_memgraph(
   // DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
+  //  exec_graph_t::make_gpu_super_exec_graph(
+  //    memgraph, comm.get_this_rank(), kernel_managers, 
+  //    num_gpus_per_node[comm.get_this_rank()], mems,
+  //    scalar_vars);
     exec_graph_t::make_gpu_exec_graph(
       memgraph, comm.get_this_rank(), kernel_managers,
       num_gpus_per_node[comm.get_this_rank()], mems,
       scalar_vars);
-  // DOUT("Finished making exec graph...");
 
   vector<rm_ptr_t> rms {
     rm_ptr_t(new gpu_workspace_manager_t()),
@@ -136,9 +137,35 @@ void gpu_mg_server_t::execute_memgraph(
   // print the execution time of event_loop()
   if (!for_remap){
     cudaProfilerStart();
-    moncontrol(1);
     get_rm_timetracker().clear();
+
+    {
+      int mov = 0;
+      int con = 0;
+      int agg = 0;
+      int ewe = 0;
+      int tou = 0;
+      for(auto const& node: memgraph.nodes) {
+        if(node.op.is_move()) { 
+          mov++; 
+        } else if(node.op.is_einsummable()) { 
+          if(node.op.get_einsummable().is_contraction()) {
+            con++;
+          } else if(node.op.get_einsummable().has_aggregation()) {
+            agg++;
+          } else {
+            ewe++;
+          }
+        } else if(node.op.is_touch()) {
+          tou++;
+        }
+      }
+      DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: " 
+        << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
+    }
+
   }
+  get_rm_timetracker().clear();
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();
   auto end = std::chrono::high_resolution_clock::now();
@@ -146,7 +173,6 @@ void gpu_mg_server_t::execute_memgraph(
   // print the duration in milliseconds with 4 decimal places
   if (!for_remap){
     DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-    moncontrol(0);
     cudaProfilerStop();
     // print the time for each node in the exec graph
     // for (auto const& node: graph.nodes){
@@ -155,10 +181,10 @@ void gpu_mg_server_t::execute_memgraph(
     DOUT("PRINTING TRY TO ACQUIRE TIMES")
     get_rm_timetracker().print_totals(std::cout);
   }
-  auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
-  if (duration2.count() - duration.count() > 10 && !for_remap){
-    DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
-  }
+  //auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
+  //if (duration2.count() - duration.count() > 10 && !for_remap){
+  //  DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
+  //}
 }
 
 // memstoloc_t is not a contiguous data structure,

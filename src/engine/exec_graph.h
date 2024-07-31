@@ -13,6 +13,7 @@
 
 #ifdef GPU_EXEC
 #include "gpu/gpu_kernel_manager.h"
+#include "../einsummable/super.h"
 #endif
 
 struct exec_graph_t {
@@ -40,6 +41,14 @@ struct exec_graph_t {
   // note: the nodes of this graph may reference
   //       the provided executor
   static exec_graph_t make_gpu_exec_graph(
+    memgraph_t const& memgraph,
+    int this_rank,
+    vector<kernel_manager_t>& gpu_kms,
+    int num_gpus_per_node,
+    vector<void*> gpu_mems,
+    map<string, scalar_t> const& scalar_vars = {});
+
+  static exec_graph_t make_gpu_super_exec_graph(
     memgraph_t const& memgraph,
     int this_rank,
     vector<kernel_manager_t>& gpu_kms,

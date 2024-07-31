@@ -33,6 +33,118 @@ void print_exec_graph(exec_graph_t exec_graph){
   }
 }
 
+exec_graph_t exec_graph_t::make_gpu_super_exec_graph(
+  memgraph_t const& memgraph,
+  int this_rank,
+  vector<kernel_manager_t>& gpu_kms,
+  int num_gpus_per_node,
+  vector<void*> gpu_mems,
+  map<string, scalar_t> const& scalar_vars)
+{
+  if(num_gpus_per_node != gpu_mems.size()) {
+    throw std::runtime_error("must have world size 1");
+  }
+  if(gpu_kms.size() != gpu_mems.size()) {
+    throw std::runtime_error("must have 1 km per gpu");
+  }
+  if(this_rank != 0) {
+    throw std::runtime_error("this rank must be zero");
+  }
+
+  super_graph_t super = create_super_graph(memgraph); 
+
+  exec_graph_t graph;
+  map<int, int> sid_to_eid;
+
+  auto insert = [&](op_ptr_t op, int sid) {
+    vector<int> inns;
+    for(auto const& inn_sid: super.nodes[sid].inns) {
+      inns.push_back(sid_to_eid.at(inn_sid));
+    }
+    int eid = graph.insert(op, inns);
+    sid_to_eid.insert({sid, eid});
+  };
+
+  auto create_super_op = [&](vector<int> const& mids) {
+    vector<memgraph_t::op_t> ops;
+    int loc = -1;
+    uint64_t workspace_size = 0;
+    for(auto const& mid: mids) {
+      auto const& oo = memgraph.nodes[mid].op;
+      if(oo.is_partialize() || oo.is_alloc() || oo.is_del() ||
+         oo.is_inputmem() || oo.is_inputsto())
+      {
+        continue;
+      }
+
+      ops.push_back(oo);
+
+      auto& op = ops.back();
+
+      int l;
+      if(op.is_move()) {
+        l = op.get_move().get_src_loc();
+      } else {
+        l = op.get_loc();
+      }
+
+      if(loc < 0) {
+        loc = l;
+      } else if(loc != l) {
+        throw std::runtime_error("invalid super node location...");
+      }
+
+      if(op.is_einsummable()) {
+        einsummable_t einsum = op.get_apply()
+          .get_einsummable()
+          .replace_scalar_variables(scalar_vars)
+          .merge_adjacent_dims();
+
+        // rewrite the einsummable on the stored op 
+        op.get_apply().op = einsum;
+
+        auto maybe_built = gpu_kms[loc].build(einsum);
+        if(!maybe_built) {
+          throw std::runtime_error("could not compile einsum");
+        }
+
+        uint64_t wsz = 0;
+        auto const& workspace_info = maybe_built.value();
+        if(workspace_info.known()) {
+          wsz = workspace_info.value();
+        } else {
+          // TODO: how do we deal with this case?
+          wsz = dtype_size(einsum.out_dtype()) * product(einsum.join_shape);
+        }
+
+        workspace_size = std::max(workspace_size, wsz);
+      }
+    }
+
+    if(loc < 0) {
+      if(ops.size() != 0) {
+        throw std::runtime_error("should not be an op!");
+      }
+
+      dummy_t* op = new dummy_t();
+      return op_ptr_t(op);
+    }
+
+    gpu_super_t* op = new gpu_super_t(loc, gpu_kms[loc], workspace_size, ops);
+    return op_ptr_t(op);
+  };
+
+  for(int sid = 0; sid != super.nodes.size(); ++sid) {
+    auto const& node = super.nodes[sid];
+
+    insert(
+      create_super_op(node.ops),
+      sid);
+  }
+
+  return graph;  
+}
+
 exec_graph_t exec_graph_t::make_gpu_exec_graph(
   memgraph_t const& memgraph,
   int this_rank,
@@ -49,11 +161,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   map<int, int> mid_to_eid;
 
   auto is_dummy = [](memgraph_t::node_t const& node) {
-  return node.op.is_inputmem()   ||
-          node.op.is_inputsto()   ||
-          node.op.is_partialize() ||
-          node.op.is_alloc()      ||
-          node.op.is_del()         ;
+    return node.op.is_inputmem()   ||
+           node.op.is_inputsto()   ||
+           node.op.is_partialize() ||
+           node.op.is_alloc()      ||
+           node.op.is_del()         ;
   };
 
   auto insert = [&](op_ptr_t op, int mid)
@@ -262,6 +374,222 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   return graph;
 }
 
+desc_ptr_t gpu_super_t::resource_description() const
+{
+  vector<desc_ptr_t> ret;
+  ret.emplace_back(global_buffers_t::make_desc(super_loc));
+  // TODO: device != loc in multi-node multi-gpu-per-node setting
+  ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{super_loc}));
+  if(workspace_size > 0) {
+    gpu_workspace_desc_t workspace_desc;
+    workspace_desc.device = super_loc;
+    workspace_desc.size = workspace_size;
+    ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
+  }
+
+  {
+    set<int> groups;
+    for(auto const& op: ops) {
+      if(op.is_touch()) {
+        int const& group_id = op.get_apply().group;
+        if(group_id >= 0 && groups.count(group_id) == 0) {
+          groups.insert(group_id);
+          ret.emplace_back(group_manager_t::make_desc(group_id));
+        }
+      }
+    }
+  }
+
+  {
+    set<int> dsts;
+    for(auto const& op: ops) {
+      if(op.is_move()) {
+        int dst = op.get_move().get_dst_loc();
+        dsts.insert(dst);
+        ret.emplace_back(global_buffers_t::make_desc(dst));
+      }
+    }
+  }
+
+  return resource_manager_t::make_desc(ret);
+}
+
+void gpu_super_t::launch(
+  resource_ptr_t rsrc, 
+  std::function<void()> callback) const
+{
+  // Resources:
+  // 1. global buffer
+  // 2. stream
+  // 3. maybe the workspace.
+  // 4. the groups
+  // 5. the dst buffers
+  vector<resource_ptr_t> const& resources =
+    resource_manager_t::get_resource(rsrc);
+
+  int resource_id = 0;
+
+  void* global_buffer = global_buffers_t::get_resource(resources[resource_id++]);
+
+  cudaStream_t stream = streampool_manager_t::get_resource(resources[resource_id++]).stream;
+
+  optional<tuple<void*, uint64_t>> maybe_workspace;
+  if(workspace_size > 0) {
+    maybe_workspace = gpu_workspace_manager_t::get_resource(
+      resources[resource_id++]).as_tuple();
+  }
+  
+  // NOTE: It may be the case that multiple touches on this super op
+  //       have the same group_id. Make sure that only the first touch
+  //       serves as initialization. So after each touch, 
+  //       set group_infos[group_id] to false
+  //       !!!!!!!!!!!!!!!
+  map<int, bool> group_infos{ {-1, false} }; // make sure we have -1 as a key
+  for(auto const& op: ops) {
+    if(op.is_touch()) {
+      int const& group_id = op.get_apply().group;
+      if(group_id >= 0 && group_infos.count(group_id) == 0) {
+        auto const& [group_id_, is_first] =
+          group_manager_t::get_resource(resources[resource_id++]);
+        if(group_id != group_id_) {
+          throw std::runtime_error("invalid group id from the resource manager");
+        }
+        group_infos.insert({group_id, is_first});
+      }
+    }
+  }
+
+  map<int, void*> loc_to_buffer;
+  for(auto const& op: ops) {
+    if(op.is_move()) {
+      int dst = op.get_move().get_dst_loc();
+      if(loc_to_buffer.count(dst) == 0) {
+        loc_to_buffer.insert({
+          dst,
+          global_buffers_t::get_resource(resources[resource_id++])});
+      }
+    }
+  }
+
+  for(auto const& op: ops) {
+    if(op.is_constant()) {
+      auto const& c = op.get_constant();
+      if(c.fill.is_constant()) {
+        // TODO
+        throw std::runtime_error("constant constant super not impl");
+      } else if(c.fill.is_lowertri()) {
+        // TODO
+        throw std::runtime_error("constant lowertri super not impl");
+      }
+    } else if(op.is_einsummable()) {
+      auto const& a = op.get_apply();
+      auto const& mems = a.mems;
+      auto const& e = a.get_einsummable();
+
+      void* out_mem = increment_void_ptr(
+        global_buffer,
+        mems[0].offset);
+
+      vector<void const*> inn_mems;
+      inn_mems.reserve(mems.size() - 1);
+      for(int i = 1; i != mems.size(); ++i) {
+        inn_mems.push_back(increment_void_ptr(
+          global_buffer,
+          mems[i].offset));
+      }
+
+      km(
+        e,
+        stream,
+        out_mem,
+        inn_mems,
+        maybe_workspace);
+    } else if(op.is_touch()) {
+      auto const& a = op.get_apply();
+      auto const& mems = a.mems;
+
+      void* out_mem = increment_void_ptr(
+        global_buffer,
+        mems[0].offset);
+      void const* inn_mem = increment_void_ptr(
+        global_buffer,
+        mems[1].offset);
+
+      int group_id = a.group;
+      if(group_id < 0) {
+        group_id = -1;
+      }
+      bool& is_first = group_infos.at(group_id);
+
+      touch_t touch = a.get_touch();
+      if(is_first) {
+        // if this is the first touch, make sure the touch becomes a copy
+        touch.castable = std::nullopt;
+        // Make sure that the next touch will not be incorrectly treated 
+        // as a copy!
+        is_first = false;
+      }
+
+      if(group_id < 0 && touch.castable != std::nullopt) {
+        // Just in case!
+        throw std::runtime_error("without group id, touch must be a copy");
+      }
+
+      km(
+        touch,
+        stream,
+        out_mem,
+        inn_mem);
+    } else if(op.is_move()) {
+      auto const& move = op.get_move();
+      auto const& [src_loc, src_offset] = move.src;
+      auto const& [dst_loc, dst_offset] = move.dst;
+
+      void* src_buffer = global_buffer;
+      void* dst_buffer = loc_to_buffer.at(dst_loc);
+
+      void* src_mem = increment_void_ptr(
+        src_buffer,
+        src_offset);
+
+      void* dst_mem = increment_void_ptr(
+        dst_buffer,
+        dst_offset);
+
+      cudaError_t cudaError = cudaMemcpyAsync(
+        dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
+      if(cudaError != cudaSuccess) {
+        throw std::runtime_error("CudaMemcpyAsync in super node failed");
+      }
+    } else if(op.is_evict()) {
+      // TODO
+      throw std::runtime_error("gpu_super_t::launch: evict not implemented");
+    } else if(op.is_load()) {
+      // TODO
+      throw std::runtime_error("gpu_super_t::launch: load not implemented");
+    } else if(op.is_partialize() || op.is_alloc() || op.is_del()) {
+      // Nothing to do, these are dummy ops
+    } else {
+      throw std::runtime_error("gpu_super_t::launch: missing mg op case");
+    }
+  }
+
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+      // DOUT("in gpu_copy callback");
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_copy_t: adding callback");
+}
+
 desc_ptr_t
 gpu_einsummable_t::resource_description() const
 {
@@ -286,11 +614,15 @@ void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
-  auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_einsummable_t::launch");
-  // DOUT("launching einsummable: " << einsummable);
-  // DOUT("gpu_einsummable_t::launch: getting resources")
-
-  auto start_resources = get_rm_timetracker().now();
+  string sxsx = "gpu_einsummable_t::launch";
+  if(einsummable.is_contraction()) {
+    sxsx += "contraction";
+  } else if(einsummable.has_aggregation()) {
+    sxsx += "aggregation";
+  } else {
+    sxsx += "elementwise";
+  }
+  auto gremlin = get_rm_timetracker().make_totals_gremlin(sxsx);
 
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
@@ -305,11 +637,6 @@ void gpu_einsummable_t::launch(
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  auto stop_resources = get_rm_timetracker().now();
-  get_rm_timetracker().insert_total("launch: get resources", start_resources, stop_resources);
-
-  auto start_increment = get_rm_timetracker().now();
-
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
@@ -322,51 +649,38 @@ void gpu_einsummable_t::launch(
       mems[i].offset));
   }
 
-  auto stop_increment = get_rm_timetracker().now();
-  get_rm_timetracker().insert_total("launch: increment pointers", start_increment, stop_increment);
-
-  // print all the input and output offsets
-  // for (int i = 1; i < mems.size(); ++i){
-  //   DOUT("Input offset " << i-1 << ": " << mems[i].offset << " Device: " << device);
-  // }
-  // DOUT("Output offset: " << mems[0].offset << " Device: " << device);
-
   // cudaEventRecord(start, stream);
   {
-    auto gremlin = get_rm_timetracker().make_totals_gremlin("launch: gpu_km");
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_km");
     gpu_km(
-      einsummable,
+      my_kernel_info,
       stream,
       out_mem,
       inn_mems,
-      my_kernel_info,
       maybe_workspace);
   }
 
   // cudaEventRecord(stop, stream);
 
-  {
-    auto gremlin = get_rm_timetracker().make_totals_gremlin("launch: callback");
+  std::function<void()>* callback_copy = new std::function<void()>(callback);
 
-    std::function<void()>* callback_copy = new std::function<void()>(callback);
+  handle_cuda_error(cudaStreamAddCallback(
+    stream,
+    [](cudaStream_t stream, cudaError_t status, void* user_data) {
+    // DOUT("in gpu_einsummable callback");
+      std::function<void()>* callback_ptr =
+        reinterpret_cast<std::function<void()>*>(user_data);
+      auto& callback = *callback_ptr;
+      callback();
+      delete callback_ptr;
+    },
+    reinterpret_cast<void*>(callback_copy), 0),
+    "gpu_einsummable_t: callback");
 
-    handle_cuda_error(cudaStreamAddCallback(
-      stream,
-      [](cudaStream_t stream, cudaError_t status, void* user_data) {
-      // DOUT("in gpu_einsummable callback");
-        std::function<void()>* callback_ptr =
-          reinterpret_cast<std::function<void()>*>(user_data);
-        auto& callback = *callback_ptr;
-        callback();
-        delete callback_ptr;
-      },
-      reinterpret_cast<void*>(callback_copy), 0),
-      "gpu_einsummable_t: callback");
+  // cudaEventRecord(callback_event, stream);
 
-    // cudaEventRecord(callback_event, stream);
-
-    // cudaDeviceSynchronize();
-  }
+  // cudaDeviceSynchronize();
+  
 }
 
 desc_ptr_t

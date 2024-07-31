@@ -997,47 +997,10 @@ void kernel_manager_t::operator()(
   cudaStream_t stream,
   void* out,
   vector<void const*> inns,
-  kernel_info_t k,
   optional<tuple<void*, uint64_t>> maybe_workspace) const
 {
-  cudaSetDevice(device);
-  
-  // auto start = get_rm_timetracker().now();
-  // const kernel_info_t& info = get_built_kernel_info(e);
-  // auto stop = get_rm_timetracker().now();
-  // get_rm_timetracker().insert_total("gpu_km: get info", start, stop);
-
-  if (force_debug){
-    DOUT("Calling kernel: " << e);
-    auto inn_shape = e.inn_shapes();
-    // inspect all inputs
-    for (auto i = 0; i < inns.size(); i++) {
-      auto num_elements = 1;
-      for (auto dim : inn_shape[i]) {
-        num_elements *= dim;
-      }
-      DOUT("Input " << i << " (" << num_elements << "): ");
-      printFloatGPU(inns[i], std::min(num_elements, num_element_print));
-    }
-  }
-
-  {
-    auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_km: call");
-    call(k, stream, out, inns, maybe_workspace);
-  }
-  
-
-  if (force_debug){
-    // inspect the output for debug
-    cudaDeviceSynchronize();
-    int num_elements = 1;
-    for (auto i = 0; i < e.out_rank; i++) {
-      num_elements *= e.join_shape[i];
-    }
-    DOUT("Output (" << num_elements << "): ");
-    printFloatGPU(out, std::min(num_elements, num_element_print));
-    DOUT("");
-  }
+  kernel_info_t const& info = get_built_kernel_info(e);
+  return operator()(info, stream, out, inns, maybe_workspace);
 }
 
 void kernel_manager_t::lowerTri_fill(fill_t::lowertri_t const& l,
@@ -1086,7 +1049,7 @@ void kernel_manager_t::constant_fill(fill_t::constant_t const& c,
     stream, type);
 }
 
-void kernel_manager_t::call(
+void kernel_manager_t::operator()(
   kernel_manager_t::kernel_info_t const& kernel,
   cudaStream_t stream,
   void* out,
@@ -1106,6 +1069,7 @@ void kernel_manager_t::call(
   };
 
   if(holds_alternative<matmul_t>(kernel)) {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("aaa: matmul_t");
     // std::cout << "Calling matmul" << std::endl;
     auto const& m = get<matmul_t>(kernel);
     auto const& [dtype, ni, nj,
@@ -1114,6 +1078,7 @@ void kernel_manager_t::call(
       m, stream,
       out, inns[0], inns[1]);
   } else if(holds_alternative<contraction_t>(kernel)) {
+    auto gremlin = get_rm_timetracker().make_totals_gremlin("aaa: contraction");
     assert_num_inputs(2);
 
     auto const& c = get<contraction_t>(kernel);

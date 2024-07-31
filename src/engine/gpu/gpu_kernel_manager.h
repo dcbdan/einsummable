@@ -338,7 +338,13 @@ public:
     cudaStream_t stream,
     void* out,
     vector<void const*> inns,
-    kernel_info_t k,
+    optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
+
+  void operator()(
+    kernel_info_t const& k,
+    cudaStream_t stream,
+    void* out,
+    vector<void const*> inns,
     optional<tuple<void*, uint64_t>> workspace = std::nullopt) const;
 
   void operator()(
@@ -356,13 +362,6 @@ public:
 
 private:
   workspace_info_t workspace_size(kernel_info_t const& kernel) const;
-
-  void call(
-    kernel_info_t const& kernel,
-    cudaStream_t stream,
-    void* out,
-    vector<void const*> inns,
-    optional<tuple<void*, uint64_t>> maybe_workspace) const;
 
 private:
   std::unordered_map<einsummable_t, kernel_info_t> kernels;

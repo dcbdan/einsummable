@@ -156,7 +156,9 @@ struct memgraph_t {
     allocator_settings_t settings = allocator_settings_t::default_settings(),
     bool use_storage = true);
 
-  void print_graphviz(std::ostream& out) const;
+  void print_graphviz(
+    std::ostream& out,
+    map<int, string> get_color = map<int, string>{}) const;
 
   // Get the amount of memory used by each location
   vector<uint64_t> mem_sizes() const;
@@ -359,6 +361,7 @@ public:
     inputsto_t   const& get_inputsto()   const { return std::get<inputsto_t>(op);   }
     constant_t   const& get_constant()   const { return std::get<constant_t>(op);   }
     apply_t      const& get_apply()      const { return std::get<apply_t>(op);      }
+    apply_t           & get_apply()            { return std::get<apply_t>(op);      }
     move_t       const& get_move()       const { return std::get<move_t>(op);       }
     evict_t      const& get_evict()      const { return std::get<evict_t>(op);      }
     load_t       const& get_load()       const { return std::get<load_t>(op);       }
@@ -379,24 +382,36 @@ public:
     }
     bool is_contraction() const { return is_einsummable() && get_einsummable().is_contraction(); }
 
-    void print_type() {
-      if (is_inputmem() || is_inputsto())      std::cout << "input";
-      if (is_constant())   std::cout << "constant";
-      if (is_move())       std::cout << "move";
-      if (is_evict())      std::cout << "evict";
-      if (is_load())       std::cout << "load";
-      if (is_partialize()) std::cout << "partialize";
-      if (is_del())        std::cout << "del";
-      if (is_alloc())      std::cout << "alloc";
-
-      if (is_einsummable()) {
-        if (is_contraction()) std::cout << "contraction";
-        else                  std::cout << "other einsum";
+    void print_type(std::ostream& out) const {
+      if (is_constant()) {
+        out << "constant";
+      } else if (is_move()) {
+        out << "move";
+      } else if (is_evict()) {    
+        out << "evict";
+      } else if (is_load()) {
+        out << "load";
+      } else if (is_partialize()) {
+        out << "partialize";
+      } else if (is_del()) {
+        out << "del";
+      } else if (is_alloc()) {
+        out << "alloc";
+      } else if (is_einsummable()) {
+        if (is_contraction()) out << "contraction";
+        else                  out << "not-contraction";
+      } else if (is_touch()) {
+        out << "touch";
+      } else if(is_inputmem()) {
+        out << "inputmem";
+      } else if(is_inputsto()) {
+        out << "inputsto";
+      } else {
+        throw std::runtime_error("print_type: missing case");
       }
-      if (is_touch())       std::cout << "touch";
     }
 
-    int get_loc() const{
+    int get_loc() const {
       if (is_inputmem())   return get_inputmem().loc;
       if (is_constant())   return get_constant().loc;
       if (is_apply())      return get_apply_loc();

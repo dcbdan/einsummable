@@ -115,6 +115,15 @@ struct graph_t {
 
   vector<int> get_inputs() const;
 
+  tuple<
+    graph_t,
+    map<int, int>, // inns to new inns
+    map<int, int>> // saves to new saves
+  fuse(bool absorb_into_contraction = false, bool duplicate_elementwise = true) const;
+  // If absorb into contraction: then einsummables can be fused into contractions
+  // If duplicate elementwise: then fuse elementwise into all subsequent ops even
+  //                           if that requires extra computations
+
 public:
 
   struct input_t {

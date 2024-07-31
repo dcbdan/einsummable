@@ -77,6 +77,9 @@ private:
 // return castable(val,val,...) with n val inputs
 scalar_t agg_power(castable_t castable, uint64_t n, scalar_t val);
 
+struct scalarop_t;
+scalarop_t agg_power_op(castable_t castable, dtype_t dtype, uint64_t n);
+
 namespace scalar_ns {
 
 struct op_t {

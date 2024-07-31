@@ -3,6 +3,28 @@
 #include "gpu_kernel_manager.h"
 #include <cstdint>
 
+struct gpu_super_t : exec_graph_t::op_base_t {
+  gpu_super_t(
+    int loc,
+    kernel_manager_t& km,
+    uint64_t workspace_size,
+    vector<memgraph_t::op_t> const& ops)
+    : super_loc(loc), km(km), workspace_size(workspace_size), ops(ops)
+  {}
+
+  int super_loc;
+  kernel_manager_t& km;
+  uint64_t workspace_size;
+  vector<memgraph_t::op_t> ops;
+
+  void launch(resource_ptr_t resource, std::function<void()> callback) const;
+
+  desc_ptr_t resource_description() const;
+
+  void print(std::ostream& out) const { out << "gpu_super"; }
+  void line(std::ostream& out) const {}
+};
+
 struct gpu_einsummable_t : exec_graph_t::op_base_t {
   gpu_einsummable_t(
     kernel_manager_t& a,
