@@ -2,6 +2,4 @@
 #include "../src/einsummable/mgallocator.h"
 #include "../src/einsummable/mgmake.h"
 
-int main() {
-
-}
+int main() {}

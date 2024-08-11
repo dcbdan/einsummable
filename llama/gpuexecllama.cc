@@ -16,7 +16,7 @@ void main_rank_zero_matmul(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("gpus", 2);
+  args.set_default<int>("gpus", 1);
   args.set_default<int>("computes", 1);
   args.set_default<uint64_t>("ni", 100);
   args.set_default<uint64_t>("nj", 100);
@@ -296,8 +296,8 @@ int main(int argc, char** argv) {
 
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
-  for (int i = 0; i < 2; ++i) {
-    buffer_sizes.push_back(1lu * 100lu * 1000lu);
+  for (int i = 0; i < 1; ++i) {
+    buffer_sizes.push_back(500lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t server(communicator, buffer_sizes);
@@ -330,8 +330,8 @@ int main(int argc, char** argv) {
   DOUT("split_off_inputs:                " << server.split_off_inputs_);
 
   if(is_rank_zero) {
-    main_rank_zero_matmul(server, args);
-    // main_rank_zero(server, args);
+    // main_rank_zero_matmul(server, args);
+    main_rank_zero(server, args);
     // main_rank_zero_llama(server, args);
     
     server.shutdown();

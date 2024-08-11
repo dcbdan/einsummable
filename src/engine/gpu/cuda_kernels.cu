@@ -1,6 +1,7 @@
 #include "cuda_kernels.h"
 #include <cstdint>
 #include <cstdio>
+#include <cuComplex.h>
 #include <cuda_runtime_api.h>
 #include <sys/types.h>
 
@@ -643,4 +644,301 @@ void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
   // printf("reinterpret cast value 2 %f\n", *reinterpret_cast<float const*>(&value));
   fill_constant<<<gridSize, blockSize,0,stream>>>
     (mem, nelem, value, dtype_info);
+}
+
+// compare mem[i, j] with compare [i], if mem[i, j] == compare[i], assign out[i, j] = value_true
+// else assign out[i, j] = value_false
+__global__ void conditional_assignment(void* out, void const* mem, uint64_t rows, uint64_t columns,
+ void const* compare, uint64_t value_true, uint64_t value_false, int dtype_info){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(index<rows * columns){
+    uint64_t row = index / columns;
+    // uint64_t col = index % columns;
+    uint64_t compare_index = row;
+    if(dtype_info==0){
+      ((__half*)out)[index] = ((__half*)mem)[index] == ((__half*)compare)[compare_index] ? 
+        *(reinterpret_cast<__half const*>(&value_true)) : *(reinterpret_cast<__half const*>(&value_false));
+    }else if(dtype_info==1){
+      ((float*)out)[index] = ((float*)mem)[index] == ((float*)compare)[compare_index] ? 
+        *(reinterpret_cast<float const*>(&value_true)) : *(reinterpret_cast<float const*>(&value_false));
+    }else if(dtype_info==2){
+      ((double*)out)[index] = ((double*)mem)[index] == ((double*)compare)[compare_index] ? 
+         *(reinterpret_cast<double const*>(&value_true)) : *(reinterpret_cast<double const*>(&value_false));
+    }
+    else if(dtype_info==3){
+      cuFloatComplex* c = (cuFloatComplex*)compare;
+      cuFloatComplex* m = (cuFloatComplex*)mem;
+      if (c[compare_index].x == m[index].x && c[compare_index].y == m[index].y){
+        ((cuFloatComplex*)out)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value_true));
+      }else{
+        ((cuFloatComplex*)out)[index] = *(reinterpret_cast<cuFloatComplex const*>(&value_false));
+      }
+    }
+    else{
+      printf("ERROR: CUDA_KERNEL: dtype_info not supported\n");
+    }
+  }
+ }
+
+void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, uint64_t columns,
+  void const* compare, uint64_t value_true, uint64_t value_false, cudaStream_t stream, int dtype_info){
+  int blockSize = 256;
+  int gridSize = (rows * columns + blockSize - 1) / blockSize;
+  conditional_assignment<<<gridSize, blockSize,0,stream>>>
+    (out, mem, rows, columns, compare, value_true, value_false, dtype_info);
+}
+
+
+__global__ void special_elementwise_mul(void* out, uint64_t a, uint64_t b, const void* x, 
+  const void* y, cudaStream_t stream, int dtype_info){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // fill a x b matrix with two vectors X and Y
+  // for i in size(a):
+  // for j in size(b):
+  //   Out[i,j] = f(X[i], Y[i])
+  if (index < a*b){
+    uint64_t row = index / b;
+    // uint64_t col = index % b;
+    if(dtype_info==0){
+      ((__half*)out)[index] = __hmul(((__half*)x)[row], ((__half*)y)[row]);
+    }else if(dtype_info==1){
+      ((float*)out)[index] = ((float*)x)[row] * ((float*)y)[row];
+    }else if(dtype_info==2){
+      ((double*)out)[index] = ((double*)x)[row] * ((double*)y)[row];
+    }
+    else if(dtype_info==3){
+      ((cuFloatComplex*)out)[index] = cuCmulf(((cuFloatComplex*)x)[row], ((cuFloatComplex*)y)[row]);
+    }
+    else{
+      printf("ERROR: CUDA_KERNEL: dtype_info not supported\n");
+    }
+  }
+}
+
+void special_elementwise_mul_dispatch(void* out, uint64_t a, uint64_t b, const void* x, 
+  const void* y, cudaStream_t stream, int dtype_info){
+  int blockSize = 256;
+  int gridSize = (a*b + blockSize - 1) / blockSize;
+  special_elementwise_mul<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, y, stream, dtype_info);
+}
+
+// ab -> a with max reduction
+__global__ void special_reduction_max(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = max(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = ((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] = fmaxf(((float*)out)[index], ((float*)x)[index * b + i]);
+      }
+    }
+  }
+}
+
+void special_reduction_max_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_max<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
+}
+
+// ab -> a with add reduction
+__global__ void special_reduction_sum(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = sum(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = ((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] += ((float*)x)[index * b + i];
+      }
+    }
+  }
+}
+
+void special_reduction_sum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_sum<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
+}
+
+// ab -> a with add reduction with negated input x
+__global__ void special_reduction_negateSum(void* out, uint64_t a, uint64_t b, const void* x, 
+  cudaStream_t stream){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  // out[a] = sum(x[a][b]) for all b in size(b)
+  if (index < a){
+    for (uint64_t i = 0; i < b; i++){
+      if (i == 0){
+        ((float*)out)[index] = -((float*)x)[index * b + i];
+      }
+      else{
+        ((float*)out)[index] -= ((float*)x)[index * b + i];
+      }
+    }
+  }
+}
+
+void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, const void* x,
+  cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (a + blockSize - 1) / blockSize;
+  special_reduction_negateSum<<<gridSize, blockSize,0,stream>>>
+    (out, a, b, x, stream);
+}
+
+// + ab,a->a | exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]]
+// out[a] = 0
+// for b in range(nb):
+//   out[a] += exp(s*(lhs[a,b] - rhs[b])) 
+__global__ void softmax_v3_reduction(void* out, const void* lhs, const void* rhs, uint64_t rows, uint64_t cols,
+  float constant){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      float rhs_val = ((float*)rhs)[i];
+      sum += expf(constant * (lhs_val - rhs_val));
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+void softmax_v3_reduction_dispatch(void* out, const void* lhs, const void* rhs, uint64_t rows, uint64_t cols,
+  float constant, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  softmax_v3_reduction<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, rhs, rows, cols, constant);
+}
+
+// ab,a,a->ab | 
+// *[exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]],power{-1}[hole|f32@2]]
+__global__ void softmax_v3_elementwise(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols, float constant){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows * cols){
+    uint64_t row = index / cols;
+    // uint64_t col = index % cols;
+    float lhs_val = ((float*)lhs)[index];
+    float rhs_val = ((float*)rhs)[row];
+    float mid_val = ((float*)mid)[row];
+    float exp_val = expf(constant * (lhs_val - mid_val));
+    ((float*)out)[index] = fdividef(exp_val, rhs_val);
+  }
+}
+
+void softmax_v3_elementwise_dispatch(void *out, const void *lhs, const void* mid,
+  const void *rhs, uint64_t rows, 
+  uint64_t cols, float constant, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  softmax_v3_elementwise<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols, constant);
+}
+
+// + ab,ab,a->a
+// *[hole|f32@0,*[hole|f32@1,*[constant{f32|-1},power{-2}[hole|f32@2]]]]
+// out[a] = Sum(lhs[a, b] )
+__global__ void large_workspace_1(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      float mid_val = ((float*)mid)[index * cols + i];
+      float rhs_val = ((float*)rhs)[i];
+      sum += fdividef(lhs_val * mid_val , (rhs_val * rhs_val) * -1.0f);
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+void large_workspace_1_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  large_workspace_1<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols);
+}
+
+// ab,a,a->ab | *[*[hole|f32@0,power{-1}[hole|f32@1]],hole|f32@2]
+__global__ void large_workspace_2(void* out, const void* lhs, const void* mid,
+  const void* rhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows * cols){
+    uint64_t row = index / cols;
+    // uint64_t col = index % cols;
+    float lhs_val = ((float*)lhs)[index];
+    float mid_val = ((float*)mid)[row];
+    float rhs_val = ((float*)rhs)[row];
+    ((float*)out)[index] = fdividef(lhs_val, mid_val) * rhs_val;
+  }
+}
+
+void large_workspace_2_dispatch(void* out, const void* lhs, const void* mid, const void* rhs,
+  uint64_t rows, uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows * cols + blockSize - 1) / blockSize;
+  large_workspace_2<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, mid, rhs, rows, cols);
+}
+
+// a,a->a | *[hole|f32@0,+[power{-1}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@1]]]],*[hole|f32@1,*[constant{f32|-1},*[power{-2}[+[constant{f32|1},exp[*[constant{f32|-1},hole|f32@1]]]],
+// *[constant{f32|-1},exp[*[constant{f32|-1},hole|f32@1]]]]]]]]
+
+__global__ void large_workspace_3(void* out, const void* lhs, uint64_t rows, uint64_t cols){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float sum = 0;
+    for (uint64_t i = 0; i < cols; i++){
+      float lhs_val = ((float*)lhs)[index * cols + i];
+      sum += (1.0f + expf(-1.0f * lhs_val)) * (1.0f - expf(-1.0f * lhs_val)) * 
+        (1.0f - expf(-2.0f * (1.0f + expf(-1.0f * lhs_val))) * 
+        (1.0f - expf(-1.0f * lhs_val)));
+    }
+    ((float*)out)[index] = sum;
+  }
+}
+
+// haven't implemented it yet
+void large_workspace_3_dispatch(void* out, const void* lhs, uint64_t rows, 
+  uint64_t cols, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows + blockSize - 1) / blockSize;
+  large_workspace_1<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, lhs, lhs, rows, cols);
+}
+
+// +[*[constant{f32|0.5},hole|f32@0],*[constant{f32|-500},hole|f32@1]]
+__global__ void large_workspace_4(void* out, const void* lhs, const void* rhs, 
+  uint64_t rows, float f1, float f2){
+  uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if(index<rows){
+    float lhs_val = ((float*)lhs)[index];
+    float rhs_val = ((float*)rhs)[index];
+    ((float*)out)[index] = f1 * lhs_val + f2 * rhs_val;
+  }
+}
+
+void large_workspace_4_dispatch(void* out, const void* lhs, const void* rhs, 
+  uint64_t rows, float f1, float f2, cudaStream_t stream){
+  int blockSize = 256;
+  int gridSize = (rows + blockSize - 1) / blockSize;
+  large_workspace_4<<<gridSize, blockSize,0,stream>>>
+    (out, lhs, rhs, rows, f1, f2);
 }
