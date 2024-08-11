@@ -102,7 +102,7 @@ void memgraph_t::print_graphviz(std::ostream &out) const {
     {
       memloc_t input = op.get_inputmem().as_memloc();
       string memloc = write_with_ss(input);
-      label = "inputmem@" + memloc;
+      label = "inputmem@" + memloc + write_with_ss(input.size);
       if(input.loc < colors.size())
       {
         color = colors[input.loc];

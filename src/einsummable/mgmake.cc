@@ -106,6 +106,7 @@ memgraph_make_state_t::pop_memgraph()
     } else {
       // insert on memory
       inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
+      DOUT("we are inserting inputmem node");
       new_mid = memgraph.insert(op_t(mem), set<int>{});
 
       // this tid has not been used by any mids now
@@ -786,6 +787,7 @@ memgraph_make_state_t::memgraph_make_state_t(
       };
 
       int mid = memgraph.insert(op_t(input), {});
+      std::cout << "insert input into tid2mid on mem: " << tid << ": " << mid << std::endl;
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     }
     else if(memstoloc.is_stoloc())
@@ -803,6 +805,7 @@ memgraph_make_state_t::memgraph_make_state_t(
       };
 
       int mid = memgraph.insert(op_t(input), {});
+      std::cout << "insert input into tid2mid on sto: " << tid << ": " << mid << std::endl;
       task_tensor_to_mem_node_insert_on_storage(tid, mid);
     }
   }
@@ -846,6 +849,7 @@ memgraph_make_state_t::memgraph_make_state_t(
 
 void memgraph_make_state_t::initialize_input(int inn)
 {
+  std::cout << "initialize input tid: " << inn << std::endl;
   auto const& node = taskgraph.nodes[inn];
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
@@ -860,7 +864,7 @@ void memgraph_make_state_t::initialize_input(int inn)
 
     op_t input_op = op_t(input_mem);
     int memid = memgraph.insert(input_op, {});
-
+    std::cout << "inserting input into tid2mid: " << inn << ": " << memid << std::endl;
     task_tensor_to_mem_node_insert_on_memory(inn, memid);
   } else {
     // If we are not able to allocate on memory, insert into inputsto_t
@@ -1213,6 +1217,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
 
     // For apply and move nodes, insert the newly created
     // memid into the tensor mapping
+    std::cout << "added pair to tid2mid: " << id << ": " << new_memid << std::endl;
     task_tensor_to_mem_node_update_on_memory(id, new_memid);
   } else {
     // This is a touch in a partialize node.
@@ -1318,9 +1323,11 @@ void memgraph_make_state_t::process(
     alloc_oid++;
   };
 
-  // for(int oid = 0; oid != all_ops.size(); ++oid) {
-  //   DOUT(oid << ": " << all_ops[oid]);
-  // }
+  DOUT("taskid order: ");
+  for(int oid = 0; oid != all_ops.size(); ++oid) {
+    std::cout << all_ops[oid].get_tid() << ", ";
+  }
+  std::cout << std::endl;
 
   while(doing_oid < all_ops.size()) {
     // DLINEOUT("alloc, doing: " << alloc_oid << ", " << doing_oid);

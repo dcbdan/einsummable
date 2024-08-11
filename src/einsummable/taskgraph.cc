@@ -2342,6 +2342,8 @@ vector<int> taskgraph_t::get_order() const {
     }
   }
 
+  // std::cout << "taskgraph order: " << ret << std::endl;
+
   return ret;
 }
 
@@ -3665,11 +3667,11 @@ void taskgraph_t::print_graphviz(
 
     // set label and color
     if(op.is_input()) {
-      auto const& [loc, _] = node.op.get_input();
+      auto const& [loc, size] = node.op.get_input();
       if(loc < colors.size()) {
         color = colors[loc];
       }
-      label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc);
+      label = "input" + write_with_ss(id) + "@loc" + write_with_ss(loc) + " size: " + write_with_ss(size);
     } else if(op.is_constant()) {
       auto const& [loc, fill] = node.op.get_constant();
       if(loc < colors.size()) {

@@ -7,17 +7,39 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
   auto [gid_to_inn, gid_to_out, taskgraph] = taskgraph_t::make(
     g.graph, g.get_placements());
 
+  {
+    std::ofstream f("tgremap.gv");
+    taskgraph.print_graphviz(f);
+    DOUT("printed tgremap.gv");
+  }
+
   auto [mem_sizes, full_data_locs, which_storage] = recv_make_mg_info();
+  DOUT("full_data_locs for remap: ");
+  for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
+    std::cout << iter->first << " is on ";
+    if (iter->second.is_stoloc()) {
+      std::cout << "storage" << std::endl;
+    } else if (iter->second.is_memloc()) {
+      std::cout << "memory" << std::endl;
+    }
+  }
 
   // before: full_data_locs is with respect to the remap inn tids
   _update_map_with_new_tg_inns(
     full_data_locs, remap_gid, gid_to_inn, remap_relations, std::nullopt);
   // after: full_data_locs is with respect to the tasgkraph inns
+  DOUT("full_data_locs after remap: ");
 
   auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
     memgraph_t::make(
       taskgraph, which_storage, mem_sizes,
       full_data_locs, alloc_settings, use_storage_);
+  
+  {
+    std::ofstream f("mgremap.gv");
+    memgraph.print_graphviz(f);
+    DOUT("printed mgremap.gv");
+  }
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
   // figure out what the remap is
@@ -63,9 +85,18 @@ void server_mg_base_t::execute_tg_server(
     recv_make_mg_info();
 
   {
-    std::ofstream f("tg.gv");
+    std::ofstream f("tgcore.gv");
     taskgraph.print_graphviz(f);
-    DOUT("printed tg.gv");
+    DOUT("printed tgcore.gv");
+  }
+  DOUT("full_data_locs before core mg:");
+  for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
+    std::cout << iter->first << " is on ";
+    if (iter->second.is_stoloc()) {
+      std::cout << "storage" << std::endl;
+    } else if (iter->second.is_memloc()) {
+      std::cout << "memory" << std::endl;
+    }
   }
 
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
@@ -85,9 +116,9 @@ void server_mg_base_t::execute_tg_server(
   }
 
   {
-    std::ofstream f("mg.gv");
+    std::ofstream f("mgcore.gv");
     core_mg.print_graphviz(f);
-    DOUT("printed mg.gv");
+    DOUT("printed mgcore.gv");
   }
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,

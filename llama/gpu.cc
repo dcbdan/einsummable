@@ -432,7 +432,7 @@ int main(int argc, char** argv) {
 
   string base_data_file(argv[1]);
   // add "../ " to the base_data_file
-  base_data_file = "../" + base_data_file;
+  // base_data_file = "../" + base_data_file;
   int num_data_files = parse_with_ss<int>(argv[2]);
 
   if(is_rank_zero) {

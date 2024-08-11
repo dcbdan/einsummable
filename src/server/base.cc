@@ -65,6 +65,7 @@ void server_base_t::execute_graph(
   // auto remap_start_time = std::chrono::high_resolution_clock::now();
 
   remap(r);
+  DOUT("----------Done Remap----------");
 
   // auto remap_end_time = std::chrono::high_resolution_clock::now();
   // std::chrono::duration<double, std::milli> elapsed = remap_end_time - remap_start_time;
