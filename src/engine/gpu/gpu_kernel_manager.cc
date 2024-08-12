@@ -1191,7 +1191,7 @@ void kernel_manager_t::operator()(
     special_reduction_negateSum_dispatch(out, a, b, inns[0], stream);
   } else if (holds_alternative<v3_softmax_reduction_t>(kernel)){
     auto const& [a, b, constant] = get<v3_softmax_reduction_t>(kernel);
-    // DOUT("Calling v3 softmax");
+    //DOUT("Calling v3 softmax ab is " << a << " " << b << " | ab,a->a");
     softmax_v3_reduction_dispatch(out, inns[0], inns[1], a,
       b, constant, stream);
   } else if (holds_alternative<v3_softmax_elementwise_t>(kernel)){

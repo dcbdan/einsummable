@@ -786,6 +786,7 @@ void graph_t::print_graphviz(
         color = "pink";
       }
       label += "\n" + e.join.to_cppstr() + "  |  " + write_with_ss(e.castable);
+      label += "\n" + write_with_ss(e.join_shape);
     } else if(op.is_fill()) {
       auto const& f = node.op.get_fill();
       label = write_with_ss(f);

@@ -188,11 +188,11 @@ exec_state_t::exec_state_t(
 
 
 void exec_state_t::event_loop() {
-  timetracker_t tracker;
+  //timetracker_t tracker;
   vector<int> processing;
   while(true) {
     {
-      auto gremlin = tracker.make_totals_gremlin("processing");
+      //auto gremlin = tracker.make_totals_gremlin("processing");
       while(processing.size() > 0) {
         int id = processing.back();
         processing.pop_back();
@@ -210,13 +210,13 @@ void exec_state_t::event_loop() {
     }
 
     if(num_remaining == 0) {
-      DOUT("PRINT TOTALS");
-      tracker.print_totals(std::cout);
+      //DOUT("PRINT TOTALS");
+      //tracker.print_totals(std::cout);
       return;
     }
 
     {
-      auto gremlin = tracker.make_totals_gremlin("try_to_launch");
+      //auto gremlin = tracker.make_totals_gremlin("try_to_launch");
       queue_t failed(this);
       while(ready_to_run.size() > 0) {
         int id = ready_to_run.top();
@@ -231,7 +231,7 @@ void exec_state_t::event_loop() {
     }
 
     {
-      auto gremlin = tracker.make_totals_gremlin("waiting");
+      //auto gremlin = tracker.make_totals_gremlin("waiting");
       // for each thing in ready to run:
       //   try to grab resource
       //   launch

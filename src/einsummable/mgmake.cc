@@ -238,12 +238,12 @@ memgraph_t::make_(
   // old ordering
   if(split_off_inputs)
   {
-   auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
-   state.process(input_tg_ops);
-   input_memgraph = state.pop_memgraph();
-   state.process(core_tg_ops);
+    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    state.process(input_tg_ops);
+    input_memgraph = state.pop_memgraph();
+    state.process(core_tg_ops);
   } else {
-   state.process(order_taskgraph(taskgraph));
+    state.process(order_taskgraph(taskgraph));
   }
 
   map<int, memstoloc_t> save_to_data;
@@ -1379,8 +1379,7 @@ memgraph_make_state_t::add_op(
   bool just_deleted = false;
   for(auto const& used_task_id: used_task_tensors)
   {
-    // bool has_delete = register_usage(used_task_id);
-    bool has_delete = false;
+    bool has_delete = register_usage(used_task_id);
     just_deleted = just_deleted || has_delete;
   }
 
@@ -1853,6 +1852,10 @@ int memgraph_make_state_t::allocate_with_evict(
   }
 
   if(!use_storage) {
+    DOUT("--------------------------");
+    for(auto const& allocator: allocators) {
+      DOUT(allocator.buffer_utilization());
+    }
     throw std::runtime_error(
       "allocate_with_evict: would have to use storage but storage is unavailable.");
   }

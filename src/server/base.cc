@@ -45,10 +45,25 @@ void server_base_t::execute_graph(
   }
   DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
+  //{
+  //  std::ofstream f("tg.gv");
+  //  taskgraph.print_graphviz(f);
+  //  DOUT("printed tg.gv");
+  //}
+
   {
-   std::ofstream f("tg.gv");
-   taskgraph.print_graphviz(f);
-   DOUT("printed tg.gv");
+    std::ofstream f("tgmemusage");
+    vtensor_t<uint64_t> usage = taskgraph.possible_memory_usage();
+    int num_nodes = usage.get_shape()[0];
+    int num_locs  = usage.get_shape()[1];
+    for(int tid = 0; tid != num_nodes; ++tid) {
+      f << usage.at({tid, 0});
+      for(int l = 1; l != num_locs; ++l) {
+        f << ", " << usage.at({tid, l});
+      }
+      f << std::endl;
+    }
+    DOUT("printed tgmemusage");
   }
 
   // inn_g_to_t is input id to taskid in taskgraph 
@@ -192,6 +207,9 @@ void server_base_t::remap(
 
   remap_relations_t r;
   for(auto const& [gid, new_rel]: gid_to_new_relations) {
+    if(gid_map.count(gid) == 0) {
+      throw std::runtime_error("don't have it bwoah! " + write_with_ss(gid));
+    }
     r.insert(gid_map.at(gid), new_rel);
   }
 

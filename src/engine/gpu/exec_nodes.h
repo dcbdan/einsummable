@@ -3,6 +3,8 @@
 #include "gpu_kernel_manager.h"
 #include <cstdint>
 
+static cudaEvent_t monster_start;
+
 struct gpu_super_t : exec_graph_t::op_base_t {
   gpu_super_t(
     int loc,
@@ -36,10 +38,9 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
   {
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventCreate(&callback_event);
   }
 
-  cudaEvent_t start, stop, callback_event;
+  cudaEvent_t start, stop;
 
   kernel_manager_t& gpu_km;
   einsummable_t einsummable;
@@ -53,11 +54,13 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_einsummable"; }
   void line(std::ostream& out) const {
-    float msec = 0.0;
-    cudaEventElapsedTime(&msec, start, stop);
-    float callback_msec = 0.0;
-    cudaEventElapsedTime(&callback_msec, stop, callback_event);
-    out << "gpu_einsummable: " << msec << " callback: " << callback_msec << std::endl;
+    float total = 0;
+    cudaEventElapsedTime(&total, start, stop);
+    if(einsummable.is_contraction()) {
+      out << "contraction:     " << total << std::endl;
+    } else {
+      out << "non-contraction: " << total << std::endl;
+    }
   }
 };
 
@@ -72,10 +75,9 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
   {
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventCreate(&callback_event);
   }
 
-  cudaEvent_t start, stop, callback_event;
+  cudaEvent_t start, stop;
 
   kernel_manager_t& gpu_km;
   touch_t touch;
@@ -88,11 +90,9 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_touch"; }
   void line(std::ostream& out) const {
-    float msec = 0.0;
-    cudaEventElapsedTime(&msec, start, stop);
-    float callback_msec = 0.0;
-    cudaEventElapsedTime(&callback_msec, stop, callback_event);
-    out << "gpu_touch," << msec << " callback: " << callback_msec << std::endl;
+    float total = 0;
+    cudaEventElapsedTime(&total, start, stop);
+    out << "gpu_touch:       " << total << std::endl;
   }
 };
 
@@ -102,10 +102,9 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
   {
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventCreate(&callback_event);
   }
 
-  cudaEvent_t start, stop, callback_event;
+  cudaEvent_t start, stop;
 
   memgraph_t::move_t move;
 
@@ -114,11 +113,9 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_copy"; }
   void line(std::ostream& out) const {
-    float msec = 0.0;
-    cudaEventElapsedTime(&msec, start, stop);
-    float callback_msec = 0.0;
-    cudaEventElapsedTime(&callback_msec, stop, callback_event);
-    out << "gpu_copy," << msec << " callback: " << callback_msec << std::endl;
+    float total = 0;
+    cudaEventElapsedTime(&total, start, stop);
+    out << "gpu_copy:        " << total << std::endl;
   }
 };
 
@@ -137,10 +134,9 @@ struct gpu_evict_t: exec_graph_t::op_base_t {
 
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventCreate(&callback_event);
   }
 
-  cudaEvent_t start, stop, callback_event;
+  cudaEvent_t start, stop;
 
   uint64_t gpu_offset;
   uint64_t size;
@@ -151,13 +147,7 @@ struct gpu_evict_t: exec_graph_t::op_base_t {
   // 1 resource is always needed for an evict
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_evict"; }
-  void line(std::ostream& out) const {
-    float msec = 0.0;
-    cudaEventElapsedTime(&msec, start, stop);
-    float callback_msec = 0.0;
-    cudaEventElapsedTime(&callback_msec, stop, callback_event);
-    out << "gpu_evict," << msec << " callback: " << callback_msec << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };
 
 struct gpu_load_t: exec_graph_t::op_base_t {
@@ -172,10 +162,9 @@ struct gpu_load_t: exec_graph_t::op_base_t {
 
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    cudaEventCreate(&callback_event);
   }
 
-  cudaEvent_t start, stop, callback_event;
+  cudaEvent_t start, stop;
 
   uint64_t gpu_offset;
   uint64_t size;
@@ -186,13 +175,7 @@ struct gpu_load_t: exec_graph_t::op_base_t {
   // 1 resource is always needed for a load
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_load"; }
-  void line(std::ostream& out) const {
-    float msec = 0.0;
-    cudaEventElapsedTime(&msec, start, stop);
-    float callback_msec = 0.0;
-    cudaEventElapsedTime(&callback_msec, stop, callback_event);
-    out << "gpu_load," << msec << " callback: " << callback_msec << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };
 
 struct gpu_constant_t: exec_graph_t::op_base_t {
@@ -209,9 +192,7 @@ struct gpu_constant_t: exec_graph_t::op_base_t {
   // 1 resource is always needed for a load
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_constant_fill"; }
-  void line(std::ostream& out) const {
-    out << "gpu_constant_fill, time unrecorded" << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };
 
 struct gpu_lowerTri_t: exec_graph_t::op_base_t {
@@ -228,7 +209,5 @@ struct gpu_lowerTri_t: exec_graph_t::op_base_t {
   // 1 resource is always needed for a load
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_lower_tri_fill"; }
-  void line(std::ostream& out) const {
-    out << "gpu_lower_tri_fill, time unrecorded" << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };

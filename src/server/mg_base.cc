@@ -68,6 +68,9 @@ void server_mg_base_t::execute_tg_server(
     DOUT("printed tg.gv");
   }
 
+  DLINEOUT("storage:           " << has_storage());
+  DLINEOUT("inputs everywhere: " << split_off_inputs_);
+  DLINEOUT("mem_sizes:         " << mem_sizes);
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
@@ -75,15 +78,18 @@ void server_mg_base_t::execute_tg_server(
       full_data_locs, alloc_settings, has_storage(), split_off_inputs_);
   //delete gremlin;
 
-  vector<uint64_t> io_bytes_each_loc = core_mg.get_numbyte_on_evict();
+  DLINE;
+  //vector<uint64_t> io_bytes_each_loc = core_mg.get_numbyte_on_evict();
   // DOUT("Number of bytes involved in I/O: " << io_bytes_each_loc);
 
+  DLINE;
   if(inputs_everywhere_mg_) {
     std::ofstream f("inputs_mg.gv");
     inputs_everywhere_mg_.value().print_graphviz(f);
     DOUT("printed inputs_mg.gv");
   }
 
+  DLINE;
   {
     std::ofstream f("mg.gv");
     core_mg.print_graphviz(f);
@@ -97,8 +103,6 @@ void server_mg_base_t::execute_tg_server(
 
   // this is not needed anymore
   full_data_locs.clear();
-
-  DOUT("storage remap");
 
   storage_remap_server(storage_remaps);
 
@@ -155,7 +159,7 @@ server_mg_base_t::create_storage_remaps(
     if(mg_memstoloc.is_stoloc()) {
       auto const& [loc, new_sto_id] = mg_memstoloc.get_stoloc();
       auto const& [_, old_sto_id] = full_data_locs.at(id).get_stoloc();
-      storage_remaps[loc].push_back({new_sto_id, old_sto_id});
+      storage_remaps.at(loc).push_back({new_sto_id, old_sto_id});
     }
   }
   return storage_remaps;

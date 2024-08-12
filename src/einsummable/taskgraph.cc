@@ -2437,6 +2437,42 @@ int taskgraph_t::num_locs() const {
   return ret;
 }
 
+vtensor_t<uint64_t> taskgraph_t::possible_memory_usage() const {
+  vector<int> counts(nodes.size(), 0);
+  int nlocs = 1;
+  for(int tid = 0; tid != nodes.size(); ++tid) {
+    auto const& node = nodes[tid];
+
+    // set nlocs
+    nlocs = std::max(nlocs, 1 + node.op.out_loc());
+    if(node.op.is_move()) {
+      nlocs = std::max(nlocs, 1 + node.op.get_move().src);
+    }
+
+    counts[tid] = node.outs.size();
+  }
+
+  vtensor_t<uint64_t> ret({int(nodes.size()), nlocs}, 0);
+  vector<uint64_t> memused(nlocs, 0);
+  for(int tid = 0; tid != nodes.size(); ++tid) {
+    auto const& node = nodes[tid];
+    memused[node.op.out_loc()] += node.op.out_size();
+    for(int const& inn: node.op.inputs()) {
+      counts[inn]--;
+      if(counts[inn] == 0) {
+        auto const& inn_node = nodes[inn];
+        if(!inn_node.is_save) {
+          memused[inn_node.op.out_loc()] -= inn_node.op.out_size(); 
+        }
+      }
+    }
+    for(int l = 0; l != nlocs; ++l) {
+      ret.at({tid, l}) = memused[l];
+    }
+  }
+  return ret;
+}
+
 uint64_t taskgraph_t::total_bytes_moved() const {
   uint64_t ret = 0;
   for(auto const& node: nodes) {

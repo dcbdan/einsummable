@@ -497,18 +497,17 @@ int allocator_t::_get_block_id(uint64_t const& offset)
 }
 
 double allocator_t::buffer_utilization() const {
-    uint64_t total_occupied = 0;
-    uint64_t total_memory = blocks.empty() ? 0 : blocks.back().end; // Assuming blocks cover all memory.
+  uint64_t total_occupied = 0;
+  uint64_t total_memory = blocks.empty() ? 0 : blocks.back().end; // Assuming blocks cover all memory.
 
-    for (const auto& block : blocks) {
-        if (block.occupied()) {
-            total_occupied += block.size();
-        }
+  for (const auto& block : blocks) {
+    if (block.occupied()) {
+      total_occupied += block.size();
     }
+  }
 
-    double utilization = total_memory > 0 ? (100.0 * total_occupied / total_memory) : 0.0;
-    std::cout << "total memory: " << total_memory << "block count: " << blocks.size() << "utilization: " << utilization <<std::endl;
-    return utilization;
+  double utilization = total_memory > 0 ? (100.0 * total_occupied / total_memory) : 0.0;
+  return utilization;
 }
 
 

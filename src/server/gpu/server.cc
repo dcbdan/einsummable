@@ -166,6 +166,7 @@ void gpu_mg_server_t::execute_memgraph(
 
   }
   get_rm_timetracker().clear();
+
   auto start = std::chrono::high_resolution_clock::now();
   state.event_loop();
   auto end = std::chrono::high_resolution_clock::now();
@@ -178,9 +179,17 @@ void gpu_mg_server_t::execute_memgraph(
     // for (auto const& node: graph.nodes){
     //   node.op->line(std::cout);
     // }
-    DOUT("PRINTING TRY TO ACQUIRE TIMES")
-    get_rm_timetracker().print_totals(std::cout);
+    //DOUT("PRINTING TRY TO ACQUIRE TIMES")
+    //get_rm_timetracker().print_totals(std::cout);
+
+    //for(auto const& node: graph.nodes) {
+    //  std::cout << graph_print_cnt << ": ";
+
+    //  node.op->line(std::cout);
+    //}
+    //graph_print_cnt++;
   }
+
   //auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(end-initial);
   //if (duration2.count() - duration.count() > 10 && !for_remap){
   //  DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
@@ -260,7 +269,12 @@ void gpu_mg_server_t::storage_remap_server(
   vector<vector<std::array<int, 2>>> const& remaps)
 {
   if(!bool(storage)) {
-    throw std::runtime_error("storage not initialized");
+    for(auto const& r: remaps) {
+      if(r.size() > 0) {
+        throw std::runtime_error("storage remap should be empty: storage not initialized");
+      }
+    }
+    return;
   }
 
   int world_size = comm.get_world_size();
@@ -275,7 +289,9 @@ void gpu_mg_server_t::storage_remap_server(
 void gpu_mg_server_t::storage_remap_client()
 {
   if(!bool(storage)) {
-    throw std::runtime_error("storage not initialized");
+    // we won't be recving anything as there'd be
+    // nothing to do
+    return;
   }
 
   auto remap = comm.recv_vector<std::array<int, 2>>(0);

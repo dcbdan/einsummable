@@ -30,3 +30,12 @@ vector<placement_t> alocate02(
   uint64_t flops_per_byte_moved,
   map<int, vtensor_t<int>> const& fixed_pls,
   vector<tuple<int,int>> const& equal_pls);
+
+// contractions:    load balance across all locs
+// everything else: greedily pick cheapest
+// cost:            number of bytes moved
+vector<placement_t> alocate03(
+  graph_t const& graph,
+  vector<partition_t> const& parts,
+  int nlocs,
+  bool with_goofy_topology = false);

@@ -136,6 +136,9 @@ public:
   uint64_t total_bytes_moved() const;
   uint64_t total_flops() const;
 
+  // Get a nodes x num_locs memory usage
+  vtensor_t<uint64_t> possible_memory_usage() const;
+
   string to_wire() const;
   static taskgraph_t from_wire(string const& str);
 

@@ -110,15 +110,19 @@ void gpu_storage_t::remap(vector<std::array<int, 2>> const& old_to_new_stoids) {
 }
 
 void gpu_storage_t::remap(map<int, int> const& rmap) {
+  DLINE;
   std::unique_lock lk(m);
 
   map<int, mem_t> new_info;
 
-  for(auto const& [old_id,m]: info) {
-    int const& new_id = rmap.at(old_id);
-    new_info.insert({new_id, m});
+  for(auto const& [old_id, new_id]: rmap) {
+    auto iter = info.find(old_id);
+    if(iter == info.end()) {
+      throw std::runtime_error("could not find " + write_with_ss(old_id) + 
+            " in gpu_storage_t::remap");
+    }
+    new_info.insert({new_id, iter->second});
   }
-
   info = new_info;
 }
 

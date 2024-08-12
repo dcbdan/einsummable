@@ -198,6 +198,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         return true;
       }
     }
+
     return false;
   };
 
@@ -218,7 +219,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
-     DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
+      if(!memgraph.nodes[mid].op.is_inputsto()) {
+        throw std::runtime_error("this mg node doesn't occur here...expecing 1 gpu node with multi-gpus only; not impl");
+      }
      continue;
     }
 
@@ -649,7 +652,7 @@ void gpu_einsummable_t::launch(
       mems[i].offset));
   }
 
-  // cudaEventRecord(start, stream);
+  cudaEventRecord(start, stream);
   {
     auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_km");
     gpu_km(
@@ -659,8 +662,7 @@ void gpu_einsummable_t::launch(
       inn_mems,
       maybe_workspace);
   }
-
-  // cudaEventRecord(stop, stream);
+  cudaEventRecord(stop, stream);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -676,8 +678,6 @@ void gpu_einsummable_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
-
-  // cudaEventRecord(callback_event, stream);
 
   // cudaDeviceSynchronize();
   
@@ -767,8 +767,6 @@ void gpu_touch_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_touch_t: callback");
-
-  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -845,8 +843,6 @@ void gpu_copy_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_copy_t: adding callback");
-
-  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -906,8 +902,6 @@ void gpu_evict_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_evict_t: callback");
-
-  cudaEventRecord(callback_event, stream);
 }
 
 desc_ptr_t
@@ -976,8 +970,6 @@ void gpu_load_t::launch(
     },
     reinterpret_cast<void*>(info), 0),
     "gpu_load_t: callback");
-
-  cudaEventRecord(callback_event, stream);
 }
 
 // constant and lowerTri need the same resources since they are the same memgraph nodes
