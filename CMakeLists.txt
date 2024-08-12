@@ -313,7 +313,7 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
-  add_gpu_llama_application("gpu_llama2" "gpu_train")
+  add_gpu_llama_application("gpu_llama_train" "gpu_train")
 endif()
 
 add_dependencies(einsummable proto)

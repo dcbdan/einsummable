@@ -70,7 +70,8 @@ struct attention_t {
     string name, //should be "attention."
     model_args_t args,
     uint64_t start_pos,
-    optional<int> lora_rank);
+    optional<int> lora_rank,
+    bool with_softmax_v3_scale = true);
 
   tensor_t apply_rotary_embedding(tensor_t x, tensor_t freqs_cis);
 
@@ -99,6 +100,8 @@ struct attention_t {
   uint64_t batch_size;
   uint64_t n_heads;
   uint64_t head_dim;
+
+  bool with_softmax_v3_scale;
 
   tensor_t wq;
   tensor_t wk;
@@ -144,7 +147,8 @@ struct transformer_block_t {
     int layer_id,
     model_args_t args,
     uint64_t start_pos,
-    optional<int> lora_rank);
+    optional<int> lora_rank,
+    bool with_softmax_v3_scale=true);
 
   tensor_t forward(
     tensor_t x,
@@ -178,7 +182,8 @@ struct transformer_t {
     graph_writer_t* w,
     model_args_t args,
     uint64_t start_pos,
-    optional<int> lora_rank = std::nullopt);
+    optional<int> lora_rank = std::nullopt,
+    bool with_softmax_v3_scale=true);
 
   tensor_t forward(tensor_t x);
 

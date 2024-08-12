@@ -64,7 +64,9 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  base_data_file = "/home/zhimin/mytmpfs/" + base_data_file;
+  base_data_file = "/home/dcb/storage/" + base_data_file;
+
+  args_t args(argc-1, argv+1);
 
   string addr_zero = "0.0.0.0";
   bool is_rank_zero = true;
@@ -79,7 +81,17 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
   }
 
-  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
+  gpu_mg_server_t* gpu_server;
+
+  args.set_default<uint64_t>("storage", 0);
+  uint64_t storage_size = args.get<uint64_t>("storage");
+  if(storage_size > 0) {
+    storage_size *= 1000lu * 1000lu * 1000lu;
+    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, storage_size);
+  } else {
+    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
+  }
+
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_server);
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
@@ -109,11 +121,6 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  args_t args(argc-1, argv+1);
-
-  args.set_default("use_storage", true);
-  gpu_server->set_use_storage(args.get<bool>("use_storage"));
-
   args.set_default("split_off_inputs", true);
   gpu_server->set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
@@ -122,7 +129,7 @@ int main(int argc, char** argv) {
   int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
   
-  DOUT("use_storage:                     " << gpu_server->use_storage_);
+  DOUT("storage size:                    " << storage_size);
   DOUT("split_off_inputs:                " << gpu_server->split_off_inputs_);
 
   DOUT("num_gpus:                        " << num_gpus);
@@ -203,7 +210,8 @@ graph_setup_t make_graph(
   vector<tuple<string, int>> model_weight_map;
   {
     graph_writer_t writer;
-    transformer_t model(&writer, margs, 0, lora_rank);
+    bool with_softmax_v3_scale = false;
+    transformer_t model(&writer, margs, 0, lora_rank, with_softmax_v3_scale);
 
     tensor_t embeddings = writer.input(full_shape_t({
       full_dim_t::singleton(margs.batch_size),
@@ -460,8 +468,8 @@ void main_rank_zero(
 
   /////////////////////////////////////////////////////////////////////////////
   
-  pargs.set_default("tokenizer", "../tokenizer.model");
-  pargs.set_default("dataset", "./redpaj_long_samples");
+  pargs.set_default("tokenizer", "/home/dcb/storage/tokenizer.model");
+  pargs.set_default("dataset", "/home/dcb/storage/redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");

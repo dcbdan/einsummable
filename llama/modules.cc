@@ -202,11 +202,13 @@ attention_t::attention_t(
   string name,
   model_args_t args,
   uint64_t start_pos,
-  optional<int> lora_rank)
+  optional<int> lora_rank,
+  bool ws3)
   : writer(w), args(args), name(name),
     batch_size(args.batch_size),
     n_heads(args.n_heads),
-    head_dim(args.head_dim())
+    head_dim(args.head_dim()),
+    with_softmax_v3_scale(ws3)
 {
   //input tensors
 
@@ -343,23 +345,34 @@ tensor_t attention_t::forward(
 
   // compute softmax with a minimum of 32 bits precision
   if(dtype == dtype_t::f16) {
-    //scalarop_t scale = scalarop_t::make_scale(
-    //  scalar_t(dtype, write_with_ss(scale_)));
-    //scores = writer->ew(scale, scores);
-    //scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
-    // scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
-    scores = writer->softmax_v3_scale(
-      scalar_t(dtype_t::f32, write_with_ss(scale_)),
-      scores.to_f32()
-    ).to_dtype(dtype);
+    if(with_softmax_v3_scale) {
+      DLINE;
+      scores = writer->softmax_v3_scale(
+        scalar_t(dtype_t::f32, write_with_ss(scale_)),
+        scores.to_f32()
+      ).to_dtype(dtype);
+    } else {
+      DLINE;
+      scalarop_t scale = scalarop_t::make_scale(
+        scalar_t(dtype, write_with_ss(scale_)));
+      scores = writer->ew(scale, scores);
+      //scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
+      scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
+    } 
   } else {
-    //scalarop_t scale = scalarop_t::make_scale(
-    //  scalar_t(dtype, write_with_ss(scale_)));
-    //scores = writer->ew(scale, scores);
-    // scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
-    scores = writer->softmax_v3_scale(
-      scalar_t(dtype_t::f32, write_with_ss(scale_)),
-      scores);
+    if(with_softmax_v3_scale) {
+      DLINE;
+      scores = writer->softmax_v3_scale(
+        scalar_t(dtype_t::f32, write_with_ss(scale_)),
+        scores);
+    } else {
+      DLINE;
+      scalarop_t scale = scalarop_t::make_scale(
+        scalar_t(dtype, write_with_ss(scale_)));
+      scores = writer->ew(scale, scores);
+      //scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
+      scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
+    }
   }
 
   tensor_t output;
@@ -456,10 +469,13 @@ transformer_block_t::transformer_block_t(
   int layer_id,
   model_args_t args,
   uint64_t start_pos,
-  optional<int> lora_rank)
+  optional<int> lora_rank,
+  bool with_softmax_v3_scale)
   : writer(w), layer_id(layer_id), args(args)
 {
-  attention = attention_t(writer, "attention.", args, start_pos, lora_rank);
+  attention = attention_t(
+    writer, "attention.", args, start_pos, 
+    lora_rank, with_softmax_v3_scale);
 
   uint64_t hidden_dim = 4 * args.dim;
   hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
@@ -517,13 +533,14 @@ transformer_t::transformer_t(
   graph_writer_t* w,
   model_args_t args,
   uint64_t start_pos,
-  optional<int> lora_rank)
+  optional<int> lora_rank,
+  bool with_softmax_v3_scale)
   : writer(w), args(args),
     expected_batch_size(args.batch_size), start_pos(start_pos)
 {
   for (int layer_id = 0; layer_id != args.n_layers; ++layer_id) {
     layers.emplace_back(
-      writer, layer_id, args, start_pos, lora_rank);
+      writer, layer_id, args, start_pos, lora_rank, with_softmax_v3_scale);
   }
 
   full_freqs_cis = writer->input(

@@ -4,7 +4,7 @@ local_tensor_reader_t::local_tensor_reader_t(string const& filename) :
   file(filename, std::ios::binary)
 {
   if(!file) {
-    throw std::runtime_error("Failed to open the file.");
+    throw std::runtime_error("Failed to open the file:" + filename);
   }
 }
 
