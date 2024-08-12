@@ -61,11 +61,6 @@ void main_rank_zero(
 int main(int argc, char** argv) {
   set_default_dtype(dtype_t::f32);
 
-  int expected_argc = 1;
-  if(argc < expected_argc) {
-    DOUT("Need to provide at least data file");
-  }
-
   // int num_data_files;
 
   // string base_data_file(argv[1]);
@@ -83,17 +78,17 @@ int main(int argc, char** argv) {
   string addr_zero = "0.0.0.0";
   bool is_rank_zero = true;
   int world_size = 1;
+  int num_gpus = 1;
 
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
   int this_rank = communicator.get_this_rank();
 
   vector<uint64_t> buffer_sizes;
-  // NOTE: 4 is hardcoded here since each anton has 4 gpus
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < num_gpus; ++i) {
     buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
   }
 
-  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, 10e10);
+  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, 35e10);
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_server);
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
@@ -131,9 +126,8 @@ int main(int argc, char** argv) {
   args.set_default("split_off_inputs", true);
   gpu_server->set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
-  args.set_default<int>("gpus", 4);
+  args.set_default<int>("gpus", num_gpus);
   args.set_default<int>("computes", 1);
-  int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
   
   DOUT("use_storage:                     " << gpu_server->has_storage());
@@ -220,7 +214,8 @@ struct tensor_handler_t {
 
         cudaError_t error = cudaMemcpy(out->raw(), increment_void_ptr(server->mems[input.loc], input.offset), input.size, cudaMemcpyDeviceToHost);
         if(error != cudaSuccess) {
-                throw std::runtime_error("cudaMemcpy failed");
+          DOUT(cudaGetErrorString(error));
+          throw std::runtime_error("cudaMemcpy failed");
         }
       } else {
         auto& input = node.op.get_inputsto();
@@ -240,10 +235,6 @@ struct tensor_handler_t {
     }
     int cg_gid = gid_to_init_cg[gid];
     relation_t& new_rel = checkpoint_taskgraphs.infos[0].init_rel.at(cg_gid);
-
-    vector<uint64_t> shape = full_graph.out_shape(gid);
-    dtype_t dtype = full_graph.out_dtype(gid);
-    // relation_t rel = relation_t::make_singleton(dtype, shape, 0);
     
     relation_t rel = new_rel.as_singleton(0);
     remap_relations_t remap;
@@ -254,24 +245,40 @@ struct tensor_handler_t {
     repartition(server->null_comm, remap, data, nullptr);
 
     for (auto &[tid, buf] : data) {
-      int mid = checkpoint_memgraphs[0].task_tensor_to_mem_node[tid];
 
-      auto &node = checkpoint_memgraphs[0].memgraph.nodes[mid];
+      memstoloc_t inn = checkpoint_memgraphs[0].input_tid_to_data[tid];
 
-      if (!node.op.is_inputmem() && !node.op.is_inputsto()) {
-        throw std::runtime_error("Tensor to get does not correspond to inputmem or inputsto node");
-      }
-      if (node.op.is_inputmem()) {
-        auto& input = node.op.get_inputmem();
+      if (inn.is_memloc()) {
+        auto& input = inn.get_memloc();
 
-        cudaError_t error = cudaMemcpy(increment_void_ptr(server->mems[input.loc], input.offset), buf->raw(), input.size, cudaMemcpyDeviceToHost);
+        cudaError_t error = cudaMemcpy(increment_void_ptr(server->mems[input.loc], input.offset), buf->raw(), input.size, cudaMemcpyDefault);
         if(error != cudaSuccess) {
-                throw std::runtime_error("cudaMemcpy failed");
+          DOUT(cudaGetErrorString(error));
+          throw std::runtime_error("cudaMemcpy failed");
         }
       } else {
-        auto& input = node.op.get_inputsto();
-        server->set_storage_buf(buf, input.storage_id);
+        auto& input = inn.get_stoloc();
+        server->set_storage_buf(buf, input.id);
       }
+
+      // int mid = checkpoint_memgraphs[0].task_tensor_to_mem_node[tid];
+
+      // auto &node = checkpoint_memgraphs[0].memgraph.nodes[mid];
+
+      // if (!node.op.is_inputmem() && !node.op.is_inputsto()) {
+      //   throw std::runtime_error("Tensor to get does not correspond to inputmem or inputsto node");
+      // }
+      // if (node.op.is_inputmem()) {
+      //   auto& input = node.op.get_inputmem();
+
+      //   cudaError_t error = cudaMemcpy(increment_void_ptr(server->mems[input.loc], input.offset), buf->raw(), input.size, cudaMemcpyDeviceToHost);
+      //   if(error != cudaSuccess) {
+      //           throw std::runtime_error("cudaMemcpy failed");
+      //   }
+      // } else {
+      //   auto& input = node.op.get_inputsto();
+      //   server->set_storage_buf(buf, input.storage_id);
+      // }
     }
   }
 };
@@ -546,33 +553,6 @@ void main_rank_zero(
   }
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
 
-  // DOUT("First Taskgraph save relation: ")
-  // for (auto &[key, value] : taskgraphs.infos[0].save_rel) {
-  //   DOUT("Key: " << key << ", Values: ");
-  //   auto vec = value.tids.get();
-  //   for (int k = 0; k < vec.size(); k++) {
-  //     DOUT(vec[k]);
-  //   }
-  // }
-
-  // DOUT("\n\n Second remap: ")
-  for (int i = 1; i < graphs.graphs.size(); i++) {
-    for (auto &[old_gid, new_gid] : graphs.remaps[i]) {
-      // DOUT("Old: " << std::to_string(old_gid) << ", New: " << std::to_string(new_gid));
-      assert(taskgraphs.infos[i-1].save_rel.at(old_gid).tids.get().size() == taskgraphs.infos[i].init_rel.at(new_gid).tids.get().size());
-    }
-  }
-
-
-  // DOUT("\n\nSecond taskgraph initial relation: ")
-  // for (auto &[key, value] : taskgraphs.infos[1].init_rel) {
-  //   DOUT("Key: " << key << ", Values: ");
-  //   auto vec = value.tids.get();
-  //   for (int k = 0; k < vec.size(); k++) {
-  //     DOUT(vec[k]);
-  //   }
-  // }
-
   auto end_pls = std::chrono::high_resolution_clock::now();
   DOUT("placement time: " << 
     std::chrono::duration_cast<std::chrono::milliseconds>(end_pls - start_pls).count() << " ms");
@@ -588,9 +568,9 @@ void main_rank_zero(
   vector<allocator_t> allocators;
   map<int, memstoloc_t> empty_map;
   for (auto &msize : buffer_sizes) {
-    allocators.emplace_back(msize);
+    allocators.emplace_back(msize, allocator_settings_t::gpu_alignment_settings());
   }
-  memgraph_make_state_t state(tg, {0, 0, 0, 0}, allocators, empty_map, 1, 0, true);
+  memgraph_make_state_t state(tg, vector<int>(buffer_sizes.size(), 0), allocators, empty_map, 1, 0, true);
 
   for(int id = 0; id != tg.nodes.size(); ++id)
   {
@@ -601,7 +581,7 @@ void main_rank_zero(
     }
   }
   state.process(order_taskgraph(tg));
-  print_graphviz(state.memgraph, "llamamg0.gv");
+  // print_graphviz(state.memgraph, "llamamg0.gv");
   states.push_back(state);
   
 
@@ -651,10 +631,11 @@ void main_rank_zero(
     // DOUT("Building next memgraph");
     vector<allocator_t> allocators;
     for (auto &msize : buffer_sizes) {
-      allocators.emplace_back(msize);
+      allocators.emplace_back(msize, allocator_settings_t::gpu_alignment_settings());
     }
     // DOUT("Initializing state");
-    memgraph_make_state_t state(current_tg, {0, 0, 0, 0}, allocators, remappings, 1, 0, true);
+    memgraph_make_state_t state(current_tg,  vector<int>(buffer_sizes.size(), 0), allocators, remappings, 1, 0, true);
+    state._sto_id = prev_state._sto_id+1;
     // DOUT("Processing nodes");
     auto ordering = order_taskgraph(current_tg);
     state.process(ordering);
@@ -669,17 +650,20 @@ void main_rank_zero(
   auto start_mgextend = std::chrono::high_resolution_clock::now();
 
   // Map gids that we want to move memory between to their respective gids in the first checkpoint graph
+  // Final_gid_remaps is a map from a nodes gid in the overall graph to its gid in the final cg graph
   map<int, int> final_gid_remaps;
   for (auto &[old_gid, new_gid] : graphs.remaps[graphs.remaps.size()-1]) {
     final_gid_remaps[new_gid] = old_gid;
   }
 
+  // initial_gid_remaps is a map from a nodes gid in the overall graph to its gid in the initial cg graph
   map<int, int> initial_gid_remaps;
   for (auto &[old_gid, new_gid] : graphs.remaps[0]) {
     initial_gid_remaps[old_gid] = new_gid;
   }
 
-
+  // gid_remappings is a map from the gid of a node that we need to map back to the first graph in the final cg graph to 
+  // the gid of the corresponding node in the first cg graph
   map<int, int> gid_remappings;
   for (auto &[old_gid, new_gid] : info.old_news) {
     gid_remappings[final_gid_remaps[new_gid]] = initial_gid_remaps[old_gid];
@@ -707,42 +691,48 @@ void main_rank_zero(
       int final_tid = final_tids[which_tid];
       int init_tid = init_tids[which_tid];
 
-      int init_mid =
-      init_state.task_tensor_to_mem_node[init_tid];
-      auto &init_node = init_state.memgraph.nodes[init_mid];
+      // int init_mid =
+      // init_state.input_tid[init_tid];
+      // auto &init_node = init_state.memgraph.nodes[init_mid];
 
       int final_mid =
       final_state.task_tensor_to_mem_node[final_tid];
       auto &final_node = final_state.memgraph.nodes[final_mid];
 
-      memstoloc_t init_memstoloc = init_node.op.get_output_memstoloc();
+      memstoloc_t init_memstoloc = init_state.input_tid_to_data[init_tid];
+      // if (init_node.op.is_inputmem()) {
+      //   init_memstoloc = memstoloc_t(init_node.op.get_inputmem().as_memloc());
+      // } else if (init_node.op.is_inputsto()) {
+      //   init_memstoloc = memstoloc_t(init_node.op.get_inputsto().as_stoloc());
+      // } else {
+      //   DOUT(init_node.op.get_name());
+      //   throw std::runtime_error("Matching node is not inputmem or inputsto");  
+      // }
       memstoloc_t final_memstoloc = final_node.op.get_output_memstoloc();
+      // if (init_memstoloc.is_stoloc() && init_memstoloc.get_stoloc().id == 125) {
+      //   DOUT("final mid: " << final_mid);
+      //   DOUT(final_node.op.get_name());
+      //   if (final_memstoloc.is_memloc()) {
+      //     DOUT(final_memstoloc.get_memloc());
+      //   } else {
+      //     DOUT(final_memstoloc.get_stoloc());
+      //   }
+      // }
 
-      new_mem_mapping.emplace_back(init_memstoloc, final_memstoloc, final_mid);
+      new_mem_mapping.emplace_back(final_memstoloc, init_memstoloc, final_mid);
     }
   }
 
+
   states[states.size()-1].memgraph.set_prune(false); // Pruning causes an error, shouldn't be much of a performance hit
 
-  final_state.move_tensors(new_mem_mapping);
-
-  print_graphviz(states[states.size()-1].memgraph, "finalcpmg.gv");
+  // print_graphviz(states[states.size()-1].memgraph, "premovemg.gv");
+  vector<vector<std::array<int, 2>>> remaps;
+  remaps.push_back(final_state.move_tensors(new_mem_mapping));
 
   auto end_mgextend = std::chrono::high_resolution_clock::now();
   DOUT("Memgraph extend time: " << 
     std::chrono::duration_cast<std::chrono::milliseconds>(end_mgextend - start_mgextend).count() << " ms");
-
-  auto start_exec = std::chrono::high_resolution_clock::now();
-
-  for (auto &state : states) {
-    server->execute_memgraph(state.memgraph, false, {});
-    vector<vector<std::array<int, 2>>> remaps;
-    server->storage_remap_server(remaps);
-  }
-
-  auto end_exec = std::chrono::high_resolution_clock::now();
-  DOUT("Memgraph execution time: " << 
-    std::chrono::duration_cast<std::chrono::milliseconds>(end_exec - start_exec).count() << " ms");
 
   map<int, int> gid_to_init_cg;
   for (auto &[from, to] : info.checkpoint_graphs.remaps[0]) {
@@ -758,9 +748,14 @@ void main_rank_zero(
     .checkpoint_graphs = info.checkpoint_graphs,
     .gid_to_init_cg = gid_to_init_cg,
     .checkpoint_taskgraphs = taskgraphs,
+    .checkpoint_memgraphs = states,
     .model_weight_map = model_weights,
     .server = server
   };
+
+  // print_graphviz(info.full_graph, "full_graph.gv");
+  // print_graphviz(taskgraphs.infos[0].taskgraph, "inittg.gv");
+  // print_graphviz(states[0].memgraph, "initmg.gv");
 
   // ///////////////////////////////////////////////////////////////////////////
   // // Read in all the tensors
@@ -778,30 +773,76 @@ void main_rank_zero(
   //   embedding_matrix = server->get_tensor(rel);
   // }
 
-  // for(auto const& [name, id]: info.model_weight_map) {
-  //   auto shape = info.get_shape(id);
-  //   if(name.find("lora") != string::npos) {
-  //     // For the lora, we have (X*L0)*L1 where L0 needs to be
-  //     // initialized gaussiann and L1 needs to be initialized with zeros
-  //     dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
+  for(auto const& [name, id]: info.model_weight_map) {
+    auto shape = info.get_shape(id);
+    if(name.find("lora") != string::npos) {
+      // For the lora, we have (X*L0)*L1 where L0 needs to be
+      // initialized gaussiann and L1 needs to be initialized with zeros
+      dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
 
-  //     if(name.find("lora0") != string::npos) {
-  //       dbuffer.rnorm();
-  //       dbuffer.scale(scalar_t(dtype, write_with_ss(float(1e-3))));
-  //     } else if(name.find("lora1") != string::npos) {
-  //       dbuffer.zeros();
-  //     } else {
-  //       throw std::runtime_error("should not reach");
-  //     }
+      if(name.find("lora0") != string::npos) {
+        dbuffer.rnorm();
+        dbuffer.scale(scalar_t(dtype, write_with_ss(float(1e-3))));
+      } else if(name.find("lora1") != string::npos) {
+        dbuffer.zeros();
+      } else {
+        throw std::runtime_error("should not reach");
+      }
+      // DOUT("Loading tensor " << id);
+      tensors.load_tensor(id, dbuffer);
+    } else {
+      // DOUT("Need to load tensor " << id);
+      dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
+      tensors.load_tensor(id, dbuffer);
+      // int next_tid = server->get_max_tid() + 1;
+      // relation_t relation = model_loader(
+      //   register_cmd, name, shape, next_tid);
+      // server->insert_gid_without_data(id, relation);
+    }
+  }
 
-  //     server->insert_tensor(id, shape, dbuffer);
-  //   } else {
-  //     int next_tid = server->get_max_tid() + 1;
-  //     relation_t relation = model_loader(
-  //       register_cmd, name, shape, next_tid);
-  //     server->insert_gid_without_data(id, relation);
-  //   }
+  // print_graphviz(info.full_graph, "graphs/full_graph.gv");
+  // for (int i = 0; i < graphs.graphs.size(); i++) {
+  //   print_graphviz(graphs.graphs[i], "graphs/graph" + std::to_string(i) + ".gv");
   // }
+  // for (int i = 0; i < taskgraphs.infos.size(); i++) {
+  //   print_graphviz(taskgraphs.infos[i].taskgraph, "graphs/taskgraph" + std::to_string(i) + ".gv");
+  // }
+  // for (int i = 0; i < states.size(); i++) {
+  //   print_graphviz(states[i].memgraph, "graphs/memgraph" + std::to_string(i) + ".gv");
+  // }
+
+  pargs.set_default("learning_rate", 1e-9f);
+
+  scalar_t _lr(dtype, write_with_ss(pargs.get<float>("learning_rate")));
+  map<string, scalar_t> vars {
+    { "beta1", scalar_t(dtype, "0.9") },
+    { "beta2", scalar_t(dtype, "0.999") },
+    { "eta", _lr },
+    { "learning_rate", _lr },
+  };
+
+  update_vars(updater_desc, 1, vars);
+
+  auto start_exec = std::chrono::high_resolution_clock::now();
+
+  for (int i = 0; i < states.size(); i++) {
+    DOUT("Executing memgraph " << i);
+    server->execute_memgraph(states[i].memgraph, false, vars);
+  }
+
+  server->storage_remap_server(remaps);
+
+  update_vars(updater_desc, 2, vars);
+  for (int i = 0; i < states.size(); i++) {
+    DOUT("Executing memgraph " << i);
+    server->execute_memgraph(states[i].memgraph, false, vars);
+  }
+
+  auto end_exec = std::chrono::high_resolution_clock::now();
+  DOUT("Memgraph execution time: " << 
+    std::chrono::duration_cast<std::chrono::milliseconds>(end_exec - start_exec).count() << " ms");
+
 
   // model_loader.shutdown(register_cmd);
 
@@ -841,13 +882,7 @@ void main_rank_zero(
 
   // dataset_reader_t data_loader(tokenizer_file, dataset_file);
 
-  // scalar_t _lr(dtype, write_with_ss(pargs.get<float>("learning_rate")));
-  // map<string, scalar_t> vars {
-  //   { "beta1", scalar_t(dtype, "0.9") },
-  //   { "beta2", scalar_t(dtype, "0.999") },
-  //   { "eta", _lr },
-  //   { "learning_rate", _lr },
-  // };
+
 
   // pargs.set_default<int>("niter", 1);
   // int niter = pargs.get<int>("niter");

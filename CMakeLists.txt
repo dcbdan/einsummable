@@ -343,8 +343,8 @@ if(${PYTHON_LIBRARY})
   FetchContent_MakeAvailable(pybind11)
   find_package(Python COMPONENTS Interpreter Development)
 
-  pybind11_add_module(PyEinsummable ${PROJECT_SOURCE_DIR}/python/src/bindings.cc)
-  target_link_libraries(PyEinsummable PRIVATE pybind11::pybind11  einsummable gpu_execution_engine
+  pybind11_add_module(PyEinsummable ${PROJECT_SOURCE_DIR}/python/src/bindings.cc llama/gpu_llama.cc llama/misc.cc llama/modules.cc)
+  target_link_libraries(PyEinsummable PRIVATE pybind11::pybind11 einsummable gpu_execution_engine
   proto
   ${Protobuf_LIBRARIES}
   ${CUDA_LIBRARIES}

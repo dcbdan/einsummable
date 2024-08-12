@@ -184,6 +184,7 @@ struct memgraph_make_state_t {
   void move_tensors(vector<tuple<uint64_t, uint64_t, int, uint64_t, int, int>> new_mapping);
 
   // Move tensors given a memstoloc to move from, a memstoloc to move to, and the mid for the compute dependency
+  // Returns the input to a server->remap call to correctly assign storage ids
   vector<std::array<int, 2>> move_tensors(vector<tuple<memstoloc_t, memstoloc_t, int>> new_mapping);
 
   // Essentially the same as above move tensors, but will move from first tid to second tid

@@ -1347,7 +1347,7 @@ node_t node_t::replace_variables(map<string, scalar_t> const& vars) const {
     auto const& v = op.get_variable();
     auto iter = vars.find(v.name);
     if(iter == vars.end()) {
-      throw std::runtime_error("missing variable");
+      throw std::runtime_error("missing variable" + v.name);
     }
     scalar_t const& val = iter->second;
     if(val.dtype != v.dtype) {

@@ -597,6 +597,9 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
       save = allocator.checkpoint();
     }
     auto ret = allocator.allocate(size);
+    if (ret && std::get<0>(ret.value()) == 180564996) {
+      allocator.print();
+    } 
     return ret;
   };
 
@@ -1831,6 +1834,9 @@ vector<std::array<int, 2>> memgraph_make_state_t::move_tensors(vector<tuple<mems
       auto memit = memloc_to_newloc.find(tuple<int, uint64_t>(src_memloc.loc, src_memloc.offset));
       if (stoit != memloc_to_stoid.end()) { // Now a load
         auto &[stoid, deldep] = stoit->second;
+        // if (stoid == 125) {
+        //   throw std::runtime_error("125 loading, originally memloc");
+        // }
         deps.insert(deldep);
         memgraph.insert(op_t(load_t{
           .src = stoloc_t{
@@ -1882,28 +1888,42 @@ vector<std::array<int, 2>> memgraph_make_state_t::move_tensors(vector<tuple<mems
       if (stoit != memloc_to_stoid.end()) { // Don't think this case is necessary, why would we move between storages
 
       } else if (memit != memloc_to_newloc.end()) { // Evicting from a new memloc
+        // Evictions will give the data a new id so that we know it can be placed in storage.
         auto &[src_loc, src_offset, del_dep] = memit->second;
         set<int> deps;
         deps.insert(del_dep);
+        stoloc_t temp_stoloc = stoloc_t{
+          .loc = dst_stoloc.loc,
+          .id = ++_sto_id
+        };
         memgraph.insert(op_t(evict_t{
           .src = memloc_t{
             .offset = src_offset, 
             .size = src_memloc.size,
             .loc = src_loc
           },
-          .dst = dst_stoloc
+          .dst = temp_stoloc
         }), deps);
+        storage_remappings.push_back(std::array<int, 2>{temp_stoloc.id, dst_stoloc.id});
       } else { // Evict as normal
         set<int> deps;
+        stoloc_t temp_stoloc = stoloc_t{
+          .loc = dst_stoloc.loc,
+          .id = ++_sto_id
+        };
         memgraph.insert(op_t(evict_t{
           .src = src_memloc,
-          .dst = dst_stoloc
+          .dst = temp_stoloc
         }), deps);
+        storage_remappings.push_back(std::array<int, 2>{temp_stoloc.id, dst_stoloc.id});
       }
 
     } else if (src.is_stoloc() && dst.is_memloc()) { // Stoloc to memloc (load), assumes same loc
       stoloc_t src_stoloc = src.get_stoloc();
       memloc_t dst_memloc = dst.get_memloc();
+      // if (src_stoloc.id == 125) {
+      //   throw std::runtime_error("125 loading, always a load");
+      // }
       
       set<int> deps = free_block(dst_memloc, memloc_to_stoid, memloc_to_newloc);
       deps.insert(dep);
@@ -1931,12 +1951,18 @@ set<int> memgraph_make_state_t::free_block(memloc_t block,
 
   auto deps = allocators[block.loc].allocate_at(block.offset, block.size);
   uint64_t return_code = std::get<0>(deps);
-
+  uint64_t prev_offset = return_code+1;
+  // DOUT("Freeing block at offset " << block.offset << " with size " << block.size);
   // DOUT("Attempting to allocate block at offset: " << block.offset << ", size: " << block.size << ", loc: " << block.loc);
   
   while (return_code != (uint64_t) -1) {
-    // DOUT("Memory location in use, moving or evicting tensor");
+    // DOUT("Memory location " << return_code << " in use, moving or evicting tensor");
     uint64_t blocking_block_offset = return_code; 
+    if (blocking_block_offset == prev_offset) {
+      allocators[block.loc].print();
+      throw std::runtime_error("Could not free block at offset " + std::to_string(block.offset) + ", loc "  + std::to_string(block.loc) + ", size " + std::to_string(block.size) + " because occupying block at offset "  + std::to_string(blocking_block_offset) + " cannot be freed");
+    }
+    prev_offset = blocking_block_offset;
 
     auto interval = allocators[block.loc].get_allocated_region(blocking_block_offset);
     if (!interval) {
@@ -1949,7 +1975,11 @@ set<int> memgraph_make_state_t::free_block(memloc_t block,
     auto move_alloc = allocators[block.loc].allocate(blocking_block_size);
     if (!move_alloc || (std::get<0>(move_alloc.value()) >= block.offset && block.offset <= std::get<0>(move_alloc.value()) + block.size)) { // No space or the block is attempting to be reallocated where we need to allocate
       // TODO can maybe make second case more efficient rather than just evicting
-      // DOUT("Memory location in use, evicting tensor");
+      // DOUT("Memory location in use, evicting tensor at offset " << blocking_block_offset << " with size " << blocking_block_size);
+      if (move_alloc && std::get<0>(move_alloc.value()) >= block.offset && block.offset <= std::get<0>(move_alloc.value()) + block.size) {
+        // DOUT("Allocated within block needed, evicting instead.");
+        allocators[block.loc].free(std::get<0>(move_alloc.value()), 0);
+      }
       set<int> temp_deps;
       int del_val = memgraph.insert(op_t(evict_t({
         .src = memloc_t{
@@ -1959,14 +1989,13 @@ set<int> memgraph_make_state_t::free_block(memloc_t block,
         },
         .dst = stoloc_t{
           .loc = 0,
-          .id = _sto_id
+          .id = ++_sto_id
         }
       })), move_alloc ? std::get<1>(move_alloc.value()) : temp_deps); // TODO fix temp_deps to have correct memory dependency for block at blocking_block_offset
       memloc_to_stoid[tuple<int, uint64_t>(block.loc, blocking_block_offset)] = tuple<int, int>(_sto_id, del_val);
       allocators[block.loc].free(blocking_block_offset, del_val);
-      _sto_id++;
     } else { // We are good to copy over and free memory
-      // DOUT("Memory can be allocated, moving tensor");
+      // DOUT("Memory can be allocated, moving tensor to " << std::get<0>(move_alloc.value()));
       int del_val = memgraph.insert(op_t(copy_t{
       .loc = block.loc,
       .size = blocking_block_size,

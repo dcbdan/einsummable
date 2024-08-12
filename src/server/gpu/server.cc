@@ -232,17 +232,6 @@ void gpu_mg_server_t::storage_remap_server(
   }
 }
 
-void gpu_mg_server_t::storage_remap_server_without_erase(
-  vector<vector<std::array<int, 2>>> const& remaps)
-{
-  if(!bool(storage)) {
-    throw std::runtime_error("storage not initialized");
-  }
-
-  //storage->remap_without_erase(remaps[0]);
-}
-
-
 void gpu_mg_server_t::storage_remap_client()
 {
   if(!bool(storage)) {
@@ -313,6 +302,13 @@ buffer_t gpu_mg_server_t::get_storage_buf(int id) {
 
 void gpu_mg_server_t::set_storage_buf(buffer_t d, int id) {
   storage->write(d, id);
+}
+
+int gpu_mg_server_t::get_max_stoid() {
+  if (has_storage()) {
+    return storage->get_max_id();
+  }
+  throw std::runtime_error("Called for max stoid without storage enabled.");
 }
 
 buffer_t gpu_mg_server_t::local_copy_data(int tid) {

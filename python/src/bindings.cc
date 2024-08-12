@@ -4,6 +4,8 @@
 #include "../../src/base/args.h"
 #include "../../src/server/gpu/server.h"
 
+#include "../../llama/gpu_llama.h"
+
 #include <string>
 #include <cstring>
 
@@ -64,7 +66,7 @@ taskgraph_t matmul_taskgraph(int pi, int pj, int pk, int di, int dj, int dk, int
 }
 
 dbuffer_t dbuf_from_numpy(uintptr_t ptr, uint64_t size, dtype_t dtype) {
-    buffer_t buf = make_buffer_reference((uint8_t *) (void *) ptr, size * dtype_size(dtype));
+    buffer_t buf = make_buffer_copy(make_buffer_reference((uint8_t *) (void *) ptr, size * dtype_size(dtype)));
     return dbuffer_t(dtype, buf);
 }
 
@@ -131,6 +133,17 @@ PYBIND11_MODULE(PyEinsummable, m) {
         .value("f64", dtype_t::f64)
         .value("c64", dtype_t::c64)
         .export_values();
+
+    py::enum_<llama_size_t>(m, "llama_size")
+        .value("B7", llama_size_t::B7)
+        .value("B13", llama_size_t::B13)
+        .value("B30", llama_size_t::B30)
+        .value("B65", llama_size_t::B65);
+    
+    py::class_<gpu_llama_t>(m, "llama")
+        .def(py::init<uint64_t, uint64_t, llama_size_t>())
+        .def("train", &gpu_llama_t::train)
+        .def("load_tensors", &gpu_llama_t::load_tensors);
 
 
     m.def("matmul_memgraph", &matmul_taskgraph, "Give the various graphs for a matrix multiplication of the given parameters");

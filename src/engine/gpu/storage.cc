@@ -46,7 +46,7 @@ buffer_t gpu_storage_t::alloc(uint64_t size, int id) {
   mem_t mem { .offset = offset, .size = size };
   auto [_, did_insert] = this->info.insert({id, mem});
   if(!did_insert) {
-    throw std::runtime_error("id already in gpu storage");
+    throw std::runtime_error("id " + std::to_string(id) + " already in gpu storage");
   }
 
   return make_reference(offset, size);
@@ -60,7 +60,7 @@ void gpu_storage_t::write(buffer_t d, int id) {
 buffer_t gpu_storage_t::_read(int id) {
   auto iter = info.find(id);
   if(iter == info.end()) {
-    throw std::runtime_error("id not in storage.");
+    throw std::runtime_error("id: " + std::to_string(id) + " not in storage.");
   }
 
   buffer_t d = make_reference(iter->second);
@@ -78,7 +78,7 @@ buffer_t gpu_storage_t::read(int id) {
 void gpu_storage_t::_remove(int id) {
   auto iter = info.find(id);
   if(iter == info.end()) {
-    throw std::runtime_error("id not in storage.");
+    throw std::runtime_error("id: " + std::to_string(id) + " not in storage.");
   }
 
   {
@@ -113,10 +113,19 @@ void gpu_storage_t::remap(map<int, int> const& rmap) {
   std::unique_lock lk(m);
 
   map<int, mem_t> new_info;
+  set<int> stoids_to_free;
 
   for(auto const& [old_id,m]: info) {
-    int const& new_id = rmap.at(old_id);
-    new_info.insert({new_id, m});
+    if (rmap.find(old_id) != rmap.end()) {
+      int const& new_id = rmap.at(old_id);
+      new_info.insert({new_id, m});
+    } else {
+      stoids_to_free.insert(old_id);
+    }
+  }
+
+  for (auto stoid : stoids_to_free) {
+    _remove(stoid);
   }
 
   info = new_info;
@@ -144,7 +153,7 @@ buffer_t gpu_storage_t::reference(int id)
   std::unique_lock lk(m);
   auto iter = info.find(id);
   if(iter == info.end()) {
-    throw std::runtime_error("id not in storage.");
+    throw std::runtime_error("id: " + std::to_string(id) + " not in storage.");
   }
 
   return make_reference(iter->second);
