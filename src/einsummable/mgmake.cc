@@ -106,7 +106,7 @@ memgraph_make_state_t::pop_memgraph()
     } else {
       // insert on memory
       inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
-      DOUT("we are inserting inputmem node");
+      // DOUT("we are inserting inputmem node");
       new_mid = memgraph.insert(op_t(mem), set<int>{});
 
       // this tid has not been used by any mids now
@@ -787,7 +787,7 @@ memgraph_make_state_t::memgraph_make_state_t(
       };
 
       int mid = memgraph.insert(op_t(input), {});
-      std::cout << "insert input into tid2mid on mem: " << tid << ": " << mid << std::endl;
+      // std::cout << "insert input into tid2mid on mem: " << tid << ": " << mid << std::endl;
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     }
     else if(memstoloc.is_stoloc())
@@ -805,7 +805,7 @@ memgraph_make_state_t::memgraph_make_state_t(
       };
 
       int mid = memgraph.insert(op_t(input), {});
-      std::cout << "insert input into tid2mid on sto: " << tid << ": " << mid << std::endl;
+      // std::cout << "insert input into tid2mid on sto: " << tid << ": " << mid << std::endl;
       task_tensor_to_mem_node_insert_on_storage(tid, mid);
     }
   }
@@ -1217,7 +1217,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
 
     // For apply and move nodes, insert the newly created
     // memid into the tensor mapping
-    std::cout << "added pair to tid2mid: " << id << ": " << new_memid << std::endl;
+    // std::cout << "added pair to tid2mid: " << id << ": " << new_memid << std::endl;
     task_tensor_to_mem_node_update_on_memory(id, new_memid);
   } else {
     // This is a touch in a partialize node.

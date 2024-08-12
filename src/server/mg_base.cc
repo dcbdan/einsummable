@@ -78,15 +78,15 @@ void server_mg_base_t::execute_tg_server(taskgraph_t const&           taskgraph,
     taskgraph.print_graphviz(f);
     DOUT("printed tgcore.gv");
   }
-  DOUT("full_data_locs before core mg:");
-  for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
-    std::cout << iter->first << " is on ";
-    if (iter->second.is_stoloc()) {
-      std::cout << "storage" << std::endl;
-    } else if (iter->second.is_memloc()) {
-      std::cout << "memory" << std::endl;
-    }
-  }
+  // DOUT("full_data_locs before core mg:");
+  // for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
+  //   std::cout << iter->first << " is on ";
+  //   if (iter->second.is_stoloc()) {
+  //     std::cout << "storage" << std::endl;
+  //   } else if (iter->second.is_memloc()) {
+  //     std::cout << "memory" << std::endl;
+  //   }
+  // }
 
     // gremlin_t* gremlin = new gremlin_t("making memgraph");
     auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
