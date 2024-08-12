@@ -286,3 +286,81 @@ placement_t tensor_reader_t::get_placement(
     vtensor_t<int>(partition.block_shape(), locs));
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+
+tensor_reader2_t::tensor_reader2_t(
+  int num_buffers,
+  string const& base_filename, 
+  int n_total_files,
+  dtype_t dtype)
+  : num_buffers(num_buffers), n_total_files(n_total_files), dtype(dtype)
+{
+  for(int i = 0; i != n_total_files; ++i) {
+    string si = write_with_ss(i);
+    if(i < 10) {
+      si = "0" + si;
+    }
+    string filename = base_filename + "_" + si;
+
+    readers.emplace_back(filename);
+  }
+}
+
+placement_t tensor_reader2_t::get_placement(
+  string const& tensor_name,
+  vector<uint64_t> const& shape,
+  int n_total_files)
+{
+  return tensor_reader_t::get_placement(tensor_name, shape, num_buffers, n_total_files);
+}
+
+tuple<relation_t, vector<buffer_t>> tensor_reader2_t::operator()(
+  string const& name,
+  vector<uint64_t> const& shape,
+  int starting_tid)
+{
+  // if this is a norm, only load it here on rank 0
+  if(name.find("norm") != string::npos) {
+    vector<buffer_t> data;
+    data.push_back(readers.at(0)(name, dtype));
+
+    placement_t pl(partition_t::singleton(shape));
+
+    vector<int> block_shape(shape.size(), 1);
+    vtensor_t<int> tids(block_shape, {starting_tid});
+
+    relation_t rel {
+      .dtype     = dtype,
+      .placement = pl,
+      .tids      = tids
+    };
+    return {rel, data};
+  }
+
+  // Everything that isn't a norm is partitioned into column strips
+  // or into row strips.
+  auto placement = get_placement(name, shape, n_total_files);
+  auto block_shape = placement.block_shape();
+
+  // construct the tids
+  vtensor_t<int> tids(block_shape);
+  auto& v_tids = tids.get();
+  std::iota(v_tids.begin(), v_tids.end(), starting_tid);
+
+  vector<buffer_t> data;
+  for(auto& reader: readers) {
+    data.push_back(reader(name, dtype));
+  }
+
+  // How it works is there is one reader for each file,
+  // and each file contains a portion of our tensor,
+  // and the placement should be split too.
+
+  relation_t rel {
+    .dtype     = dtype,
+    .placement = placement,
+    .tids      = tids
+  };
+  return {rel, data};
+}
+

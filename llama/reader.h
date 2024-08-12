@@ -76,3 +76,28 @@ private:
   dtype_t dtype;
 };
 
+// This is really for a single machine, multi gpu use case
+struct tensor_reader2_t {
+  tensor_reader2_t(
+    int num_buffers,
+    string const& base_filename, 
+    int n_total_files,
+    dtype_t dtype = default_dtype());
+
+  placement_t get_placement(
+    string const& tensor_name,
+    vector<uint64_t> const& shape,
+    int n_total_files);
+
+  tuple<relation_t, vector<buffer_t>> operator()(
+    string const& tensor_name,
+    vector<uint64_t> const& shape,
+    int starting_tid);
+
+  int num_files() const { return n_total_files; }
+
+  int num_buffers;
+  int n_total_files;
+  vector<local_tensor_reader_t> readers;
+  dtype_t dtype;
+};

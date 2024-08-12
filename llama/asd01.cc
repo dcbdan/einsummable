@@ -47,6 +47,45 @@ void exp01(args_t& args, server_base_t* server) {
   server->execute_graph(graph, pls);
 }
 
+void exp02_parts(args_t& args) {
+  set_default_dtype(dtype_t::f16);
+
+  args.set_default<uint64_t>("seqlen", 4000); 
+  args.set_default<int>("n_attention", 1);
+
+  uint64_t seqlen = args.get<uint64_t>("seqlen");
+  int n_attention = args.get<int>("n_attention");
+
+  DOUT("seqlen is " << seqlen);
+  DOUT("n_attention is " << n_attention);
+
+  for(int num_gpu: {1,2,4,8}) {
+    model_args_t margs = model_args_t::llama_65B(1);
+    graph_writer_t writer;
+    auto full_freqs_cis = writer.input(
+      { seqlen, uint64_div(margs.head_dim(), 2) },
+      dtype_t::c64);
+
+    auto x = writer.input(full_shape_t({
+      full_dim_t::singleton(margs.batch_size),
+      full_dim_t::singleton(seqlen),
+      margs.full_dim()
+    }));
+    vector<attention_t> attentions;
+    for(int i = 0; i != n_attention; ++i) {
+      attentions.emplace_back(&writer, "attention.", margs, 0, std::nullopt);
+      x = attentions.back().forward(x, full_freqs_cis, std::nullopt);
+    }
+
+    graph_t const& graph = writer.get_graph();
+    vector<partition_t> parts = apart01(graph, num_gpu*1, 1);
+    string fname = "g" + write_with_ss(num_gpu) + ".gv";
+    std::ofstream f(fname);
+    graph.print_graphviz(f, parts);
+    DOUT(fname);
+  }
+}
+
 void exp02(args_t& args, server_base_t* server) {
   set_default_dtype(dtype_t::f16);
 
@@ -61,7 +100,7 @@ void exp02(args_t& args, server_base_t* server) {
   DOUT("seqlen is " << seqlen);
   DOUT("n_attention is " << n_attention);
 
-  model_args_t margs = model_args_t::llama_65B(1);
+  model_args_t margs = model_args_t::llama_7B(1);
   graph_writer_t writer;
   auto full_freqs_cis = writer.input(
     { seqlen, uint64_div(margs.head_dim(), 2) },
@@ -109,7 +148,163 @@ void exp02(args_t& args, server_base_t* server) {
   args.set_default<int>("mv_bytes", 1000);
   int flops_per_byte_moved = args.get<int>("mv_bytes");
   parts = apart01(graph, num_gpu*1, 1);
-  pls = alocate01(graph, parts, num_gpu, flops_per_byte_moved);
+
+  int which_alocate = args.get<int>("alocate");
+  if(which_alocate == 1) {
+    pls = alocate01(graph, parts, num_gpu, flops_per_byte_moved);
+  } else if(which_alocate == 3) {
+    pls = alocate03(graph, parts, num_gpu, true);
+  } else {
+    throw std::runtime_error("invalid alocate");
+  }
+  // print all the placements
+  // for(auto const& pl: pls) {
+  //   DOUT("partition: " << pl.partition << " locs: " << pl.locations);
+  // }
+  
+  server->execute_graph(graph, pls);
+}
+
+void exp_transformer_block(args_t& args, server_base_t* server) {
+  set_default_dtype(dtype_t::f16);
+
+  auto num_gpu = args.get<int>("num_gpus");
+
+  args.set_default<uint64_t>("seqlen", 1000); 
+
+  uint64_t seqlen = args.get<uint64_t>("seqlen");
+
+  DOUT("seqlen is " << seqlen);
+
+  model_args_t margs = model_args_t::llama_7B(1);
+  graph_writer_t writer;
+  auto full_freqs_cis = writer.input(
+    { seqlen, uint64_div(margs.head_dim(), 2) },
+    dtype_t::c64);
+
+  auto x = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(seqlen),
+    margs.full_dim()
+  }));
+
+  vector<transformer_block_t> blocks;
+  int nblock = 4;
+  for(int i = 0; i != nblock; ++i) {
+    blocks.emplace_back(&writer, i, margs, 0, std::nullopt);
+    x = blocks.back().forward(x, full_freqs_cis, std::nullopt);
+  }
+
+  //graph_t const& graph_unfused = writer.get_graph();
+  //auto [graph, unfused_inns_to_fused, _] = graph_unfused.fuse();
+  //int full_freqs_cis_id = unfused_inns_to_fused.at(full_freqs_cis.get_id());
+  
+  graph_t const& graph = writer.get_graph();
+  int full_freqs_cis_id = full_freqs_cis.get_id();
+
+  vector<partition_t> parts;
+  vector<placement_t> pls;
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    pls.push_back(partition_t::singleton(node.op.shape()));
+
+    if(gid == full_freqs_cis_id) {
+      auto dtype = node.op.out_dtype();
+      auto shape = node.op.shape();
+      dbuffer_t d = transformer_t::form_full_freqs_cis(margs.dim, margs.n_heads, seqlen);
+      server->insert_tensor(gid, pls.back(), d);
+    } else if(node.op.is_input()) {
+      auto dtype = node.op.out_dtype();
+      auto shape = node.op.shape();
+      dbuffer_t d = make_dbuffer(dtype, product(shape));
+      d.random("-0.0001", "0.0001");
+      server->insert_tensor(gid, pls.back(), d);
+    }
+  }
+  // creating partitions and placements for multiple gpus
+  args.set_default<int>("mv_bytes", 1000);
+  int flops_per_byte_moved = args.get<int>("mv_bytes");
+  parts = apart01(graph, num_gpu*1, 1);
+
+  int which_alocate = args.get<int>("alocate");
+  if(which_alocate == 1) {
+    pls = alocate01(graph, parts, num_gpu, flops_per_byte_moved);
+  } else if(which_alocate == 3) {
+    pls = alocate03(graph, parts, num_gpu, true);
+  } else {
+    throw std::runtime_error("invalid alocate");
+  }
+  // print all the placements
+  // for(auto const& pl: pls) {
+  //   DOUT("partition: " << pl.partition << " locs: " << pl.locations);
+  // }
+  
+  server->execute_graph(graph, pls);
+}
+
+void exp_ffnn(args_t& args, server_base_t* server) {
+  set_default_dtype(dtype_t::f16);
+
+  auto num_gpu = args.get<int>("num_gpus");
+
+  args.set_default<uint64_t>("seqlen", 1000); 
+
+  uint64_t seqlen = args.get<uint64_t>("seqlen");
+
+  model_args_t margs = model_args_t::llama_7B(1);
+  uint64_t hidden_dim = 4 * margs.dim;
+  hidden_dim = uint64_t( (2.0 * hidden_dim) / 3.0 );
+  hidden_dim = 
+    margs.multiple_of * ( (hidden_dim + margs.multiple_of - 1) / margs.multiple_of );
+
+  graph_writer_t writer;
+
+  auto x = writer.input(full_shape_t({
+    full_dim_t::singleton(margs.batch_size),
+    full_dim_t::singleton(seqlen),
+    margs.full_dim()
+  }));
+
+  int n_ffs = 4;
+  vector<feedforward_t> ffs;
+  for(int i = 0; i != n_ffs; ++i) {
+    ffs.emplace_back(&writer, "feed_forward.", margs.full_dim(), hidden_dim);
+    x = ffs.back().forward(x);
+  }
+
+  graph_t const& graph = writer.get_graph();
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    placement_t pl(partition_t::singleton(node.op.shape()));
+
+    if(node.op.is_input()) {
+      auto dtype = node.op.out_dtype();
+      auto shape = node.op.shape();
+      dbuffer_t d = make_dbuffer(dtype, product(shape));
+      d.random("-0.0001", "0.0001");
+      server->insert_tensor(gid, pl, d);
+    }
+  }
+
+  // creating partitions and placements for multiple gpus
+  args.set_default<int>("mv_bytes", 1000);
+  int flops_per_byte_moved = args.get<int>("mv_bytes");
+  vector<partition_t> parts = apart01(graph, num_gpu*1, 1);
+
+  args.set_default<int>("alocate", 3);
+  int which_alocate = args.get<int>("alocate");
+
+  vector<placement_t> pls;
+  if(which_alocate == 1) {
+    pls = alocate01(graph, parts, num_gpu, flops_per_byte_moved);
+  } else if(which_alocate == 3) {
+    pls = alocate03(graph, parts, num_gpu, true);
+  } else {
+    throw std::runtime_error("invalid alocate");
+  }
   // print all the placements
   // for(auto const& pl: pls) {
   //   DOUT("partition: " << pl.partition << " locs: " << pl.locations);
@@ -417,7 +612,7 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(mem_size);
   }
 
-  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes); // , storage_size);
+  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
   gpu_server->set_split_off_inputs(true);
   if(gpu_server->has_storage()) {
     throw std::runtime_error("should not be using storage");
@@ -426,7 +621,9 @@ int main(int argc, char** argv) {
   auto num_iter = 2;
   for(int i = 0; i != num_iter; ++i) {
     DOUT("----- iteration " << i << " -----");
-    exp02(args, gpu_server);
+    //exp02(args, gpu_server);
+    //exp_ffnn(args, gpu_server);
+    exp_transformer_block(args, gpu_server);
   }
   // exp01(args, server);
 
