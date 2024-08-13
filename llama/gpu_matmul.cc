@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
 
   args.set_default("use_storage", true);
-  server.set_use_storage(args.get<bool>("use_storage"));
+  // server.set_use_storage(args.get<bool>("use_storage"));
 
   args.set_default("split_off_inputs", false);
   server.set_split_off_inputs(args.get<bool>("split_off_inputs"));

@@ -87,7 +87,7 @@ int main(int argc, char** argv)
     int num_contraction_threads = parse_with_ss<int>(argv[7]);
 
     auto gpu_ptr = new gpu_mg_server_t(communicator, buffer_sizes);
-    gpu_ptr->set_use_storage(true);
+    // gpu_ptr->set_use_storage(true);
     gpu_ptr->set_split_off_inputs(true);
 
     std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_ptr);
