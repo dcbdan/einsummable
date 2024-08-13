@@ -43,7 +43,6 @@ void main_rank_zero(
   tensor_reader_t& model_loader,
   args_t& pargs,
   autoplace_config_t config);
-  
 
 int main(int argc, char** argv) {
   set_default_dtype(dtype_t::f32);
@@ -65,8 +64,9 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  DOUT("base file: ");
-  base_data_file = "/mnt/data/" + base_data_file;
+  base_data_file = "/home/sarah/storage/" + base_data_file;
+
+  args_t args(argc-1, argv+1);
 
   string addr_zero = "0.0.0.0";
   bool is_rank_zero = true;
@@ -78,12 +78,20 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(16lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
   }
 
-  auto storage_size = 40lu * 1000lu * 1000lu * 1000lu;
+  gpu_mg_server_t* gpu_server;
 
-  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, storage_size);
+  args.set_default<uint64_t>("storage", 0);
+  uint64_t storage_size = args.get<uint64_t>("storage");
+  if(storage_size > 0) {
+    storage_size *= 1000lu * 1000lu * 1000lu;
+    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, storage_size);
+  } else {
+    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
+  }
+
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_server);
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
@@ -113,11 +121,6 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  args_t args(argc-1, argv+1);
-
-  // args.set_default("use_storage", true);
-  // gpu_server->set_use_storage(args.get<bool>("use_storage"));
-
   args.set_default("split_off_inputs", true);
   gpu_server->set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
@@ -126,7 +129,7 @@ int main(int argc, char** argv) {
   int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
   
-  DOUT("use_storage:                     " << gpu_server->has_storage());
+  DOUT("storage size:                    " << storage_size);
   DOUT("split_off_inputs:                " << gpu_server->split_off_inputs_);
 
   DOUT("num_gpus:                        " << num_gpus);
@@ -387,7 +390,6 @@ void main_rank_zero(
 
   // these fills need to be added before executing
   auto const& init_fills = info.init_fills;
-  DLINEOUT("");
 
   // used for the next remap
   auto const& old_news = info.old_news;
@@ -396,23 +398,16 @@ void main_rank_zero(
   for(auto const& [old_id, new_id]: old_news) {
     next_iter_remap.emplace_back(new_id, old_id);
   }
-  DLINEOUT("");
-
 
   auto start_pls = std::chrono::high_resolution_clock::now();
-  DLINEOUT("");
   vector<placement_t> full_pls = autoplace01(info.full_graph, config);
-  DLINEOUT("");
   checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
-  DLINEOUT("");
   auto end_pls = std::chrono::high_resolution_clock::now();
-  DLINEOUT("");
   DOUT("placement time: " << 
     std::chrono::duration_cast<std::chrono::milliseconds>(end_pls - start_pls).count() << " ms");
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
-  DLINEOUT("");
   auto start_load = std::chrono::high_resolution_clock::now();
   string register_cmd = server->get_registered_cmd();
 
@@ -472,8 +467,8 @@ void main_rank_zero(
 
   /////////////////////////////////////////////////////////////////////////////
   
-  pargs.set_default("tokenizer", "../tokenizer.model");
-  pargs.set_default("dataset", "./redpaj_long_samples");
+  pargs.set_default("tokenizer", "/home/sarah/storage/tokenizer.model");
+  pargs.set_default("dataset", "/home/sarah/storage/redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
@@ -561,4 +556,3 @@ void main_rank_zero(
     // server->remap_gids(next_iter_remap);
   }
 }
-
