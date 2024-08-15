@@ -72,13 +72,13 @@ void handle_cutensor_error(cutensorStatus_t error, string msg) {
   }
 }
 
-void handle_cuda_error(cudaError_t error, string msg) {
-  // DOUT("error is " << error << " ... msg: " << msg);
+void _handle_cuda_error(cudaError_t error, string line, string msg) {
   if(error != cudaSuccess){ 
+    DOUT("error is " << int(error) << " ... msg: " << msg);
     if(msg == "") {
       msg = "handle_cuda_error";
     } 
-    throw std::runtime_error(msg + ": " + string(cudaGetErrorString(error)));
+    throw std::runtime_error(line + "\n" + msg + ": " + string(cudaGetErrorString(error)));
   }
 }
 

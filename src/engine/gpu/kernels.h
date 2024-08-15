@@ -36,6 +36,12 @@ using void_cuda_kernel_t = std::function<
 
 touch_kernel_t build_touch(touch_t const& touch);
 
+void launch_touch_kernel(
+  touch_t const& touch,
+  cudaStream_t stream,
+  void* out,
+  void const* inn);
+
 // return a function to execute every einsummable; throw an error
 // if (1) the einsummable is a contraction or (2) no implementation
 // exists.

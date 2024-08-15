@@ -12,7 +12,7 @@ struct touchdim_t {
   uint64_t offset_out;
   uint64_t size;
 
-  void print() const{
+  void print() const {
     std::cout << "d_inn: " << d_inn << std::endl;
     std::cout << "d_out: " << d_out << std::endl;
     std::cout << "offset_inn: " << offset_inn << std::endl;

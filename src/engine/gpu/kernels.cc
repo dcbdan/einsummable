@@ -117,6 +117,57 @@ touch_kernel_t build_touch(touch_t const& touch_)
   throw std::runtime_error("touch kernel not implemented");
 }
 
+void launch_touch_kernel(
+  touch_t const& touch_,
+  cudaStream_t stream,
+  void* out,
+  void const* inn)
+{
+  touch_t touch = touch_.simplify();
+
+  auto const& ts = touch.selection;
+
+  int dtype_info = 0;
+
+  auto const& dtype = touch.dtype;
+
+  if(dtype == dtype_t::f32) {
+    dtype_info = 1;
+  } else if(dtype == dtype_t::f64) {
+    dtype_info = 2;
+  } else if(dtype == dtype_t::c64) {
+    dtype_info = 3;
+  }
+
+  int choice = 0;
+  if(touch.castable) { 
+    castable_t const& c = touch.castable.value(); 
+    if(c == castable_t::add) { 
+      choice = 1;
+    } else if(c == castable_t::mul) { 
+      choice = 2;
+    } else if(c == castable_t::min) { 
+      choice = 3;
+    } else if(c == castable_t::max) { 
+      choice = 4;
+    } else { 
+      throw std::runtime_error("castable should not reach"); 
+    } 
+  }
+
+  if(ts.size() == 1) {
+    touch1(ts[0], out, inn, stream, choice, dtype_info);
+  } else if(ts.size() == 2) {
+    touch2(ts[0], ts[1], out, inn, stream, choice, dtype_info);
+  } else if(ts.size() == 3) {
+    touch3(ts[0], ts[1], ts[2], out, inn, stream, choice, dtype_info);
+  } else if(ts.size() == 4) {
+    touch4(ts[0], ts[1], ts[2], ts[3], out, inn, stream, choice, dtype_info);
+  } else {
+    throw std::runtime_error("touch kernel not implemented");
+  }
+}
+
 cutensorDataType_t dtype_to_cudatype(dtype_t type){
   if(type == dtype_t::f16){
     return CUTENSOR_R_16F;

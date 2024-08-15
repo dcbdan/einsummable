@@ -6,6 +6,8 @@
 #include <cuda_profiler_api.h>
 #include <sys/gmon.h>
 
+#include "../../engine/gpu/to_cudagraph.h"
+
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
   // one buffer per gpu
@@ -103,6 +105,81 @@ void gpu_mg_server_t::execute_memgraph(
   bool for_remap,
   map<string, scalar_t> const& scalar_vars)
 {
+  if(for_remap) {
+    DLINEOUT("execute_memgraph for remap");
+    std::ofstream f("remap.gv");
+    memgraph.print_graphviz(f);
+    DOUT("printed remap.gv");
+  } else {
+    DLINEOUT("execute_memgraph for real");
+  }
+
+  if(!for_remap) {
+    int mov = 0;
+    int con = 0;
+    int agg = 0;
+    int ewe = 0;
+    int tou = 0;
+    for(auto const& node: memgraph.nodes) {
+      if(node.op.is_move()) { 
+        mov++; 
+      } else if(node.op.is_einsummable()) { 
+        if(node.op.get_einsummable().is_contraction()) {
+          con++;
+        } else if(node.op.get_einsummable().has_aggregation()) {
+          agg++;
+        } else {
+          ewe++;
+        }
+      } else if(node.op.is_touch()) {
+        tou++;
+      }
+    }
+    DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: " 
+      << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
+  }
+
+  bool use_cudagraph = false;
+  if(use_cudagraph) {
+    cudaGraph_t cudagraph = compile_cuda_graph(
+      memgraph, 
+      kernel_managers,
+      mems,
+      scalar_vars);
+
+    cudaGraphExec_t cudagraphexec;
+    handle_cuda_error(
+      cudaGraphInstantiate(&cudagraphexec, cudagraph, NULL, NULL, 0),
+      "could not instantiate");
+
+    {
+      auto start = std::chrono::high_resolution_clock::now();
+      handle_cuda_error(
+        cudaGraphLaunch(cudagraphexec, 0),
+        "cudaGraphLaunch...");
+      int num_gpus = get_num_gpus();
+      for(int i = 0; i != num_gpus; ++i) {
+        DLINEOUT("gpu " << i);
+        handle_cuda_error(cudaSetDevice(i));
+        handle_cuda_error(cudaDeviceSynchronize());
+      }
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
+      if(!for_remap) {
+        DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+      }
+    }
+
+    handle_cuda_error(
+      cudaGraphExecDestroy(cudagraphexec),
+      "gpu_mg_server_t: could not destroy cudagraphexec");
+    handle_cuda_error(
+      cudaGraphDestroy(cudagraph),
+      "gpu_mg_server_t: could not destroy cudagraph");
+
+    return;
+  }
+
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
@@ -136,34 +213,8 @@ void gpu_mg_server_t::execute_memgraph(
   // DOUT("Executing...");
   // print the execution time of event_loop()
   if (!for_remap){
-    cudaProfilerStart();
+    //cudaProfilerStart();
     get_rm_timetracker().clear();
-
-    {
-      int mov = 0;
-      int con = 0;
-      int agg = 0;
-      int ewe = 0;
-      int tou = 0;
-      for(auto const& node: memgraph.nodes) {
-        if(node.op.is_move()) { 
-          mov++; 
-        } else if(node.op.is_einsummable()) { 
-          if(node.op.get_einsummable().is_contraction()) {
-            con++;
-          } else if(node.op.get_einsummable().has_aggregation()) {
-            agg++;
-          } else {
-            ewe++;
-          }
-        } else if(node.op.is_touch()) {
-          tou++;
-        }
-      }
-      DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: " 
-        << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
-    }
-
   }
   get_rm_timetracker().clear();
 
@@ -174,7 +225,7 @@ void gpu_mg_server_t::execute_memgraph(
   // print the duration in milliseconds with 4 decimal places
   if (!for_remap){
     DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-    cudaProfilerStop();
+    //cudaProfilerStop();
     // print the time for each node in the exec graph
     // for (auto const& node: graph.nodes){
     //   node.op->line(std::cout);

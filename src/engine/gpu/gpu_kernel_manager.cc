@@ -982,8 +982,9 @@ void kernel_manager_t::operator()(
   //   DOUT("Touch input: ");
   //   printFloatGPU(inn, num_element_print);
   // }
-  auto f = build_touch(touch);
-  f(stream, out, inn);
+  ///auto f = build_touch(touch);
+  ///f(stream, out, inn);
+  launch_touch_kernel(touch, stream, out, inn);
   // if (force_debug){
   //   cudaDeviceSynchronize();
   //   DOUT("Touch output: ")

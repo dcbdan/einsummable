@@ -19,7 +19,13 @@ void printFloatGPU(const void *gpu_ptr, int count);
 void init_value(float *ptr, int count, float value);
 void handle_cutensor_error(cutensorStatus_t error, string msg = "");
 
-void handle_cuda_error(cudaError_t error, string msg = "");
+#define handle_cuda_error(error, ...) \
+  _handle_cuda_error( \
+    error, \
+    write_with_ss(__FILE__) + ":" + write_with_ss(__LINE__), \
+    ##__VA_ARGS__); 
+
+void _handle_cuda_error(cudaError_t error, string line, string msg = "");
 
 void handle_cublas_error(cublasStatus_t error, string msg = "");
 
