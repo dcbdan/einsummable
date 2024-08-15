@@ -13,21 +13,20 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
   }
 
   auto [mem_sizes, full_data_locs, which_storage] = recv_make_mg_info();
-  DOUT("full_data_locs for remap: ");
-  for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
-    std::cout << iter->first << " is on ";
-    if (iter->second.is_stoloc()) {
-      std::cout << "storage" << std::endl;
-    } else if (iter->second.is_memloc()) {
-      std::cout << "memory" << std::endl;
-    }
-  }
+  // DOUT("full_data_locs for remap: ");
+  // for (auto iter = full_data_locs.begin(); iter != full_data_locs.end(); ++iter) {
+  //   std::cout << iter->first << " is on ";
+  //   if (iter->second.is_stoloc()) {
+  //     std::cout << "storage" << std::endl;
+  //   } else if (iter->second.is_memloc()) {
+  //     std::cout << "memory" << std::endl;
+  //   }
+  // }
 
   // before: full_data_locs is with respect to the remap inn tids
   _update_map_with_new_tg_inns(
     full_data_locs, remap_gid, gid_to_inn, remap_relations, std::nullopt);
   // after: full_data_locs is with respect to the tasgkraph inns
-  DOUT("full_data_locs after remap: ");
 
     auto [inn_tg_to_loc, out_tg_to_loc, memgraph] = memgraph_t::make(
         taskgraph, which_storage, mem_sizes, full_data_locs, alloc_settings, has_storage());

@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   vector<uint64_t> buffer_sizes;
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(16lu * 1000lu * 1000lu * 1000lu);
   }
 
   gpu_mg_server_t* gpu_server;
@@ -474,16 +474,20 @@ void main_rank_zero(
   string dataset_file   = pargs.get<string>("dataset");
 
   // check if tokenizer_file and dataset_file are valid
+  DOUT("start tokenizer check");
   std::ifstream tokenizer_check(tokenizer_file);
   if(!tokenizer_check.good()) {
     throw std::runtime_error("could not open tokenizer file");
   }
+  DOUT("start dataset check");
   std::ifstream dataset_check(dataset_file);
   if(!dataset_check.good()) {
     throw std::runtime_error("could not open dataset file");
   }
 
+  DOUT("init data loader");
   dataset_reader_t data_loader(tokenizer_file, dataset_file);
+  DOUT("init data loader");
 
   scalar_t _lr(dtype, write_with_ss(pargs.get<float>("learning_rate")));
   map<string, scalar_t> vars {
@@ -492,6 +496,7 @@ void main_rank_zero(
     { "eta", _lr },
     { "learning_rate", _lr },
   };
+  DOUT("init data loader");
 
   pargs.set_default<int>("niter", 1);
   int niter = pargs.get<int>("niter");
@@ -537,6 +542,7 @@ void main_rank_zero(
     DOUT("server executing graph");
     // server->execute_graph(info.full_graph, full_pls, vars);
     /////////////////////////////////
+    std::cout << "size of taskgraphs: " << taskgraphs.infos.size() << std::endl;
     for(int which = 0; which != taskgraphs.infos.size(); ++which) {
       // DOUT("server remapping");
       server->remap_gids(graphs.remaps[which]);

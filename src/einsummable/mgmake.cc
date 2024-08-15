@@ -1323,17 +1323,17 @@ void memgraph_make_state_t::process(
     alloc_oid++;
   };
 
-  DOUT("taskid order: ");
-  for(int oid = 0; oid != all_ops.size(); ++oid) {
-    std::cout << all_ops[oid].get_tid() << ", ";
-  }
-  std::cout << std::endl;
+  // DOUT("taskid order: ");
+  // for(int oid = 0; oid != all_ops.size(); ++oid) {
+  //   std::cout << all_ops[oid].get_tid() << ", ";
+  // }
+  // std::cout << std::endl;
 
   while(doing_oid < all_ops.size()) {
     // DLINEOUT("alloc, doing: " << alloc_oid << ", " << doing_oid);
 
     if(alloc_oid < all_ops.size() && is_unused_input(all_ops[alloc_oid].get_tid())) {
-      DLINEOUT("unused input");
+      // DLINEOUT("unused input");
       // If an input isn't actually used, initialize it but don't intentionally
       // move it into memory
       int tid = all_ops[alloc_oid].get_tid();
@@ -1365,7 +1365,7 @@ void memgraph_make_state_t::process(
     }
     // DLINE;
   }
-  print_performance_debugging();
+  // print_performance_debugging();
 }
 
 int memgraph_make_state_t::get_group_at(int task_id, int unit_id)
@@ -1736,7 +1736,7 @@ int memgraph_make_state_t::allocate_with_evict(
   {
     vector<int> const& victims = maybe_victims.value();
     for (auto vic_tid : victims) {
-      DLINEOUT("EVICTING " << vic_tid);
+      // DLINEOUT("EVICTING " << vic_tid);
       evict_tensor(vic_tid);
     }
     auto maybe_ret = allocate_without_evict(loc, size);
