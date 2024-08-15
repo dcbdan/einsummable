@@ -53,6 +53,10 @@ struct exec_state_t {
 
     bool try_to_launch(int id);
 
+    std::chrono::milliseconds io_time_total;
+
+    std::chrono::milliseconds kernel_time_total;
+
     vector<int> just_completed;
 
     queue_t ready_to_run;

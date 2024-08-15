@@ -1,4 +1,5 @@
 #include "exec_state.h"
+#include "gpu/exec_nodes.h"
 
 // #define EXEC_STATE_PRINT
 #define EXEC_STATE_COUNTDOWN
@@ -10,7 +11,7 @@ exec_state_t::exec_state_t(exec_graph_t const&      g,
                            rm_ptr_t                 r,
                            exec_state_t::priority_t p,
                            int                      this_rank)
-    : exec_graph(g), resource_manager(r), ready_to_run(this), this_rank(this_rank)
+    : exec_graph(g), resource_manager(r), ready_to_run(this), this_rank(this_rank), io_time_total(0), kernel_time_total(0)
 {
 #ifdef EXEC_STATE_PRINT
     DLINEOUT("this rank is " << this_rank << " | filecnt " << _filecnt);
@@ -200,7 +201,16 @@ bool exec_state_t::try_to_launch(int id)
     desc_ptr_t     resource_desc = node.resource_description();
     resource_ptr_t resources = resource_manager->try_to_acquire(resource_desc);
     if (resources) {
-        auto callback = [this, id] {
+        auto launchstart = std::chrono::high_resolution_clock::now();
+        auto callback = [this, id, launchstart] {
+            auto launchend = std::chrono::high_resolution_clock::now();
+            auto launchduration = std::chrono::duration_cast<std::chrono::milliseconds>(launchend - launchstart);
+            auto const&    node = exec_graph.nodes[id];
+            if (dynamic_cast<const gpu_load_t*>(node.op.get()) || dynamic_cast<const gpu_evict_t*>(node.op.get())) {
+                io_time_total += launchduration;
+            } else {
+                kernel_time_total += launchduration;
+            }
             {
                 std::unique_lock lk(m_notify);
                 this->just_completed.push_back(id);
@@ -210,6 +220,7 @@ bool exec_state_t::try_to_launch(int id)
         };
         // DOUT("launching " << id);
         node.launch(resources, callback);
+
         is_running.insert({id, resources});
 
         return true;
