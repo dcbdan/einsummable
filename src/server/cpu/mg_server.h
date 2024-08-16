@@ -47,6 +47,13 @@ struct cpu_mg_server_t : server_mg_base_t
     bool for_remap,
     map<string, scalar_t> const& scalar_vars);
 
+  map<int, uint64_t> build_required_workspace_info(
+    taskgraph_t const& taskgraph) 
+  {
+    // TODO: add any workspace if needed
+    return {};
+  }
+
   buffer_t local_copy_data(int tid);
 
   // server, client pairs {{{

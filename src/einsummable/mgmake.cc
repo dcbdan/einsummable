@@ -1267,6 +1267,8 @@ memgraph_make_state_t::add_op(
   // For bookkeeping with a new touch
   optional<int> touch_output_memid;
 
+  bool has_workspace = bool(required_workspace.count(id));
+
   if(node.op.is_apply())
   {
     // DOUT("addop: is apply");
@@ -1298,9 +1300,17 @@ memgraph_make_state_t::add_op(
       used_task_tensors.insert(task_inn);
     }
 
+    optional<mem_t> workspace;
+    if(has_workspace) {
+      int workspace_mid = workspace_tensors.at(id);
+      auto const& alloc = memgraph.nodes[workspace_mid].op.get_alloc();
+      workspace = alloc.as_mem();
+    }
+
     op = op_t(apply_t{
       .loc = loc,
       .mems = mems,
+      .workspace = workspace,
       .op = es,
       .group = -1
     });
@@ -1366,7 +1376,6 @@ memgraph_make_state_t::add_op(
     throw std::runtime_error("should not reach");
   }
 
-  bool has_workspace = bool(required_workspace.count(id));
   if(has_workspace) {
     int const& mid = workspace_tensors.at(id);
     deps.insert(mid);

@@ -46,11 +46,8 @@ cudaGraph_t compile_cuda_graph(
     auto const& node = memgraph.nodes[mid];
 
     deps.resize(0);
-    // TODO TODO TODO for(int const& inn: node.inns) {
-    // TODO TODO TODO   deps.push_back(cnodes[inn]);
-    // TODO TODO TODO }
-    if(mid > 0) {
-      deps.push_back(cnodes[mid-1]);
+    for(int const& inn: node.inns) {
+      deps.push_back(cnodes[inn]);
     }
 
     if(node.op.is_inputmem()   || 
@@ -105,20 +102,8 @@ cudaGraph_t compile_cuda_graph(
       if(!maybe_built) {
         throw std::runtime_error("could not compile einsum");
       }
-
-      uint64_t wsz = 0;
-      auto const& workspace_info = maybe_built.value();
-      if(workspace_info.known()) {
-        wsz = workspace_info.value();
-      } else {
-        // TODO: how do we deal with this case?
-        wsz = dtype_size(e.out_dtype()) * product(e.join_shape);
-      }
-
-      optional<tuple<void*, uint64_t>> workspace;
-      if(wsz > 0) {
-        throw std::runtime_error("workspace is not supported...");
-      } 
+      // maybe_built will also tell us the worksize, but we assume
+      // that has been provided as part of the memgraph
 
       void* global_buffer = mems[device];
       void* out_mem = increment_void_ptr(
@@ -131,6 +116,15 @@ cudaGraph_t compile_cuda_graph(
         inn_mems.push_back(increment_void_ptr(
           global_buffer,
           apply.mems[i].offset));
+      }
+
+      optional<tuple<void*, uint64_t>> workspace;
+      if(apply.workspace) {
+        mem_t const& w = apply.workspace.value();
+        workspace = {
+          increment_void_ptr(global_buffer, w.offset),
+          w.size
+        };
       }
 
       {
@@ -159,6 +153,11 @@ cudaGraph_t compile_cuda_graph(
       auto const& apply = node.op.get_apply();
       auto const& touch = apply.get_touch();
       int const& device = apply.loc;
+
+      if(apply.workspace) {
+        throw std::runtime_error("should not have a workspace for touch");
+      }
+
       if(apply.group >= 0) {
         throw std::runtime_error("touch with group: not implemented");
       } else {
@@ -166,6 +165,7 @@ cudaGraph_t compile_cuda_graph(
           throw std::runtime_error("should not have a castable here");
         }
       }
+
 
       void* out_mem = increment_void_ptr(
         mems[device],

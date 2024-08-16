@@ -12,16 +12,23 @@ struct gpu_mg_server_t : server_mg_base_t
 {
   gpu_mg_server_t(
     communicator_t& c,
+    bool use_cudagraph,
     // one buffer per gpu
     vector<uint64_t> buffer_sizes);
 
   gpu_mg_server_t(
     communicator_t& c,
+    bool use_cudagraph,
     // one buffer per gpu
     vector<uint64_t> buffer_sizes,
     uint64_t storage_size);
 
   ~gpu_mg_server_t();
+
+  void set_use_cudagraph() { _use_cudagraph = true;  }
+  void set_use_execgraph() { _use_cudagraph = false; }
+  bool using_cudagraph() const { return _use_cudagraph;  }
+  bool using_execgraph() const { return !_use_cudagraph; }
 
   bool has_storage() const;
 
@@ -29,6 +36,9 @@ struct gpu_mg_server_t : server_mg_base_t
     memgraph_t const& memgraph,
     bool for_remap,
     map<string, scalar_t> const& scalar_vars);
+
+  map<int, uint64_t> build_required_workspace_info(
+    taskgraph_t const& taskgraph);
 
   // server, client pairs {{{
   make_mg_info_t recv_make_mg_info();
@@ -86,5 +96,7 @@ private:
   int num_streams_per_device = 5;
 
   streampool_t stream_pool;
+
+  bool _use_cudagraph;
 };
 

@@ -10,9 +10,11 @@
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
+  bool use_cudagraph,
   // one buffer per gpu
   vector<uint64_t> buffer_sizes)
-  : server_mg_base_t(c, allocator_settings_t::gpu_alignment_settings())
+  : server_mg_base_t(c, allocator_settings_t::gpu_alignment_settings()),
+    _use_cudagraph(use_cudagraph)
 {
   int this_rank = comm.get_this_rank();
   int world_size = comm.get_world_size();
@@ -89,9 +91,10 @@ gpu_mg_server_t::gpu_mg_server_t(
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
+  bool use_cudagraph,
   vector<uint64_t> buffer_sizes,
   uint64_t storage_size)
-  : gpu_mg_server_t(c, buffer_sizes)
+  : gpu_mg_server_t(c, use_cudagraph, buffer_sizes)
 {
   storage = std::make_shared<gpu_storage_t>(storage_size);
 }
@@ -139,8 +142,7 @@ void gpu_mg_server_t::execute_memgraph(
       << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
   }
 
-  bool use_cudagraph = false;
-  if(use_cudagraph) {
+  if(_use_cudagraph) {
     cudaGraph_t cudagraph = compile_cuda_graph(
       memgraph, 
       kernel_managers,
@@ -245,6 +247,49 @@ void gpu_mg_server_t::execute_memgraph(
   //if (duration2.count() - duration.count() > 10 && !for_remap){
   //  DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
   //}
+}
+
+map<int, uint64_t> gpu_mg_server_t::build_required_workspace_info(
+  taskgraph_t const& taskgraph)
+{
+  if(num_gpus_per_node.size() != 1) {
+    throw std::runtime_error("not implemented for more than one machine");
+  }
+
+  if(!_use_cudagraph) {
+    return {};
+  }
+
+  map<int, uint64_t> ret;
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_apply()) {
+      auto const& a     = node.op.get_apply();
+      int const& device = a.loc;
+      auto const& e     = a.einsummable;
+  
+      auto maybe = kernel_managers[device].build(e);
+      if(!maybe) {
+        throw std::runtime_error(
+          "in build_required_workspace_info: could not compile kernel");
+      }
+
+      auto const& info = maybe.value();
+      if(info.known()) {
+        uint64_t wsz = info.value();
+        if(wsz > 0) {
+          ret.insert({tid, wsz});
+        }
+      } else {
+        // Uh oh, we need a workspace but we don't know how big...
+        // Just assume that the product of the join shape is the size.
+        uint64_t wsz = dtype_size(e.out_dtype()) * product(e.join_shape);
+        ret.insert({tid, wsz});
+      }
+    }
+  }
+
+  return ret;
 }
 
 // memstoloc_t is not a contiguous data structure,

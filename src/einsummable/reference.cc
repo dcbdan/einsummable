@@ -230,7 +230,7 @@ void reference_compute_memgraph(
       }
     } else if(op.is_apply()) {
       auto const& apply = op.get_apply();
-      auto const& [loc, mems, _, group] = apply;
+      auto const& [loc, mems, workspace_mem, _, group] = apply;
 
       dbuffer_t out_buffer = make_dbuffer_at(loc, mems[0], apply.out_dtype());
 

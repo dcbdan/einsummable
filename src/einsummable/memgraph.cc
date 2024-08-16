@@ -333,7 +333,7 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       constant.fill.to_proto(*f);
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
-      auto const& [loc, mems, _, group] = apply;
+      auto const& [loc, mems, workspace, _, group] = apply;
 
       es_proto::MGApply *a = n->mutable_apply();
 
@@ -341,6 +341,12 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
 
       for(auto const& [offset, size]: mems)
       {
+        a->add_mems_offset(offset);
+        a->add_mems_size(size);
+      }
+
+      if(workspace) {
+        auto const& [offset, size] = workspace.value();
         a->add_mems_offset(offset);
         a->add_mems_size(size);
       }
@@ -491,11 +497,31 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
         }
       }();
 
+      optional<mem_t> workspace;
+      if(std::holds_alternative<einsummable_t>(aop)) {
+        auto const& e = std::get<einsummable_t>(aop);
+        if(e.inns.size() + 1 == mems.size()) {
+          // ok, no workspace
+        } else if(e.inns.size() + 2 == mems.size()) {
+          // ok, workspace
+          workspace = mems.back();
+          mems.pop_back();
+        } else {
+          throw std::runtime_error("invalid number of mems");
+        }
+      } else {
+        if(mems.size() != 2) {
+          throw std::runtime_error("touch should have two mems...");
+        }
+      }
+
       op = op_t(apply_t{
-          .loc = a.loc(),
-          .mems = mems,
-          .op = aop,
-          .group = a.group()});
+        .loc = a.loc(),
+        .mems = mems,
+        .workspace = workspace,
+        .op = aop,
+        .group = a.group()
+      });
     } else if(n.has_move()) {
       auto const& m = n.move();
       op = op_t(move_t{

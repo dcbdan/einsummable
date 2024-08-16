@@ -229,6 +229,7 @@ public:
   struct apply_t {
     int loc;
     vector<mem_t> mems;
+    optional<mem_t> workspace;
     std::variant<einsummable_t, touch_t> op;
     int group;
 

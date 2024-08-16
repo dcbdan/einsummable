@@ -693,39 +693,6 @@ void run_matmul(args_t& args, server_base_t* server) {
   DOUT("mean: " << out.sum_to_f64() / double(out.nelem()));
 }
 
-int main(int argc, char** argv) {
-  args_t args(argc, argv);
-  communicator_t communicator("0.0.0.0", true, 1);
-
-  args.set_default<uint64_t>("mem_size", 32);
-  uint64_t GB = 1000lu * 1000lu * 1000lu;
-  uint64_t mem_size = args.get<uint64_t>("mem_size") * GB;
-
-  int num_gpus = args.get<int>("num_gpus");
-  if(num_gpus <= 0 || num_gpus > 8) {
-    throw std::runtime_error("invalid number of gpus (hardcoded max: 8)");
-  }
-
-  vector<uint64_t> buffer_sizes;
-  for (int i = 0; i < num_gpus; ++i){
-    buffer_sizes.push_back(mem_size);
-  }
-
-  std::unique_ptr<server_base_t> server;
-  {
-    gpu_mg_server_t* gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
-
-    DOUT("_______________ will not split off inputs!");
-    gpu_server->set_split_off_inputs(false);
-
-    //gpu_server->set_split_off_inputs(true);
-
-    server = std::unique_ptr<server_base_t>(gpu_server);
-  }
-
-  run_matmul(args, server.get());
-}
-
 void test_workspaces() {
   auto gc = three_dimensional_matrix_multiplication(2, 2, 2, 10, 10, 10, 4);
   //auto gc = three_dimensional_matrix_multiplication(1, 1, 1, 10, 10, 10, 4);
@@ -751,3 +718,39 @@ void test_workspaces() {
   mg.print_graphviz(f);
   DOUT("printed mg.gv");
 }
+
+int main(int argc, char** argv) {
+  args_t args(argc, argv);
+  communicator_t communicator("0.0.0.0", true, 1);
+
+  args.set_default<uint64_t>("mem_size", 32);
+  uint64_t GB = 1000lu * 1000lu * 1000lu;
+  uint64_t mem_size = args.get<uint64_t>("mem_size") * GB;
+
+  int num_gpus = args.get<int>("num_gpus");
+  if(num_gpus <= 0 || num_gpus > 8) {
+    throw std::runtime_error("invalid number of gpus (hardcoded max: 8)");
+  }
+
+  bool use_cudagraph = args.get<bool>("use_cudagraph");
+
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  std::unique_ptr<server_base_t> server;
+  {
+    gpu_mg_server_t* gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes);
+
+    DOUT("_______________ will not split off inputs!");
+    gpu_server->set_split_off_inputs(false);
+
+    //gpu_server->set_split_off_inputs(true);
+
+    server = std::unique_ptr<server_base_t>(gpu_server);
+  }
+
+  run_matmul(args, server.get());
+}
+

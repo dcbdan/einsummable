@@ -14,9 +14,14 @@ void server_mg_base_t::remap_server(remap_relations_t const& remap_relations)
     full_data_locs, remap_gid, gid_to_inn, remap_relations, std::nullopt);
   // after: full_data_locs is with respect to the tasgkraph inns
 
+  // remap memgraphs should not need any workspace as they will not have
+  // any apply nodes, and only taskgraph apply nodes are allowed to 
+  // have workspaces
+  map<int, uint64_t> required_workspace = {}; 
+
   auto [inn_tg_to_loc, out_tg_to_loc, memgraph] =
     memgraph_t::make(
-      taskgraph, {}, which_storage, mem_sizes,
+      taskgraph, required_workspace, which_storage, mem_sizes,
       full_data_locs, alloc_settings, has_storage());
 
   // memgraph now uses wtvr storage ids it chooses... So for each input,
@@ -71,10 +76,21 @@ void server_mg_base_t::execute_tg_server(
   DLINEOUT("storage:           " << has_storage());
   DLINEOUT("inputs everywhere: " << split_off_inputs_);
   DLINEOUT("mem_sizes:         " << mem_sizes);
+ 
+  // some nodes may need workspace!
+  map<int, uint64_t> required_workspace = 
+    build_required_workspace_info(taskgraph);
+  // TODO: this should really require the inputs of 
+  //            all the client servers as well
+  // For now, just throw an error:
+  if(this->comm.get_world_size() > 1) {
+    throw std::runtime_error("build required workspace: only works with world size 1");
+  }
+
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =
     memgraph_t::make_(
-      taskgraph, {}, which_storage, mem_sizes,
+      taskgraph, required_workspace, which_storage, mem_sizes,
       full_data_locs, alloc_settings, has_storage(), split_off_inputs_);
   //delete gremlin;
 

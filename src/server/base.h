@@ -311,6 +311,9 @@ struct server_mg_base_t : server_dist_base_t {
   // the for_remap should be true if the computation is just a remap instead of
   // a general taskgraph
 
+  virtual map<int, uint64_t> build_required_workspace_info(
+    taskgraph_t const& taskgraph) = 0;
+  
   // server, client pairs {{{
   void execute_tg_server(
     taskgraph_t const& taskgraph,
