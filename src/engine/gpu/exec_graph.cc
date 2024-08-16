@@ -66,7 +66,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
     auto is_local_to_here = [&](int mid) {
         for (int i = 0; i != num_gpus_per_node; ++i) {
             int which_gpu = this_rank * num_gpus_per_node + i;
-            // DOUT("Checking if node " << mid << " is local to gpu " << which_gpu);
+            // DOUT("Checking if node " << mid << " is local to gpu " << which_gpu << " This rank: " <<  this_rank << " num_gpus_per_node: " << num_gpus_per_node);
             if (memgraph.is_local_to(mid, which_gpu)) {
                 return true;
             }
@@ -85,7 +85,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
 
     for (int mid = 0; mid != memgraph.nodes.size(); ++mid) {
         if (!is_local_to_here(mid)) {
-            DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
+            // DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
             continue;
         }
 

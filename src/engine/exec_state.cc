@@ -207,8 +207,10 @@ bool exec_state_t::try_to_launch(int id)
             auto launchduration = std::chrono::duration_cast<std::chrono::milliseconds>(launchend - launchstart);
             auto const&    node = exec_graph.nodes[id];
             if (dynamic_cast<const gpu_load_t*>(node.op.get()) || dynamic_cast<const gpu_evict_t*>(node.op.get())) {
+                std::lock_guard<std::mutex> lock(mutex_io_time);
                 io_time_total += launchduration;
             } else {
+                std::lock_guard<std::mutex> lock(mutex_kernel_time);
                 kernel_time_total += launchduration;
             }
             {

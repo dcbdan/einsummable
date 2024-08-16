@@ -54,8 +54,9 @@ struct exec_state_t {
     bool try_to_launch(int id);
 
     std::chrono::milliseconds io_time_total;
-
     std::chrono::milliseconds kernel_time_total;
+    std::mutex mutex_io_time;     // Mutex for IO time
+    std::mutex mutex_kernel_time; // Mutex for Kernel time
 
     vector<int> just_completed;
 
