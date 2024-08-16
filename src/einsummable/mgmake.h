@@ -66,6 +66,7 @@ build_tg_ops(
 struct memgraph_make_state_t {
   memgraph_make_state_t(
     taskgraph_t const& taskgraph,
+    map<int, uint64_t> const& required_workspace,
     vector<int> const& which_storage,
     vector<allocator_t> const& empty_allocators,
     map<int, memstoloc_t>& input_tid_to_data,
@@ -116,14 +117,14 @@ struct memgraph_make_state_t {
   // > return whether or not a delete occurred in one of the register usages
 
   // return whether or not we can bring all of these tids into memory
-  bool allocate_tids_without_evict(vector<int> const& tids);
+  bool allocate_tids_without_evict(vector<int> const& tids, int tid_for_workspace);
 
   // make sure that all of these tids are on memory
-  void force_allocate_tids(vector<int> const& tids);
+  void force_allocate_tids(vector<int> const& tids, int tid_for_workspace);
 
   // Insert an allocate node and return the alloc_t mem id
   int allocate_with_evict(
-    int loc, uint64_t size,
+    int loc, uint64_t size, 
     vector<int> cannot_evict = {});
 
   // Try to insert an allocate node and return the alloc_t mem id
@@ -159,6 +160,8 @@ struct memgraph_make_state_t {
 
   // this tensor was used, see if you can free the memory
   bool register_usage(int task_id);
+  // delete the workspace from here
+  void delete_workspace(int task_id);
 
   int get_group_at(int task_id, int unit_id);
 
@@ -194,6 +197,7 @@ struct memgraph_make_state_t {
   void _task_tensor_to_mem_node_erase(int tid);
 
   taskgraph_t const& taskgraph;
+  map<int, uint64_t> const& required_workspace;
 
   memgraph_t memgraph;
 
@@ -220,6 +224,8 @@ struct memgraph_make_state_t {
   // that tensor while it has been in memory.
   map<int, set<int>> tensors_on_memory;
   // }}}
+
+  map<int, int> workspace_tensors;
 
   // A mapping from (apply || move) taskgraph node to the corresponding
   // apply or move

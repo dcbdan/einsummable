@@ -6,6 +6,7 @@ tuple<
   memgraph_t>
 memgraph_t::make_without_evict(
   taskgraph_t const& taskgraph,
+  map<int, uint64_t> required_workspace,
   vector<uint64_t> mem_sizes,
   allocator_settings_t settings)
 {
@@ -15,7 +16,8 @@ memgraph_t::make_without_evict(
   std::iota(which_storage.begin(), which_storage.end(), 0);
 
   auto [inn_to_memdata, save_to_memdata, memgraph] =
-    make(taskgraph, which_storage, mem_sizes, {}, settings, false);
+    make(taskgraph, required_workspace, which_storage, 
+         mem_sizes, {}, settings, false);
 
   map<int, mem_t> inn_to_mem;
   for(auto const& [tid, memdata]: inn_to_memdata)
@@ -38,6 +40,7 @@ tuple<
   memgraph_t>
 memgraph_t::make(
   taskgraph_t const& graph,
+  map<int, uint64_t> required_workspace,
   vector<int> which_storage,
   vector<uint64_t> mem_sizes,
   map<int, memstoloc_t> init_input_tid_to_data,
@@ -45,7 +48,7 @@ memgraph_t::make(
   bool use_storage)
 {
   auto && [i, o, a_nullopt, m] = make_(
-    graph, which_storage, mem_sizes,
+    graph, required_workspace, which_storage, mem_sizes,
     init_input_tid_to_data, settings, use_storage, false);
   return {std::move(i), std::move(o), std::move(m)};
 }
@@ -131,6 +134,7 @@ tuple<
   memgraph_t>
 memgraph_t::make_(
   taskgraph_t const& taskgraph,
+  map<int, uint64_t> required_workspace,
   vector<int> which_storage,
   vector<uint64_t> mem_sizes,
   map<int, memstoloc_t> input_tid_to_data,
@@ -141,6 +145,12 @@ memgraph_t::make_(
   int n_compute_locs = taskgraph.num_locs();
   if(mem_sizes.size() > n_compute_locs) {
     n_compute_locs = mem_sizes.size();
+  }
+
+  for(auto const& [tid, sz]: required_workspace) {
+    if(!taskgraph.nodes.at(tid).op.is_apply()) {
+      throw std::runtime_error("workspace only for apply nodes");
+    }
   }
 
   if(which_storage.size() == 0) {
@@ -189,6 +199,7 @@ memgraph_t::make_(
 
   memgraph_make_state_t state(
     taskgraph,
+    required_workspace,
     which_storage,
     allocators,
     input_tid_to_data,
@@ -815,13 +826,14 @@ vector<_which_touch_t> get_which_touches_from_to(
 
 memgraph_make_state_t::memgraph_make_state_t(
   taskgraph_t const& tg,
+  map<int, uint64_t> const& rws,
   vector<int> const& which_storage,
   vector<allocator_t> const& as,
   map<int, memstoloc_t>& ittd,
   int num_compute,
   int num_storage,
   bool use_storage)
-  : taskgraph(tg),
+  : taskgraph(tg), required_workspace(rws),
     memgraph(num_compute, num_storage, which_storage),
     allocators(as),
     _group(0),
@@ -1028,14 +1040,16 @@ bool memgraph_make_state_t::allocate_op(
   }
 
   if(force) {
-    force_allocate_tids(used_tids);
+    force_allocate_tids(used_tids, id);
     return true;
   } else {
-    return allocate_tids_without_evict(used_tids);
+    return allocate_tids_without_evict(used_tids, id);
   }
 }
 
-bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_tids)
+bool memgraph_make_state_t::allocate_tids_without_evict(
+  vector<int> const& used_tids,
+  int tid_for_workspace)
 {
   // Note: it may be the case that these tids do not all belong to the
   //       same memory location!
@@ -1096,6 +1110,22 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
     }
   }
 
+  optional<tuple<uint64_t, set<int>>> workspace_alloc = std::nullopt;
+  if(!failed) {
+    auto iter = required_workspace.find(tid_for_workspace);
+    if(iter != required_workspace.end()) {
+      auto const& node = taskgraph.nodes[tid_for_workspace];
+      int loc = node.op.out_loc();
+      uint64_t size = node.op.out_size();
+      auto maybe = do_allocate(loc, size);
+      if(maybe) {
+        workspace_alloc = maybe.value();
+      } else {
+        failed = true;
+      }
+    }
+  }
+
   if(failed) {
     for(int loc = 0; loc != allocators.size(); ++loc) {
       auto& save = saves[loc];
@@ -1137,10 +1167,26 @@ bool memgraph_make_state_t::allocate_tids_without_evict(vector<int> const& used_
     }
   }
 
+  if(workspace_alloc) {
+    int const& tid = tid_for_workspace;
+    auto const& [offset, deps] = workspace_alloc.value();
+    uint64_t const& size = required_workspace.at(tid);
+    int loc = taskgraph.out_loc(tid);
+
+    alloc_t alloc{
+      .loc = loc,
+      .offset = offset,
+      .size =  size
+    };
+    int mid = memgraph.insert(op_t(alloc), deps);
+    workspace_tensors.insert({tid, mid});
+  }
+
   return true;
 }
 
-void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
+void memgraph_make_state_t::force_allocate_tids(
+  vector<int> const& tids, int tid_for_workspace)
 {
   for(int const& tid: tids) {
     auto const& node = taskgraph.nodes[tid];
@@ -1166,11 +1212,19 @@ void memgraph_make_state_t::force_allocate_tids(vector<int> const& tids)
       int loc = node.op.out_loc();
       uint64_t size = node.op.out_size();
       int alloc_mid = allocate_with_evict(loc, size, tids);
-      mem_t alloc_mem = memgraph.nodes[alloc_mid].op.get_alloc().as_mem();
       // make sure to add the memid into task_tensor_to_mem_node
       // so we don't keep allocating this output memory!
       task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
     }
+  }
+
+  auto iter = required_workspace.find(tid_for_workspace);
+  if(iter != required_workspace.end()) {
+    auto const& node = taskgraph.nodes[tid_for_workspace];
+    int loc = node.op.out_loc();
+    uint64_t size = node.op.out_size();
+    int alloc_mid = allocate_with_evict(loc, size, tids);
+    workspace_tensors.insert({tid_for_workspace, alloc_mid});
   }
 }
 
@@ -1312,6 +1366,12 @@ memgraph_make_state_t::add_op(
     throw std::runtime_error("should not reach");
   }
 
+  bool has_workspace = bool(required_workspace.count(id));
+  if(has_workspace) {
+    int const& mid = workspace_tensors.at(id);
+    deps.insert(mid);
+  }
+
   int new_memid = memgraph.insert(op.value(), deps);
 
 #ifdef USE_LOCATIONWISE_APPLY_ORDERING
@@ -1381,6 +1441,10 @@ memgraph_make_state_t::add_op(
   {
     bool has_delete = register_usage(used_task_id);
     just_deleted = just_deleted || has_delete;
+  }
+  if(has_workspace) {
+    delete_workspace(id);
+    just_deleted = true;
   }
 
   return just_deleted;
@@ -1583,6 +1647,36 @@ bool memgraph_make_state_t::register_usage(int task_id)
     return true;
   }
   return false;
+}
+
+void memgraph_make_state_t::delete_workspace(int tid) {
+  int mid_op = task_tensor_to_mem_node.at(tid);
+
+  memstoloc_t data;
+  {
+    auto iter = workspace_tensors.find(tid);
+    if(iter == workspace_tensors.end()) {
+      throw std::runtime_error("workspace_tensor not available for deletion");
+    }
+
+    int const& mid = iter->second;
+    data = memgraph.nodes[mid].op.get_output_memstoloc();
+
+    workspace_tensors.erase(iter);
+  }
+
+  if(data.is_stoloc()) {
+    throw std::runtime_error("should not have stoloc workspace");
+  }
+
+  memloc_t memloc = data.get_memloc();
+  del_t del = del_t::from_memloc(memloc);
+
+  int del_id = memgraph.insert(op_t(del), set<int>{ mid_op});
+
+  allocators.at(memloc.loc).free(memloc.offset, del_id);
+
+  workspace_tensors.erase(tid);
 }
 
 void memgraph_make_state_t::task_tensor_to_mem_node_insert_on_storage(

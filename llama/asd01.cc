@@ -506,7 +506,7 @@ void exp_super(int argc, char** argv) {
 
   auto [_0, _1, taskgraph] = taskgraph_t::make(graph, pls);
   auto [_2, _3, memgraph] = memgraph_t::make_without_evict(
-    taskgraph, 
+    taskgraph, {}, 
     vector<uint64_t>(num_gpu, mem_size));
 
   super_graph_t super = create_super_graph(memgraph);
@@ -724,4 +724,30 @@ int main(int argc, char** argv) {
   }
 
   run_matmul(args, server.get());
+}
+
+void test_workspaces() {
+  auto gc = three_dimensional_matrix_multiplication(2, 2, 2, 10, 10, 10, 4);
+  //auto gc = three_dimensional_matrix_multiplication(1, 1, 1, 10, 10, 10, 4);
+
+  auto const& [_0, _1, tg] = taskgraph_t::make(
+    gc.graph,
+    gc.get_placements());
+
+  int x = 0;
+  map<int, uint64_t> workspaces;
+  for(int tid = 0; tid != tg.nodes.size(); ++tid) {
+    auto const& node = tg.nodes[tid];
+    if(node.op.is_apply() && (x++) % 2 == 0) {
+      workspaces.insert({tid, 10*10*4});
+    }
+  }
+
+  vector<uint64_t> mem_sizes(4, 1800); // 1000lu*1000lu*1000lu);
+  vector<int> which_storage(4, 0);
+  auto const& [_2, _3, mg] = memgraph_t::make(tg, workspaces, which_storage, mem_sizes);
+
+  std::ofstream f("mg.gv");
+  mg.print_graphviz(f);
+  DOUT("printed mg.gv");
 }
