@@ -189,10 +189,6 @@ void gpu_mg_server_t::execute_memgraph(
   // DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
-  //  exec_graph_t::make_gpu_super_exec_graph(
-  //    memgraph, comm.get_this_rank(), kernel_managers, 
-  //    num_gpus_per_node[comm.get_this_rank()], mems,
-  //    scalar_vars);
     exec_graph_t::make_gpu_exec_graph(
       memgraph, comm.get_this_rank(), kernel_managers,
       num_gpus_per_node[comm.get_this_rank()], mems,
@@ -200,7 +196,6 @@ void gpu_mg_server_t::execute_memgraph(
 
   vector<rm_ptr_t> rms {
     rm_ptr_t(new gpu_workspace_manager_t()),
-    rm_ptr_t(new group_manager_t()),
     rm_ptr_t(new global_buffers_t(mems)),
     rm_ptr_t(new streampool_manager_t(stream_pool))
   };

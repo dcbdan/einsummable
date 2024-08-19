@@ -634,7 +634,7 @@ void run_matmul(args_t& args, server_base_t* server) {
   //graph_constructor_t gc = straight_matrix_multiplication(1, 1, 1, 10, 10, 10); 
 
   graph_constructor_t gc = three_dimensional_matrix_multiplication(
-    4, 1, 4, 2500, 10000, 2500,
+    4, 4, 4, 2500, 2500, 2500,
     args.get<int>("num_gpus"));
 
   //graph_constructor_t gc = three_dimensional_matrix_multiplication(

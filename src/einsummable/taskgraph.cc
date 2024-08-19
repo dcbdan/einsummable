@@ -3615,7 +3615,7 @@ bool taskgraph_t::partialize_t::does_agg() const {
 optional<castable_t> taskgraph_t::partialize_t::get_agg_castable() const {
   optional<castable_t> ret;
   for(auto const& unit: units) {
-    if(inputs.size() > 1) {
+    if(unit.inputs.size() > 1) {
       if(!unit.castable) {
         throw std::runtime_error("must have castable in this unit");
       }

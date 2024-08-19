@@ -999,7 +999,7 @@ bool memgraph_make_state_t::allocate_op(
       auto const& partialize = taskgraph.nodes[id].op.get_partialize();
       optional<castable_t> maybe = partialize.get_agg_castable();
       if(maybe) {
-        castable_t const& c = maybe.get_value();
+        castable_t const& c = maybe.value();
         scalar_t val;
         if(maybe == castable_t::add) {
           // fill with zero
@@ -1014,7 +1014,7 @@ bool memgraph_make_state_t::allocate_op(
           val = scalar_t::negative_inf(partialize.dtype);
         }
 
-        memory_fill = fill_t::make_constant(value, partialize.write_shape);
+        memory_fill = fill_t::make_constant(val, partialize.write_shape);
       }
     }
   }
@@ -1085,15 +1085,15 @@ bool memgraph_make_state_t::allocate_op(
     }
 
     constant_t constant {
-      .loc = alloc.loc
+      .loc = alloc.loc,
       .offset = alloc.offset,
       .fill = fill
-    }
+    };
     
     int fill_mid = memgraph.insert(op_t(constant), { alloc_mid });
 
     // update the actual mid of the node
-    task_tensor_to_mem_node[id] = fill_mid
+    task_tensor_to_mem_node[id] = fill_mid;
   }
 
   return ret;

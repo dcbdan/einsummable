@@ -3,7 +3,9 @@
 #include <cstdio>
 #include <cuComplex.h>
 #include <cuda_runtime_api.h>
+#include <cuda/atomic>
 #include <sys/types.h>
+#include <cuda_fp16.h>
 
 struct FunctorCopy {
   __device__ void operator()(__half& a, const __half& b) const {
@@ -229,11 +231,11 @@ __global__ void touch4(
         outY * t2_d_out * t3_d_out +
         outZ * t3_d_out + outW;
       if(dtype_info==0){
-        ((__half*)out)[outIndex] = f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
+        f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
       }else if(dtype_info==1){
-        ((float*)out)[outIndex] = f(((float*)out)[outIndex],((float*)in)[inIndex]);
+        f(((float*)out)[outIndex],((float*)in)[inIndex]);
       }else if(dtype_info==2){
-        ((double*)out)[outIndex] = f(((double*)out)[outIndex],((double*)in)[inIndex]);
+        f(((double*)out)[outIndex],((double*)in)[inIndex]);
       }else if(dtype_info==3){
         f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
       }

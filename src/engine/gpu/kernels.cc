@@ -93,7 +93,7 @@ void launch_touch_kernel(
   int dtype_info;
   if(dtype == dtype_t::f16) {
     dtype_info = 0;
-  if(dtype == dtype_t::f32) {
+  } else if(dtype == dtype_t::f32) {
     dtype_info = 1;
   } else if(dtype == dtype_t::f64) {
     dtype_info = 2;

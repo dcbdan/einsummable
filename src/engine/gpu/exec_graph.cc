@@ -153,9 +153,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   vector<void*> gpu_mems,
   map<string, scalar_t> const& scalar_vars)
 {
-  // string file_name = "gpu_mg" + std::to_string(w++) + ".gv";
-  // std::ofstream f(file_name);
-  // memgraph.print_graphviz(f);
   exec_graph_t graph;
 
   map<int, int> mid_to_eid;
@@ -202,21 +199,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     return false;
   };
 
-  // std::unordered_set<einsummable_t> all_einsums;
-
-  int evict_count = 0, load_count = 0, move_count = 0;
-  uint64_t evict_bytes = 0, load_bytes = 0, move_bytes = 0;
-
-  std::unordered_map<string, einsummable_t> einsums_not_compiled;
-  // open a file
-  std::ofstream failed_einsums;
-  failed_einsums.open("failed_einsums.txt");
-
-  int num_deletes = 0;
-
-  std::ofstream e_flops;
-  e_flops.open("einsum_flops.txt");
-
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
       if(!memgraph.nodes[mid].op.is_inputsto()) {
@@ -227,12 +209,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
     auto const& node = memgraph.nodes[mid];
 
-    if (node.op.is_del()){
-      num_deletes++;
-    }
-
     if(is_dummy(node)){
-      // DOUT("Skipping dummy node " << mid);
       continue;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
@@ -247,25 +224,12 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           .replace_scalar_variables(scalar_vars)
           .merge_adjacent_dims();
 
-        
-        e_flops << "einsum: " << einsum << std::endl;
-        e_flops << "flops: " << product(einsum.join_shape) << std::endl;
-
         // build the op (except the workspace size)
 
         // Note: op->einsummable and einsum should be the same here
-        // DOUT("Einsummable: " << einsum);
         auto maybe_built = gpu_kms[loc].build(einsum);
         if(!maybe_built) {
-          // if we can't build it, we record it and pretend it's a dummy
-          string e_string = einsum.str();
-          if (einsums_not_compiled.find(e_string) == einsums_not_compiled.end()){
-            einsums_not_compiled.emplace(e_string, einsum);
-            failed_einsums << "einsum:" << einsum << std::endl;
-          }
-          op_ptr_t op = std::make_shared<dummy_t>();
-          insert(op, mid);
-          continue;
+          throw std::runtime_error("could not build einsum: exec graph gpu make");
         }
 
         gpu_einsummable_t* op = new gpu_einsummable_t(
@@ -278,7 +242,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         
         auto workspace_info = maybe_built.value();
         if (workspace_info.known()){
-          // DOUT(einsum << " workspace size: " << workspace_info.value());
           op->workspace_size = workspace_info.value();
         }
         else{
@@ -286,7 +249,6 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
         // insert into the graph
         insert(op_ptr_t(op), mid);
-        // DOUT("Inserted einsummable op for node " << mid);
       } else if(apply.is_touch()) {
         gpu_touch_t* op = new gpu_touch_t(
           gpu_kms[loc],
@@ -304,15 +266,12 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         }
 
         insert(op_ptr_t(op), mid);
-        // DOUT("Inserted touch op for node " << mid);
       } else {
         throw std::runtime_error("should not reach: node op is apply but not einsummable or touch");
       }
     } else if(node.op.is_move()) {
       // check if the move is local to this gpu
       auto const& move = node.op.get_move();
-      move_count++;
-      move_bytes += node.op.get_move().size;
       auto const& src = move.get_src_loc();
       auto const& dst = move.get_dst_loc();
       if (std::floor(src/num_gpus_per_node) != std::floor(dst/num_gpus_per_node)) {
@@ -320,19 +279,12 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       }
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
-      // DOUT("Inserted copy op for node " << mid);
     } else if(node.op.is_evict()) {
-      evict_count++;
-      evict_bytes += node.op.get_evict().src.size;
       gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
       insert(op_ptr_t(op), mid);
-      // DOUT("Inserted evict op for node " << mid);
     } else if(node.op.is_load()) {
-      load_count++;
-      load_bytes += node.op.get_load().dst.size;
       gpu_load_t* op = new gpu_load_t(node.op.get_load());
       insert(op_ptr_t(op), mid);
-      // DOUT("Inserted load op for node " << mid);
     } else if(node.op.is_constant()) {
       // could be a constant or a lower triangular fill
       auto loc = node.op.get_constant().loc;
@@ -340,11 +292,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       if(fill.is_constant()) {
         gpu_constant_t* op = new gpu_constant_t(gpu_kms[loc], node.op.get_constant());
         insert(op_ptr_t(op), mid);
-        // DOUT("Inserted constant op for node " << mid);
       } else if(fill.is_lowertri()) {
         gpu_lowerTri_t* op = new gpu_lowerTri_t(gpu_kms[loc], node.op.get_constant());
         insert(op_ptr_t(op), mid);
-        // DOUT("Inserted lowerTri op for node " << mid);
       } else {
         throw std::runtime_error("should not reach: constant fill is neither constant nor lowertri");
       }
@@ -352,28 +302,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       throw std::runtime_error("unknown (and unimplemented) op in the memgraph");
     }
   }
-  // Debug: print the exec_graph
-  // print_exec_graph(graph);
-  if (einsums_not_compiled.size() > 0){
-    DOUT("The following einsums were not compiled:");
-    for (auto [e_string, e_value]: einsums_not_compiled){
-      DOUT("einsum: " << e_value);
-      DOUT("einsum simplified: " << e_value.join.simplify().to_cppstr());
-      DOUT("einsum inns: " << e_value.inns);
-      DOUT("einsum out rank: " << e_value.out_rank);
-      DOUT("einsum join: " << e_value.join);
-      DOUT("einsum castable: " << e_value.castable);
-      DOUT("einsum join shape: " << e_value.join_shape);
-    }
-    throw std::runtime_error("GPU KM could not compile some kernels");
-  }
-  // close the file
-  failed_einsums.close();
 
-  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
-  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n, move_count: %d, move_bytes: %lu\n",
-    evict_count, evict_bytes, load_count, load_bytes, move_count, move_bytes);
-  fprintf(stdout, "Number of deletes: %d\n", num_deletes);
   return graph;
 }
 
@@ -688,15 +617,10 @@ gpu_touch_t::resource_description() const
 {
   // 1st: gpu memory ptr
   // 2nd: a stream
-  // 3rd: a group id (if group_id >= 0)
   vector<desc_ptr_t> ret;
   ret.emplace_back(global_buffers_t::make_desc(device));
 
   ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
-
-  if(group_id >= 0) {
-    ret.emplace_back(group_manager_t::make_desc(group_id));
-  }
 
   return resource_manager_t::make_desc(ret);
 }
@@ -723,18 +647,6 @@ void gpu_touch_t::launch(
   // DOUT("Touch Output offset: " << mems[0].offset);
   // DOUT("Touch Input offset: " << mems[1].offset);
 
-  bool is_first = false;
-  if(group_id >= 0) {
-    tuple<int, bool> const& info = group_manager_t::get_resource(resources[2]);
-    is_first = std::get<1>(info);
-  }
-
-  touch_t this_touch = touch;
-  if(is_first) {
-    // if this is the first touch, make sure the touch becomes a copy
-    this_touch.castable = std::nullopt;
-  }
-
   // create stream and launch
   // cudaSetDevice(device);
   // cudaStream_t stream = cuda_create_stream();
@@ -743,7 +655,7 @@ void gpu_touch_t::launch(
   cudaEventRecord(start, stream);
 
   gpu_km(
-    this_touch,
+    touch,
     stream,
     out_mem,
     inn_mem);
