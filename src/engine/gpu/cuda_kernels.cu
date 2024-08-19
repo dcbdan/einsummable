@@ -5,94 +5,95 @@
 #include <cuda_runtime_api.h>
 #include <sys/types.h>
 
-struct FunctorNone {
-  __device__ __half operator()(const __half& a, const __half& b) const {
-    return b;
+struct FunctorCopy {
+  __device__ void operator()(__half& a, const __half& b) const {
+    a = b;
   }
 
-  __device__ float operator()(const float& a, const float& b) const {
-    return b;
+  __device__ void operator()(float& a, const float& b) const {
+    a = b;
   }
 
-  __device__ double operator()(const double& a, const double& b) const {
-    return b;
+  __device__ void operator()(double& a, const double& b) const {
+    a = b;
   }
 
-  __device__ cuFloatComplex operator()(const cuFloatComplex& a, const cuFloatComplex& b) const {
-    return b;
+  __device__ void operator()(cuFloatComplex& a, const cuFloatComplex& b) const {
+    a = b;
   }
 };
 
 struct FunctorAdd {
-  __device__ __half operator()(const __half& a, const __half& b) const {
-    return __hadd(a,b);
+  __device__ void operator()(__half& a, const __half& b) const {
+    atomicAdd(&a, b);
   }
 
-  __device__ float operator()(const float& a, const float& b) const {
-    return a+b;
+  __device__ void operator()(float& a, const float& b) const {
+    atomicAdd(&a, b);
   }
 
-  __device__ double operator()(const double& a, const double& b) const {
-    return a+b;
+  __device__ void operator()(double& a, const double& b) const {
+    atomicAdd(&a, b);
   }
 
-  __device__ cuFloatComplex operator()(const cuFloatComplex& a, const cuFloatComplex& b) const {
-    return cuCaddf(a,b);
-  }
-};
-
-struct FunctorMul {
-  __device__ __half operator()(const __half& a, const __half& b) const {
-    return __hmul(a,b);
-  }
-
-  __device__ float operator()(const float& a, const float& b) const {
-    return a*b;
-  }
-
-  __device__ double operator()(const double& a, const double& b) const {
-    return a*b;
-  }
-
-  __device__ cuFloatComplex operator()(const cuFloatComplex& a, const cuFloatComplex& b) const {
-    return cuCmulf(a,b);
+  __device__ void operator()(cuFloatComplex& a, const cuFloatComplex& b) const {
+    float* ar = (float*)&a;
+    float* ai = ar + 1;
+    float const* br = (float const*)&b;
+    float const* bi = br + 1;
+    atomicAdd(ar, *br);
+    atomicAdd(ai, *bi);
   }
 };
 
 struct FunctorMin {
-  __device__ __half operator()(const __half& a, const __half& b) const {
-    return __hlt(a, b) ? a : b;
+  __device__ void operator()(__half& a, const __half& b) const {
+    //return __hlt(a, b) ? a : b;
+    while(a > b) {
+      a = b;
+    }
   }
 
-  __device__ float operator()(const float& a, const float& b) const {
-    return fminf(a,b);
+  __device__ void operator()(float& a, const float& b) const {
+    //return fminf(a,b);
+    while(a > b) {
+      a = b;
+    }
   }
 
-  __device__ double operator()(const double& a, const double& b) const {
-    return fmin(a,b);
+  __device__ void operator()(double& a, const double& b) const {
+    //return fmin(a,b);
+    while(a > b) {
+      a = b;
+    }
   }
 
-  __device__ cuFloatComplex operator()(const cuFloatComplex& a, const cuFloatComplex& b) const {
-    return b;
-  }
+  __device__ void operator()(cuFloatComplex& a, const cuFloatComplex& b) const {}
 };
 
 struct FunctorMax {
-  __device__ __half operator()(const __half& a, const __half& b) const {
-    return __hgt(a, b) ? a : b;
+  __device__ void operator()(__half& a, const __half& b) const {
+    //return __hgt(a, b) ? a : b;
+    while(a < b) {
+      a = b;
+    }
   }
 
-  __device__ float operator()(const float& a, const float& b) const {
-    return fmaxf(a,b);
+  __device__ void operator()(float& a, const float& b) const {
+    //return fmaxf(a,b);
+    while(a < b) {
+      a = b;
+    }
   }
 
-  __device__ double operator()(const double& a, const double& b) const {
-    return fmax(a,b);
+  __device__ void operator()(double& a, const double& b) const {
+    //return fmax(a,b);
+    while(a < b) {
+      a = b;
+    }
   }
 
-  __device__ cuFloatComplex operator()(const cuFloatComplex& a, const cuFloatComplex& b) const {
-    return b;
-  }
+  __device__ void operator()(cuFloatComplex& a, const cuFloatComplex& b) const {}
 };
 
 
@@ -113,16 +114,14 @@ __global__ void touch1(
 
   if(index<t0_size){
     if(dtype_info==0){
-      ((__half*)out)[outIndex] = f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
+      f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
     }else if(dtype_info==1){
-      ((float*)out)[outIndex] = f(((float*)out)[outIndex],((float*)in)[inIndex]);
+      f(((float*)out)[outIndex],((float*)in)[inIndex]);
     }else if(dtype_info==2){
-      ((double*)out)[outIndex] = f(((double*)out)[outIndex],((double*)in)[inIndex]);
+      f(((double*)out)[outIndex],((double*)in)[inIndex]);
+    }else if(dtype_info==3){
+      f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);    
     }
-    else if(dtype_info==3){
-      ((cuFloatComplex*)out)[outIndex] = f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
-    }
-    
   }
 }
 
@@ -147,14 +146,13 @@ __global__ void touch2(
     uint64_t inIndex = inRow * t1_d_inn + inCol;
     uint64_t outIndex = outRow * t1_d_out + outCol;
     if(dtype_info==0){
-      ((__half*)out)[outIndex] = f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
+      f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
     }else if(dtype_info==1){
-      ((float*)out)[outIndex] = f(((float*)out)[outIndex],((float*)in)[inIndex]);
+      f(((float*)out)[outIndex],((float*)in)[inIndex]);
     }else if(dtype_info==2){
-      ((double*)out)[outIndex] = f(((double*)out)[outIndex],((double*)in)[inIndex]);
-    }
-    else if(dtype_info==3){
-      ((cuFloatComplex*)out)[outIndex] = f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
+      f(((double*)out)[outIndex],((double*)in)[inIndex]);
+    }else if(dtype_info==3){
+      f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
     }
   }
 }
@@ -184,14 +182,13 @@ __global__ void touch3(
     uint64_t inIndex = inX * t1_d_inn *t2_d_inn+ inY*t2_d_inn+inZ;
     uint64_t outIndex = outX * t1_d_out *t2_d_out+ outY*t2_d_out+outZ;
     if(dtype_info==0){
-      ((__half*)out)[outIndex] = f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
+      f(((__half*)out)[outIndex],((__half*)in)[inIndex]);
     }else if(dtype_info==1){
-      ((float*)out)[outIndex] = f(((float*)out)[outIndex],((float*)in)[inIndex]);
+      f(((float*)out)[outIndex],((float*)in)[inIndex]);
     }else if(dtype_info==2){
-      ((double*)out)[outIndex] = f(((double*)out)[outIndex],((double*)in)[inIndex]);
-    }
-    else if(dtype_info==3){
-      ((cuFloatComplex*)out)[outIndex] = f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
+      f(((double*)out)[outIndex],((double*)in)[inIndex]);
+    }else if(dtype_info==3){
+      f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
     }
   }
 }
@@ -237,9 +234,8 @@ __global__ void touch4(
         ((float*)out)[outIndex] = f(((float*)out)[outIndex],((float*)in)[inIndex]);
       }else if(dtype_info==2){
         ((double*)out)[outIndex] = f(((double*)out)[outIndex],((double*)in)[inIndex]);
-      }
-      else if(dtype_info==3){
-        ((cuFloatComplex*)out)[outIndex] = f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
+      }else if(dtype_info==3){
+        f(((cuFloatComplex*)out)[outIndex],((cuFloatComplex*)in)[inIndex]);
       }
     }
   }
@@ -267,7 +263,7 @@ void touch1_dispatch(
       t0_size,
       t0_d_inn,
       t0_d_out,
-      FunctorNone(),dtype_info);
+      FunctorCopy(),dtype_info);
   }
   else if(choice==1) {
     touch1<<<gridSize, blockSize,0,stream>>>(
@@ -280,14 +276,14 @@ void touch1_dispatch(
       FunctorAdd(),dtype_info);
   }
   else if(choice==2) {
-    touch1<<<gridSize, blockSize,0,stream>>>(
-      out, in,
-      t0_offset_inn,
-      t0_offset_out,
-      t0_size,
-      t0_d_inn,
-      t0_d_out,
-      FunctorMul(),dtype_info);
+  //  touch1<<<gridSize, blockSize,0,stream>>>(
+  //    out, in,
+  //    t0_offset_inn,
+  //    t0_offset_out,
+  //    t0_size,
+  //    t0_d_inn,
+  //    t0_d_out,
+  //    FunctorMul(),dtype_info);
   }
   else if(choice==3) {
     touch1<<<gridSize, blockSize,0,stream>>>(
@@ -309,8 +305,6 @@ void touch1_dispatch(
       t0_d_out,
       FunctorMax(),dtype_info);
   }
-
-
 }
 
 void touch2_dispatch(
@@ -334,7 +328,7 @@ void touch2_dispatch(
       t0_offset_out, t1_offset_out,
       t0_size, t1_size,
       t1_d_inn, t1_d_out,
-      FunctorNone(),dtype_info);
+      FunctorCopy(),dtype_info);
   }
   else if(choice==1) {
     touch2<<<gridSize, blockSize,0,stream>>>(
@@ -346,13 +340,13 @@ void touch2_dispatch(
       FunctorAdd(),dtype_info);
   }
   else if(choice==2) {
-    touch2<<<gridSize, blockSize,0,stream>>>(
-      out, in,
-      t0_offset_inn, t1_offset_inn,
-      t0_offset_out, t1_offset_out,
-      t0_size, t1_size,
-      t1_d_inn, t1_d_out,
-      FunctorMul(),dtype_info);
+  //  touch2<<<gridSize, blockSize,0,stream>>>(
+  //    out, in,
+  //    t0_offset_inn, t1_offset_inn,
+  //    t0_offset_out, t1_offset_out,
+  //    t0_size, t1_size,
+  //    t1_d_inn, t1_d_out,
+  //    FunctorMul(),dtype_info);
   }
   else if(choice==3) {
     touch2<<<gridSize, blockSize,0,stream>>>(
@@ -397,7 +391,7 @@ void touch3_dispatch(
       t0_size, t1_size, t2_size,
       t1_d_inn, t1_d_out,
       t2_d_inn, t2_d_out,
-      FunctorNone(),dtype_info);
+      FunctorCopy(),dtype_info);
   }
   else if(choice==1) {
     touch3<<<gridSize, blockSize,0,stream>>>(
@@ -410,14 +404,14 @@ void touch3_dispatch(
       FunctorAdd(),dtype_info);
   }
   else if(choice==2) {
-    touch3<<<gridSize, blockSize,0,stream>>>(
-      out, in,
-      t0_offset_inn, t1_offset_inn, t2_offset_inn,
-      t0_offset_out, t1_offset_out, t2_offset_out,
-      t0_size, t1_size, t2_size,
-      t1_d_inn, t1_d_out,
-      t2_d_inn, t2_d_out,
-      FunctorMul(),dtype_info);
+  //  touch3<<<gridSize, blockSize,0,stream>>>(
+  //    out, in,
+  //    t0_offset_inn, t1_offset_inn, t2_offset_inn,
+  //    t0_offset_out, t1_offset_out, t2_offset_out,
+  //    t0_size, t1_size, t2_size,
+  //    t1_d_inn, t1_d_out,
+  //    t2_d_inn, t2_d_out,
+  //    FunctorMul(),dtype_info);
   }
   else if(choice==3) {
     touch3<<<gridSize, blockSize,0,stream>>>(
@@ -466,7 +460,7 @@ void touch4_dispatch(
       t1_d_inn, t1_d_out,
       t2_d_inn, t2_d_out,
       t3_d_inn, t3_d_out,
-      FunctorNone(),dtype_info);
+      FunctorCopy(),dtype_info);
   }
   else if(choice==1) {
     touch4<<<gridSize, blockSize,0,stream>>>(
@@ -480,15 +474,15 @@ void touch4_dispatch(
       FunctorAdd(),dtype_info);
   }
   else if(choice==2) {
-    touch4<<<gridSize, blockSize,0,stream>>>(
-      out, in,
-      t0_offset_inn, t1_offset_inn, t2_offset_inn, t3_offset_inn, t0_offset_out,
-      t1_offset_out, t2_offset_out, t3_offset_out,
-      t0_size, t1_size, t2_size, t3_size,
-      t1_d_inn, t1_d_out,
-      t2_d_inn, t2_d_out,
-      t3_d_inn, t3_d_out,
-      FunctorMul(),dtype_info);
+  //  touch4<<<gridSize, blockSize,0,stream>>>(
+  //    out, in,
+  //    t0_offset_inn, t1_offset_inn, t2_offset_inn, t3_offset_inn, t0_offset_out,
+  //    t1_offset_out, t2_offset_out, t3_offset_out,
+  //    t0_size, t1_size, t2_size, t3_size,
+  //    t1_d_inn, t1_d_out,
+  //    t2_d_inn, t2_d_out,
+  //    t3_d_inn, t3_d_out,
+  //    FunctorMul(),dtype_info);
   }
   else if(choice==3) {
     touch4<<<gridSize, blockSize,0,stream>>>(

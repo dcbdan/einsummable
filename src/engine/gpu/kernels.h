@@ -12,9 +12,6 @@
 
 #include "utility.h"
 
-using touch_kernel_t = std::function<
-    void(cudaStream_t, void*, void const*)
-  >;
 using cutensor_kernel_t = std::function<
     void(cudaStream_t, cutensorHandle_t, void*, vector<void const*>, void*, uint64_t)
   >;
@@ -32,9 +29,6 @@ using void_cuda_kernel_t = std::function<
 >;
 
 //using cutensor_scalarop_t = scalar_ns::cutensor_scalarop_t;
-
-
-touch_kernel_t build_touch(touch_t const& touch);
 
 void launch_touch_kernel(
   touch_t const& touch,

@@ -80,43 +80,6 @@ void touch4(touchdim_t const& t0, touchdim_t const& t1,
     } \
   }()
 
-touch_kernel_t build_touch(touch_t const& touch_)
-{
-  touch_t touch = touch_.simplify();
-
-  auto const& ts = touch.selection;
-
-  int dtype_info = 0;
-
-  auto const& dtype = touch.dtype;
-
-  if(dtype == dtype_t::f32) {
-    dtype_info = 1;
-  } else if(dtype == dtype_t::f64) {
-    dtype_info = 2;
-  } else if(dtype == dtype_t::c64) {
-    dtype_info = 3;
-  }
-
-  if(ts.size() == 1) {
-    return _touch_dispatch(1);
-  }
-
-  if(ts.size() == 2) {
-    return _touch_dispatch(2);
-  }
-
-  if(ts.size() == 3) {
-    return _touch_dispatch(3);
-  }
-
-  if(ts.size() == 4) {
-    return _touch_dispatch(4);
-  }
-
-  throw std::runtime_error("touch kernel not implemented");
-}
-
 void launch_touch_kernel(
   touch_t const& touch_,
   cudaStream_t stream,
@@ -124,13 +87,12 @@ void launch_touch_kernel(
   void const* inn)
 {
   touch_t touch = touch_.simplify();
-
   auto const& ts = touch.selection;
-
-  int dtype_info = 0;
-
   auto const& dtype = touch.dtype;
 
+  int dtype_info;
+  if(dtype == dtype_t::f16) {
+    dtype_info = 0;
   if(dtype == dtype_t::f32) {
     dtype_info = 1;
   } else if(dtype == dtype_t::f64) {
@@ -145,7 +107,7 @@ void launch_touch_kernel(
     if(c == castable_t::add) { 
       choice = 1;
     } else if(c == castable_t::mul) { 
-      choice = 2;
+      throw std::runtime_error("FunctorMul has been removed!");
     } else if(c == castable_t::min) { 
       choice = 3;
     } else if(c == castable_t::max) { 
