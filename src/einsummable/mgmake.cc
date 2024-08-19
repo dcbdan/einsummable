@@ -983,6 +983,7 @@ bool memgraph_make_state_t::allocate_op(
 {
   int id;
 
+  optional<fill_t> memory_fill;
   if(std::holds_alternative<_which_node_t>(which_op))
   {
     id = std::get<_which_node_t>(which_op).task_id;
@@ -990,6 +991,32 @@ bool memgraph_make_state_t::allocate_op(
   else
   {
     id = std::get<_which_touch_t>(which_op).task_id;
+
+    // Is this partialize
+    //   1. not in progress and
+    //   2. is doing an aggregation?
+    if(partializes_in_progress.count(id) == 0) {
+      auto const& partialize = taskgraph.nodes[id].op.get_partialize();
+      optional<castable_t> maybe = partialize.get_agg_castable();
+      if(maybe) {
+        castable_t const& c = maybe.get_value();
+        scalar_t val;
+        if(maybe == castable_t::add) {
+          // fill with zero
+          val = scalar_t::zero(partialize.dtype);
+        } else if(maybe == castable_t::mul) {
+          throw std::runtime_error("cannot execute multiply aggregations");
+        } else if(maybe == castable_t::min) {
+          // fill with inf
+          val = scalar_t::inf(partialize.dtype);
+        } else if(maybe == castable_t::max) {
+          // fill with -inf
+          val = scalar_t::negative_inf(partialize.dtype);
+        }
+
+        memory_fill = fill_t::make_constant(value, partialize.write_shape);
+      }
+    }
   }
 
   auto const& node = taskgraph.nodes[id];
@@ -1039,12 +1066,37 @@ bool memgraph_make_state_t::allocate_op(
     throw std::runtime_error("should not reach");
   }
 
+  bool ret;
   if(force) {
     force_allocate_tids(used_tids, id);
-    return true;
+    ret = true;
   } else {
-    return allocate_tids_without_evict(used_tids, id);
+    ret = allocate_tids_without_evict(used_tids, id);
   }
+
+  if(ret && memory_fill) {
+    // initialize the newly allocated output memory at id
+    int alloc_mid = task_tensor_to_mem_node.at(id);
+    auto const& alloc = memgraph.nodes[alloc_mid].op.get_alloc();
+
+    auto const& fill = memory_fill.value();
+    if(alloc.size != fill.size()) {
+      throw std::runtime_error("invalid fill for alloc of this size");
+    }
+
+    constant_t constant {
+      .loc = alloc.loc
+      .offset = alloc.offset,
+      .fill = fill
+    }
+    
+    int fill_mid = memgraph.insert(op_t(constant), { alloc_mid });
+
+    // update the actual mid of the node
+    task_tensor_to_mem_node[id] = fill_mid
+  }
+
+  return ret;
 }
 
 bool memgraph_make_state_t::allocate_tids_without_evict(

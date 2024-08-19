@@ -286,6 +286,10 @@ private:
 
     bool does_agg() const;
 
+    // If this partialize has multiple different possible
+    // castables, throw an error
+    optional<castable_t> get_agg_castable() const;
+
     // collect all the shapes that id is used as an input
     // (this should usally be of length 1, but you never know)
     vector<vector<uint64_t>> inn_shapes_of(int id) const;

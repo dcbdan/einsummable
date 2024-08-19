@@ -3612,6 +3612,25 @@ bool taskgraph_t::partialize_t::does_agg() const {
   return false;
 }
 
+optional<castable_t> taskgraph_t::partialize_t::get_agg_castable() const {
+  optional<castable_t> ret;
+  for(auto const& unit: units) {
+    if(inputs.size() > 1) {
+      if(!unit.castable) {
+        throw std::runtime_error("must have castable in this unit");
+      }
+      if(!ret) {
+        ret = unit.castable.value();
+      } else {
+        if(ret.value() != unit.castable.value()) {
+          throw std::runtime_error("this partialize is agg but with multiple castables");
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 vector<vector<uint64_t>>
 taskgraph_t::partialize_t::inn_shapes_of(int inn_id) const {
   vector<vector<uint64_t>> ret;
