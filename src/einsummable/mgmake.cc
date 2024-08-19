@@ -995,7 +995,7 @@ bool memgraph_make_state_t::allocate_op(
     // Is this partialize
     //   1. not in progress and
     //   2. is doing an aggregation?
-    if(partializes_in_progress.count(id) == 0) {
+    if(partializes_inited.count(id) == 0) {
       auto const& partialize = taskgraph.nodes[id].op.get_partialize();
       optional<castable_t> maybe = partialize.get_agg_castable();
       if(maybe) {
@@ -1094,6 +1094,9 @@ bool memgraph_make_state_t::allocate_op(
 
     // update the actual mid of the node
     task_tensor_to_mem_node[id] = fill_mid;
+
+    // note that this partialize has been initialized
+    partializes_inited.insert(id);
   }
 
   return ret;
@@ -1489,6 +1492,7 @@ memgraph_make_state_t::add_op(
         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
       }
       partializes_in_progress.erase(id);
+      partializes_inited.erase(id);
     } else {
       // This partialize is still in progress. Insert the allocated
       // output memid.

@@ -210,6 +210,7 @@ struct memgraph_make_state_t {
 
   // A mapping from partialize id to all apply memids doing a touch
   map<int, vector<int>> partializes_in_progress;
+  set<int> partializes_inited;
 
   // These objects should tend to be updated together {{{
   // Mappings from the taskgraph tensor to the corresponding

@@ -585,50 +585,51 @@ void exp_super(int argc, char** argv) {
 //  exp02_fuse(args); 
 //}
 
-//int main(int argc, char** argv) {
-//  set_default_dtype(dtype_t::f16);
-//
-//  int world_size = 1;
-//  bool is_rank_zero = true;
-//
-//  communicator_t communicator("0.0.0.0", is_rank_zero, world_size);
-//
-//  args_t args(argc, argv);
-//  args.set_default<int>("num_gpus", 8);
-//  args.set_default<uint64_t>("mem_size", 32);
-//  //args.set_default<uint64_t>("storage_size", 1);
-//
-//  int num_gpus = args.get<int>("num_gpus");
-//  if(num_gpus <= 0 || num_gpus > 8) {
-//    throw std::runtime_error("invalid number of gpus (hardcoded max: 8)");
-//  }
-//
-//  uint64_t GB = 1000lu * 1000lu * 1000lu;
-//  uint64_t mem_size = args.get<uint64_t>("mem_size") * GB;
-//  //uint64_t storage_size = args.get<uint64_t>("storage_size") * GB;
-//
-//  vector<uint64_t> buffer_sizes;
-//  for (int i = 0; i < num_gpus; ++i){
-//    buffer_sizes.push_back(mem_size);
-//  }
-//
-//  auto gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
-//  gpu_server->set_split_off_inputs(true);
-//  if(gpu_server->has_storage()) {
-//    throw std::runtime_error("should not be using storage");
-//  }
-//
-//  auto num_iter = 2;
-//  for(int i = 0; i != num_iter; ++i) {
-//    DOUT("----- iteration " << i << " -----");
-//    //exp02(args, gpu_server);
-//    //exp_ffnn(args, gpu_server);
-//    exp_transformer_block(args, gpu_server);
-//  }
-//  // exp01(args, server);
-//
-//  return 0;
-//}
+int main(int argc, char** argv) {
+  set_default_dtype(dtype_t::f16);
+
+  int world_size = 1;
+  bool is_rank_zero = true;
+
+  communicator_t communicator("0.0.0.0", is_rank_zero, world_size);
+
+  args_t args(argc, argv);
+  args.set_default<int>("num_gpus", 8);
+  args.set_default<uint64_t>("mem_size", 32);
+  //args.set_default<uint64_t>("storage_size", 1);
+
+  int num_gpus = args.get<int>("num_gpus");
+  if(num_gpus <= 0 || num_gpus > 8) {
+    throw std::runtime_error("invalid number of gpus (hardcoded max: 8)");
+  }
+
+  uint64_t GB = 1000lu * 1000lu * 1000lu;
+  uint64_t mem_size = args.get<uint64_t>("mem_size") * GB;
+  //uint64_t storage_size = args.get<uint64_t>("storage_size") * GB;
+
+  vector<uint64_t> buffer_sizes;
+  for (int i = 0; i < num_gpus; ++i){
+    buffer_sizes.push_back(mem_size);
+  }
+
+  bool use_cudagraph = false;
+  auto gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes);
+  gpu_server->set_split_off_inputs(true);
+  if(gpu_server->has_storage()) {
+    throw std::runtime_error("should not be using storage");
+  }
+
+  auto num_iter = 2;
+  for(int i = 0; i != num_iter; ++i) {
+    DOUT("----- iteration " << i << " -----");
+    //exp02(args, gpu_server);
+    //exp_ffnn(args, gpu_server);
+    exp_transformer_block(args, gpu_server);
+  }
+  // exp01(args, server);
+
+  return 0;
+}
 
 void run_matmul(args_t& args, server_base_t* server) {
   //graph_constructor_t gc = straight_matrix_multiplication(1, 1, 1, 10, 10, 10); 
@@ -719,7 +720,7 @@ void test_workspaces() {
   DOUT("printed mg.gv");
 }
 
-int main(int argc, char** argv) {
+int main_run_matmul(int argc, char** argv) {
   args_t args(argc, argv);
   communicator_t communicator("0.0.0.0", true, 1);
 
@@ -752,5 +753,7 @@ int main(int argc, char** argv) {
   }
 
   run_matmul(args, server.get());
+
+  return 0;
 }
 
