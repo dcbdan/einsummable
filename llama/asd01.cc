@@ -585,7 +585,7 @@ void exp_super(int argc, char** argv) {
 //  exp02_fuse(args); 
 //}
 
-int main(int argc, char** argv) {
+int main_(int argc, char** argv) {
   set_default_dtype(dtype_t::f16);
 
   int world_size = 1;
@@ -757,3 +757,6 @@ int main_run_matmul(int argc, char** argv) {
   return 0;
 }
 
+int main(int argc, char** argv) {
+  return main_run_matmul(argc, argv);
+}

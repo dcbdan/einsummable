@@ -159,13 +159,14 @@ cudaGraph_t compile_cuda_graph(
       }
 
       if(apply.group >= 0) {
-        throw std::runtime_error("touch with group: not implemented");
+        if(!touch.castable) {
+          throw std::runtime_error("with group, must have castable!");
+        }
       } else {
         if(touch.castable) {
           throw std::runtime_error("should not have a castable here");
         }
       }
-
 
       void* out_mem = increment_void_ptr(
         mems[device],
@@ -219,19 +220,6 @@ cudaGraph_t compile_cuda_graph(
       throw std::runtime_error("compile cuda graph: missing node implementation");
     }
   }
-
-  // 1. For each memgraph node, create a cudaGraphNode
-  // 2. For each op, create a cudaGraph and insert via AddChildGraphNode
-
-  // How do we create a graph? Should we just use streams?
-  // Can we capture op with stream, create a graph, append graph to main graph?
-  //    Ez: cudaGraphAddChildGraphNode
-  // How should we deal with dummy nodes?
-  //   Either 1: create a new memgraph with no dummies  No
-  //          2: add dummy cudaGraph nodes              EZ: cudaGraphAddEmptyNode
-  //          3: reach past dummy nodes                 No
-
-  // UGH. cudaGraphAddChildGraphNode cannot do memory stuff. BWOAH
 
   return ret;
 }
