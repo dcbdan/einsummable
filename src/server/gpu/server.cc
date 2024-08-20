@@ -168,7 +168,7 @@ void gpu_mg_server_t::execute_memgraph(
       auto end = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
       if(!for_remap) {
-        DOUT("Event Loop finished. Time: " << duration.count() << " ms");
+        DOUT("Cuda graph finished. Time: " << duration.count() << " ms");
       }
     }
 

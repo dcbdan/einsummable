@@ -534,6 +534,7 @@ void main_rank_zero(
     pls = alocate03(graph1, parts, num_gpus, true);
   }
 
+  DLINEOUT("TIME TO RUN GRAPH1");
   server.execute_graph(graph1, pls);
 
   server.insert_tensor(
@@ -589,10 +590,11 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
   }
 
+  bool use_cudagraph = args.get<bool>("use_cudagraph");
   args.set_default<uint64_t>("storage", 4);
   auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
-  gpu_mg_server_t server(communicator, buffer_sizes, storage_size);
-  //gpu_mg_server_t server(communicator, buffer_sizes);
+  //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
+  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
 
   auto reader_process = [&](map<int, buffer_t> const& data_) {
     map<int, tuple<int, buffer_t>> data;

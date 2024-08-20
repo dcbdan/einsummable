@@ -522,8 +522,7 @@ void elementwise_power(float* out, const float* in,
 cudaStream_t stream, double pow, uint64_t size){
   int blockSize = 256;
   int numBlocks = (size + blockSize - 1) / blockSize;
-  power<<<numBlocks, blockSize>>>(in, out, size, pow);
-
+  power<<<numBlocks, blockSize, 0, stream>>>(in, out, size, pow);
 }
 
 __global__ void increment_scale(const float* in, float* out,
@@ -535,12 +534,14 @@ uint64_t size, float scale, float increment) {
   }
 }
 
-void scale_and_increment(float* out, const float* in,
-cudaStream_t stream, float scale, float increment, uint64_t size){
+void scale_and_increment(
+  float* out, const float* in,
+  cudaStream_t stream, 
+  float scale, float increment, uint64_t size)
+{
   int blockSize = 256;
   int numBlocks = (size + blockSize - 1) / blockSize;
-  increment_scale<<<numBlocks, blockSize>>>(in, out, size, scale, increment);
-
+  increment_scale<<<numBlocks, blockSize, 0, stream>>>(in, out, size, scale, increment);
 }
 
 __global__ void custom_elementwise(const __half* in, __half* out,
@@ -564,7 +565,7 @@ void custom_elementwise_1(void* out, const void* in,
 cudaStream_t stream, uint64_t size){
   int blockSize = 256;
   int numBlocks = (size + blockSize - 1) / blockSize;
-  custom_elementwise<<<numBlocks, blockSize>>>((__half*)in, (__half*)out, size);
+  custom_elementwise<<<numBlocks, blockSize, 0, stream>>>((__half*)in, (__half*)out, size);
 
 }
 
@@ -687,7 +688,8 @@ void conditional_assignment_dispatch(void* out, void const* mem, uint64_t rows, 
 
 
 __global__ void special_elementwise_mul(void* out, uint64_t a, uint64_t b, const void* x, 
-  const void* y, cudaStream_t stream, int dtype_info){
+  const void* y, int dtype_info)
+{
   uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
   // fill a x b matrix with two vectors X and Y
   // for i in size(a):
@@ -717,12 +719,12 @@ void special_elementwise_mul_dispatch(void* out, uint64_t a, uint64_t b, const v
   int blockSize = 256;
   int gridSize = (a*b + blockSize - 1) / blockSize;
   special_elementwise_mul<<<gridSize, blockSize,0,stream>>>
-    (out, a, b, x, y, stream, dtype_info);
+    (out, a, b, x, y, dtype_info);
 }
 
 // ab -> a with max reduction
-__global__ void special_reduction_max(void* out, uint64_t a, uint64_t b, const void* x, 
-  cudaStream_t stream){
+__global__ void special_reduction_max(void* out, uint64_t a, uint64_t b, const void* x)
+{
   uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
   // out[a] = max(x[a][b]) for all b in size(b)
   if (index < a){
@@ -741,13 +743,11 @@ void special_reduction_max_dispatch(void* out, uint64_t a, uint64_t b, const voi
   cudaStream_t stream){
   int blockSize = 256;
   int gridSize = (a + blockSize - 1) / blockSize;
-  special_reduction_max<<<gridSize, blockSize,0,stream>>>
-    (out, a, b, x, stream);
+  special_reduction_max<<<gridSize, blockSize,0,stream>>>(out, a, b, x);
 }
 
 // ab -> a with add reduction
-__global__ void special_reduction_sum(void* out, uint64_t a, uint64_t b, const void* x, 
-  cudaStream_t stream){
+__global__ void special_reduction_sum(void* out, uint64_t a, uint64_t b, const void* x){
   uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
   // out[a] = sum(x[a][b]) for all b in size(b)
   if (index < a){
@@ -766,13 +766,12 @@ void special_reduction_sum_dispatch(void* out, uint64_t a, uint64_t b, const voi
   cudaStream_t stream){
   int blockSize = 256;
   int gridSize = (a + blockSize - 1) / blockSize;
-  special_reduction_sum<<<gridSize, blockSize,0,stream>>>
-    (out, a, b, x, stream);
+  special_reduction_sum<<<gridSize, blockSize,0,stream>>>(out, a, b, x);
 }
 
 // ab -> a with add reduction with negated input x
-__global__ void special_reduction_negateSum(void* out, uint64_t a, uint64_t b, const void* x, 
-  cudaStream_t stream){
+__global__ void special_reduction_negateSum(void* out, uint64_t a, uint64_t b, const void* x)
+{
   uint64_t index = blockIdx.x * blockDim.x + threadIdx.x;
   // out[a] = sum(x[a][b]) for all b in size(b)
   if (index < a){
@@ -791,8 +790,7 @@ void special_reduction_negateSum_dispatch(void* out, uint64_t a, uint64_t b, con
   cudaStream_t stream){
   int blockSize = 256;
   int gridSize = (a + blockSize - 1) / blockSize;
-  special_reduction_negateSum<<<gridSize, blockSize,0,stream>>>
-    (out, a, b, x, stream);
+  special_reduction_negateSum<<<gridSize, blockSize,0,stream>>>(out, a, b, x);
 }
 
 // + ab,a->a | exp[*[constant{f32|0.0883883},+[hole|f32@0,*[constant{f32|-1},hole|f32@1]]]]

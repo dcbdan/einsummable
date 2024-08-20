@@ -137,6 +137,14 @@ cudaGraph_t compile_cuda_graph(
   
         handle_cuda_error(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
  
+        //DLINEOUT(e << " " << std::boolalpha << bool(workspace));
+        //std::cout << e << std::endl;
+        //if(workspace) {
+        //  auto const& [_0, sz] = workspace.value();
+        //  DOUT(sz);
+        //}
+        //DOUT("")
+
         kms[device](e, stream, out_mem, inn_mems, workspace);
   
         handle_cuda_error(cudaStreamEndCapture(stream, &g));
