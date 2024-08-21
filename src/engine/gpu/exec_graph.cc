@@ -236,17 +236,11 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
           gpu_kms[loc],
           einsum,
           apply.mems,
+          apply.workspace,
           node.op.get_apply_loc(),
           gpu_kms[loc].get_built_kernel_info(einsum)
         );
         
-        auto workspace_info = maybe_built.value();
-        if (workspace_info.known()){
-          op->workspace_size = workspace_info.value();
-        }
-        else{
-          throw std::runtime_error("workspace size is not known; this should not happen in cutensor 2.0");
-        }
         // insert into the graph
         insert(op_ptr_t(op), mid);
       } else if(apply.is_touch()) {
@@ -533,12 +527,6 @@ gpu_einsummable_t::resource_description() const
 
   ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{device}));
 
-  if (workspace_size > 0) {
-    gpu_workspace_desc_t workspace_desc;
-    workspace_desc.device = device;
-    workspace_desc.size = workspace_size;
-    ret.emplace_back(gpu_workspace_manager_t::make_desc(workspace_desc));
-  }
   return resource_manager_t::make_desc(ret);
 }
 
@@ -563,8 +551,10 @@ void gpu_einsummable_t::launch(
   void* global_buffer = global_buffers_t::get_resource(resources[0]);
 
   optional<tuple<void*, uint64_t>> maybe_workspace;
-  if(workspace_size > 0) {
-    maybe_workspace = gpu_workspace_manager_t::get_resource(resources[2]).as_tuple();
+  if(workspace) {
+    mem_t const& workspace_mem = workspace.value();
+    void* m = increment_void_ptr(global_buffer, workspace_mem.offset);
+    maybe_workspace = tuple<void*, uint64_t>{m, workspace_mem.size};
   }
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
@@ -581,7 +571,6 @@ void gpu_einsummable_t::launch(
       mems[i].offset));
   }
 
-  cudaEventRecord(start, stream);
   {
     auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_km");
     gpu_km(
@@ -591,7 +580,6 @@ void gpu_einsummable_t::launch(
       inn_mems,
       maybe_workspace);
   }
-  cudaEventRecord(stop, stream);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -652,15 +640,11 @@ void gpu_touch_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  cudaEventRecord(start, stream);
-
   gpu_km(
     touch,
     stream,
     out_mem,
     inn_mem);
-
-  cudaEventRecord(stop, stream);
 
   // cudaDeviceSynchronize();
   // callback();
@@ -725,11 +709,7 @@ void gpu_copy_t::launch(
 
   auto stream = streampool_manager_t::get_resource(resources[2]).stream;
 
-  cudaEventRecord(start, stream);
-
   cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, move.size, cudaMemcpyDeviceToDevice, stream);
-
-  cudaEventRecord(stop, stream);
 
   if (cudaError != cudaSuccess) {
     // print the error code and error string
@@ -789,16 +769,12 @@ void gpu_evict_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  cudaEventRecord(start, stream);
-
   auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
   buffer_t buffer = storage.alloc(size, storage_id);
 
   handle_cuda_error(
     cudaMemcpyAsync(buffer->raw(), gpu_memory, size, cudaMemcpyDeviceToHost, stream),
     "cudaMemcpyAsync in gpu_evict_t");
-
-  cudaEventRecord(stop, stream);
 
   std::function<void()>* callback_copy = new std::function<void()>(callback);
 
@@ -854,8 +830,6 @@ void gpu_load_t::launch(
   // cudaStream_t stream = cuda_create_stream();
   auto stream = streampool_manager_t::get_resource(resources[1]).stream;
 
-  cudaEventRecord(start, stream);
-
   auto& storage = *gpu_storage_manager_t::get_resource(resources[2]).ptr;
 
   buffer_t buffer = storage.reference(storage_id);
@@ -863,8 +837,6 @@ void gpu_load_t::launch(
   handle_cuda_error(
     cudaMemcpyAsync(gpu_memory, buffer->data, size, cudaMemcpyHostToDevice, stream),
     "cudaMemcpyAsync in gpu_load_t");
-
-  cudaEventRecord(stop, stream);
 
   gpu_load_info_t* info = new gpu_load_info_t;
   info->callback = callback;

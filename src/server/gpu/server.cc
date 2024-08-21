@@ -201,7 +201,6 @@ void gpu_mg_server_t::execute_memgraph(
       scalar_vars);
 
   vector<rm_ptr_t> rms {
-    rm_ptr_t(new gpu_workspace_manager_t()),
     rm_ptr_t(new global_buffers_t(mems)),
     rm_ptr_t(new streampool_manager_t(stream_pool))
   };
@@ -255,10 +254,6 @@ map<int, uint64_t> gpu_mg_server_t::build_required_workspace_info(
 {
   if(num_gpus_per_node.size() != 1) {
     throw std::runtime_error("not implemented for more than one machine");
-  }
-
-  if(!_use_cudagraph) {
-    return {};
   }
 
   map<int, uint64_t> ret;

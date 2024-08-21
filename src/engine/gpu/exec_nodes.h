@@ -3,8 +3,6 @@
 #include "gpu_kernel_manager.h"
 #include <cstdint>
 
-static cudaEvent_t monster_start;
-
 struct gpu_super_t : exec_graph_t::op_base_t {
   gpu_super_t(
     int loc,
@@ -32,36 +30,24 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
     kernel_manager_t& a,
     einsummable_t const& b,
     vector<mem_t> const& c,
-    int d,
-    kernel_manager_t::kernel_info_t e)
-    : gpu_km(a), einsummable(b), mems(c), device(d), my_kernel_info(e)
-  {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-  }
-
-  cudaEvent_t start, stop;
+    optional<mem_t> const& d,
+    int e,
+    kernel_manager_t::kernel_info_t f)
+    : gpu_km(a), einsummable(b), mems(c), workspace(d), device(e), my_kernel_info(f)
+  {}
 
   kernel_manager_t& gpu_km;
   einsummable_t einsummable;
   vector<mem_t> mems;
+  optional<mem_t> workspace;
   int device;
-  uint64_t workspace_size;
   kernel_manager_t::kernel_info_t my_kernel_info;
 
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   // 2 or 3 resources are always needed for an einsummable
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_einsummable"; }
-  void line(std::ostream& out) const {
-    float total = 0;
-    cudaEventElapsedTime(&total, start, stop);
-    if(einsummable.is_contraction()) {
-      out << "contraction:     " << total << std::endl;
-    } else {
-      out << "non-contraction: " << total << std::endl;
-    }
-  }
+  void line(std::ostream& out) const {}
 };
 
 struct gpu_touch_t : exec_graph_t::op_base_t {
@@ -72,12 +58,7 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
     vector<mem_t> d,
     int e)
     : gpu_km(a), touch(b), group_id(c), mems(d), device(e)
-  {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-  }
-
-  cudaEvent_t start, stop;
+  {}
 
   kernel_manager_t& gpu_km;
   touch_t touch;
@@ -89,22 +70,13 @@ struct gpu_touch_t : exec_graph_t::op_base_t {
   // 2 or 3 resources are always needed for a touch
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_touch"; }
-  void line(std::ostream& out) const {
-    float total = 0;
-    cudaEventElapsedTime(&total, start, stop);
-    out << "gpu_touch:       " << total << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };
 
 struct gpu_copy_t : exec_graph_t::op_base_t {
   gpu_copy_t(memgraph_t::move_t const& m)
     : move(m)
-  {
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-  }
-
-  cudaEvent_t start, stop;
+  {}
 
   memgraph_t::move_t move;
 
@@ -112,11 +84,7 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
   // 2 resources are always needed for a copy
   desc_ptr_t resource_description() const;
   void print(std::ostream& out) const { out << "gpu_copy"; }
-  void line(std::ostream& out) const {
-    float total = 0;
-    cudaEventElapsedTime(&total, start, stop);
-    out << "gpu_copy:        " << total << std::endl;
-  }
+  void line(std::ostream& out) const {}
 };
 
 // NOTE: Evict and load only support GPU RAM to CPU RAM
@@ -131,12 +99,7 @@ struct gpu_evict_t: exec_graph_t::op_base_t {
     size = gpu_src.size;
     device = gpu_src.loc;
     storage_id = cpu_dst.as_memsto().get_sto();
-
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
   }
-
-  cudaEvent_t start, stop;
 
   uint64_t gpu_offset;
   uint64_t size;
@@ -159,12 +122,7 @@ struct gpu_load_t: exec_graph_t::op_base_t {
     size = gpu_dst.size;
     device = gpu_dst.loc;
     storage_id = cpu_src.as_memsto().get_sto();
-
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
   }
-
-  cudaEvent_t start, stop;
 
   uint64_t gpu_offset;
   uint64_t size;
