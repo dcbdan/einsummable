@@ -86,7 +86,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
-     DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
+     // DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
      continue;
     }
 
@@ -308,6 +308,7 @@ void gpu_einsummable_t::launch(
   void* out_mem = increment_void_ptr(
     global_buffer,
     mems[0].offset);
+  // DOUT("Out mem: " << mems[0].offset);
 
   vector<void const*> inn_mems;
   inn_mems.reserve(mems.size() - 1);
@@ -315,7 +316,9 @@ void gpu_einsummable_t::launch(
     inn_mems.push_back(increment_void_ptr(
       global_buffer,
       mems[i].offset));
+    // DOUT("Inn mem: " << mems[i].offset);
   }
+
 
   // print all the input and output offsets
   // for (int i = 1; i < mems.size(); ++i){

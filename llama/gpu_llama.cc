@@ -2,6 +2,8 @@
 
 gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llama_size) : storage_size(sto_size), llama_size(llama_size), communicator(communicator_t("0.0.0.0", true, 1)), graph(make_graph()) {
 
+    file.open("lora_tensors.txt");
+
     vector<uint64_t> buffer_sizes(1, mem_size);
 
     // communicator = communicator_t("0.0.0.0", true, 1);
@@ -34,6 +36,10 @@ gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llam
     }
     taskgraphs = std::make_unique<checkpoint_taskgraphs_t>(graphs, full_pls);
 
+    for (auto& [name, gid] : graph.model_weight_map) {
+        model_weight_map[name] = gid;
+    }
+
     auto end_pls = std::chrono::high_resolution_clock::now();
     DOUT("placement time: " << 
     std::chrono::duration_cast<std::chrono::milliseconds>(end_pls - start_pls).count() << " ms");
@@ -62,7 +68,7 @@ gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llam
     state->process(order_taskgraph(tg));
     // print_graphviz(state.memgraph, "llamamg0.gv");
     for (auto &[tid, node] : input_tid_to_datas.back()) {
-        init_tensor_to_memnode[tid] = node;
+        init_tensor_to_memstoloc[tid] = node;
     }
 
     for (int i = 1; i < taskgraphs->infos.size(); i++) {
@@ -184,6 +190,38 @@ gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llam
             new_mem_mapping.emplace_back(final_memstoloc, init_memstoloc, final_mid);
         }
     }
+
+    // Move loss, predictions, to new stoids to keep track
+    int loss_cg_gid = final_gid_remaps[loss_id];
+    int loss_tid = final_rel.at(loss_cg_gid).tids.get()[0];
+    int loss_mid = final_state->task_tensor_to_mem_node[loss_tid];
+    auto &loss_node = final_state->memgraph.nodes[loss_mid];
+    memstoloc_t loss_memstoloc = loss_node.op.get_output_memstoloc();
+    memstoloc_t loss_new_memstoloc = memstoloc_t(stoloc_t{.loc = 0, .id = ++final_state->_sto_id});
+    loss_stoid = final_state->_sto_id;
+
+    new_mem_mapping.emplace_back(loss_memstoloc, loss_new_memstoloc, loss_mid);
+
+    // DOUT("Through loss");
+
+    // int predictions_cg_gid = final_gid_remaps[predictions_id];
+    // DOUT(1);
+    // int predictions_tid = final_rel.at(predictions_cg_gid).tids.get()[0];
+    // DOUT(2);
+    // int predictions_mid = final_state->task_tensor_to_mem_node[predictions_tid];
+    // DOUT(3);
+    // auto &predictions_node = final_state->memgraph.nodes[predictions_mid];
+    // DOUT(4);
+    // memstoloc_t predictions_memstoloc = predictions_node.op.get_output_memstoloc();
+    // DOUT(5);
+    // memstoloc_t predictions_new_memstoloc = memstoloc_t(stoloc_t{.loc = 0, .id = ++final_state->_sto_id});
+    // DOUT(6);
+    // predictions_stoid = final_state->_sto_id;
+
+    // DOUT("Through loss & pred");
+
+    // new_mem_mapping.emplace_back(predictions_memstoloc, predictions_new_memstoloc, predictions_mid);
+
 
     remaps.push_back(final_state->move_tensors(new_mem_mapping));
 
@@ -353,6 +391,16 @@ graph_setup_t gpu_llama_t::make_graph() {
         checkpoints,
         forward_ids);
 
+    // DOUT("Vocab sign " << margs.vocab_size);
+    // DOUT("Batch Size " << margs.batch_size);
+    // DOUT("Max Seq Len" << margs.max_seq_len); 
+
+    // std::cout << "Embeddings shape: ("; 
+    // for (auto& dim : graph.out_shape(embeddings_id)) {
+    //     std::cout << dim << ", ";
+    // }
+    // std::cout << std::endl;
+
     return graph_setup_t {
         .margs = margs,
         .full_graph = graph,
@@ -369,16 +417,52 @@ graph_setup_t gpu_llama_t::make_graph() {
     };
 }
 
-void gpu_llama_t::train(int epochs) {
+void gpu_llama_t::train(int epochs, vector<vector<dbuffer_t>> batches, vector<vector<dbuffer_t>> labels) {
+    int embeddings_shape = product(graph.full_graph.out_shape(embeddings_id));
+
+    if (batches.size() != labels.size()) {
+        throw std::runtime_error("Wrong number of inputs or labels");
+    }
+
+    file << get_tensor("layers.0.attention.lora0.wk.weight") << "\n\n";
+    file << get_tensor("layers.0.attention.lora1.wk.weight") << "\n\n";
+
     for (int epoch = 0; epoch < epochs; epoch++) {
         DOUT("Epoch " << epoch);
         // Execute all memgraphs
-        for (int i = 0; i < states.size(); i++) {
-            server->execute_memgraph(states[i]->memgraph, false, vars);
+        for (int i = 0; i < batches.size(); i++) {
+            auto& batch = batches[i];
+            auto& label = labels[i];
+            for (int j = 0; j < batch.size(); j++) {
+                auto& masked_tokens = batch[i];
+                auto& one_hot_label = label[i];
+
+                if (masked_tokens.dtype == dtype && masked_tokens.nelem() == embeddings_shape && one_hot_label.nelem() == margs.batch_size * margs.vocab_size) {
+                    load_tensor(embeddings_id, masked_tokens);
+                    load_tensor(labels_id, one_hot_label);
+
+                    for (int i = 0; i < states.size(); i++) {
+                        server->execute_memgraph(states[i]->memgraph, false, vars);
+                    }
+                    server->storage_remap_server(remaps);
+
+                    dbuffer_t loss = dbuffer_t(dtype, server->get_storage_buf(loss_stoid));
+                    DOUT("Loss = " << loss);
+                } else {
+                    if (!(masked_tokens.dtype == dtype && masked_tokens.nelem() == embeddings_shape)) {
+                        DOUT("Skipping batch, size incorrect: " << masked_tokens.nelem() << " instead of " << embeddings_shape);
+                    } else {
+                        DOUT("Skipping batch, labels incorrect, have " << one_hot_label.nelem() << " instead of " << margs.batch_size * margs.vocab_size);
+                    }
+                    
+                }
+            }
+
         }
-        // Remap storage to initial state
-        server->storage_remap_server(remaps);
     }
+
+    file << get_tensor("layers.0.attention.lora0.wk.weight") << "\n\n";
+    file << get_tensor("layers.0.attention.lora1.wk.weight") << "\n\n";
 }
 
 
@@ -399,11 +483,11 @@ void gpu_llama_t::load_tensor(int gid, dbuffer_t d) {
 
     for (auto &[tid, buf] : data) {
         
-        if (init_tensor_to_memnode.find(tid) == init_tensor_to_memnode.end()) {
+        if (init_tensor_to_memstoloc.find(tid) == init_tensor_to_memstoloc.end()) {
             throw std::runtime_error("Tid " + std::to_string(tid) + " does not exist in input_tid_to_data");
         } 
 
-        memstoloc_t inn = init_tensor_to_memnode[tid];
+        memstoloc_t inn = init_tensor_to_memstoloc[tid];
 
         if (inn.is_memloc()) {
             auto& input = inn.get_memloc();
@@ -453,8 +537,9 @@ void gpu_llama_t::load_tensors(map<string, dbuffer_t> weights) {
                 // DOUT("Loading tensor " << id);
                 load_tensor(id, dbuffer);
             } else {
-                // DOUT("Need to load tensor " << id);
+                DOUT("Need to load tensor " << id);
                 dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
+                dbuffer.zeros();
                 load_tensor(id, dbuffer);
                 // int next_tid = server->get_max_tid() + 1;
                 // relation_t relation = model_loader(
@@ -463,13 +548,94 @@ void gpu_llama_t::load_tensors(map<string, dbuffer_t> weights) {
             }
         }
     }
-    if (weights.find("tok_embeddings.weight" != weights.end()) && weights["tok_embeddings.weight"].nelem() == product(graph.get_shape(embeddings_id))) {
-        load_tensor(embeddings_id, weights["tok_embeddings.weight"]);
-    }
 
     for (auto const& [name, dbuf] : weights) {
         if (seen.find(name) == seen.end()) {
             DOUT("Warning: did not load " << name);
         }
     }
+}
+
+
+dbuffer_t gpu_llama_t::get_tensor(int gid) {
+    // DOUT("Getting tensor with gid " << gid);
+    if (gid == loss_id) {
+        return dbuffer_t(dtype, server->get_storage_buf(loss_stoid));
+    }
+    if (gid == predictions_id) {
+        // TODO figure out why saving predictions throws error
+        throw std::runtime_error("Not implemented");
+    }
+    if (gid_to_init_cg.find(gid) == gid_to_init_cg.end()) {
+        throw std::runtime_error("Unavailable gid entered to get_tensor");
+    }
+    int cg_gid = gid_to_init_cg[gid];
+    // DOUT("Initial checkpoint graph cggid " << cg_gid);
+    relation_t& rel = taskgraphs->infos[0].init_rel.at(cg_gid);
+
+    vector<uint64_t> shape = graph.full_graph.out_shape(gid);
+    dtype_t dtype = graph.full_graph.out_dtype(gid);
+    // relation_t rel = relation_t::make_singleton(dtype, shape, 0);
+    // relation_t new_rel = relation_t::make_singleton(dtype, shape, 0);
+    relation_t new_rel = rel.as_singleton(0);
+
+    remap_relations_t remap;
+    remap.insert(rel, new_rel);
+
+    map<int, buffer_t> data;
+    for (auto &tid : rel.tids.get()) {
+        // DOUT("Rel tid " << tid);
+        memstoloc_t input_memstoloc = init_tensor_to_memstoloc.at(tid);
+        buffer_t out;
+
+        if (input_memstoloc.is_memloc()) { // cudaMemcpy
+            memloc_t input = input_memstoloc.get_memloc();
+            out = make_buffer(input.size);
+
+            cudaError_t error = cudaMemcpy(out->raw(), increment_void_ptr(server->mems[input.loc], input.offset), input.size, cudaMemcpyDeviceToHost);
+            if(error != cudaSuccess) {
+                DOUT(cudaGetErrorString(error));
+                throw std::runtime_error("cudaMemcpy failed");
+            }
+        } else { // storage write
+            stoloc_t input = input_memstoloc.get_stoloc();
+            out = server->get_storage_buf(input.id);
+        }
+
+
+        // int mid = states[0]->task_tensor_to_mem_node[tid];
+
+        // auto &node = states[0]->memgraph.nodes[mid];
+
+        // buffer_t out;
+
+        // if (!node.op.is_inputmem() && !node.op.is_inputsto()) {
+        //     throw std::runtime_error("Tensor to get does not correspond to inputmem or inputsto node");
+        // }
+        // if (node.op.is_inputmem()) {
+        //     auto& input = node.op.get_inputmem();
+        //     out = make_buffer(input.size);
+
+        //     cudaError_t error = cudaMemcpy(out->raw(), increment_void_ptr(server->mems[input.loc], input.offset), input.size, cudaMemcpyDeviceToHost);
+        //     if(error != cudaSuccess) {
+        //         DOUT(cudaGetErrorString(error));
+        //         throw std::runtime_error("cudaMemcpy failed");
+        //     }
+        // } else {
+        //     auto& input = node.op.get_inputsto();
+        //     out = server->get_storage_buf(input.storage_id);
+        // }
+
+        data[tid] = out;
+    }
+
+    repartition(server->null_comm, remap, data, nullptr);
+    return dbuffer_t(dtype, data[0]);
+}
+
+dbuffer_t gpu_llama_t::get_tensor(string weight) {
+    if (model_weight_map.find(weight) == model_weight_map.end()) {
+        throw std::runtime_error("Requested weight does not exist");
+    }
+    return get_tensor(model_weight_map[weight]);
 }

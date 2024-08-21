@@ -2,15 +2,94 @@ import PyEinsummable as pe
 import numpy as np
 import torch, time
 
+from datasets import load_dataset
+from transformers import LlamaTokenizer
+
 
 def main():
+    weights = torch.load("../../mnt/Llama1/consolidated.00.pth", weights_only = True)
+    for (name, weight) in weights.items():
+        if name.find("rope") == -1 and name.find("tok") == -1:
+            if torch.isnan(weight).any():
+                print(name + " has nan values")
+
+
+
+    embedding_matrix = weights["tok_embeddings.weight"]
+    
+    dbuf_weights = load_llama_weights(weights)
+
+    tokenizer = LlamaTokenizer.from_pretrained("huggyllama/llama-7b")
+
+    tokenizer.padding_side = 'right'
+    tokenizer.model_max_length = 4096
+    tokenizer.pad_token = tokenizer.unk_token
+    
     model = pe.llama(125 * 100 * 1000 * 1000, int(35e10), pe.llama_size.B7)
+    print("created model")
+        
+    print("loading tensors ...")
+    model.load_tensors(dbuf_weights)
+    print("tensors loaded")
     
-    weights = load_llama_weights("mnt/Llama1/consolidated.00.pth")
+    ds = load_dataset("garage-bAInd/Open-Platypus")
     
-    model.load_tensors(weights)
+    combined_ds = ds.map(lambda x: {"full_input" : x['instruction'] + x["output"]})
+
+    def tokenize_function(examples):
+        return tokenizer(examples["full_input"], padding='max_length', truncation=True, return_token_type_ids=False)
+
+    tokenized_datasets = combined_ds.map(tokenize_function, batched=True)
+
+    tokens = [torch.tensor(tokenized_datasets['train']['input_ids'][i]) for i in range(6)]
+
+    batched_tokens = []
+    batched_labels = []
+        
+    for token_list in tokens:
+        batch_of_tokens, batch_of_labels = mask_split(token_list, tokenizer.pad_token_id)
+        temp = []
+        for tok in batch_of_tokens:
+            temp.append(dbuf_from_numpy(embedding_matrix[torch.reshape(tok, (1, 4096))].to(torch.float).numpy()))
+        batched_tokens.append(temp)
+        temp = []
+        for label in batch_of_labels:
+            temp.append(dbuf_from_numpy(label.to(torch.float).numpy()))
+        batched_labels.append(temp)
     
-    model.train(3)
+    
+    # batched_tokens = [dbuf_from_numpy(embedding_matrix[torch.reshape(torch.tensor(tokenized_datasets['train']['input_ids'][i]), (1, 4096))].to(torch.float).numpy()) for i in range(6)]
+
+    # batched_tokens_torch = [embedding_matrix[torch.randint(0, 32000, (1, 4096))] for _ in range(10)]
+    # for tok in batched_tokens_torch:
+    #     assert(not torch.isnan(tok).any())
+
+    # batched_tokens = [dbuf_from_numpy(tok.to(torch.float).numpy()) for tok in batched_tokens_torch]
+
+    # for (name, weight) in weights.items():
+    #     if name.find("rope") == -1 and name.find("tok") == -1:
+    #         dbuf = model.get_tensor(name)
+    #         if (abs(float(dbuf.sum().str()) - weight.to(torch.float).sum().item()) > 1.0):
+    #             print(name + " does not match loaded tensor, sums are: einsum: " + dbuf.sum().str() + ", torch: " + str((weight.to(torch.float).sum().item())))
+
+    print("Assertions complete, starting to train")    
+    model.train(3, batched_tokens, batched_labels)
+
+def mask_split(input_tokens, pad_token_id):
+
+  idx = 0
+  batched_tokens = []
+  batched_labels = []
+
+  while input_tokens[idx] != pad_token_id and idx < len(input_tokens):
+    mask = torch.tensor([1 if i < idx else 0 for i in range(len(input_tokens))])
+    batched_tokens.append(input_tokens * mask)
+    one_hot = torch.zeros(32000)
+    one_hot[input_tokens[idx+1]] = 1
+    batched_labels.append(one_hot)
+    idx += 1
+  return batched_tokens, batched_labels
+
 
 def test_dbufs():
     # Uncomment to see class overviews
@@ -87,19 +166,16 @@ def test_dbufs():
     print(buf.get(2).str())
     
 
-
-def load_llama_weights(filename: str):
-    start = time.time()
-    model_dict = torch.load(filename)
-    print(f"PyTorch.load() for Llama3-8B took {time.time()-start}s")
+def load_llama_weights(model_dict: dict):
     out_dict = dict()
     
     start = time.time()
     for name, weight in model_dict.items():
-        weight = weight.to(torch.half).numpy()
+        weight = weight.to(torch.float).numpy()
+        # print(name + " has shape " + str(weight.shape))
         out_dict[name] = dbuf_from_numpy(weight)
         
-    print(f"Changing dtype and making dbuffer_ts for Llama3-8B took {time.time()-start}s")
+    print(f"Changing dtype and copying to dbuffer_ts took {time.time()-start}s")
     
     return out_dict
     

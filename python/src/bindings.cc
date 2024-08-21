@@ -143,7 +143,9 @@ PYBIND11_MODULE(PyEinsummable, m) {
     py::class_<gpu_llama_t>(m, "llama")
         .def(py::init<uint64_t, uint64_t, llama_size_t>())
         .def("train", &gpu_llama_t::train)
-        .def("load_tensors", &gpu_llama_t::load_tensors);
+        .def("load_tensors", &gpu_llama_t::load_tensors)
+        .def("get_tensor", py::overload_cast<string>(&gpu_llama_t::get_tensor))
+        .def("get_tensor", py::overload_cast<int>(&gpu_llama_t::get_tensor));
 
 
     m.def("matmul_memgraph", &matmul_taskgraph, "Give the various graphs for a matrix multiplication of the given parameters");
