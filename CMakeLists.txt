@@ -206,7 +206,7 @@ endif()
 if(${GPU_EXECUTION_ENGINE})
   enable_language(CUDA)
 
-  find_package(CUDA 11.8 REQUIRED)
+  find_package(CUDA 12.6 REQUIRED)
   include_directories("${CUDA_INCLUDE_DIRS}")
   include_directories(${CUTENSOR_ROOT}/include)
   include_directories(${PROJECT_SOURCE_DIR}/src/engine)
@@ -244,7 +244,7 @@ if(${GPU_EXECUTION_ENGINE})
 
   add_library(cutensor SHARED IMPORTED)
   set_target_properties(cutensor PROPERTIES
-    IMPORTED_LOCATION "/usr/lib/x86_64-linux-gnu/libcutensor/11/libcutensor.so"
+    IMPORTED_LOCATION "/usr/lib/x86_64-linux-gnu/libcutensor/12/libcutensor.so"
     INTERFACE_INCLUDE_DIRECTORIES "/usr/include")
 
   add_library(gpu_execution_engine
@@ -274,9 +274,9 @@ if(${GPU_EXECUTION_ENGINE})
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    /usr/local/cuda-11.8/lib64/libcudart.so
-    /usr/local/cuda-11.8/lib64/libcublasLt.so
-    /usr/local/cuda-11.8/lib64/libcublas.so
+    /usr/local/cuda-12.6/lib64/libcudart.so
+    /usr/local/cuda-12.6/lib64/libcublasLt.so
+    /usr/local/cuda-12.6/lib64/libcublas.so
     ucx::ucp ucx::ucs)
   endfunction()
 

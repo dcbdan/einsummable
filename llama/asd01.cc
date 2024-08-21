@@ -612,14 +612,14 @@ int main_(int argc, char** argv) {
     buffer_sizes.push_back(mem_size);
   }
 
-  bool use_cudagraph = false;
+  bool use_cudagraph = args.get<bool>("use_cudagraph");
   auto gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes);
   gpu_server->set_split_off_inputs(true);
   if(gpu_server->has_storage()) {
     throw std::runtime_error("should not be using storage");
   }
 
-  auto num_iter = 2;
+  auto num_iter = 1;
   for(int i = 0; i != num_iter; ++i) {
     DOUT("----- iteration " << i << " -----");
     //exp02(args, gpu_server);
@@ -758,5 +758,6 @@ int main_run_matmul(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
-  return main_run_matmul(argc, argv);
+  return main_(argc, argv);
+  //return main_run_matmul(argc, argv);
 }

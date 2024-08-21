@@ -561,7 +561,7 @@ int main(int argc, char** argv) {
   int world_size = 1;
 
   string which_model = argv[1];
-  string base_data_file = "/home/dcb/storage/" + which_model;
+  string base_data_file = "/home/dcb/LLaMA/es/" + which_model;
 
   int num_data_files;
   if(which_model == "7B") {

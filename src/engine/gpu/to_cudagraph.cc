@@ -1,6 +1,20 @@
 #include "to_cudagraph.h"
 
-cudaGraph_t compile_cuda_graph(
+cudaGraphNode_t get_capture_out_graph_node(cudaStream_t stream) {
+  cudaGraphNode_t const* ds;
+  cudaStreamCaptureStatus status;
+  size_t n = 0;
+  handle_cuda_error(cudaStreamGetCaptureInfo(stream, &status, 0, 0, &ds, &n));
+  if(n != 1) {
+    throw std::runtime_error("Invalid! n = " + write_with_ss(n));
+  }
+  return ds[0];
+}
+
+tuple<
+  cudaGraph_t,
+  map<int, cg_event_t>>
+compile_cuda_graph(
   memgraph_t const& memgraph,
   vector<kernel_manager_t>& kms,
   vector<void*> mems,
@@ -42,6 +56,7 @@ cudaGraph_t compile_cuda_graph(
   //  }
   //}
 
+  map<int, cg_event_t> profiles;
   for(int mid = 0; mid != n_nodes; ++mid) {
     auto const& node = memgraph.nodes[mid];
 
@@ -60,15 +75,16 @@ cudaGraph_t compile_cuda_graph(
         "cuda graph add empty node");
      
     } else if(node.op.is_constant()) {
-      cudaGraph_t g;
       cudaStream_t stream;
-      handle_cuda_error(cudaGraphCreate(&g,0), "cannot create graph");
 
       int device = node.op.get_loc();
       handle_cuda_error(cudaSetDevice(device));
       handle_cuda_error(cudaStreamCreate(&stream));
 
-      handle_cuda_error(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+      handle_cuda_error(cudaStreamBeginCaptureToGraph(
+        stream, ret,
+        deps.data(), NULL, deps.size(), 
+        cudaStreamCaptureModeGlobal));
 
       auto const& info = node.op.get_constant();
       void* out = increment_void_ptr(mems[device], info.offset);
@@ -81,12 +97,11 @@ cudaGraph_t compile_cuda_graph(
         throw std::runtime_error("should not reach");
       }
 
-      handle_cuda_error(cudaStreamEndCapture(stream, &g));
+      cnodes[mid] = get_capture_out_graph_node(stream);
 
-      handle_cuda_error(cudaGraphAddChildGraphNode(&cnodes[mid], ret, deps.data(), deps.size(), g));
+      handle_cuda_error(cudaStreamEndCapture(stream, &ret));
 
       handle_cuda_error(cudaStreamDestroy(stream), "");
-      handle_cuda_error(cudaGraphDestroy(g), "");
     } else if(node.op.is_einsummable()) {
       auto const& apply = node.op.get_apply();
       if(apply.group >= 0) {
@@ -127,36 +142,36 @@ cudaGraph_t compile_cuda_graph(
         };
       }
 
-      {
-        cudaGraph_t g;
-        cudaStream_t stream;
-        handle_cuda_error(cudaGraphCreate(&g,0), "cannot create graph");
+      cudaEvent_t beg, end;
+      cudaGraphNode_t beg_node, mid_node;
+      handle_cuda_error(cudaEventCreate(&beg));
+      handle_cuda_error(cudaEventCreate(&end));
+
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &beg_node, ret, deps.data(), deps.size(), beg));
+     
+      cudaStream_t stream;
   
-        handle_cuda_error(cudaSetDevice(device));
-        handle_cuda_error(cudaStreamCreate(&stream));
+      handle_cuda_error(cudaSetDevice(device));
+      handle_cuda_error(cudaStreamCreate(&stream));
   
-        handle_cuda_error(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+      handle_cuda_error(cudaStreamBeginCaptureToGraph(
+        stream,ret,
+        &beg_node, NULL, 1,
+        cudaStreamCaptureModeGlobal));
+
+      kms[device](e, stream, out_mem, inn_mems, workspace);
+  
+      mid_node = get_capture_out_graph_node(stream);
+
+      handle_cuda_error(cudaStreamEndCapture(stream, &ret));
  
-        //DLINEOUT(e << " " << std::boolalpha << bool(workspace));
-        //std::cout << e << std::endl;
-        //if(workspace) {
-        //  auto const& [_0, sz] = workspace.value();
-        //  DOUT(sz);
-        //}
-        //DOUT("")
+      handle_cuda_error(cudaStreamDestroy(stream));
 
-        kms[device](e, stream, out_mem, inn_mems, workspace);
-  
-        handle_cuda_error(cudaStreamEndCapture(stream, &g));
-  
-        handle_cuda_error(
-          cudaGraphAddChildGraphNode(
-            &cnodes[mid], ret, deps.data(), deps.size(), g));
-  
-        handle_cuda_error(cudaStreamDestroy(stream));
-        handle_cuda_error(cudaGraphDestroy(g));
-      }
-
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &cnodes[mid], ret, &mid_node, 1, end));
+ 
+      profiles.insert({mid, cg_event_t(beg, end)});
     } else if(node.op.is_touch()) {
       auto const& apply = node.op.get_apply();
       auto const& touch = apply.get_touch();
@@ -184,27 +199,39 @@ cudaGraph_t compile_cuda_graph(
         mems[device],
         apply.mems[1].offset);
 
-      {
-        cudaGraph_t g;
-        cudaStream_t stream;
-        handle_cuda_error(cudaGraphCreate(&g,0), "cannot create graph");
+      cudaEvent_t beg, end;
+      cudaGraphNode_t beg_node, mid_node;
+      handle_cuda_error(cudaEventCreate(&beg));
+      handle_cuda_error(cudaEventCreate(&end));
+
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &beg_node, ret, deps.data(), deps.size(), beg));
+
+      cudaStream_t stream;
+      handle_cuda_error(cudaSetDevice(device));
+      handle_cuda_error(cudaStreamCreate(&stream));
   
-        handle_cuda_error(cudaSetDevice(device));
-        handle_cuda_error(cudaStreamCreate(&stream));
-  
-        handle_cuda_error(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+      handle_cuda_error(cudaStreamBeginCaptureToGraph(
+        stream, ret,
+        &beg_node, NULL, 1,
+        cudaStreamCaptureModeGlobal));
  
-        launch_touch_kernel(touch, stream, out_mem, inn_mem);
+      launch_touch_kernel(touch, stream, out_mem, inn_mem);
   
-        handle_cuda_error(cudaStreamEndCapture(stream, &g));
+      mid_node = get_capture_out_graph_node(stream);
+
+      handle_cuda_error(cudaStreamEndCapture(stream, &ret));
+
+      //handle_cuda_error(
+      //  cudaGraphAddChildGraphNode(
+      //    &cnodes[mid], ret, deps.data(), deps.size(), g));
   
-        handle_cuda_error(
-          cudaGraphAddChildGraphNode(
-            &cnodes[mid], ret, deps.data(), deps.size(), g));
-  
-        handle_cuda_error(cudaStreamDestroy(stream), "");
-        handle_cuda_error(cudaGraphDestroy(g), "");
-      }
+      handle_cuda_error(cudaStreamDestroy(stream), "");
+
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &cnodes[mid], ret, &mid_node, 1, end));
+ 
+      profiles.insert({mid, cg_event_t(beg, end)});
     } else if(node.op.is_move()) {
       auto const& move = node.op.get_move();
       auto const& [src_device, src_offset] = move.src;
@@ -218,16 +245,51 @@ cudaGraph_t compile_cuda_graph(
         mems[dst_device],
         dst_offset);
 
+      cudaEvent_t beg, end;
+      cudaGraphNode_t beg_node, mid_node;
+      handle_cuda_error(cudaEventCreate(&beg));
+      handle_cuda_error(cudaEventCreate(&end));
+
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &beg_node, ret, deps.data(), deps.size(), beg));
+
+      //handle_cuda_error(cudaGraphAddMemcpyNode1D(
+      //  &cnodes[mid],
+      //  ret,
+      //  deps.data(), deps.size(),
+      //  dst_mem, src_mem, move.size,
+      //  cudaMemcpyDeviceToDevice));
       handle_cuda_error(cudaGraphAddMemcpyNode1D(
-        &cnodes[mid],
+        &mid_node,
         ret,
-        deps.data(), deps.size(),
+        &beg_node, 1,
         dst_mem, src_mem, move.size,
         cudaMemcpyDeviceToDevice));
+
+      handle_cuda_error(cudaGraphAddEventRecordNode(
+        &cnodes[mid], ret, &mid_node, 1, end));
+
+      profiles.insert({mid, cg_event_t(beg, end)});
     } else {
       throw std::runtime_error("compile cuda graph: missing node implementation");
     }
   }
 
+  return {ret, profiles};
+}
+
+cg_event_t::cg_event_t() {}
+
+cg_event_t::cg_event_t(cudaEvent_t b, cudaEvent_t e): beg(b), end(e) {}
+
+cg_event_t::~cg_event_t() {
+  //handle_cuda_error(cudaEventDestroy(beg));
+  //handle_cuda_error(cudaEventDestroy(end));
+}
+
+float cg_event_t::elapsed_time() const {
+  float ret;
+  handle_cuda_error(cudaEventElapsedTime(&ret, beg, end));
   return ret;
 }
+
