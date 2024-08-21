@@ -11,10 +11,22 @@ cudaGraphNode_t get_capture_out_graph_node(cudaStream_t stream) {
   return ds[0];
 }
 
-tuple<
-  cudaGraph_t,
-  map<int, cg_event_t>>
-compile_cuda_graph(
+void reach_past_dummies(memgraph_t const& memgraph, int mid, set<int>& ret) {
+  auto const& node = memgraph.nodes[mid];
+  if(node.op.is_inputmem()   || 
+     node.op.is_partialize() ||
+     node.op.is_alloc()      ||
+     node.op.is_del())
+  {
+    for(int const& inn: node.inns) {
+      reach_past_dummies(memgraph, inn, ret);
+    }
+  } else {
+    ret.insert(mid);
+  }
+}
+
+cudaGraph_t compile_cuda_graph(
   memgraph_t const& memgraph,
   vector<kernel_manager_t>& kms,
   vector<void*> mems,
@@ -34,36 +46,35 @@ compile_cuda_graph(
   deps.reserve(10);
 
   int n_nodes = memgraph.nodes.size();
-  //for(int mid = 0; mid != n_nodes; ++mid) {
+
+  //auto add_deps = [&](int mid) {
+  //  deps.resize(0);
+  //  set<int> ret;
   //  auto const& node = memgraph.nodes[mid];
-  //  std::cout << mid << ": ";
-  //  node.op.print_type(std::cout);
-  //  std::cout << std::endl;
-
-  //  if(node.op.is_touch()) {
-  //    auto const& apply = node.op.get_apply();
-  //    auto const& touch = apply.get_touch();
-  //    DOUT("device:       " << apply.loc);
-  //    DOUT("has_castable: " << bool(touch.castable));
-  //    DOUT("dtype:        " << touch.dtype);
-
-  //    for(auto const& s: touch.selection) {
-  //      DOUT("");
-  //      s.print();
-  //    }
-
-  //    DOUT("");
+  //  for(int const& inn: node.inns) {
+  //    reach_past_dummies(memgraph, inn, ret);
   //  }
-  //}
+  //  return ret;
+  //};
 
-  map<int, cg_event_t> profiles;
   for(int mid = 0; mid != n_nodes; ++mid) {
     auto const& node = memgraph.nodes[mid];
-
     deps.resize(0);
     for(int const& inn: node.inns) {
       deps.push_back(cnodes[inn]);
     }
+
+    //if(node.op.is_inputmem()   || 
+    //   node.op.is_partialize() ||
+    //   node.op.is_alloc()      ||
+    //   node.op.is_del())
+    //{
+    //  continue;
+    //}
+    //deps.resize(0);
+    //for(int const& inn: add_deps(mid)) {
+    //  deps.push_back(cnodes[inn]);
+    //}
 
     if(node.op.is_inputmem()   || 
        node.op.is_partialize() ||
@@ -73,7 +84,6 @@ compile_cuda_graph(
       handle_cuda_error(
         cudaGraphAddEmptyNode(&cnodes[mid], ret, deps.data(), deps.size()),
         "cuda graph add empty node");
-     
     } else if(node.op.is_constant()) {
       cudaStream_t stream;
 
@@ -142,14 +152,6 @@ compile_cuda_graph(
         };
       }
 
-      cudaEvent_t beg, end;
-      cudaGraphNode_t beg_node, mid_node;
-      handle_cuda_error(cudaEventCreate(&beg));
-      handle_cuda_error(cudaEventCreate(&end));
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &beg_node, ret, deps.data(), deps.size(), beg));
-     
       cudaStream_t stream;
   
       handle_cuda_error(cudaSetDevice(device));
@@ -157,21 +159,16 @@ compile_cuda_graph(
   
       handle_cuda_error(cudaStreamBeginCaptureToGraph(
         stream,ret,
-        &beg_node, NULL, 1,
+        deps.data(), NULL, deps.size(),
         cudaStreamCaptureModeGlobal));
 
       kms[device](e, stream, out_mem, inn_mems, workspace);
   
-      mid_node = get_capture_out_graph_node(stream);
+      cnodes[mid] = get_capture_out_graph_node(stream);
 
       handle_cuda_error(cudaStreamEndCapture(stream, &ret));
  
       handle_cuda_error(cudaStreamDestroy(stream));
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &cnodes[mid], ret, &mid_node, 1, end));
- 
-      profiles.insert({mid, cg_event_t(beg, end)});
     } else if(node.op.is_touch()) {
       auto const& apply = node.op.get_apply();
       auto const& touch = apply.get_touch();
@@ -199,39 +196,22 @@ compile_cuda_graph(
         mems[device],
         apply.mems[1].offset);
 
-      cudaEvent_t beg, end;
-      cudaGraphNode_t beg_node, mid_node;
-      handle_cuda_error(cudaEventCreate(&beg));
-      handle_cuda_error(cudaEventCreate(&end));
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &beg_node, ret, deps.data(), deps.size(), beg));
-
       cudaStream_t stream;
       handle_cuda_error(cudaSetDevice(device));
       handle_cuda_error(cudaStreamCreate(&stream));
   
       handle_cuda_error(cudaStreamBeginCaptureToGraph(
         stream, ret,
-        &beg_node, NULL, 1,
+        deps.data(), NULL, deps.size(),
         cudaStreamCaptureModeGlobal));
  
       launch_touch_kernel(touch, stream, out_mem, inn_mem);
   
-      mid_node = get_capture_out_graph_node(stream);
+      cnodes[mid] = get_capture_out_graph_node(stream);
 
       handle_cuda_error(cudaStreamEndCapture(stream, &ret));
 
-      //handle_cuda_error(
-      //  cudaGraphAddChildGraphNode(
-      //    &cnodes[mid], ret, deps.data(), deps.size(), g));
-  
       handle_cuda_error(cudaStreamDestroy(stream), "");
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &cnodes[mid], ret, &mid_node, 1, end));
- 
-      profiles.insert({mid, cg_event_t(beg, end)});
     } else if(node.op.is_move()) {
       auto const& move = node.op.get_move();
       auto const& [src_device, src_offset] = move.src;
@@ -245,51 +225,17 @@ compile_cuda_graph(
         mems[dst_device],
         dst_offset);
 
-      cudaEvent_t beg, end;
-      cudaGraphNode_t beg_node, mid_node;
-      handle_cuda_error(cudaEventCreate(&beg));
-      handle_cuda_error(cudaEventCreate(&end));
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &beg_node, ret, deps.data(), deps.size(), beg));
-
-      //handle_cuda_error(cudaGraphAddMemcpyNode1D(
-      //  &cnodes[mid],
-      //  ret,
-      //  deps.data(), deps.size(),
-      //  dst_mem, src_mem, move.size,
-      //  cudaMemcpyDeviceToDevice));
       handle_cuda_error(cudaGraphAddMemcpyNode1D(
-        &mid_node,
+        &cnodes[mid],
         ret,
-        &beg_node, 1,
+        deps.data(), deps.size(),
         dst_mem, src_mem, move.size,
         cudaMemcpyDeviceToDevice));
-
-      handle_cuda_error(cudaGraphAddEventRecordNode(
-        &cnodes[mid], ret, &mid_node, 1, end));
-
-      profiles.insert({mid, cg_event_t(beg, end)});
     } else {
       throw std::runtime_error("compile cuda graph: missing node implementation");
     }
   }
 
-  return {ret, profiles};
-}
-
-cg_event_t::cg_event_t() {}
-
-cg_event_t::cg_event_t(cudaEvent_t b, cudaEvent_t e): beg(b), end(e) {}
-
-cg_event_t::~cg_event_t() {
-  //handle_cuda_error(cudaEventDestroy(beg));
-  //handle_cuda_error(cudaEventDestroy(end));
-}
-
-float cg_event_t::elapsed_time() const {
-  float ret;
-  handle_cuda_error(cudaEventElapsedTime(&ret, beg, end));
   return ret;
 }
 

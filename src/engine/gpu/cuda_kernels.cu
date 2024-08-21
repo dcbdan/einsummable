@@ -604,7 +604,7 @@ __global__ void fill_lowerTri(
 void fillTri_dispatch(void* mem, uint64_t nrow, uint64_t ncol, uint64_t start,
   uint64_t lower, uint64_t upper, cudaStream_t stream, int dtype_info)
 {
-  dim3 blockSize(nrow, ncol);
+  dim3 blockSize(16, 16);
   dim3 gridSize((ncol + blockSize.x - 1) / blockSize.x,
                 (nrow + blockSize.y - 1) / blockSize.y);
 
@@ -633,7 +633,8 @@ __global__ void fill_constant(void* mem, uint64_t nelem, uint64_t value, int dty
 }
 
 void fill_constant_dispatch(void* mem, uint64_t nelem, uint64_t value,
-  cudaStream_t stream, int dtype_info){
+  cudaStream_t stream, int dtype_info)
+{
   int blockSize = 256;
   int gridSize = (nelem + blockSize - 1) / blockSize;
   // printf("nelem: %lu value %f\n", nelem, *((float*)value));

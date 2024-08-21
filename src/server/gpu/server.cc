@@ -143,8 +143,7 @@ void gpu_mg_server_t::execute_memgraph(
   }
 
   if(_use_cudagraph) {
-    //cudaGraph_t cudagraph = compile_cuda_graph(
-    auto [cudagraph, profiles] = compile_cuda_graph(
+    cudaGraph_t cudagraph = compile_cuda_graph(
       memgraph, 
       kernel_managers,
       mems,
@@ -185,33 +184,6 @@ void gpu_mg_server_t::execute_memgraph(
     handle_cuda_error(
       cudaGraphDestroy(cudagraph),
       "gpu_mg_server_t: could not destroy cudagraph");
-
-    if(!for_remap) {
-      string filename = "cuda_graph_elapsed_time";
-      std::ofstream f(filename);
-      for(auto const& [mid, ev]: profiles) {
-        auto const& node = memgraph.nodes[mid];
-        string msg;
-        if(node.op.is_einsummable()) { 
-          auto const& e = node.op.get_einsummable();
-          if(e.is_contraction()) {
-            msg = "con";
-          } else if(e.has_aggregation()) {
-            msg = "agg";
-          } else {
-            msg = "ewe";
-          }
-        } else if(node.op.is_touch()) {
-          msg = "tou";
-        } else if(node.op.is_move()) {
-          msg = "mov";
-        }
-        f << msg << " " << ev.elapsed_time() << std::endl;
-      }
-      f << "obs " << obs << std::endl;
-      DOUT("printed " << filename);
-
-    }
 
     return;
   }
