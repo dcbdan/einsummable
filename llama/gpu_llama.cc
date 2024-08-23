@@ -191,6 +191,8 @@ gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llam
         }
     }
 
+    
+
     // Move loss, predictions, to new stoids to keep track
     int loss_cg_gid = final_gid_remaps[loss_id];
     int loss_tid = final_rel.at(loss_cg_gid).tids.get()[0];
@@ -204,19 +206,17 @@ gpu_llama_t::gpu_llama_t(uint64_t mem_size, uint64_t sto_size, llama_size_t llam
 
     // DOUT("Through loss");
 
-    // int predictions_cg_gid = final_gid_remaps[predictions_id];
-    // DOUT(1);
-    // int predictions_tid = final_rel.at(predictions_cg_gid).tids.get()[0];
-    // DOUT(2);
-    // int predictions_mid = final_state->task_tensor_to_mem_node[predictions_tid];
-    // DOUT(3);
-    // auto &predictions_node = final_state->memgraph.nodes[predictions_mid];
-    // DOUT(4);
-    // memstoloc_t predictions_memstoloc = predictions_node.op.get_output_memstoloc();
-    // DOUT(5);
-    // memstoloc_t predictions_new_memstoloc = memstoloc_t(stoloc_t{.loc = 0, .id = ++final_state->_sto_id});
-    // DOUT(6);
-    // predictions_stoid = final_state->_sto_id;
+    DOUT("Predictions id " << predictions_id);
+    DOUT("Loss id" << loss_id);
+ 
+    int predictions_cg_gid = final_gid_remaps.at(predictions_id);
+    DOUT("Predictions cg gid" << predictions_cg_gid);
+    int predictions_tid = final_rel.at(predictions_cg_gid).tids.get()[0];
+    int predictions_mid = final_state->task_tensor_to_mem_node[predictions_tid];
+    auto &predictions_node = final_state->memgraph.nodes[predictions_mid];
+    memstoloc_t predictions_memstoloc = predictions_node.op.get_output_memstoloc();
+    memstoloc_t predictions_new_memstoloc = memstoloc_t(stoloc_t{.loc = 0, .id = ++final_state->_sto_id});
+    predictions_stoid = final_state->_sto_id;
 
     // DOUT("Through loss & pred");
 
@@ -283,6 +283,7 @@ graph_setup_t gpu_llama_t::make_graph() {
 
         // predictions: batch size, vocab size
         tensor_t predictions = model.forward(embeddings);
+        predictions.save_inplace();
         tensor_t labels = writer.input(
         vector<uint64_t>{margs.batch_size, margs.vocab_size},
         dtype);
@@ -445,6 +446,9 @@ void gpu_llama_t::train(int epochs, vector<vector<dbuffer_t>> batches, vector<ve
                         server->execute_memgraph(states[i]->memgraph, false, vars);
                     }
                     server->storage_remap_server(remaps);
+
+                    dbuffer_t preds = dbuffer_t(dtype, server->get_storage_buf(predictions_stoid));
+                    DOUT("Preds" << preds);
 
                     dbuffer_t loss = dbuffer_t(dtype, server->get_storage_buf(loss_stoid));
                     DOUT("Loss = " << loss);

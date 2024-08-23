@@ -10,7 +10,7 @@
 communicator_t gpu_mg_server_t::null_comm;
 
 int main() {
-    gpu_llama_t model(125lu * 100lu * 1000lu * 1000lu, 10e10, llama_size_t::B7);
+    gpu_llama_t model(125lu * 100lu * 1000lu * 1000lu, 10e8, llama_size_t::B7);
 
     // for (int i = 0; i < model.states.size(); i++) {
     //     DOUT("Memgraph " << i << " has " << model.states[i]->memgraph.nodes.size() << " nodes");
