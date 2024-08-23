@@ -11,18 +11,49 @@ cudaGraphNode_t get_capture_out_graph_node(cudaStream_t stream) {
   return ds[0];
 }
 
-void reach_past_dummies(memgraph_t const& memgraph, int mid, set<int>& ret) {
+bool _is_dummy(memgraph_t const& memgraph, int mid) {
   auto const& node = memgraph.nodes[mid];
-  if(node.op.is_inputmem()   || 
-     node.op.is_partialize() ||
-     node.op.is_alloc()      ||
-     node.op.is_del())
-  {
+  return node.op.is_inputmem()   || 
+         node.op.is_partialize() ||
+         node.op.is_alloc()      ||
+         node.op.is_del()         ;
+}
+
+void _reach_past_dummies(memgraph_t const& memgraph, int mid, set<int>& ret) {
+  if(_is_dummy(memgraph, mid)) {
+    auto const& node = memgraph.nodes[mid];
     for(int const& inn: node.inns) {
-      reach_past_dummies(memgraph, inn, ret);
+      _reach_past_dummies(memgraph, inn, ret);
     }
   } else {
     ret.insert(mid);
+  }
+}
+
+set<int> _get_deps(memgraph_t const& memgraph, int mid) {
+  set<int> ret;
+  auto const& node = memgraph.nodes[mid];
+  for(int const& inn: node.inns) {
+    _reach_past_dummies(memgraph, inn, ret);
+  }
+  return ret;
+}
+
+void create_dep_tree(cudaGraph_t& ret, vector<cudaGraphNode_t>& deps) {
+  vector<cudaGraphNode_t> tmp;
+  while(deps.size() > 2) {
+    tmp = vector<cudaGraphNode_t>( (deps.size() + 1) / 2 );
+    for(int i = 0; i != tmp.size(); ++i) {
+      if(i + 1 == tmp.size()) {
+        tmp[i] = deps[2*i];
+      } else {
+        handle_cuda_error(
+          cudaGraphAddEmptyNode(&tmp[i], ret, deps.data() + (2*i), 2),
+          "cuda graph add empty node");
+      }
+    }
+    std::copy(tmp.begin(), tmp.end(), deps.begin());
+    deps.resize(tmp.size());
   }
 }
 
@@ -47,44 +78,24 @@ cudaGraph_t compile_cuda_graph(
 
   int n_nodes = memgraph.nodes.size();
 
-  //auto add_deps = [&](int mid) {
-  //  deps.resize(0);
-  //  set<int> ret;
-  //  auto const& node = memgraph.nodes[mid];
-  //  for(int const& inn: node.inns) {
-  //    reach_past_dummies(memgraph, inn, ret);
-  //  }
-  //  return ret;
-  //};
-
   for(int mid = 0; mid != n_nodes; ++mid) {
-    auto const& node = memgraph.nodes[mid];
-    deps.resize(0);
-    for(int const& inn: node.inns) {
-      deps.push_back(cnodes[inn]);
+    if(_is_dummy(memgraph, mid)) {
+      continue;
     }
 
-    //if(node.op.is_inputmem()   || 
-    //   node.op.is_partialize() ||
-    //   node.op.is_alloc()      ||
-    //   node.op.is_del())
-    //{
-    //  continue;
-    //}
-    //deps.resize(0);
-    //for(int const& inn: add_deps(mid)) {
-    //  deps.push_back(cnodes[inn]);
-    //}
+    auto const& node = memgraph.nodes[mid];
 
-    if(node.op.is_inputmem()   || 
-       node.op.is_partialize() ||
-       node.op.is_alloc()      ||
-       node.op.is_del())
-    {
-      handle_cuda_error(
-        cudaGraphAddEmptyNode(&cnodes[mid], ret, deps.data(), deps.size()),
-        "cuda graph add empty node");
-    } else if(node.op.is_constant()) {
+    deps.resize(0);
+    for(int const& inn: _get_deps(memgraph, mid)) {
+      deps.push_back(cnodes[inn]);
+    }
+    // No actual performance improvement...
+    //   if(deps.size() > 8) {
+    //     // modify deps 
+    //     create_dep_tree(ret, deps);
+    //   }
+
+    if(node.op.is_constant()) {
       cudaStream_t stream;
 
       int device = node.op.get_loc();
