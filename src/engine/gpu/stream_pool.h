@@ -39,6 +39,7 @@ struct streampool_t {
 
   void initialize(int num_streams_per_gpu, int num_gpus);
 
+  vector<vector<cudaStream_t>>& operator()() { return stream_pools; }
 private:
   friend class streampool_manager_t;
   vector<vector<cudaStream_t>> stream_pools;

@@ -91,10 +91,6 @@ private:
 
   std::shared_ptr<gpu_storage_t> storage;
 
-  // NOTE: Change the streams per device as needed
-  // 5 is enough in initial experiments
-  int num_streams_per_device = 5;
-
   streampool_t stream_pool;
 
   bool _use_cudagraph;

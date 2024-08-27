@@ -7,6 +7,7 @@
 #include <sys/gmon.h>
 
 #include "../../engine/gpu/to_cudagraph.h"
+#include "../../engine/gpu/to_streamlist.h"
 
 gpu_mg_server_t::gpu_mg_server_t(
   communicator_t& c,
@@ -57,6 +58,7 @@ gpu_mg_server_t::gpu_mg_server_t(
   // }
 
   // initialize the stream pool now that we have num_gpus_per_node
+  int num_streams_per_device = 5;
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 
   // When creating the gpu server, also enable peer access to have best transfer performance
@@ -140,6 +142,25 @@ void gpu_mg_server_t::execute_memgraph(
     }
     DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: " 
       << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
+  }
+
+  bool _use_streamlist = false;
+  if(_use_streamlist) {
+    // TODO: Have enum for execgraph, cudagraph and streamlist
+    int num_streams_per_device = stream_pool()[0].size();
+    streamlist_t streamlist = streamlist_t::make(
+      memgraph, num_streams_per_device);
+    if(!for_remap) {
+      streamlist.compile_kernels(kernel_managers, scalar_vars);
+    }
+
+    streamlist.execute(
+      kernel_managers,
+      stream_pool(),
+      mems, 
+      !for_remap);
+
+    return;
   }
 
   if(_use_cudagraph) {
