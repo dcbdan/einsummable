@@ -216,6 +216,9 @@ void memgraph_t::print_graphviz(
       {
         color = colors[del.loc];
       }
+    } else if(op.is_barrier()) {
+      barrier_t const& b = op.get_barrier();
+      label = "barrier[" + write_with_ss(b.x) + "]";
     } else {
       throw std::runtime_error("memgraph print should not happen");
     }
@@ -412,6 +415,10 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
       d->set_loc(loc);
       d->set_offset(offset);
       d->set_size(size);
+    } else if(node.op.is_barrier()) {
+      auto const& barr = node.op.get_barrier();
+      es_proto::MGBarrier *b = n->mutable_barrier();
+      b->set_x(barr.x);
     }
 
     for(auto const& inn: node.inns) {
@@ -561,6 +568,9 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
           .loc = d.loc(),
           .offset = d.offset(),
           .size = d.size()});
+    } else if(n.has_barrier()) {
+      auto const& b = n.barrier();
+      op = op_t(barrier_t{ .x = b.x() });
     } else {
       throw std::runtime_error("proto node op contains something unexpected");
     }
@@ -732,6 +742,8 @@ string memgraph_t::op_t::get_name() const
     return "move";
   } else if(is_del()) {
     return "del";
+  } else if(is_barrier()) {
+    return "barrier";
   } else if(is_inputmem()) {
     return "inputmem";
   } else if(is_constant()) {
@@ -765,6 +777,8 @@ void memgraph_t::op_t::check_op() const
     check_alloc();
   } else if(is_del()) {
     check_del();
+  } else if(is_barrier()) {
+    check_barrier();
   } else {
     throw std::runtime_error("should not reach");
   }
@@ -789,6 +803,7 @@ void memgraph_t::op_t::check_load()       const {}
 void memgraph_t::op_t::check_partialize() const {}
 void memgraph_t::op_t::check_alloc()      const {}
 void memgraph_t::op_t::check_del()        const {}
+void memgraph_t::op_t::check_barrier()    const {}
 
 vector<memloc_t> memgraph_t::op_t::get_memlocs() const
 {
@@ -835,6 +850,8 @@ vector<memloc_t> memgraph_t::op_t::get_memlocs() const
     auto const& del = get_del();
     return {
         del.as_memloc()};
+  } else if(is_barrier()) {
+    throw std::runtime_error("not implemented: get_memlocs for barrier node");
   } else {
     throw std::runtime_error("get_memlocs should not reach");
   }
@@ -869,6 +886,8 @@ memstoloc_t memgraph_t::op_t::get_output_memstoloc() const
     return get_alloc().as_memloc();
   } else if(is_del()) {
     throw std::runtime_error("del has no output memstoloc_t");
+  } else if(is_barrier()) {
+    throw std::runtime_error("barrier has no output memstoloc_t");
   } else {
     throw std::runtime_error("get_output_memstoloc should not reach");
   }
@@ -955,6 +974,10 @@ bool memgraph_t::op_t::is_local_to(int loc) const
     return loc == get_alloc().loc;
   } else if(is_del()) {
     return loc == get_del().loc;
+  } else if(is_barrier()) {
+    // TODO: what if we have multiple machines! Then barriers
+    //       will fail
+    throw std::runtime_error("barrier isn't local");
   } else {
     throw std::runtime_error("is_local_to should not reach");
   }

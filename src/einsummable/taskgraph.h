@@ -379,11 +379,12 @@ public:
   };
 
   struct node_t {
-    node_t(op_t op, bool is_save): op(op), is_save(is_save) {}
+    node_t(op_t op, bool is_save): op(op), is_save(is_save), barrier(0) {}
 
     op_t op;
     set<int> outs;
     bool is_save;
+    int barrier; // not meaningful for input_t ops
   };
   vector<node_t> nodes;
 

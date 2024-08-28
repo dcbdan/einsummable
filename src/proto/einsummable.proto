@@ -105,6 +105,7 @@ message TaskGraphNode {
     TGPartialize partialize = 5;
   }
   required bool is_save = 6;
+  required int32 barrier = 7;
 }
 
 message TaskGraph {
@@ -205,6 +206,9 @@ message MGDel {
   required uint64 offset = 2;
   required uint64 size = 3;
 }
+message MGBarrier {
+  required int32 x = 1;
+}
 
 message MemGraphNode {
   oneof node {
@@ -218,8 +222,9 @@ message MemGraphNode {
     MGPartialize partialize = 8;
     MGAlloc alloc = 9;
     MGDel del = 10;
+    MGBarrier barrier = 11;
   }
-  repeated int32 inns = 11;
+  repeated int32 inns = 12;
 }
 
 message MemGraph {

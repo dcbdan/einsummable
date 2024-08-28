@@ -180,6 +180,8 @@ struct memgraph_make_state_t {
 
   memgraph_t pop_memgraph();
 
+  int get_or_insert_barrier(int barrier);
+
   // A bunch of helper methods to modify
   //   task_tensor_to_mem_node,
   //   tensors_on_memory,
@@ -228,7 +230,12 @@ struct memgraph_make_state_t {
 
   map<int, int> workspace_tensors;
 
-  // A mapping from (apply || move) taskgraph node to the corresponding
+  // list of (barrier, mid). Note that the barrier id is monotonically increasing
+  vector<tuple<int, int>> barriers;
+  // barrier -> set of tids that barrier must wait on 
+  map<int, set<int>> const barrier_dep_cache;
+
+  // A mapping from (apply || move || partialize) taskgraph node to the corresponding
   // apply or move
   map<_which_node_t, int> task_node_to_mem_node;
   // A mapping form a taskgraph touch to the corresponding apply

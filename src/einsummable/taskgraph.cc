@@ -2572,6 +2572,7 @@ string taskgraph_t::to_wire() const {
     }
 
     n->set_is_save(node.is_save);
+    n->set_barrier(node.barrier);
   }
 
   string ret;
@@ -2674,6 +2675,8 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         .units = units
       };
       ret.nodes.emplace_back(op_t(partialize), is_save);
+
+      ret.nodes.back().barrier = n.barrier();
     } else {
       throw std::runtime_error("should not happen");
     }

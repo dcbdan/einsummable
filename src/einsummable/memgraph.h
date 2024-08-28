@@ -329,13 +329,17 @@ public:
     static del_t from_memloc(memloc_t const& m);
   };
 
+  struct barrier_t {
+    int x;
+  };
+
   struct op_t {
   private:
     using _op_t = std::variant<
       inputmem_t, inputsto_t, constant_t,
       apply_t, move_t,
       evict_t, load_t, partialize_t,
-      alloc_t, del_t>;
+      alloc_t, del_t, barrier_t>;
   public:
     op_t(_op_t op): op(op) { check_op(); }
 
@@ -349,6 +353,7 @@ public:
     op_t(partialize_t x): op_t(_op_t(x)) {}
     op_t(alloc_t      x): op_t(_op_t(x)) {}
     op_t(del_t        x): op_t(_op_t(x)) {}
+    op_t(barrier_t    x): op_t(_op_t(x)) {}
 
     bool is_inputmem()   const { return std::holds_alternative<inputmem_t>(op);   }
     bool is_inputsto()   const { return std::holds_alternative<inputsto_t>(op);   }
@@ -360,6 +365,7 @@ public:
     bool is_partialize() const { return std::holds_alternative<partialize_t>(op); }
     bool is_alloc()      const { return std::holds_alternative<alloc_t>(op);      }
     bool is_del()        const { return std::holds_alternative<del_t>(op);        }
+    bool is_barrier()    const { return std::holds_alternative<barrier_t>(op);    }
 
     inputmem_t   const& get_inputmem()   const { return std::get<inputmem_t>(op);   }
     inputsto_t   const& get_inputsto()   const { return std::get<inputsto_t>(op);   }
@@ -372,6 +378,7 @@ public:
     partialize_t const& get_partialize() const { return std::get<partialize_t>(op); }
     alloc_t      const& get_alloc()      const { return std::get<alloc_t>(op);      }
     del_t        const& get_del()        const { return std::get<del_t>(op);        }
+    barrier_t    const& get_barrier()    const { return std::get<barrier_t>(op);    }
 
     // check and get einsummable
     bool is_einsummable() const { return is_apply() && std::holds_alternative<einsummable_t>(get_apply().op); }
@@ -399,6 +406,8 @@ public:
         out << "partialize";
       } else if (is_del()) {
         out << "del";
+      } else if(is_barrier()) {
+        out << "barrier";
       } else if (is_alloc()) {
         out << "alloc";
       } else if (is_einsummable()) {
@@ -425,6 +434,10 @@ public:
       if (is_partialize()) return get_partialize().loc;
       if (is_alloc())      return get_alloc().loc;
       if (is_del())        return get_del().loc;
+
+      if (is_barrier()) {
+        throw std::runtime_error("barrier has no location");
+      }
 
       if (is_inputsto()) {
         throw std::runtime_error("input sto can have multiple locs");
@@ -466,6 +479,7 @@ public:
     void check_partialize() const;
     void check_alloc()      const;
     void check_del()        const;
+    void check_barrier()    const;
   };
 
   struct node_t {

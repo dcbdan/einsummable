@@ -823,6 +823,57 @@ vector<_which_touch_t> get_which_touches_from_to(
   return ret;
 }
 
+map<int, set<int>> compute_barrier_deps(taskgraph_t const& taskgraph) {
+  map<int, set<int>> ret;
+
+  // Most the time there are no barriers, so don't bother
+  // adding a bunch of zero deps for that case
+  {
+    bool empty = true;
+    for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+      auto const& node = taskgraph.nodes[tid];
+      if(node.barrier < 0) {
+        throw std::runtime_error("can't have negative barrier");
+      }
+      if(node.barrier != 0) {
+        empty = false;
+        break;
+      }
+    }
+
+    if(empty) {
+      return ret;
+    }
+  }
+
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_input()) {
+      if(node.barrier != 0) {
+        throw std::runtime_error("input nodes must have zero barrier...");
+      }
+      continue;
+    }
+
+    // If this node has outputs that have the same barrier value,
+    // it doesn't need to be accounted for
+    bool use = true;
+    for(int const& out_tid: node.outs) {
+      auto const& out_node = taskgraph.nodes[out_tid];
+      if(out_node.barrier == node.barrier) {
+        use = false;
+        break;
+      }
+    }
+
+    if(use) {
+      // node.barrier is not complete until atleast tid is completed
+      ret[node.barrier].insert(tid);
+    }
+  }
+
+  return ret;
+}
 
 memgraph_make_state_t::memgraph_make_state_t(
   taskgraph_t const& tg,
@@ -838,6 +889,7 @@ memgraph_make_state_t::memgraph_make_state_t(
     allocators(as),
     _group(0),
     use_storage(use_storage),
+    barrier_dep_cache(compute_barrier_deps(tg)),
     input_tid_to_data(ittd)
 {
 #ifdef USE_LOCATIONWISE_APPLY_ORDERING
@@ -1436,6 +1488,25 @@ memgraph_make_state_t::add_op(
     deps.insert(mid);
   }
 
+  // do we need to depend on a barrier?
+  if(node.barrier > 0) {
+    bool needs_barrier = true;
+
+    // If any of the input nodes already depend on this barrier,
+    // there is nothing to do 
+    for(auto const& inn_id: node.op.inputs()) {
+      auto const& inn_node = taskgraph.nodes[inn_id];
+      if(inn_node.barrier == node.barrier) {
+        needs_barrier = false;
+        break;
+      }
+    }
+
+    if(needs_barrier) {
+      deps.insert(get_or_insert_barrier(node.barrier));
+    }
+  }
+
   int new_memid = memgraph.insert(op.value(), deps);
 
 #ifdef USE_LOCATIONWISE_APPLY_ORDERING
@@ -1479,6 +1550,10 @@ memgraph_make_state_t::add_op(
       // This partialize is complete
       if(num_touches_in_partialize == 1)
       {
+        task_node_to_mem_node.insert({
+          _which_node_t { .task_id = id },
+          new_memid
+        });
         // then insert the newly created memid into the tensor mapping
         task_tensor_to_mem_node_update_on_memory(id, new_memid);
       } else {
@@ -1490,6 +1565,11 @@ memgraph_make_state_t::add_op(
           op_t(new_partialize),
           set<int>(in_progress.begin(), in_progress.end()));
         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
+
+        task_node_to_mem_node.insert({
+          _which_node_t { .task_id = id },
+          partialize_memid 
+        });
       }
       partializes_in_progress.erase(id);
       partializes_inited.erase(id);
@@ -1687,6 +1767,9 @@ bool memgraph_make_state_t::register_usage(int task_id)
       }
       else if(out_node.op.is_partialize())
       {
+        // Note: we put partializes in task_node_to_mem_node, but 
+        //       don't use task_node_to_mem_node as only the inputs
+        //       the touch get used matter here (Right?!)
         auto const whiches = get_which_touches_from_to(
             taskgraph,
             task_out,
@@ -1712,6 +1795,41 @@ bool memgraph_make_state_t::register_usage(int task_id)
     return true;
   }
   return false;
+}
+
+int memgraph_make_state_t::get_or_insert_barrier(int barrier) {
+  if(barrier < 0) {
+    throw std::runtime_error("should never have tg barrier < 0");
+  }
+  if(barrier == 0) {
+    throw std::runtime_error("no barrier mg node for barrier zero");
+  }
+
+  if(barriers.size() > 1) {
+    auto const& [last_barrier, mid] = barriers.back();
+    if(last_barrier == barrier) {
+      return mid;
+    }
+
+    // This method only getting called to find the barrier dependency, and if
+    // we are adding ops that out of barrier order, something is very wrong
+    if(barrier < last_barrier) {
+      throw std::runtime_error("cannot depend on barriers before the last");
+    }
+  }
+
+  // insert a barrier node that only starts when all the previous barrier
+  // deps occur  
+  set<int> deps;
+  for(auto const& inn_tid: barrier_dep_cache.at(barrier)) {
+    _which_node_t key { .task_id = inn_tid };
+    deps.insert(task_node_to_mem_node.at(key));
+  }
+  memgraph_t::barrier_t barrier_op{ .x = barrier };
+  int barrier_mid = memgraph.insert(op_t(barrier_op), deps);
+  barriers.emplace_back(barrier, barrier_mid);
+
+  return barrier_mid;
 }
 
 void memgraph_make_state_t::delete_workspace(int tid) {
