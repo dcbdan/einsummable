@@ -130,3 +130,12 @@ void placement_t::to_proto(es_proto::Placement& p) const {
   }
 }
 
+bool operator==(placement_t const& lhs, placement_t const& rhs) {
+  return lhs.partition == rhs.partition &&
+         vector_equal(lhs.locations.get(), rhs.locations.get());
+}
+
+bool operator!=(placement_t const& lhs, placement_t const& rhs) {
+  return !(lhs == rhs);
+}
+

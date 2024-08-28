@@ -1845,6 +1845,26 @@ int taskgraph_t::insert_input(
   return insert(input, is_save);
 }
 
+int taskgraph_t::insert_input(
+  int loc,
+  uint64_t size,
+  bool is_save)
+{
+  if(size == 0) {
+    throw std::runtime_error("invalid size");
+  }
+  if(loc < 0) {
+    throw std::runtime_error("no negative locs");
+  }
+
+  input_t input {
+    .loc = loc,
+    .size = size
+  };
+
+  return insert(input, is_save);
+}
+
 int taskgraph_t::insert_constant(
   int loc,
   fill_t const& fill,
@@ -2080,6 +2100,12 @@ void taskgraph_t::add_to_partial(
 
   // make sure to tell nodes this id_inn gets used at id_out
   nodes[id_inn].outs.insert(id_out);
+}
+
+int taskgraph_t::insert_partialize(taskgraph_t::partialize_t const& p, bool is_save)
+{
+  // TODO: do checks on p and stuf...
+  return insert(p, is_save);
 }
 
 void taskgraph_t::add_to_partial_the_full_aggregate(

@@ -15,6 +15,10 @@ struct graph_id_manager_t {
       return self->get(which, fid);
     }
 
+    optional<int> get_fid(int sid) const {
+      return self->get_fid(which, sid);
+    }
+
     void insert(int fid, int nid) {
       return self->insert(which, fid, nid);
     }
@@ -79,3 +83,11 @@ struct checkpoint_taskgraphs_t {
   //   n-1: gs.remaps[n-1], info[n-1]: init_rel, taskgraph, save_rel
   //   n  : gs.remaps[n]
 };
+
+tuple<
+  map<int, relation_t>, // init relations
+  map<int, relation_t>, // save relations
+  taskgraph_t>
+create_barrier_taskgraph(
+  graph_id_manager_t const& gid_manager,
+  checkpoint_taskgraphs_t const& checkpoint_taskgraphs);

@@ -32,6 +32,11 @@ struct taskgraph_t {
     vector<uint64_t> shape,
     bool is_save = false);
 
+  int insert_input(
+    int loc,
+    uint64_t size,
+    bool is_save = false);
+
   int insert_constant(
     int loc,
     fill_t const& fill,
@@ -149,7 +154,8 @@ public:
 
   bool is_local_to(int id, int loc) const { return nodes[id].op.is_local_to(loc); }
 
-private:
+//private:
+public:
   struct input_t {
     int loc;
     uint64_t size;
@@ -300,7 +306,6 @@ private:
     vector<partial_unit_t> units;
   };
 
-
   friend
   bool operator==(
     partialize_t::out_regiondim_t const& lhs,
@@ -311,6 +316,8 @@ private:
     partialize_t::out_regiondim_t const& rhs);
 
 public:
+  int insert_partialize(partialize_t const& p, bool is_save = false);
+
   struct op_t {
   private:
     using _op_t = std::variant<input_t, apply_t, move_t, constant_t, partialize_t>;

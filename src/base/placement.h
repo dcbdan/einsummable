@@ -64,4 +64,6 @@ struct placement_t {
   vtensor_t<int> locations;
 };
 
+bool operator==(placement_t const& lhs, placement_t const& rhs);
+bool operator!=(placement_t const& lhs, placement_t const& rhs);
 

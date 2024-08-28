@@ -539,3 +539,130 @@ checkpoint_taskgraphs_t::checkpoint_taskgraphs_t(
   }
 }
 
+tuple<
+  map<int, relation_t>, // init relations
+  map<int, relation_t>, // save relations
+  taskgraph_t>
+create_barrier_taskgraph(
+  graph_id_manager_t const& gid_manager,
+  checkpoint_taskgraphs_t const& tgs_)
+{
+  vector<checkpoint_taskgraphs_t::info_t> tgs = tgs_.infos;
+
+  taskgraph_t ret;
+  graph_id_manager_t manager;
+  
+  // Add the initial tids by adding input nodes
+  {
+    auto const& [_0, init_tg, _1] = tgs[0];
+    for(int sid = 0; sid != init_tg.nodes.size(); ++sid) {
+      auto const& node = init_tg.nodes[sid];
+      if(node.op.is_input()) {
+        auto const& i = node.op.get_input();
+        int fid = ret.insert_input(i.loc, i.size);
+        manager.insert(0, fid, sid);
+      }
+    }
+  }
+
+  auto create_full_relation_map = [&](int which, map<int, relation_t> const& sub_rels) 
+  {
+    map<int, relation_t> full_rels;
+    for(auto const& [graph_sid, sub_rel]: sub_rels) {
+      relation_t rel = sub_rel;
+      vector<int> const& sids = sub_rel.tids.get();
+      vector<int>      & fids = rel.tids.get();
+      for(int i = 0; i != fids.size(); ++i) {
+        fids[i] = manager.get_fid(which, sids[i]).value();
+      }
+      int graph_fid = gid_manager.get_fid(which, graph_sid).value();
+      full_rels.insert({graph_fid, rel});
+    }
+    return full_rels;
+  };
+
+  map<int, relation_t> ret_init;
+  {
+    auto const& [init_rels, _0, _1] = tgs[0];
+    ret_init = create_full_relation_map(0, init_rels);
+  }
+
+  for(int which = 0; which != tgs.size(); ++which) {
+    auto const& [init_rels, tg, _] = tgs[which];
+    if(which > 0) {
+      auto const& [_0, _1, prev_rels] = tgs[which-1];
+      for(auto const& [curr_gid, curr_rel]: init_rels) {
+        int prev_gid = gid_manager.get_sid_from_sid(which, curr_gid, which-1).value();
+        auto const& prev_rel = prev_rels.at(prev_gid);
+
+        if(prev_rel.placement != curr_rel.placement ||
+           prev_rel.dtype != curr_rel.dtype)
+        {
+          throw std::runtime_error("invalid prev, cur relations...");
+        }
+
+        vector<int> const& prev_tids = prev_rel.tids.get();
+        vector<int> const& curr_tids = curr_rel.tids.get();
+        for(int i = 0; i != prev_tids.size(); ++i) {
+          int const& prev_tid = prev_tids[i];
+          int const& curr_tid = curr_tids[i];
+          int fid = manager.get_fid(which-1, prev_tid).value();
+          manager.insert(which, fid, curr_tid);
+        }
+      }
+    }
+
+    auto context = manager.make_context(which);
+    for(int sid = 0; sid != tg.nodes.size(); ++sid) {
+      auto const& node = tg.nodes[sid];
+      if(node.op.is_input()) {
+        continue;
+      }
+
+      int fid;
+      if(node.op.is_apply()) {
+        auto const& a = node.op.get_apply();
+        vector<int> inns;
+        for(auto const& inn_sid: a.inns) {
+          inns.push_back(context.get_fid(inn_sid).value());
+        }
+        fid = ret.insert_einsummable(a.loc, a.einsummable, inns, false);
+      } else if(node.op.is_move()) {
+        auto const& m = node.op.get_move();
+        int inn_fid = context.get_fid(m.inn).value();
+        fid = ret.insert_move(m.src, m.dst, inn_fid, false);
+      } else if(node.op.is_constant()) {
+        auto const& c = node.op.get_constant();
+        fid = ret.insert_constant(c.loc, c.fill, false);
+      } else if(node.op.is_partialize()) {
+        taskgraph_t::partialize_t fp = node.op.get_partialize();
+        for(auto& unit: fp.units) {
+          for(auto& inn_op: unit.inputs) {
+            inn_op.id = context.get_fid(inn_op.id).value();
+          }
+        }
+        fid = ret.insert_partialize(fp, false);
+      } else {
+        throw std::runtime_error("missing case!");
+      }
+
+      context.insert(fid, sid);
+      ret.nodes[fid].barrier = which;
+    }
+  }
+
+  map<int, relation_t> ret_save;
+  {
+    auto const& [_0, _1, save_rels] = tgs.back();
+    ret_save = create_full_relation_map(tgs.size()-1, save_rels);
+  }
+
+  // set all the save nodes
+  for(auto const& [_, rel]: ret_save) {
+    for(int const& tid: rel.tids.get()) {
+      ret.nodes[tid].is_save = true;
+    }
+  }
+
+  return { ret_init, ret_save, ret };
+}
