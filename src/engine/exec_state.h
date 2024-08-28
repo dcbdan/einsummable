@@ -53,10 +53,14 @@ struct exec_state_t {
 
     bool try_to_launch(int id);
 
+    /* For Memgraph Debugging*/
     std::chrono::milliseconds io_time_total;
     std::chrono::milliseconds kernel_time_total;
     std::mutex mutex_io_time;     // Mutex for IO time
     std::mutex mutex_kernel_time; // Mutex for Kernel time
+    vector<std::chrono::milliseconds> io_start_time;
+    vector<std::chrono::milliseconds> io_end_time;
+    std::chrono::time_point<std::chrono::high_resolution_clock> init_time;
 
     vector<int> just_completed;
 

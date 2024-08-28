@@ -26,6 +26,7 @@ exec_state_t::exec_state_t(exec_graph_t const&      g,
 #endif
 
     int num_nodes = exec_graph.nodes.size();
+    auto init_time = std::chrono::high_resolution_clock::now();
 
     num_remaining = num_nodes;
 
@@ -110,6 +111,7 @@ exec_state_t::exec_state_t(exec_graph_t const&      g,
 
 void exec_state_t::event_loop()
 {
+    init_time = std::chrono::high_resolution_clock::now();
 #ifdef EXEC_STATE_COUNTDOWN
     int decrement_print_at = 20000;
     if (num_remaining > decrement_print_at) {
@@ -208,6 +210,8 @@ bool exec_state_t::try_to_launch(int id)
             auto const&    node = exec_graph.nodes[id];
             if (dynamic_cast<const gpu_load_t*>(node.op.get()) || dynamic_cast<const gpu_evict_t*>(node.op.get())) {
                 std::lock_guard<std::mutex> lock(mutex_io_time);
+                io_start_time.push_back(std::chrono::duration_cast<std::chrono::milliseconds>(launchstart-init_time));
+                io_end_time.push_back(std::chrono::duration_cast<std::chrono::milliseconds>(launchend-init_time));
                 io_time_total += launchduration;
             } else {
                 std::lock_guard<std::mutex> lock(mutex_kernel_time);
