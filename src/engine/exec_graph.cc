@@ -6,6 +6,7 @@
 
 #include "../base/buffer.h"
 #include "../einsummable/dbuffer.h"
+#include "gpu/exec_nodes.h"
 
 int exec_graph_t::insert(exec_graph_t::op_ptr_t op, vector<int> const& inns)
 {
@@ -106,4 +107,33 @@ void exec_graph_t::recv_t::launch(resource_ptr_t resource, std::function<void()>
 
         callback();
     });
+}
+
+
+bool exec_graph_t::op_base_t::is_gpu_einsummable(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_einsummable_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_touch(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_touch_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_copy(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_copy_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_evict(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_evict_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_load(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_load_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_constant(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_constant_t>(op) != nullptr;
+}
+
+bool exec_graph_t::op_base_t::is_gpu_lowerTri(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    return std::dynamic_pointer_cast<gpu_lowerTri_t>(op) != nullptr;
 }

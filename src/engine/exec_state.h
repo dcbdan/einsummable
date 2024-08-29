@@ -61,6 +61,11 @@ struct exec_state_t {
     vector<std::chrono::milliseconds> io_start_time;
     vector<std::chrono::milliseconds> io_end_time;
     std::chrono::time_point<std::chrono::high_resolution_clock> init_time;
+    // for every node in exec graph, the start-time that we start to wait solely on memory deps
+    // This is solely for memory ops performance profiling
+    vector<std::chrono::milliseconds> wait_start_time;
+    std::chrono::milliseconds total_mem_wait_time;
+    vector<std::unordered_set<int>> all_inns;
 
     vector<int> just_completed;
 

@@ -1,5 +1,6 @@
 #include "exec_state.h"
 #include "gpu/exec_nodes.h"
+#include <unordered_set> 
 
 // #define EXEC_STATE_PRINT
 #define EXEC_STATE_COUNTDOWN
@@ -32,11 +33,15 @@ exec_state_t::exec_state_t(exec_graph_t const&      g,
 
     vector<int> ready_to_run_;
     num_deps_remaining.reserve(num_nodes);
+    wait_start_time.reserve(num_nodes);
+    total_mem_wait_time = std::chrono::milliseconds(0);
+    all_inns.reserve(num_nodes);
     for (int id = 0; id != num_nodes; ++id) {
         int num_deps = g.nodes[id].inns.size();
-
+        wait_start_time.push_back(std::chrono::milliseconds(0));
         num_deps_remaining.push_back(num_deps);
-
+        std::unordered_set<int> inns_set(g.nodes[id].inns.begin(), g.nodes[id].inns.end());
+        all_inns.push_back(inns_set);
         if (num_deps == 0) {
             ready_to_run_.push_back(id);
         }
@@ -191,7 +196,21 @@ void exec_state_t::decrement_outs(int id)
     for (auto const& out_id : node.outs) {
         int& cnt = num_deps_remaining[out_id];
         cnt--;
+        all_inns[out_id].erase(id);
+        if (cnt == 1) {
+            //if the only left inns left is mem deps then
+            auto op = node.op;
+            if (exec_graph_t::op_base_t::is_gpu_evict(op) || exec_graph_t::op_base_t::is_gpu_load(op)) {
+                auto waitstart = std::chrono::high_resolution_clock::now();
+                wait_start_time[out_id] = std::chrono::duration_cast<std::chrono::milliseconds>(waitstart - init_time);
+            }
+        }
         if (cnt == 0) {
+            if (wait_start_time[out_id] != std::chrono::milliseconds(0)) {
+                auto waitend = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(waitend - init_time);
+                total_mem_wait_time += (duration - wait_start_time[out_id]);
+            }
             ready_to_run.push(out_id);
         }
     }
