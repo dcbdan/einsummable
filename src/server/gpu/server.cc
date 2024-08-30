@@ -138,19 +138,19 @@ void gpu_mg_server_t::execute_memgraph(memgraph_t const&            memgraph,
         DOUT("Execute memgraph finished. Time: " << duration2.count() << " ms");
         auto duration_since_epoch = std::chrono::duration_cast<std::chrono::milliseconds>(state.init_time.time_since_epoch()).count();
         std::cout << "Time since epoch: " << duration_since_epoch << " ms" << std::endl;
-        for (size_t i = 0; i < state.io_start_time.size(); ++i) {
-            std::cout << "[" << state.io_start_time[i].count() << " ms, " << state.io_end_time[i].count() << " ms]";
+        // for (size_t i = 0; i < state.io_start_time.size(); ++i) {
+        //     std::cout << "[" << state.io_start_time[i].count() << " ms, " << state.io_end_time[i].count() << " ms]";
             
-            // Print comma if not the last element
-            if (i < state.io_start_time.size() - 1) {
-                std::cout << std::endl;
-            }
+        //     // Print comma if not the last element
+        //     if (i < state.io_start_time.size() - 1) {
+        //         std::cout << std::endl;
+        //     }
 
-            // Check if starttime[i+1] < endtime[i]
-            // if (i + 1 < state.io_start_time.size() && state.io_start_time[i + 1] < state.io_end_time[i]) {
-            //     std::cout << "  <-- Warning: starttime[" << i + 1 << "] < endtime[" << i << "]";
-            // }
-        }
+        //     // Check if starttime[i+1] < endtime[i]
+        //     // if (i + 1 < state.io_start_time.size() && state.io_start_time[i + 1] < state.io_end_time[i]) {
+        //     //     std::cout << "  <-- Warning: starttime[" << i + 1 << "] < endtime[" << i << "]";
+        //     // }
+        // }
 
         std::cout << std::endl;
     }

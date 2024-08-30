@@ -208,8 +208,9 @@ void exec_state_t::decrement_outs(int id)
         if (cnt == 0) {
             if (wait_start_time[out_id] != std::chrono::milliseconds(0)) {
                 auto waitend = std::chrono::high_resolution_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(waitend - init_time);
-                total_mem_wait_time += (duration - wait_start_time[out_id]);
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(waitend - init_time - wait_start_time[out_id]);
+                std::cout << "duration for node " << id << "to node " << out_id << "is " << duration.count() << std::endl;
+                total_mem_wait_time += duration;
             }
             ready_to_run.push(out_id);
         }
