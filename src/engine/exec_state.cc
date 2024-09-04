@@ -197,10 +197,10 @@ void exec_state_t::decrement_outs(int id)
         int& cnt = num_deps_remaining[out_id];
         cnt--;
         all_inns[out_id].erase(id);
-        if (cnt == 1) {
+        if (cnt == 1) { 
             //if the only left inns left is mem deps then
             auto op = node.op;
-            if (exec_graph_t::op_base_t::is_gpu_evict(op) || exec_graph_t::op_base_t::is_gpu_load(op)) {
+            if (exec_graph_t::op_base_t::is_gpu_load(op)) {
                 auto waitstart = std::chrono::high_resolution_clock::now();
                 wait_start_time[out_id] = std::chrono::duration_cast<std::chrono::milliseconds>(waitstart - init_time);
             }
@@ -212,7 +212,42 @@ void exec_state_t::decrement_outs(int id)
                 std::cout << "duration for node " << id << "to node " << out_id << "is " << duration.count() << std::endl;
                 total_mem_wait_time += duration;
             }
+            auto const& out_node = exec_graph.nodes[out_id];
+            auto out_op = out_node.op;
             ready_to_run.push(out_id);
+            // if evict node got ready, then the alloc(apply) that depends on the evict would come 
+            if (exec_graph_t::op_base_t::is_gpu_evict(out_op)) {
+                for (auto const& evict_out_id: out_node.outs) {
+                    if (!exec_graph_t::op_base_t::is_gpu_load(evict_out_id)) {
+                        // evict could only be pointing into alloc or load. We want to find the alloc it's depending on
+                        // if it's alloc, then we need to go to the next layer (the actual apply node)
+                        int& alloc_id = out_node.outs.at(0);
+                        auto const& alloc_node = exec_graph.nodes[alloc_id];
+                        if (alloc_node.outs.size() != 1) {
+                            throw std::runtime_error("out of alloc node should only be sized 1");
+                        }
+                        for (auto const& alloc_inn_id: alloc_node.inns) {
+                            //loop through the alloc node to see if all other nodes are ready
+                            // if all other nodes are ready, then start time counter for apply_id below (run the code below only if all other nodes ready)
+                            //TODO:
+                        }
+                        int& apply_id = alloc_node.outs.at(0);
+                        auto const& apply_node = exec_graph.nodes[apply_id];
+                        int apply_node_cnt = num_deps_remaining[apply_id];
+                        // Here I don't have to decreement the count for apply_node, because it will get its number decremented when we actually get to that dummy alloc node
+                        if (apply_node_cnt == 1) {
+                            // if this alloc is the only thing blocking way, start time counter for apply_id
+                        }
+
+                    } else {
+                        // if it's a load after evict, then start the timer for the load node directly is fine
+                    }
+                }
+                
+            } else if (exec_graph_t::op_base_t::is_gpu_load(op)) {
+                //unary op, start counter
+                
+            }
         }
     }
 }
