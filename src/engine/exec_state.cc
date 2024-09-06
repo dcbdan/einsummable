@@ -188,6 +188,11 @@ exec_state_t::exec_state_t(
 
 
 void exec_state_t::event_loop() {
+  //for(int id = 0; id != exec_graph.nodes.size(); ++id) {
+  //  std::cout << "___ " << id << ": ";
+  //  exec_graph.nodes[id].print(std::cout);
+  //  std::cout << std::endl;
+  //}
   //timetracker_t tracker;
   vector<int> processing;
   while(true) {
@@ -276,7 +281,6 @@ bool exec_state_t::try_to_launch(int id) {
 
       cv_notify.notify_one();
     };
-    // DOUT("launching " << id);
     node.launch(resources, callback);
     is_running.insert({id, resources});
 

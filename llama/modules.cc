@@ -346,13 +346,11 @@ tensor_t attention_t::forward(
   // compute softmax with a minimum of 32 bits precision
   if(dtype == dtype_t::f16) {
     if(with_softmax_v3_scale) {
-      DLINE;
       scores = writer->softmax_v3_scale(
         scalar_t(dtype_t::f32, write_with_ss(scale_)),
         scores.to_f32()
       ).to_dtype(dtype);
     } else {
-      DLINE;
       scalarop_t scale = scalarop_t::make_scale(
         scalar_t(dtype, write_with_ss(scale_)));
       scores = writer->ew(scale, scores);
@@ -361,12 +359,10 @@ tensor_t attention_t::forward(
     } 
   } else {
     if(with_softmax_v3_scale) {
-      DLINE;
       scores = writer->softmax_v3_scale(
         scalar_t(dtype_t::f32, write_with_ss(scale_)),
         scores);
     } else {
-      DLINE;
       scalarop_t scale = scalarop_t::make_scale(
         scalar_t(dtype, write_with_ss(scale_)));
       scores = writer->ew(scale, scores);

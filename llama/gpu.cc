@@ -537,13 +537,13 @@ void main_rank_zero(
   DLINEOUT("TIME TO RUN GRAPH1");
   server.execute_graph(graph1, pls);
 
-  server.insert_tensor(
-    embeddings.get_id(), 
-    pls[embeddings.get_id()],
-    embeddings_data);
-
-  DLINEOUT("TIME TO RUN GRAPH2");
-  server.execute_graph(graph2, pls);
+//  server.insert_tensor(
+//    embeddings.get_id(), 
+//    pls[embeddings.get_id()],
+//    embeddings_data);
+//
+//  DLINEOUT("TIME TO RUN GRAPH2");
+//  server.execute_graph(graph2, pls);
 }
 
 // ./gpu_llama 7B 1 max_n_layers n
@@ -595,14 +595,6 @@ int main(int argc, char** argv) {
   auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
   //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
   gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
-
-  auto reader_process = [&](map<int, buffer_t> const& data_) {
-    map<int, tuple<int, buffer_t>> data;
-    for(auto const& [tid, buffer]: data_) {
-      data.insert({tid, {this_rank, buffer}});
-    }
-    server.local_insert_tensors(data);
-  };
 
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));

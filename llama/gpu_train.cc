@@ -40,7 +40,7 @@ void usage() {
 
 void main_rank_zero(
   server_base_t* server,
-  tensor_reader_t& model_loader,
+  tensor_reader2_t& model_loader,
   args_t& pargs,
   autoplace_config_t config);
 
@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  base_data_file = "/home/dcb/storage/" + base_data_file;
+  base_data_file = "/home/dcb/LLaMA/es/" + base_data_file;
 
   args_t args(argc-1, argv+1);
 
@@ -75,70 +75,52 @@ int main(int argc, char** argv) {
   communicator_t communicator(addr_zero, is_rank_zero, world_size);
   int this_rank = communicator.get_this_rank();
 
+  int num_gpus = args.get<int>("gpus");
+
+  args.set_default<int>("computes", 1);
+  int num_computes_per_loc = args.get<int>("computes");
+
   vector<uint64_t> buffer_sizes;
-  // NOTE: 4 is hardcoded here since each anton has 4 gpus
-  for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(125lu * 100lu * 1000lu * 1000lu);
+  for (int i = 0; i < num_gpus; ++i) {
+    buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
   }
 
-  gpu_mg_server_t* gpu_server;
-
-  args.set_default<uint64_t>("storage", 0);
   uint64_t storage_size = args.get<uint64_t>("storage");
+  storage_size *= 1000lu * 1000lu * 1000lu;
+
+  args.set_default("use_cudagraph", false);
+  bool use_cudagraph = args.get<bool>("use_cudagraph");
+
+  gpu_mg_server_t* gpu_server;
   if(storage_size > 0) {
-    storage_size *= 1000lu * 1000lu * 1000lu;
-    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes, storage_size);
+    gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes, storage_size);
   } else {
-    gpu_server = new gpu_mg_server_t(communicator, buffer_sizes);
+    gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes);
   }
 
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_server);
 
-  auto reader_process = [&](map<int, buffer_t> const& data_) {
-    map<int, tuple<int, buffer_t>> data;
-    for(auto const& [tid, buffer]: data_) {
-      data.insert({tid, {this_rank, buffer}});
-    }
-    server->local_insert_tensors(data);
-  };
-
-  tensor_reader_t reader(
-    communicator,
-    reader_process,
-    this_rank, world_size,
-    base_data_file, num_data_files);
-
-  if(!is_rank_zero) {
-    server->register_listen(
-      reader.read_cmd(),
-      [&]{ reader.listen_read(); });
-    server->register_listen(
-      reader.shutdown_cmd(),
-      [&]{ reader.listen_shutdown(); });
-
-    server->listen();
-
-    return 0;
-  }
-
-  args.set_default("split_off_inputs", true);
+  args.set_default("split_off_inputs", false);
   gpu_server->set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
-  args.set_default<int>("gpus", 4);
-  args.set_default<int>("computes", 1);
-  int num_gpus = args.get<int>("gpus");
-  int num_computes_per_loc = args.get<int>("computes");
-  
   DOUT("storage size:                    " << storage_size);
   DOUT("split_off_inputs:                " << gpu_server->split_off_inputs_);
 
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
 
+  tensor_reader2_t reader(
+    num_gpus,
+    base_data_file, num_data_files);
+
   autoplace_config_t config = autoplace_config_t::make_default01(
     num_gpus, num_computes_per_loc);
 
-  main_rank_zero(server.get(), reader, args, config);
+  if(is_rank_zero) {
+    main_rank_zero(server.get(), reader, args, config);
+  } else {
+    server->listen();
+  }
 
   server->shutdown();
 
@@ -350,16 +332,14 @@ graph_setup_t make_graph(
 
 void main_rank_zero(
   server_base_t* server,
-  tensor_reader_t& model_loader,
+  tensor_reader2_t& reader,
   args_t& pargs,
   autoplace_config_t config)
 {
   dtype_t dtype = default_dtype();
 
-  //
   pargs.set_default("simplify_tg", false);
   set_tg_do_simplify(pargs.get<bool>("simplify_tg"));
-  //
 
   pargs.set_default("which", vector<int>());
   vector<int> which_data = pargs.get<vector<int>>("which");
@@ -376,7 +356,7 @@ void main_rank_zero(
 
   // time to make the graph in ms
   auto start_graph = std::chrono::high_resolution_clock::now();
-  auto info = make_graph(pargs, model_loader.num_files(), batch_size);
+  graph_setup_t info = make_graph(pargs, reader.num_files(), batch_size);
   auto end_graph = std::chrono::high_resolution_clock::now();
   DOUT("graph time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_graph - start_graph).count());
 
@@ -385,6 +365,7 @@ void main_rank_zero(
 
   // Use graphs to get checkpoint_taskgraphs_t
   auto const& graphs = info.checkpoint_graphs;
+  DLINEOUT("num of graphs: " << graphs.graphs.size());
 
   // updater_desc will be used to set learning rate scalar variables
   auto const& updater_desc = info.updater_desc;
@@ -392,6 +373,7 @@ void main_rank_zero(
   // these fills need to be added before executing
   auto const& init_fills = info.init_fills;
 
+  DLINE;
   // used for the next remap
   auto const& old_news = info.old_news;
   vector<tuple<int, int>> next_iter_remap;
@@ -399,33 +381,129 @@ void main_rank_zero(
   for(auto const& [old_id, new_id]: old_news) {
     next_iter_remap.emplace_back(new_id, old_id);
   }
+  DLINE;
 
-  auto start_pls = std::chrono::high_resolution_clock::now();
   vector<placement_t> full_pls = autoplace01(info.full_graph, config);
-  checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
-  auto end_pls = std::chrono::high_resolution_clock::now();
-  DOUT("placement time: " << 
-    std::chrono::duration_cast<std::chrono::milliseconds>(end_pls - start_pls).count() << " ms");
+  DLINE;
+  tuple<map<int, relation_t>, map<int, relation_t>, taskgraph_t> full_tg_info;
+  //{
+  //  auto [inn_rels_, out_rels_, tg] = taskgraph_t::make(info.full_graph, full_pls);
+  //  map<int, relation_t> inn_rels;
+  //  for(auto const& [gid, tids]: inn_rels_) {
+  //    inn_rels.insert({
+  //      gid,
+  //      relation_t {
+  //        .dtype = info.full_graph.out_dtype(gid),
+  //        .placement = full_pls[gid],
+  //        .tids = tids
+  //      }
+  //    });
+  //  }
+  //  map<int, relation_t> out_rels;
+  //  for(auto const& [gid, tids]: out_rels_) {
+  //    out_rels.insert({
+  //      gid,
+  //      relation_t {
+  //        .dtype = info.full_graph.out_dtype(gid),
+  //        .placement = full_pls[gid],
+  //        .tids = tids
+  //      }
+  //    });
+  //  }
+  //  full_tg_info = { inn_rels, out_rels, tg };
+  //}
+  {
+    checkpoint_taskgraphs_t checkpoint_taskgraphs(graphs, full_pls);
+    full_tg_info = create_barrier_taskgraph( 
+      graphs.manager,
+      checkpoint_taskgraphs);
+  }
+
+  tuple<map<int, relation_t>, map<int, relation_t>, taskgraph_t> no_barrier_tg_info;
+  DLINE;
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
-  auto start_load = std::chrono::high_resolution_clock::now();
-  string register_cmd = server->get_registered_cmd();
-
   dbuffer_t embedding_matrix;
-  vector<uint64_t> embedding_matrix_shape { margs.vocab_size, margs.dim };
   {
-    relation_t rel = model_loader(
-      register_cmd,
-      "tok_embeddings.weight",
-      embedding_matrix_shape,
-      server->get_max_tid() + 1);
-    embedding_matrix = server->get_tensor(rel);
+    DLINE;
+    map<int, relation_t> relations;
+    map<int, tuple<int, buffer_t>> local_data;
+    int current_tid = 0;
+
+    auto read_into = [&](
+      string const& name, 
+      vector<uint64_t> const& shape,
+      map<int, tuple<int, buffer_t>>& local)
+    {
+      auto [rel, ds] = reader(name, shape, current_tid);
+      current_tid += rel.placement.num_parts();
+
+      vector<int> const& locs = rel.placement.locations.get();
+      vector<int> const& tids = rel.tids.get();
+
+      if(locs.size() != ds.size() || tids.size() != ds.size()) {
+        throw std::runtime_error("bwoah.");
+      }
+
+      for(int i = 0; i != ds.size(); ++i) {
+        int const& tid = tids[i];
+        int const& loc = locs[i];
+        auto& d        = ds[i];
+        local.insert({ tid, { loc, d } });
+      }
+
+      return rel;
+    };
+
+    auto read_into_local_data = [&](string const& name, vector<uint64_t> const& shape) {
+      return read_into(name, shape, local_data);
+    };
+
+    auto insert_name = [&](int gid, string const& name) {
+      relation_t rel = read_into_local_data(name, info.get_shape(gid));
+      relations.insert({gid, rel});
+    };
+
+    DLINE;
+    {
+      vector<uint64_t> shape{ margs.vocab_size, margs.dim };
+      map<int, tuple<int, buffer_t>> ds;
+      relation_t rel = read_into("tok_embeddings.weight", shape, ds);
+      server->local_insert_tensors(ds);
+      embedding_matrix = server->get_tensor(rel);
+      server->local_erase_tensors(rel.tids.get());
+    }
+
+    DLINE;
+    for(auto const& [name, id]: info.model_weight_map) {
+      if(name.find("lora") == string::npos) {
+        insert_name(id, name);
+      }
+    }
+    DLINE;
+
+    // Tell the server about the relations and local data we've gathered
+    server->local_insert_tensors(local_data);
+    for(auto const& [gid, rel]: relations) {
+      server->insert_gid_without_data(gid, rel);
+    }
+  }
+  DLINE;
+
+  for(auto const& [gid, fill]: init_fills) {
+    if(!fill.is_constant()) {
+      throw std::runtime_error("not implemented");
+    }
+    scalar_t const& value = fill.get_constant().value;
+    server->insert_constant(gid, full_pls[gid], value);
   }
 
+  DLINE;
   for(auto const& [name, id]: info.model_weight_map) {
-    auto shape = info.get_shape(id);
     if(name.find("lora") != string::npos) {
+      auto shape = info.get_shape(id);
+
       // For the lora, we have (X*L0)*L1 where L0 needs to be
       // initialized gaussiann and L1 needs to be initialized with zeros
       dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
@@ -440,36 +518,21 @@ void main_rank_zero(
       }
 
       server->insert_tensor(id, shape, dbuffer);
-    } else {
-      int next_tid = server->get_max_tid() + 1;
-      relation_t relation = model_loader(
-        register_cmd, name, shape, next_tid);
-      server->insert_gid_without_data(id, relation);
     }
   }
 
-  model_loader.shutdown(register_cmd);
-
-  for(auto const& [gid, fill]: init_fills) {
-    if(!fill.is_constant()) {
-      throw std::runtime_error("not implemented");
-    }
-    scalar_t const& value = fill.get_constant().value;
-    server->insert_constant(gid, full_pls[gid], value);
-  }
-
+  DLINE;
   server->insert_tensor(
     info.full_freqs_cis_id,
     info.get_shape(info.full_freqs_cis_id),
     transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
-  auto end_load = std::chrono::high_resolution_clock::now();
-  DOUT("load time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_load - start_load).count());
   // TODO: this is how form_position_interpolation works?
 
   /////////////////////////////////////////////////////////////////////////////
   
-  pargs.set_default("tokenizer", "/home/dcb/storage/tokenizer.model");
-  pargs.set_default("dataset", "/home/dcb/storage/redpaj_long_samples");
+  DLINE;
+  pargs.set_default("tokenizer", "/home/dcb/LLaMA/tokenizer.model");
+  pargs.set_default("dataset", "/home/dcb/LLaMA/redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");
@@ -483,6 +546,7 @@ void main_rank_zero(
   if(!dataset_check.good()) {
     throw std::runtime_error("could not open dataset file");
   }
+  DLINE;
 
   dataset_reader_t data_loader(tokenizer_file, dataset_file);
 
@@ -494,6 +558,7 @@ void main_rank_zero(
     { "learning_rate", _lr },
   };
 
+  DLINE;
   pargs.set_default<int>("niter", 1);
   int niter = pargs.get<int>("niter");
   DOUT("starting training")
@@ -506,7 +571,6 @@ void main_rank_zero(
       if(which_data.size() > 0) {
         vector<vector<int>> data_tokens;
         vector<int> label_tokens;
-        // DOUT("which data: " << which_data);
         for(auto const& which_datum: which_data) {
           auto [datum_tokens, label_token] =
             data_loader.datum(which_datum, margs.max_seq_len);
@@ -519,6 +583,7 @@ void main_rank_zero(
       return data_loader.random_data(margs.batch_size, margs.max_seq_len);
     }();
 
+    DLINE;
     server->insert_tensor(
       info.embeddings_id,
       info.get_shape(info.embeddings_id),
@@ -531,30 +596,28 @@ void main_rank_zero(
       info.get_shape(info.labels_id),
       data_loader.one_hot_encode(dtype, label_tokens));
 
+    DLINE;
     update_vars(updater_desc, iter, vars);
-    /////////////////////////////////
-    // DANIEL MODIFICATIONS: Don't bother using all the checkpoint stuff,
-    //                       just run 1 big taskgraph...
-    DOUT("server executing graph");
-    // server->execute_graph(info.full_graph, full_pls, vars);
-    /////////////////////////////////
-    for(int which = 0; which != taskgraphs.infos.size(); ++which) {
-      // DOUT("server remapping");
-      server->remap_gids(graphs.remaps[which]);
-      auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
-      server->remap(init_rels);
-      DOUT("server executing");
-      server->execute(taskgraph, save_rels, vars);
+
+    DLINE;
+    {
+      auto const& [inn_rels, out_rels, taskgraph] = full_tg_info;
+      DLINE;
+      server->remap(inn_rels);
+      DLINE;
+      server->execute(taskgraph, out_rels, vars);
+      DLINE;
     }
-    server->remap_gids(graphs.remaps.back());
+    DLINE;
 
-    // double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
-    // DOUT("loss: " << loss_val);
-    // if(std::isnan(loss_val) || std::isinf(loss_val)) {
-    //   throw std::runtime_error("loss is nan or inf");
-    // }
+    double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
+    DOUT("loss: " << loss_val);
+    if(std::isnan(loss_val) || std::isinf(loss_val)) {
+      throw std::runtime_error("loss is nan or inf");
+    }
 
-    // server->remap_gids(next_iter_remap);
+    server->remap_gids(next_iter_remap);
   }
+  DLINE;
 }
 

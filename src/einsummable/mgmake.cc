@@ -270,7 +270,6 @@ memgraph_t::make_(
   }
   std::cout << "Total nodes being saved: " << save_to_data.size() << std::endl;
 
-
   return {
     input_tid_to_data,
     save_to_data,
@@ -315,7 +314,31 @@ build_tg_ops(
 vector<_which_op_t>
 order_taskgraph(taskgraph_t const& taskgraph)
 {
-  return build_tg_ops(taskgraph, taskgraph.get_order());
+  auto ret = build_tg_ops(taskgraph, taskgraph.get_order());
+
+  // Make sure that the returned value is ordered according to 
+  // barriers as well!
+
+  std::function<int(_which_op_t const&)> get_barrier = 
+    [&](_which_op_t const& x) 
+  {
+    int id;
+    if(std::holds_alternative<_which_node_t>(x)) {
+      id = std::get<_which_node_t>(x).task_id;
+    } else {
+      id = std::get<_which_touch_t>(x).task_id;
+    }
+    return taskgraph.nodes.at(id).barrier;
+  };
+  std::function<bool(_which_op_t const&, _which_op_t const&)> compare = 
+    [&](_which_op_t const& lhs, _which_op_t const& rhs) 
+  {
+    return get_barrier(lhs) < get_barrier(rhs); 
+  };
+
+  std::stable_sort(ret.begin(), ret.end(), compare);
+
+  return ret;
 }
 
 tuple<
@@ -1503,7 +1526,8 @@ memgraph_make_state_t::add_op(
     }
 
     if(needs_barrier) {
-      deps.insert(get_or_insert_barrier(node.barrier));
+      // depend on the previous barrier
+      deps.insert(get_or_insert_barrier(node.barrier-1));
     }
   }
 
@@ -1638,16 +1662,15 @@ void memgraph_make_state_t::process(
   while(done_oid < all_ops.size())
   {
     ostate.threshold = done_oid;
-    if(do_alloc)
-    {
+    if(do_alloc) {
       // Allocate as many nodes as we can
       while(alloc_oid < all_ops.size() && allocate_op(all_ops.at(alloc_oid), false))
       {
         alloc_oid++;
       }
     }
-    if(alloc_oid == done_oid)
-    {
+
+    if(alloc_oid == done_oid) {
       // make sure that the op we're about to do is allocated
       allocate_op(all_ops.at(alloc_oid), true);
       alloc_oid++;
@@ -1801,19 +1824,16 @@ int memgraph_make_state_t::get_or_insert_barrier(int barrier) {
   if(barrier < 0) {
     throw std::runtime_error("should never have tg barrier < 0");
   }
-  if(barrier == 0) {
-    throw std::runtime_error("no barrier mg node for barrier zero");
-  }
 
-  if(barriers.size() > 1) {
-    auto const& [last_barrier, mid] = barriers.back();
-    if(last_barrier == barrier) {
+  if(barriers.size() >= 1) {
+    auto const& [prev_barrier, mid] = barriers.back();
+    if(prev_barrier == barrier) {
       return mid;
     }
 
     // This method only getting called to find the barrier dependency, and if
     // we are adding ops that out of barrier order, something is very wrong
-    if(barrier < last_barrier) {
+    if(barrier < prev_barrier) {
       throw std::runtime_error("cannot depend on barriers before the last");
     }
   }

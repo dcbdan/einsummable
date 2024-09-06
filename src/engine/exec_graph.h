@@ -57,6 +57,8 @@ struct exec_graph_t {
     map<string, scalar_t> const& scalar_vars = {});
 #endif
 
+  void print_graphviz(std::ostream& out) const;
+
   struct op_base_t {
     virtual void launch(resource_ptr_t resource, std::function<void()> callback) const = 0;
     virtual desc_ptr_t resource_description() const = 0;

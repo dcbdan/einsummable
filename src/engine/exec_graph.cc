@@ -146,3 +146,27 @@ exec_graph_t::recv_t::launch(
     callback();
   });
 }
+
+void exec_graph_t::print_graphviz(std::ostream& out) const {
+  out << "digraph {";
+  for(int id = 0; id != nodes.size(); ++id) {
+    string color = "";
+    if(id <= 32 && id != 30) {
+      color="pink";
+    }
+
+    out << "  n" << id << "[style=filled, label=\"";
+    out << id << "|";
+    nodes[id].print(out);
+    out << "\"";
+    if(color != "") {
+      out << ", color=\"" << color << "\"";
+    }
+    out << "]" << std::endl;
+
+    for(int const& inn: nodes[id].inns) {
+      out << "  n" << inn << " -> n" << id << std::endl;
+    }
+  }
+  out << "}";
+}

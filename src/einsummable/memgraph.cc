@@ -287,6 +287,9 @@ vector<uint64_t> memgraph_t::mem_sizes() const
   vector<uint64_t> ret(num_compute_locs, 0);
   for(auto const& node: nodes)
   {
+    if(node.op.is_barrier()) {
+      continue;
+    }
     for(auto const& memloc : node.op.get_memlocs())
     {
       ret[memloc.loc] = std::max(ret[memloc.loc], memloc.offset + memloc.size);
@@ -851,7 +854,7 @@ vector<memloc_t> memgraph_t::op_t::get_memlocs() const
     return {
         del.as_memloc()};
   } else if(is_barrier()) {
-    throw std::runtime_error("not implemented: get_memlocs for barrier node");
+    return {};
   } else {
     throw std::runtime_error("get_memlocs should not reach");
   }

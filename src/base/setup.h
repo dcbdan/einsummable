@@ -25,7 +25,7 @@
 #define DOUT(x) \
   std::cout << x << std::endl;
 #define DLINEOUT(x) \
-  std::cout << "Line " << __LINE__ << " | " << x << std::endl;
+  std::cout << "Line " << __LINE__ << " | " << __FILE__ << " | " << x << std::endl;
 #define DLINE \
   DLINEOUT(' ')
 #define DLINEFILEOUT(x) \

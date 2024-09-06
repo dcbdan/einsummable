@@ -356,7 +356,13 @@ void main_rank_zero(
   }
 
   vector<placement_t> full_pls = autoplace01(info.full_graph, config);
-  checkpoint_taskgraphs_t taskgraphs(graphs, full_pls);
+  tuple<map<int, relation_t>, map<int, relation_t>, taskgraph_t> full_tg_info;
+  {
+    checkpoint_taskgraphs_t checkpoint_taskgraphs(graphs, full_pls);
+    full_tg_info = create_barrier_taskgraph( 
+      graphs.manager,
+      checkpoint_taskgraphs);
+  }
 
   /////////////////////////////////////////////////////////////////////////////
   // Read in all the tensors
@@ -464,13 +470,11 @@ void main_rank_zero(
       data_loader.one_hot_encode(dtype, label_tokens));
 
     update_vars(updater_desc, iter, vars);
-    for(int which = 0; which != taskgraphs.infos.size(); ++which) {
-      server->remap_gids(graphs.remaps[which]);
-      auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];
-      server->remap(init_rels);
-      server->execute(taskgraph, save_rels, vars);
+    {
+      auto const& [inn_rels, out_rels, taskgraph] = full_tg_info;
+      server->remap(inn_rels);
+      server->execute(taskgraph, out_rels, vars);
     }
-    server->remap_gids(graphs.remaps.back());
 
     double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
     DOUT("loss: " << loss_val);

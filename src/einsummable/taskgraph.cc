@@ -3786,6 +3786,8 @@ void taskgraph_t::print_graphviz(
       color = "pink";
     }
 
+    color = colors[node.barrier % colors.size()];
+
     out << tab
       << "n" << id
       << " [style=filled,label=\"" << label << "\"";
