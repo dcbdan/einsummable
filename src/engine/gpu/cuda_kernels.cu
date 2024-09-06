@@ -380,7 +380,7 @@ void touch3_dispatch(
   cudaStream_t stream,
   int choice, int dtype_info)
 {
-  dim3 blockSize(8, 8, 8);
+  dim3 blockSize(8,8,8);
   dim3 gridSize((t0_size + blockSize.x - 1) / blockSize.x,
                 (t1_size + blockSize.y - 1) / blockSize.y,
                 (t2_size + blockSize.z - 1) / blockSize.z);
@@ -937,3 +937,40 @@ void large_workspace_4_dispatch(void* out, const void* lhs, const void* rhs,
   large_workspace_4<<<gridSize, blockSize,0,stream>>>
     (out, lhs, rhs, rows, f1, f2);
 }
+
+template <typename T>
+__global__ void increment_in_place_(T v, T* y, uint64_t n) {
+  uint64_t i =  blockIdx.x * blockDim.x + threadIdx.x;
+  if(i < n) {
+    y[i] += v;
+  }
+}
+template <>
+__global__ void increment_in_place_(float2 v, float2* y, uint64_t n) {
+  uint64_t i =  blockIdx.x * blockDim.x + threadIdx.x;
+  if(i < n) {
+    y[i].x += v.x;
+    y[i].y += v.y;
+  }
+}
+
+template <typename T>
+void increment_in_place_dispatch(cudaStream_t stream, T v, void* out_mem, uint64_t nelem) {
+  dim3 blockSize(256);
+  dim3 gridSize((nelem + blockSize.x - 1) / blockSize.x);
+  increment_in_place_<<<gridSize, blockSize, 0, stream>>>(v, (T*)out_mem, nelem);
+}
+
+void increment_in_place_f16(cudaStream_t stream, __half v, void* out_mem, uint64_t nelem) {
+  increment_in_place_dispatch(stream, v, out_mem, nelem);
+}
+void increment_in_place_f32(cudaStream_t stream, float v, void* out_mem, uint64_t nelem) {
+  increment_in_place_dispatch(stream, v, out_mem, nelem);
+}
+void increment_in_place_f64(cudaStream_t stream, double v, void* out_mem, uint64_t nelem) {
+  increment_in_place_dispatch(stream, v, out_mem, nelem);
+}
+void increment_in_place_c64(cudaStream_t stream, cuFloatComplex v, void* out_mem, uint64_t nelem) {
+  increment_in_place_dispatch(stream, v, out_mem, nelem);
+}
+

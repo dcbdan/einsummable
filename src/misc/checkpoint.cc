@@ -1,5 +1,7 @@
 #include "checkpoint.h"
 
+#include <fstream>
+
 void graph_id_manager_t::insert(int which, int fid, int sid) {
   auto& [fid_to_sid, sid_to_fid] = data[which];
   {
@@ -589,6 +591,7 @@ create_barrier_taskgraph(
 
   for(int which = 0; which != tgs.size(); ++which) {
     auto const& [init_rels, tg, _] = tgs[which];
+
     if(which > 0) {
       auto const& [_0, _1, prev_rels] = tgs[which-1];
       for(auto const& [curr_gid, curr_rel]: init_rels) {
@@ -613,9 +616,12 @@ create_barrier_taskgraph(
     }
 
     auto context = manager.make_context(which);
-    for(int sid = 0; sid != tg.nodes.size(); ++sid) {
+    for(int const& sid: tg.get_order()) {
       auto const& node = tg.nodes[sid];
       if(node.op.is_input()) {
+        if(!bool(context.get_fid(sid))) {
+          throw std::runtime_error("how come this input isn't accounted for?");
+        }
         continue;
       }
 

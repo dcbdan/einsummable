@@ -161,6 +161,8 @@ struct server_dist_base_t : server_base_t {
 
   void register_listen(string key, std::function<void()> f);
 
+  int get_world_size() const { return comm.get_world_size(); }
+
   // {{{
 protected:
   // This is protected because it will invalidate gid_map.
@@ -312,7 +314,7 @@ struct server_mg_base_t : server_dist_base_t {
   // a general taskgraph
 
   virtual map<int, uint64_t> build_required_workspace_info(
-    taskgraph_t const& taskgraph) = 0;
+    taskgraph_t const& taskgraph, map<string, scalar_t> const& scalar_vars) = 0;
   
   // server, client pairs {{{
   void execute_tg_server(

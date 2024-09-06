@@ -575,3 +575,22 @@ build_elementwise_and_pow(cutensor_elementwise_op_t op, uint64_t a_size){
   };
   
 }
+
+void increment_in_place(
+  scalar_t const& scale, 
+  cudaStream_t stream, 
+  void* out_mem, 
+  uint64_t out_elem)
+{
+  if(scale.dtype == dtype_t::f16) {
+    increment_in_place_f16(stream, __half(scale.f16()), out_mem, out_elem);
+  } else if(scale.dtype == dtype_t::f32) {
+    increment_in_place_f32(stream, scale.f32(), out_mem, out_elem);
+  } else if(scale.dtype == dtype_t::f64) {
+    increment_in_place_f64(stream, scale.f64(), out_mem, out_elem);
+  } else if(scale.dtype == dtype_t::c64) {
+    float2 v { scale.c64().real(), scale.c64().imag() };
+    increment_in_place_c64(stream, v, out_mem, out_elem);
+  }
+}
+

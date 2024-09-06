@@ -1,4 +1,5 @@
 #include "to_cudagraph.h"
+#include <fstream>
 
 cudaGraphNode_t get_capture_out_graph_node(cudaStream_t stream) {
   cudaGraphNode_t const* ds;
@@ -16,7 +17,8 @@ bool _is_dummy(memgraph_t const& memgraph, int mid) {
   return node.op.is_inputmem()   || 
          node.op.is_partialize() ||
          node.op.is_alloc()      ||
-         node.op.is_del()         ;
+         node.op.is_del()        ||
+         node.op.is_barrier()     ;
 }
 
 void _reach_past_dummies(memgraph_t const& memgraph, int mid, set<int>& ret) {
@@ -63,6 +65,12 @@ cudaGraph_t compile_cuda_graph(
   vector<void*> mems,
   map<string, scalar_t> const& scalar_vars)
 {
+  //DLINEOUT("memgraph size: " << memgraph.nodes.size());
+  //{
+  //  std::ofstream f("mg.gv");
+  //  memgraph.print_graphviz(f);
+  //  DOUT("printed mg.gv");
+  //}
   int num_gpus = kms.size();
   if(mems.size() != num_gpus) {
     throw std::runtime_error("mems.size() != kms.size()");

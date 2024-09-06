@@ -93,6 +93,19 @@ private:
     vector<uint64_t> join_shape;
     vector<vector<int>> inns;
     int out_rank;
+
+    vector<uint64_t> out_shape(int which) const {
+      // always the same, regardless of which sop is being used
+      return vector<uint64_t>(join_shape.begin(), join_shape.begin() + out_rank);
+    }
+
+    vector<int> get_inn_idxs_at(int arg) const {
+      if(arg < 0) {
+        return vector_iota<int>(out_rank);
+      } else {
+        return inns[arg];
+      }
+    }
   };
 
   uint64_t elementwise_workspace_size(elementwise_t const& e) const;
@@ -137,6 +150,7 @@ private:
 
   void execute_sop_scale(
     simple_scalarop_t::scale_t const& op,
+    uint64_t out_elem,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,
@@ -144,6 +158,7 @@ private:
 
   void execute_sop_scale_add(
     scalar_t const& scale,
+    uint64_t out_elem,
     cudaStream_t stream,
     void* out_mem,
     void const* inn_mem,

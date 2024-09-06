@@ -46,7 +46,7 @@ struct gpu_einsummable_t : exec_graph_t::op_base_t {
   void launch(resource_ptr_t resource, std::function<void()> callback) const;
   // 2 or 3 resources are always needed for an einsummable
   desc_ptr_t resource_description() const;
-  void print(std::ostream& out) const { out << "gpu_einsummable"; }
+  void print(std::ostream& out) const { out << einsummable; }
   void line(std::ostream& out) const {}
 };
 

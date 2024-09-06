@@ -79,13 +79,15 @@ void server_mg_base_t::execute_tg_server(
  
   // some nodes may need workspace!
   map<int, uint64_t> required_workspace = 
-    build_required_workspace_info(taskgraph);
+    build_required_workspace_info(taskgraph, scalar_vars);
   // TODO: this should really require the inputs of 
   //            all the client servers as well
   // For now, just throw an error:
   if(this->comm.get_world_size() > 1) {
     throw std::runtime_error("build required workspace: only works with world size 1");
   }
+
+  DLINE;
 
   //gremlin_t* gremlin = new gremlin_t("making memgraph");
   auto [inn_tg_to_loc, out_tg_to_loc, inputs_everywhere_mg_, core_mg] =

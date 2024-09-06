@@ -38,7 +38,8 @@ struct gpu_mg_server_t : server_mg_base_t
     map<string, scalar_t> const& scalar_vars);
 
   map<int, uint64_t> build_required_workspace_info(
-    taskgraph_t const& taskgraph);
+    taskgraph_t const& taskgraph,
+    map<string, scalar_t> const& scalar_vars);
 
   // server, client pairs {{{
   make_mg_info_t recv_make_mg_info();

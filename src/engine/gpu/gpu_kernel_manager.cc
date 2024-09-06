@@ -1931,13 +1931,6 @@ void kernel_manager_t::execute_elementwise(
       return inn_mems[arg];
     }
   };
-  auto get_inn_idxs_at = [&](int arg) -> vector<int> const& {
-    if(arg < 0) {
-      return out_idxs;
-    } else {
-      return e.inns[arg];
-    }
-  };
   for(int which_sop = 0; which_sop != e.sops.ops.size(); ++which_sop) {
     auto const& [sop, args] = e.sops.ops[which_sop];
     auto plan = e.plans[which_sop];
@@ -1948,8 +1941,9 @@ void kernel_manager_t::execute_elementwise(
       get_workspace_at(which_sop)    ;
 
     if(sop.is_scale()) {
+      uint64_t out_elem = product(e.out_shape(which_sop));
       execute_sop_scale(
-        sop.get_scale(), stream, this_out_mem,
+        sop.get_scale(), out_elem, stream, this_out_mem,
         get_inn_memory_at(args[0]),
         plan);
     } else if(sop.is_unary()) {
@@ -1959,8 +1953,8 @@ void kernel_manager_t::execute_elementwise(
         plan);
     } else if(sop.is_binary()) {
       // check if we need to execute a ternary of C = A op B op 0*C
-      auto lhs_idxs = get_inn_idxs_at(args[0]);
-      auto rhs_idxs = get_inn_idxs_at(args[1]);
+      auto lhs_idxs = e.get_inn_idxs_at(args[0]);
+      auto rhs_idxs = e.get_inn_idxs_at(args[1]);
       if (lhs_idxs == out_idxs && rhs_idxs != out_idxs){
         execute_sop_binary(
           sop.get_binary(), stream, this_out_mem,
@@ -2068,27 +2062,13 @@ cutensorPlan_t kernel_manager_t::sop_scale_add_plan(
   vector<int> const& inn_idxs_,
   vector<uint64_t> const& out_shape_) const
 {
-  vector<uint64_t> out_shape = out_shape_;
-  out_shape.push_back(1);
-
-  vector<int> lhs_idxs = inn_idxs_;
-  lhs_idxs.push_back(inn_idxs_.size());
-
-  vector<int> rhs_idxs;
-  rhs_idxs.push_back(inn_idxs_.size());
-
-  simple_scalarop_t::unary_t unary {
-    .scale = scalar_t::one(scale.dtype),
-    .op = simple_scalarop_t::uop_t::identity,
-  };
-
-  simple_scalarop_t::binary_t binary {
-    .op = simple_scalarop_t::bop_t::add,
-    .lhs = unary,
-    .rhs = unary
-  };
-
-  return sop_binary_plan(binary, lhs_idxs, rhs_idxs, out_shape);
+  // This is implemented by (1) permuting into the output and
+  //                        (2) incrementing the output in place
+  // Only the first portion needs a plan...
+  return sop_scale_mul_plan(
+    scalar_t::one(scale.dtype),
+    inn_idxs_,
+    out_shape_);
 }
 
 cutensorPlan_t kernel_manager_t::sop_scale_mul_plan(
@@ -2434,6 +2414,7 @@ cutensorPlan_t kernel_manager_t::sop_binary_plan_different_shape(
 
 void kernel_manager_t::execute_sop_scale(
   simple_scalarop_t::scale_t const& op,
+  uint64_t out_elem,
   cudaStream_t stream,
   void* out_mem,
   void const* inn_mem,
@@ -2442,7 +2423,7 @@ void kernel_manager_t::execute_sop_scale(
   if (op.bop == simple_scalarop_t::bop_t::mul) {
     execute_sop_scale_mul(op.scale, stream, out_mem, inn_mem, plan);
   } else if (op.bop == simple_scalarop_t::bop_t::add) {
-    execute_sop_scale_add(op.scale, stream, out_mem, inn_mem, plan);
+    execute_sop_scale_add(op.scale, out_elem, stream, out_mem, inn_mem, plan);
   } else {
     throw std::runtime_error("not implemented: sop_scale");
   }
@@ -2450,28 +2431,17 @@ void kernel_manager_t::execute_sop_scale(
 
 void kernel_manager_t::execute_sop_scale_add(
   scalar_t const& scale,
+  uint64_t out_elem,
   cudaStream_t stream,
   void* out_mem,
   void const* inn_mem,
   cutensorPlan_t plan) const
 {
-  void* scale_mem = gpu_allocate_memory(dtype_size(scale.dtype), device);
-  cudaMemcpy(scale_mem, scale.raw(), dtype_size(scale.dtype), cudaMemcpyHostToDevice);
-
-  simple_scalarop_t::unary_t unary {
-    .scale = scalar_t::one(scale.dtype),
-    .op = simple_scalarop_t::uop_t::identity,
-  };
-
-  simple_scalarop_t::binary_t binary {
-    .op = simple_scalarop_t::bop_t::add,
-    .lhs = unary,
-    .rhs = unary
-  };
-
-  execute_sop_binary(binary, stream, out_mem, scale_mem, inn_mem, plan, false);
-
-  cudaFree(scale_mem);
+  // 1. do the permutation by calling execute_sop_scale_mul
+  //    (this may just be a copy!)
+  execute_sop_scale_mul(scalar_t::one(scale.dtype), stream, out_mem, inn_mem, plan);
+  // 2. increment
+  increment_in_place(scale, stream, out_mem, out_elem);
 }
 
 void kernel_manager_t::execute_sop_scale_mul(

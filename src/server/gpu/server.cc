@@ -110,14 +110,14 @@ void gpu_mg_server_t::execute_memgraph(
   bool for_remap,
   map<string, scalar_t> const& scalar_vars)
 {
-  if(for_remap) {
-    DLINEOUT("execute_memgraph for remap");
-    std::ofstream f("remap.gv");
-    memgraph.print_graphviz(f);
-    DOUT("printed remap.gv");
-  } else {
-    DLINEOUT("execute_memgraph for real");
-  }
+  //if(for_remap) {
+  //  DLINEOUT("execute_memgraph for remap");
+  //  std::ofstream f("remap.gv");
+  //  memgraph.print_graphviz(f);
+  //  DOUT("printed remap.gv");
+  //} else {
+  //  DLINEOUT("execute_memgraph for real");
+  //}
 
   if(!for_remap) {
     int mov = 0;
@@ -183,7 +183,6 @@ void gpu_mg_server_t::execute_memgraph(
         "cudaGraphLaunch...");
       int num_gpus = get_num_gpus();
       for(int i = 0; i != num_gpus; ++i) {
-        DLINEOUT("gpu " << i);
         handle_cuda_error(cudaSetDevice(i));
         handle_cuda_error(cudaDeviceSynchronize());
       }
@@ -271,9 +270,10 @@ void gpu_mg_server_t::execute_memgraph(
 }
 
 map<int, uint64_t> gpu_mg_server_t::build_required_workspace_info(
-  taskgraph_t const& taskgraph)
+  taskgraph_t const& taskgraph,
+  map<string, scalar_t> const& scalar_vars)
 {
-  if(num_gpus_per_node.size() != 1) {
+  if(get_world_size() != 1) {
     throw std::runtime_error("not implemented for more than one machine");
   }
 
@@ -283,8 +283,11 @@ map<int, uint64_t> gpu_mg_server_t::build_required_workspace_info(
     if(node.op.is_apply()) {
       auto const& a     = node.op.get_apply();
       int const& device = a.loc;
-      auto const& e     = a.einsummable;
-  
+
+      einsummable_t e = a.einsummable
+        .replace_scalar_variables(scalar_vars)
+        .merge_adjacent_dims();
+
       auto maybe = kernel_managers[device].build(e);
       if(!maybe) {
         throw std::runtime_error(
@@ -484,8 +487,6 @@ buffer_t gpu_mg_server_t::local_copy_data(int tid) {
     if(error != cudaSuccess) {
       throw std::runtime_error("cudaMemcpy failed");
     }
-
-    // DLINEOUT(dbuffer_t(dtype_t::f32, ret_buffer));
 
     return ret_buffer;
   } else if(d.is_stoloc()) {

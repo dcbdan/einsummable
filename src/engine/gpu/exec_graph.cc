@@ -162,7 +162,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
            node.op.is_inputsto()   ||
            node.op.is_partialize() ||
            node.op.is_alloc()      ||
-           node.op.is_del()         ;
+           node.op.is_del()        ||
+           node.op.is_barrier()     ;
   };
 
   auto insert = [&](op_ptr_t op, int mid)
@@ -187,16 +188,21 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     mid_to_eid.insert({mid, eid});
   };
 
-  auto is_local_to_here = [&](int mid) {
-    for(int i = 0; i != num_gpus_per_node; ++i) {
-      int which_gpu = this_rank*num_gpus_per_node + i;
-      // DOUT("Checking if node " << mid << " is local to gpu " << which_gpu);
-      if(memgraph.is_local_to(mid, which_gpu)) {
-        return true;
-      }
-    }
+  if(this_rank != 0) {
+    throw std::runtime_error("world size must be zero...");
+  }
 
-    return false;
+  auto is_local_to_here = [&](int mid) {
+    return true;
+  //  for(int i = 0; i != num_gpus_per_node; ++i) {
+  //    int which_gpu = this_rank*num_gpus_per_node + i;
+  //    // DOUT("Checking if node " << mid << " is local to gpu " << which_gpu);
+  //    if(memgraph.is_local_to(mid, which_gpu)) {
+  //      return true;
+  //    }
+  //  }
+
+  //  return false;
   };
 
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
@@ -596,8 +602,7 @@ void gpu_einsummable_t::launch(
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
 
-  // cudaDeviceSynchronize();
-  
+  //cudaDeviceSynchronize();
 }
 
 desc_ptr_t

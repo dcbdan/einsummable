@@ -85,4 +85,8 @@ void large_workspace_3_dispatch(void* out, const void* lhs, uint64_t rows,
 void large_workspace_4_dispatch(void* out, const void* lhs, const void* rhs, 
   uint64_t rows, float f1, float f2, cudaStream_t stream);
 
+void increment_in_place_f16(cudaStream_t stream, __half,          void* out_mem, uint64_t nelem);
+void increment_in_place_f32(cudaStream_t stream, float,           void* out_mem, uint64_t nelem);
+void increment_in_place_f64(cudaStream_t stream, double,          void* out_mem, uint64_t nelem);
+void increment_in_place_c64(cudaStream_t stream, cuFloatComplex,  void* out_mem, uint64_t nelem);
 

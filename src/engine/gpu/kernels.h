@@ -108,3 +108,9 @@ cutensorComputeDescriptor_t dtype_to_computetype(dtype_t type);
 
 cudaDataType_t dtype_to_elementwise_computetype(dtype_t type);
 
+void increment_in_place(
+  scalar_t const& scale, 
+  cudaStream_t stream, 
+  void* out_mem, 
+  uint64_t out_elem);
+
