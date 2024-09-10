@@ -389,6 +389,20 @@ bool kernel_manager_t::is_special_sum_reduction(einsummable_t e){
   return true;
 }
 
+bool kernel_manager_t::is_special_contraction(einsummable_t e){
+  vector<uint64_t> compare = {1,512,4096,32,128};
+  if (e.str() != "adbe,cde->abc"){
+    return false;
+  }
+  if (e.inns.size() != 2){
+    return false;
+  }
+  if (e.castable != castable_t::add){
+    return false;
+  }
+  return true;
+}
+
 kernel_manager_t::custom_kernel_4_t kernel_manager_t::build_custom_kernel4(einsummable_t const& e){
   // 1) rewrite the join to a scalarop we can compile
   auto [str, bytes] = e.join.to_cpp_bytes();
@@ -524,9 +538,57 @@ kernel_manager_t::build(einsummable_t const& e_)
   }
 
   if(einsummable.is_contraction()) {
-    auto c = make_contraction(einsummable);
-    kernels.insert({einsummable,c});
-    return workspace_info_t(c.worksize);
+    if (is_special_contraction(einsummable)){
+      DOUT("build: special contraction");
+      // ELEMENTWISE PERMUTE
+      auto [inns, out_rank] = einsummable_t::parse_str("adbe->abde");
+      // adbe
+      vector<vector<uint64_t>> const& inn_shape = {{einsummable.join_shape[0], einsummable.join_shape[3], 
+        einsummable.join_shape[1], einsummable.join_shape[4]}};
+      auto join_shape_optional = einsummable_t::construct_join_shape(inns, inn_shape);
+      if (!join_shape_optional){
+        throw std::runtime_error("build: failed to construct join shape");
+      }
+      auto join_shape = join_shape_optional.value();
+      dtype_t dtype = einsummable.out_dtype();
+      scalarop_t join = scalarop_t::make_identity(dtype);
+      auto permute_einsum = einsummable_t(join_shape, inns, out_rank, join);
+      optional<workspace_info_t> wsz = build(permute_einsum);
+      if (!wsz){
+        throw std::runtime_error("build: failed to build permute einsum");
+      }
+      uint64_t worksize = wsz.value().value();
+      if (worksize != 0){
+        throw std::runtime_error("build: permute einsum should have 0 worksize");
+      }
+      // we need additional workspace for abde
+      auto intermediate_size = einsummable.join_shape[0] * einsummable.join_shape[1] * einsummable.join_shape[3] 
+        * einsummable.join_shape[4] * dtype_size(dtype);
+      worksize += intermediate_size;
+
+      // MATMUL
+      // abde, cde -> abc
+      auto n_lhs = join_shape[0] * join_shape[1];
+      auto n_rhs = join_shape[3] * join_shape[4];
+      auto n_out = join_shape[2];
+      auto matmul_es = einsummable_t::from_matmul_st(n_lhs, n_rhs, n_out, dtype);
+      matmul_t matmul = make_matmul(matmul_es).value();
+
+      // putting it all together
+      auto permute = std::get<elementwise_t>(kernels.find(permute_einsum)->second);
+      special_contraction_t c {
+        .permute = permute,
+        .matmul = matmul,
+        .intermediate_size = intermediate_size
+      };
+      kernels.insert({einsummable, c});
+      return workspace_info_t(c.intermediate_size);
+    }
+    else{
+      auto c = make_contraction(einsummable);
+      kernels.insert({einsummable,c});
+      return workspace_info_t(c.worksize);
+    }
   }
 
   // Check for Reductions
@@ -881,6 +943,8 @@ workspace_info_t kernel_manager_t::workspace_size(
     return workspace_info_t(std::get<pow_and_elementwise_t>(kernel).worksize);
   }else if(std::holds_alternative<custom_kernel_4_t>(kernel)) {
     return workspace_info_t(std::get<custom_kernel_4_t>(kernel).worksize);
+  }else if (std::holds_alternative<special_contraction_t>(kernel)){
+    return workspace_info_t(std::get<special_contraction_t>(kernel).intermediate_size);
   }else {
     return workspace_info_t(0);
   }
@@ -1139,6 +1203,19 @@ void kernel_manager_t::operator()(
     XLINEOUT("large_workspace4_t");
     auto const& [a, constant1, constant2] = get<large_workspace_4_t>(kernel);
     large_workspace_4_dispatch(out, inns[0], inns[1], a, constant1, constant2, stream);
+  } else if (holds_alternative<special_contraction_t>(kernel)){
+    DOUT("executing special contraction");
+    XLINEOUT("special_contraction_t");
+    auto const& [permute, matmul, intermediate_size] = get<special_contraction_t>(kernel);
+    auto [workspace, wsz] = maybe_workspace.value();
+    if (wsz < intermediate_size){
+      throw std::runtime_error("kernel_manager_t::call: not enough workspace for special contraction");
+    }
+    execute_elementwise(permute, stream, workspace, {inns[0]}, nullptr, 0);
+    // execute matmul
+    execute_matmul(
+      matmul, stream,
+      out, workspace, inns[1]);
   } else {
     throw std::runtime_error("kernel_manager_t::call: unknown kernel type");
   }

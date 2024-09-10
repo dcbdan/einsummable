@@ -296,6 +296,12 @@ private:
     float constant2;
   };
 
+  struct special_contraction_t{
+    elementwise_t permute;
+    matmul_t matmul;
+    uint64_t intermediate_size;
+  };
+
 public:
   using kernel_info_t = std::variant<matmul_t, contraction_t, reduction_t, elementwise_t,
                                       type_conversion_t, pow_and_elementwise_t, custom_kernel_1_t,
@@ -308,7 +314,8 @@ public:
                                       v3_softmax_elementwise_t,
                                       large_workspace_1_t,
                                       large_workspace_2_t,
-                                      large_workspace_4_t>;
+                                      large_workspace_4_t,
+                                      special_contraction_t>;
 
   kernel_manager_t();
   kernel_manager_t(int device);
@@ -331,6 +338,8 @@ public:
   static bool is_softmax_v3_elementwise(einsummable_t e);
   static bool is_special_max_reduction(einsummable_t e);
   static bool is_special_sum_reduction(einsummable_t e);
+  //+ adbe,cde->abc | *[hole|f32@0,hole|f32@1]
+  static bool is_special_contraction(einsummable_t e);
   static bool is_c64_elementwise_multiply(einsummable_t e);
   static double get_power(einsummable_t e);
   static bool is_scale_and_increment(einsummable_t e);
