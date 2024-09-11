@@ -36,10 +36,14 @@ exec_state_t::exec_state_t(exec_graph_t const&      g,
     wait_start_time.reserve(num_nodes);
     total_mem_wait_time = std::chrono::milliseconds(0);
     all_inns.reserve(num_nodes);
+    auto& last_manager = std::dynamic_pointer_cast<resource_manager_t>(resource_manager)->managers.back();
+    streampool_manager = std::dynamic_pointer_cast<streampool_manager_t>(last_manager);
+    desc_vector.reserve(num_nodes);
     for (int id = 0; id != num_nodes; ++id) {
         int num_deps = g.nodes[id].inns.size();
         wait_start_time.push_back(std::chrono::milliseconds(0));
         num_deps_remaining.push_back(num_deps);
+        desc_vector.push_back(0);
         std::unordered_set<int> inns_set(g.nodes[id].inns.begin(), g.nodes[id].inns.end());
         all_inns.push_back(inns_set);
         if (num_deps == 0) {
@@ -190,6 +194,16 @@ void exec_state_t::event_loop()
     }
 }
 
+void exec_state_t::start_timer_if_condition(int device, int out_id, int kind){
+    if (streampool_manager->all_streams_vacant(device)) {
+            //if non of the streams are being used, then we start the counter
+            auto waitstart = std::chrono::high_resolution_clock::now();
+            wait_start_time[out_id] = std::chrono::duration_cast<std::chrono::milliseconds>(waitstart - init_time);
+            desc_vector[out_id] = kind;
+        }
+}
+
+
 void exec_state_t::decrement_outs(int id)
 {
     auto const& node = exec_graph.nodes[id];
@@ -198,55 +212,74 @@ void exec_state_t::decrement_outs(int id)
         cnt--;
         all_inns[out_id].erase(id);
         if (cnt == 1) { 
-            //if the only left inns left is mem deps then
-            auto op = node.op;
-            if (exec_graph_t::op_base_t::is_gpu_load(op)) {
-                auto waitstart = std::chrono::high_resolution_clock::now();
-                wait_start_time[out_id] = std::chrono::duration_cast<std::chrono::milliseconds>(waitstart - init_time);
+            if (all_inns[out_id].size() != 1) {
+                throw std::runtime_error("all_inns size does not match num_deps_remaining");
+            }
+            //if the only inns left is load then we start the counter for the out_id
+            auto const& id_left = *(all_inns[out_id].begin());
+            auto const& node_left = exec_graph.nodes[id_left];
+            if (exec_graph_t::op_base_t::is_gpu_load(node_left.op)) {
+                int dev = std::dynamic_pointer_cast<gpu_load_t>(node_left.op)->device;
+                start_timer_if_condition(dev, out_id, 1);
             }
         }
         if (cnt == 0) {
             if (wait_start_time[out_id] != std::chrono::milliseconds(0)) {
                 auto waitend = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(waitend - init_time - wait_start_time[out_id]);
-                std::cout << "duration for node " << id << "to node " << out_id << "is " << duration.count() << std::endl;
+                std::cout << "duration for node " << id << " to node " << out_id << " of type " << desc_vector[out_id] << " is " << duration.count() << std::endl;
                 total_mem_wait_time += duration;
             }
             auto const& out_node = exec_graph.nodes[out_id];
             auto out_op = out_node.op;
             ready_to_run.push(out_id);
-            // if evict node got ready, then the alloc(apply) that depends on the evict would come 
+            // if evict node got ready, then the alloc(apply)/load that depends on the evict would come 
             if (exec_graph_t::op_base_t::is_gpu_evict(out_op)) {
                 for (auto const& evict_out_id: out_node.outs) {
-                    if (!exec_graph_t::op_base_t::is_gpu_load(evict_out_id)) {
+                    auto const& evict_out_node = exec_graph.nodes[evict_out_id];
+                    if (!exec_graph_t::op_base_t::is_gpu_load(evict_out_node.op)) {
                         // evict could only be pointing into alloc or load. We want to find the alloc it's depending on
                         // if it's alloc, then we need to go to the next layer (the actual apply node)
-                        int& alloc_id = out_node.outs.at(0);
-                        auto const& alloc_node = exec_graph.nodes[alloc_id];
+                        auto const& alloc_node = exec_graph.nodes[evict_out_id];
                         if (alloc_node.outs.size() != 1) {
                             throw std::runtime_error("out of alloc node should only be sized 1");
                         }
+                        bool all_ready = true;
                         for (auto const& alloc_inn_id: alloc_node.inns) {
                             //loop through the alloc node to see if all other nodes are ready
                             // if all other nodes are ready, then start time counter for apply_id below (run the code below only if all other nodes ready)
-                            //TODO:
+                            if (num_deps_remaining[alloc_inn_id] != 0) {
+                                all_ready = false;
+                            }
                         }
-                        int& apply_id = alloc_node.outs.at(0);
-                        auto const& apply_node = exec_graph.nodes[apply_id];
-                        int apply_node_cnt = num_deps_remaining[apply_id];
-                        // Here I don't have to decreement the count for apply_node, because it will get its number decremented when we actually get to that dummy alloc node
-                        if (apply_node_cnt == 1) {
-                            // if this alloc is the only thing blocking way, start time counter for apply_id
+                        if (all_ready == true) {
+                            const int& apply_id = alloc_node.outs.at(0);
+                            int apply_node_cnt = num_deps_remaining[apply_id];
+                            // Here I don't have to decreement the count for apply_node, because it will get its number decremented when we actually get to that dummy alloc node
+                            if (apply_node_cnt == 1) {
+                                // if this alloc is the only thing blocking way, start time counter for apply_id
+                                int dev = exec_graph_t::op_base_t::get_device(exec_graph.nodes[apply_id].op);
+                                start_timer_if_condition(dev, apply_id, 2);
+                            }
                         }
-
                     } else {
                         // if it's a load after evict, then start the timer for the load node directly is fine
+                        int dev = exec_graph_t::op_base_t::get_device(evict_out_node.op);
+                        start_timer_if_condition(dev, evict_out_id, 3);
                     }
                 }
                 
-            } else if (exec_graph_t::op_base_t::is_gpu_load(op)) {
+            } else if (exec_graph_t::op_base_t::is_gpu_load(out_op)) {
                 //unary op, start counter
-                
+                for (auto const& load_out_id: out_node.outs) {
+                    auto const& load_out_node = exec_graph.nodes[load_out_id];
+                    if (load_out_node.inns.size() == 1) {
+                        // Make sure if the out node of load is unary. 
+                        // If is unary, then start the counter once load is ready (already ready here)
+                        int dev = exec_graph_t::op_base_t::get_device(load_out_node.op);
+                        start_timer_if_condition(dev, load_out_id, 4);
+                    } 
+                }
             }
         }
     }

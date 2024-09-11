@@ -46,6 +46,8 @@ private:
 struct streampool_manager_t : rm_template_t<streampool_desc_t, streampool_resource_t> {
     streampool_manager_t(streampool_t& streampool);
 
+    bool all_streams_vacant(int device);
+
 private:
     std::mutex m;
 

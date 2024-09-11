@@ -67,3 +67,11 @@ void streampool_manager_t::release_impl(streampool_resource_t const& resource)
     std::unique_lock lk(m);
     stream_pools.stream_pools[resource.device].push_back(resource.stream);
 }
+
+bool streampool_manager_t::all_streams_vacant(int device){
+    if (stream_pools.stream_pools[device].size() == 5) {
+        return true;
+    } else {
+        return false;
+    }
+}

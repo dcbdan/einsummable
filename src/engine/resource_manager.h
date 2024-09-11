@@ -88,6 +88,7 @@ private:
 
 struct resource_manager_t : rm_template_t<vector<desc_ptr_t>, vector<resource_ptr_t>> {
     resource_manager_t(vector<rm_ptr_t> const& ms) : managers(ms) {}
+    vector<rm_ptr_t> managers;
 
 private:
     optional<vector<resource_ptr_t>> try_to_acquire_impl(vector<desc_ptr_t> const& descs);
@@ -95,6 +96,4 @@ private:
 
     resource_ptr_t try_to_acquire_unit(desc_ptr_t desc);
     void           release_unit(resource_ptr_t resource);
-
-    vector<rm_ptr_t> managers;
 };

@@ -137,3 +137,22 @@ bool exec_graph_t::op_base_t::is_gpu_constant(std::shared_ptr<exec_graph_t::op_b
 bool exec_graph_t::op_base_t::is_gpu_lowerTri(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
     return std::dynamic_pointer_cast<gpu_lowerTri_t>(op) != nullptr;
 }
+
+int exec_graph_t::op_base_t::get_device(std::shared_ptr<exec_graph_t::op_base_t> const& op) {
+    if (is_gpu_einsummable(op)) {
+        return std::dynamic_pointer_cast<gpu_einsummable_t>(op)->device;
+    } else if (is_gpu_touch(op)) {
+        return std::dynamic_pointer_cast<gpu_touch_t>(op)->device;
+    } else if (is_gpu_evict(op)) {
+        return std::dynamic_pointer_cast<gpu_evict_t>(op)->device;
+    } else if (is_gpu_load(op)) {
+        return std::dynamic_pointer_cast<gpu_load_t>(op)->device;
+    } else if (is_gpu_constant(op)) {
+        return std::dynamic_pointer_cast<gpu_constant_t>(op)->device;
+    } else if (is_gpu_lowerTri(op)) {
+        return std::dynamic_pointer_cast<gpu_lowerTri_t>(op)->device;
+    } else if (is_gpu_copy(op)) {
+        return 0;
+    }
+    return -1;
+}

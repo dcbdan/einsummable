@@ -62,6 +62,8 @@ struct exec_graph_t {
         static bool is_gpu_load(std::shared_ptr<exec_graph_t::op_base_t> const& op);
         static bool is_gpu_constant(std::shared_ptr<exec_graph_t::op_base_t> const& op);
         static bool is_gpu_lowerTri(std::shared_ptr<exec_graph_t::op_base_t> const& op);
+
+        static int get_device(std::shared_ptr<exec_graph_t::op_base_t> const& op);
     };
 
     using op_ptr_t = std::shared_ptr<op_base_t>;

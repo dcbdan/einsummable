@@ -3,6 +3,7 @@
 
 #include "exec_graph.h"
 #include "resource_manager.h"
+#include "gpu/stream_pool.h"
 
 // #define EXEC_STATE_PRINT
 
@@ -64,8 +65,12 @@ struct exec_state_t {
     // for every node in exec graph, the start-time that we start to wait solely on memory deps
     // This is solely for memory ops performance profiling
     vector<std::chrono::milliseconds> wait_start_time;
+    // vector<int> wait_start_time_idle;
+    vector<int> desc_vector;
     std::chrono::milliseconds total_mem_wait_time;
     vector<std::unordered_set<int>> all_inns;
+
+    void start_timer_if_condition(int device, int out_id, int kind);
 
     vector<int> just_completed;
 
@@ -91,6 +96,7 @@ struct exec_state_t {
 
     exec_graph_t const& exec_graph;
     rm_ptr_t            resource_manager;
+    std::shared_ptr<streampool_manager_t> streampool_manager;
 
 #ifdef EXEC_STATE_PRINT
     std::ofstream out;
