@@ -601,8 +601,6 @@ void gpu_einsummable_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
-
-  //cudaDeviceSynchronize();
 }
 
 desc_ptr_t

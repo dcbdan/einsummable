@@ -58,7 +58,7 @@ allocator_settings_t allocator_settings_t::default_settings() {
 allocator_settings_t allocator_settings_t::gpu_alignment_settings() {
   return allocator_settings_t{
     .strat = allocator_strat_t::lowest_dependency,
-    .alignment_power = 4
+    .alignment_power = 8
   };
 }
 
