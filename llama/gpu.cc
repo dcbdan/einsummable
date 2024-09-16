@@ -256,7 +256,7 @@ void main_rank_zero(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("gpus", 4);
+  args.set_default<int>("gpus", 1);
   args.set_default<int>("computes", 1);
   args.set_default<int>("nseq", 4096);
   args.set_default<int>("nbatch", 1);
@@ -528,10 +528,10 @@ int main(int argc, char** argv) {
   // NOTE: 4 is hardcoded here since each anton has 4 gpus
   // 900GB storage: 14.5GB GPU buffer size
   for (int i = 0; i < 4; ++i) {
-    buffer_sizes.push_back(1lu * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(16lu * 1000lu * 1000lu * 1000lu);
   }
 
-  auto storage_size = 40lu * 1000lu * 1000lu * 1000lu;
+  auto storage_size = 16lu * 1000lu * 1000lu * 1000lu;
 
   gpu_mg_server_t server(communicator, buffer_sizes, storage_size);
 

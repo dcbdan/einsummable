@@ -1007,6 +1007,7 @@ void memgraph_make_state_t::allocate_tensor_force(
   int tid,
   vector<int> const& keep_tids)
 {
+  DOUT(" allocate tensor force for tid: " << tid );
   auto const& node = taskgraph.nodes[tid];
   if (node.op.is_input()) {
     auto iter = task_tensor_to_mem_node.find(tid);
@@ -1502,6 +1503,9 @@ bool memgraph_make_state_t::register_usage(int task_id)
     allocators.at(memloc.loc).free(memloc.offset, del_id);
 
     task_tensor_to_mem_node_erase_on_memory(task_id);
+    if (task_id == 314) {
+      DOUT("tid 314 has been deleted. Why is it still used?");
+    }
 
     return true;
   }
@@ -1748,6 +1752,23 @@ int memgraph_make_state_t::allocate_with_evict(
     }
     return maybe_ret.value();
   } else {
+    rearrange_allocator(cannot_evict);
+    DOUT("cannot evict: ");
+    for (int num : cannot_evict) {
+      //num here is tid not mid
+      auto iter = task_tensor_to_mem_node.find(num);
+      if (iter != task_tensor_to_mem_node.end()) {
+        auto const& op = memgraph.nodes[iter->second].op;
+        auto const& mem = op.get_output_mem();
+        std::cout << num ;
+        std::cout << " offset: " << mem.offset << " size: " << mem.size;
+        std::cout << std::endl;
+      } else {
+        DOUT("should not be unable to find in task_tensor_to_mem_node");
+      }
+    }
+    std::cout << "size to allocate: " << size << std::endl;
+    allocators.at(loc).print();
     throw std::runtime_error(
       "allocate_with_evict: could not allocate even after evicting a tensor.");
   }
