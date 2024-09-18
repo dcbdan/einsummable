@@ -1244,10 +1244,10 @@ bool memgraph_make_state_t::allocate_tids_without_evict(
   if(!failed) {
     auto iter = required_workspace.find(tid_for_workspace);
     if(iter != required_workspace.end()) {
+      uint64_t workspace_size = iter->second;
       auto const& node = taskgraph.nodes[tid_for_workspace];
       int loc = node.op.out_loc();
-      uint64_t size = node.op.out_size();
-      auto maybe = do_allocate(loc, size);
+      auto maybe = do_allocate(loc, workspace_size);
       if(maybe) {
         workspace_alloc = maybe.value();
       } else {
@@ -1875,11 +1875,9 @@ void memgraph_make_state_t::delete_workspace(int tid) {
   memloc_t memloc = data.get_memloc();
   del_t del = del_t::from_memloc(memloc);
 
-  int del_id = memgraph.insert(op_t(del), set<int>{ mid_op});
+  int del_id = memgraph.insert(op_t(del), set<int>{ mid_op });
 
   allocators.at(memloc.loc).free(memloc.offset, del_id);
-
-  workspace_tensors.erase(tid);
 }
 
 void memgraph_make_state_t::task_tensor_to_mem_node_insert_on_storage(
