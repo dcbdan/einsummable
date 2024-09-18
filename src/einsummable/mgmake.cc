@@ -1352,7 +1352,7 @@ void memgraph_make_state_t::force_allocate_tids(
   if(iter != required_workspace.end()) {
     auto const& node = taskgraph.nodes[tid_for_workspace];
     int loc = node.op.out_loc();
-    uint64_t size = node.op.out_size();
+    uint64_t size = iter->second;
     int alloc_mid = allocate_with_evict(loc, size, tids);
     workspace_tensors.insert({tid_for_workspace, alloc_mid});
   }
