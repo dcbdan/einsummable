@@ -126,6 +126,7 @@ cudaGraph_t compile_cuda_graph(
         throw std::runtime_error("should not reach");
       }
 
+      // DOUT("constant fill");
       cnodes[mid] = get_capture_out_graph_node(stream);
 
       handle_cuda_error(cudaStreamEndCapture(stream, &ret));
@@ -182,7 +183,8 @@ cudaGraph_t compile_cuda_graph(
         cudaStreamCaptureModeGlobal));
 
       kms[device](e, stream, out_mem, inn_mems, workspace);
-  
+
+      // DOUT("einsum: " << e);
       cnodes[mid] = get_capture_out_graph_node(stream);
 
       handle_cuda_error(cudaStreamEndCapture(stream, &ret));
@@ -223,9 +225,12 @@ cudaGraph_t compile_cuda_graph(
         stream, ret,
         deps.data(), NULL, deps.size(),
         cudaStreamCaptureModeGlobal));
+
+      // DOUT("touch");
+      // DOUT(touch);
  
       launch_touch_kernel(touch, stream, out_mem, inn_mem);
-  
+
       cnodes[mid] = get_capture_out_graph_node(stream);
 
       handle_cuda_error(cudaStreamEndCapture(stream, &ret));

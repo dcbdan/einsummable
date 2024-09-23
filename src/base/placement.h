@@ -67,3 +67,9 @@ struct placement_t {
 bool operator==(placement_t const& lhs, placement_t const& rhs);
 bool operator!=(placement_t const& lhs, placement_t const& rhs);
 
+vector<placement_t> from_proto_placement_list(es_proto::PlacementList const& pl);
+es_proto::PlacementList to_proto_placement_list(vector<placement_t> const& pl);
+
+vector<placement_t> from_wire_placement_list(string const& str);
+string to_wire_placement_list(vector<placement_t> const& pl);
+

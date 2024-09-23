@@ -119,3 +119,34 @@ std::ostream& operator<<(std::ostream& out, partition_t const& p) {
   return out;
 }
 
+vector<partition_t> from_proto_partition_list(es_proto::PartitionList const& pl) {
+  vector<partition_t> ret;
+  ret.reserve(pl.parts_size());
+  for(int i = 0; i != pl.parts_size(); ++i) {
+    ret.push_back(partition_t::from_proto(pl.parts(i)));
+  }
+  return ret;
+}
+
+es_proto::PartitionList to_proto_partition_list(vector<partition_t> const& pl) {
+  es_proto::PartitionList ret;
+  for(auto const& p: pl) {
+    p.to_proto(*ret.add_parts());
+  }
+  return ret;
+}
+
+vector<partition_t> from_wire_partition_list(string const& str) {
+  es_proto::PartitionList ret;
+  if(!ret.ParseFromString(str)) {
+    throw std::runtime_error("could not parse partition list");
+  }
+  return from_proto_partition_list(ret);
+}
+
+string to_wire_partition_list(vector<partition_t> const& pl) {
+  es_proto::PartitionList ret = to_proto_partition_list(pl);
+  string str;
+  ret.SerializeToString(&str);
+  return str;
+}

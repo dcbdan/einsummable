@@ -70,6 +70,12 @@ bool operator!=(partition_t const& lhs, partition_t const& rhs);
 
 std::ostream& operator<<(std::ostream& out, partition_t const& p);
 
+vector<partition_t> from_proto_partition_list(es_proto::PartitionList const& pl);
+es_proto::PartitionList to_proto_partition_list(vector<partition_t> const& pl);
+
+vector<partition_t> from_wire_partition_list(string const& str);
+string to_wire_partition_list(vector<partition_t> const& pl);
+
 // Putting inline methods of partition_t here
 // (for what appears to be marginal performance improvements)
 #include "partition_.h"

@@ -12,7 +12,7 @@ set (CMAKE_CXX_STANDARD 17)
 #set(CMAKE_CXX_FLAGS "-Wmaybe-uninitialized")
 # set(CMAKE_CXX_FLAGS_RELEASE "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -pg -fno-omit-frame-pointer -DNDEBUG")#-fno-inline-functions -fno-inline-functions-called-once -fno-optimize-sibling-calls")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
 
 # TODO: make sure protocol buffers are built in the correct order
 #       with respect to other files. Sometimes make -j is required
@@ -314,6 +314,7 @@ if(${GPU_EXECUTION_ENGINE})
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_llama_train" "gpu_train")
+  add_gpu_llama_application("gpu_train_info" "gpu_training_info")
 endif()
 
 add_dependencies(einsummable proto)

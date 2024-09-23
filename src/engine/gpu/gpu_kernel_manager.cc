@@ -390,7 +390,6 @@ bool kernel_manager_t::is_special_sum_reduction(einsummable_t e){
 }
 
 bool kernel_manager_t::is_special_contraction(einsummable_t e){
-  vector<uint64_t> compare = {1,512,4096,32,128};
   if (e.str() != "adbe,cde->abc"){
     return false;
   }
@@ -539,7 +538,6 @@ kernel_manager_t::build(einsummable_t const& e_)
 
   if(einsummable.is_contraction()) {
     if (is_special_contraction(einsummable)){
-      DOUT("build: special contraction");
       // ELEMENTWISE PERMUTE
       auto [inns, out_rank] = einsummable_t::parse_str("adbe->abde");
       // adbe
@@ -549,10 +547,9 @@ kernel_manager_t::build(einsummable_t const& e_)
       if (!join_shape_optional){
         throw std::runtime_error("build: failed to construct join shape");
       }
-      auto join_shape = join_shape_optional.value();
       dtype_t dtype = einsummable.out_dtype();
       scalarop_t join = scalarop_t::make_identity(dtype);
-      auto permute_einsum = einsummable_t(join_shape, inns, out_rank, join);
+      auto permute_einsum = einsummable_t(join_shape_optional.value(), inns, out_rank, join);
       optional<workspace_info_t> wsz = build(permute_einsum);
       if (!wsz){
         throw std::runtime_error("build: failed to build permute einsum");
@@ -568,9 +565,14 @@ kernel_manager_t::build(einsummable_t const& e_)
 
       // MATMUL
       // abde, cde -> abc
-      auto n_lhs = join_shape[0] * join_shape[1];
-      auto n_rhs = join_shape[3] * join_shape[4];
-      auto n_out = join_shape[2];
+      auto n_lhs = einsummable.join_shape[0] * einsummable.join_shape[1];
+      auto n_rhs = einsummable.join_shape[3] * einsummable.join_shape[4];
+      auto n_out = einsummable.join_shape[2];
+      if (n_lhs == 0 || n_rhs == 0 || n_out == 0){
+        DOUT("einsummable: " << einsummable);
+        DOUT("join shape: " << einsummable.join_shape);
+        throw std::runtime_error("build: matmul n_lhs, n_rhs, n_out is 0");
+      }
       auto matmul_es = einsummable_t::from_matmul_st(n_lhs, n_rhs, n_out, dtype);
       matmul_t matmul = make_matmul(matmul_es).value();
 
@@ -584,11 +586,10 @@ kernel_manager_t::build(einsummable_t const& e_)
       kernels.insert({einsummable, c});
       return workspace_info_t(c.intermediate_size);
     }
-    else{
-      auto c = make_contraction(einsummable);
-      kernels.insert({einsummable,c});
-      return workspace_info_t(c.worksize);
-    }
+    auto c = make_contraction(einsummable);
+    kernels.insert({einsummable,c});
+    
+    return workspace_info_t(c.worksize);
   }
 
   // Check for Reductions
@@ -1204,7 +1205,6 @@ void kernel_manager_t::operator()(
     auto const& [a, constant1, constant2] = get<large_workspace_4_t>(kernel);
     large_workspace_4_dispatch(out, inns[0], inns[1], a, constant1, constant2, stream);
   } else if (holds_alternative<special_contraction_t>(kernel)){
-    DOUT("executing special contraction");
     XLINEOUT("special_contraction_t");
     auto const& [permute, matmul, intermediate_size] = get<special_contraction_t>(kernel);
     auto [workspace, wsz] = maybe_workspace.value();
@@ -1449,7 +1449,8 @@ kernel_manager_t::make_contraction(einsummable_t const& einsummable)
       sizeof(actualWorkspaceSize)));
 
   // TODO: sometimes getting error at the actual workspace size...
-  c.worksize = uint64_t(1.01*double(actualWorkspaceSize));
+  // c.worksize = uint64_t(1.01*double(actualWorkspaceSize));
+  c.worksize = actualWorkspaceSize;
 
   return c;
 }

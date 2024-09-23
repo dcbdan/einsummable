@@ -205,6 +205,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   //  return false;
   };
 
+  int evict_count = 0, load_count = 0, move_count = 0;
+  uint64_t evict_bytes = 0, load_bytes = 0, move_bytes = 0;
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
       if(!memgraph.nodes[mid].op.is_inputsto()) {
@@ -270,6 +273,8 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
         throw std::runtime_error("should not reach: node op is apply but not einsummable or touch");
       }
     } else if(node.op.is_move()) {
+      move_count++;
+      move_bytes += node.op.get_move().size;
       // check if the move is local to this gpu
       auto const& move = node.op.get_move();
       auto const& src = move.get_src_loc();
@@ -280,9 +285,13 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       gpu_copy_t* op = new gpu_copy_t(node.op.get_move());
       insert(op_ptr_t(op), mid);
     } else if(node.op.is_evict()) {
+      evict_count++;
+      evict_bytes += node.op.get_evict().src.size;
       gpu_evict_t* op = new gpu_evict_t(node.op.get_evict());
       insert(op_ptr_t(op), mid);
     } else if(node.op.is_load()) {
+      load_count++;
+      load_bytes += node.op.get_load().dst.size;
       gpu_load_t* op = new gpu_load_t(node.op.get_load());
       insert(op_ptr_t(op), mid);
     } else if(node.op.is_constant()) {
@@ -302,7 +311,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
       throw std::runtime_error("unknown (and unimplemented) op in the memgraph");
     }
   }
-
+  DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
+  fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n, move_count: %d, move_bytes: %lu\n",
+    evict_count, evict_bytes, load_count, load_bytes, move_count, move_bytes);
   return graph;
 }
 
@@ -536,10 +547,22 @@ gpu_einsummable_t::resource_description() const
   return resource_manager_t::make_desc(ret);
 }
 
+struct callback_info_t {
+  std::function<void()> callback;
+  string message;
+};
+
 void gpu_einsummable_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_einsummable_t: " << einsummable)
+  // for (int i = 0; i < 2; i++){
+  //   cudaSetDevice(device);
+  //   cudaDeviceSynchronize();
+  // }
+  // DOUT("launching gpu_einsummable_t: " << einsummable << " join shape: " << einsummable.join_shape
+  //       << " inns: " << einsummable.inns << " out_rank: " << einsummable.out_rank << " castable:" << einsummable.castable);
   string sxsx = "gpu_einsummable_t::launch";
   if(einsummable.is_contraction()) {
     sxsx += "contraction";
@@ -561,6 +584,13 @@ void gpu_einsummable_t::launch(
     mem_t const& workspace_mem = workspace.value();
     void* m = increment_void_ptr(global_buffer, workspace_mem.offset);
     maybe_workspace = tuple<void*, uint64_t>{m, workspace_mem.size};
+    
+    // // set device and cudamalloc
+    // cudaSetDevice(device);
+    // void* m;
+    // DOUT("cudaMalloc called; workspace size: " << workspace_mem.size);
+    // handle_cuda_error(cudaMalloc(&m, workspace_mem.size), "gpu_einsummable_t: cudamalloc");
+    // maybe_workspace = tuple<void*, uint64_t>{m, workspace_mem.size};
   }
 
   cudaStream_t stream = streampool_manager_t::get_resource(resources[1]).stream;
@@ -592,7 +622,7 @@ void gpu_einsummable_t::launch(
   handle_cuda_error(cudaStreamAddCallback(
     stream,
     [](cudaStream_t stream, cudaError_t status, void* user_data) {
-    // DOUT("in gpu_einsummable callback");
+      // DOUT("in gpu_einsummable callback");
       std::function<void()>* callback_ptr =
         reinterpret_cast<std::function<void()>*>(user_data);
       auto& callback = *callback_ptr;
@@ -601,6 +631,26 @@ void gpu_einsummable_t::launch(
     },
     reinterpret_cast<void*>(callback_copy), 0),
     "gpu_einsummable_t: callback");
+  
+  // callback_info_t* callback_info = new callback_info_t;
+  // callback_info->callback = callback;
+  // callback_info->message = "callback info msg: " + write_with_ss(einsummable);
+
+  // handle_cuda_error(cudaStreamAddCallback(
+  //   stream,
+  //   [](cudaStream_t stream, cudaError_t status, void* user_data) {
+  //   // DOUT("in gpu_einsummable callback");
+  //     callback_info_t* ptr =
+  //       reinterpret_cast<callback_info_t*>(user_data);
+  //     DOUT(ptr->message);
+  //     ptr->callback();
+  //     delete ptr;
+  //   },
+  //   reinterpret_cast<void*>(callback_info), 0),
+  //   "gpu_einsummable_t: callback");
+
+  // cudaDeviceSynchronize();
+  // callback();
 }
 
 desc_ptr_t
@@ -620,6 +670,7 @@ void gpu_touch_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_touch_t: " << touch);
   auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_touch_t::launch");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
@@ -688,6 +739,7 @@ void gpu_copy_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_copy_t");
   auto gremlin = get_rm_timetracker().make_totals_gremlin("gpu_copy_t::launch");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
@@ -758,6 +810,7 @@ void gpu_evict_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_evict_t");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
@@ -819,6 +872,7 @@ void gpu_load_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_load_t");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
@@ -889,6 +943,7 @@ void gpu_constant_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_constant_t");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 
@@ -938,6 +993,7 @@ void gpu_lowerTri_t::launch(
   resource_ptr_t rsrc,
   std::function<void()> callback) const
 {
+  // DOUT("launching gpu_lowerTri_t");
   vector<resource_ptr_t> const& resources =
     resource_manager_t::get_resource(rsrc);
 

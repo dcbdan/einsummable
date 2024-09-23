@@ -80,8 +80,8 @@ private:
   vector<uint64_t> cost_per_link;
 
   vector<link_t> links;
-  map<int, int> src_to_link;
-  map<int, int> dst_to_link;
+  map<int, map<int,int>> src_to;
+  map<int, map<int,int>> dst_to;
 
   vector<path_t> paths;
 

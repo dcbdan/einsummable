@@ -67,7 +67,7 @@ gpu_workspace_manager_t::try_to_acquire_impl(
      data_here.erase(data_here.begin() + i);
      return rsrc;
    }
-}
+  }
 
   handle_cuda_error(cudaSetDevice(device));
 

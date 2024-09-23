@@ -673,6 +673,8 @@ vector<placement_t> alocate03(
     return false;
   };
 
+  int start_loc = 0;
+
   for(int const& gid: graph.get_order()) {
     auto const& node = graph.nodes[gid];
 
@@ -681,7 +683,9 @@ vector<placement_t> alocate03(
       int nbid = parts[gid].num_parts();
       for(int bid = 0; bid != nbid; ++bid) {
         jid_t jid{ gid, bid };
-        rw.get_loc(jid) = bid % nlocs;
+        // rw.get_loc(jid) = bid % nlocs;
+        rw.get_loc(jid) = start_loc;
+        start_loc = (start_loc + 1) % nlocs;
       }
 
       continue;
@@ -813,8 +817,19 @@ void topology_t::insert_link(int src, int dst, int width) {
       .dst = dst,
       .width = width
     });
+    cost_per_link.push_back(0);
 
     update_width_factor(width);
+
+    {
+      auto& dst_to_link = src_to[src];
+      dst_to_link.insert({dst, links.size()-1});
+    }
+    {
+      auto& src_to_link = dst_to[dst];
+      src_to_link.insert({src, links.size()-1});
+    }
+
   }
 }
 
@@ -872,11 +887,16 @@ void topology_t::reset() {
 }
 
 optional<int> topology_t::get_link(int src, int dst) const {
-  auto iter = src_to_link.find(src);
-  if(iter == src_to_link.end()) {
+  auto iter = src_to.find(src);
+  if(iter == src_to.end()) {
     return std::nullopt;
   }
-  return optional<int>(iter->second);
+  map<int, int> const& dst_to_link = iter->second;
+  auto ret_iter = dst_to_link.find(dst);
+  if(ret_iter != dst_to_link.end()) {
+    return optional<int>(ret_iter->second);
+  }
+  return std::nullopt;
 }
 
 optional<int> topology_t::get_path(int src, int dst) const {
@@ -889,7 +909,13 @@ optional<int> topology_t::get_path(int src, int dst) const {
 }
 
 int topology_t::get_link_width(int src, int dst) const {
-  return links[get_link(src, dst).value()].width;
+  auto maybe = get_link(src, dst);
+  if(!bool(maybe)) {
+    throw std::runtime_error(
+      "no link in get_link_width: " +
+      write_with_ss(src) + "->" + write_with_ss(dst));
+  }
+  return get_link_width(maybe.value());
 }
 int topology_t::get_link_width(int which_link) const {
   return links[which_link].width;
@@ -900,7 +926,12 @@ vector<int> topology_t::get_links_for_move(int src, int dst) const {
   if(maybe_which_link) {
     return vector<int>{ maybe_which_link.value() };
   } else {
-    int mid = get_path(src, dst).value();
+    auto maybe_path_mid = get_path(src, dst);
+    if(!bool(maybe_path_mid)) {
+      throw std::runtime_error("get_links_for_move: no link or path for "
+        + write_with_ss(src) + "->" + write_with_ss(dst));
+    }
+    int mid = maybe_path_mid.value();
     return vector<int>{
       get_link(src, mid).value(),
       get_link(mid, dst).value()
@@ -1085,6 +1116,8 @@ vector<placement_t> alocate04(
     return false;
   };
 
+  int start_loc = 0;
+
   for(int const& gid: graph.get_order()) {
     auto const& node = graph.nodes[gid];
 
@@ -1093,7 +1126,9 @@ vector<placement_t> alocate04(
       int nbid = parts[gid].num_parts();
       for(int bid = 0; bid != nbid; ++bid) {
         jid_t jid{ gid, bid };
-        rw.get_loc(jid) = bid % nlocs;
+        // rw.get_loc(jid) = bid % nlocs;
+        rw.get_loc(jid) = start_loc;
+        start_loc = (start_loc + 1) % nlocs;
       }
 
       continue;
@@ -1112,6 +1147,7 @@ vector<placement_t> alocate04(
 
     if(is_full_plan(gid))
     {
+      DLINEOUT("full plan for gid: " << gid);
       if(node.outs.size() != 1) {
         throw std::runtime_error("must have one out");
       }
@@ -1169,6 +1205,7 @@ vector<placement_t> alocate04(
       rw.locations(join_gid) = join_locs;
       rw.locations(form_gid) = form_locs;
     } else {
+      DLINEOUT("not full plan for gid: " << gid);
       int join_gid = gid;
       int n_join_bid = parts[join_gid].num_parts();
       optional<tuple<uint64_t, vector<int>>> best;

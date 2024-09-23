@@ -1061,3 +1061,51 @@ std::ostream& operator<<(std::ostream& out, stoloc_t const& stoloc)
   return out;
 }
 
+vector<memgraph_t> memgraph_t::split(int num_parts) const
+{
+  if (num_parts == 1) {
+    DOUT("not doing anything, returning a copy of the original memgraph");
+    return {memgraph_t(*this)};
+  }
+
+  DOUT("Total nodes before split: " << nodes.size());
+
+  vector<memgraph_t> ret;
+  std::unordered_map<int, int> id_to_new_id;
+  vector<set<int>> parts(num_parts);
+  for(int i = 0; i != num_parts; ++i) {
+    parts[i] = {};
+  }
+
+  // parts[0] will have node 0,1,2,...,round(total nodes/num_parts)
+  for(int id = 0; id != nodes.size(); ++id) {
+    int part = std::floor(id / std::ceil(nodes.size() / num_parts));
+    parts[part].insert(id);
+    id_to_new_id[id] = parts[part].size() - 1;
+  }
+
+  // print the parts size
+  for(int i = 0; i != num_parts; ++i) {
+    std::cout << "Part " << i << " has " << parts[i].size() << " nodes" << std::endl;
+  }
+
+  for(int i = 0; i != num_parts; ++i) {
+    memgraph_t mg;
+    for(int id: parts[i]) {
+      // mg.insert(nodes[id].op, nodes[id].inns);
+      auto node_op = nodes[id].op;
+      auto node_inns = nodes[id].inns;
+      set<int> new_inns;
+      for (auto node_inn: node_inns) {
+        if (parts[i].find(node_inn) != parts[i].end()) {
+          new_inns.insert(id_to_new_id[node_inn]);
+        }
+      }
+      mg.insert(node_op, new_inns);
+    }
+    ret.push_back(mg);
+  }
+
+  return ret;
+}
+

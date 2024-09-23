@@ -58,7 +58,7 @@ gpu_mg_server_t::gpu_mg_server_t(
   // }
 
   // initialize the stream pool now that we have num_gpus_per_node
-  int num_streams_per_device = 5;
+  int num_streams_per_device = 50;
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 
   // When creating the gpu server, also enable peer access to have best transfer performance
@@ -164,6 +164,55 @@ void gpu_mg_server_t::execute_memgraph(
   }
 
   if(_use_cudagraph) {
+    // int num_splits = 4;
+    // if (!for_remap){
+    //   vector<memgraph_t> splits = memgraph.split(num_splits);
+    //   DOUT("split memgraph into " << num_splits << " parts");
+    //   for (auto const& memgraph : splits) {
+    //     DOUT("split memgraph size: " << memgraph.nodes.size());
+    //     cudaGraph_t cudagraph = compile_cuda_graph(
+    //       memgraph, 
+    //       kernel_managers,
+    //       mems,
+    //       scalar_vars);
+
+    //     cudaGraphExec_t cudagraphexec;
+    //     handle_cuda_error(
+    //       cudaGraphInstantiate(&cudagraphexec, cudagraph, 0),
+    //       "could not instantiate");
+
+    //     string obs;
+    //     {
+    //       auto start = std::chrono::high_resolution_clock::now();
+    //       handle_cuda_error(
+    //         cudaGraphLaunch(cudagraphexec, 0),
+    //         "cudaGraphLaunch...");
+    //       int num_gpus = get_num_gpus();
+    //       for(int i = 0; i != num_gpus; ++i) {
+    //         // DLINEOUT("gpu " << i);
+    //         handle_cuda_error(cudaSetDevice(i));
+    //         handle_cuda_error(cudaDeviceSynchronize());
+    //       }
+    //       auto end = std::chrono::high_resolution_clock::now();
+    //       auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end-start);
+    //       if(!for_remap) {
+    //         DOUT("Cuda graph finished. Time: " << duration.count() << " ms");
+    //       }
+    //       obs = write_with_ss(duration.count());
+    //     }
+
+    //     handle_cuda_error(
+    //       cudaGraphExecDestroy(cudagraphexec),
+    //       "gpu_mg_server_t: could not destroy cudagraphexec");
+
+    //     handle_cuda_error(cudaGraphDebugDotPrint(cudagraph, "CUDAGRAPH", 0));
+    //     handle_cuda_error(
+    //       cudaGraphDestroy(cudagraph),
+    //       "gpu_mg_server_t: could not destroy cudagraph");
+    //   }
+    //   return;
+    // }
+    // else{
     cudaGraph_t cudagraph = compile_cuda_graph(
       memgraph, 
       kernel_managers,
@@ -183,6 +232,7 @@ void gpu_mg_server_t::execute_memgraph(
         "cudaGraphLaunch...");
       int num_gpus = get_num_gpus();
       for(int i = 0; i != num_gpus; ++i) {
+        // DLINEOUT("gpu " << i);
         handle_cuda_error(cudaSetDevice(i));
         handle_cuda_error(cudaDeviceSynchronize());
       }
@@ -206,13 +256,14 @@ void gpu_mg_server_t::execute_memgraph(
       "gpu_mg_server_t: could not destroy cudagraph");
 
     return;
+    // }
   }
 
   // 1. make the exec graph
   // 2. create the resource manager
   // 3. create the exec state and call the event loop
   auto initial = std::chrono::high_resolution_clock::now();
-  // DOUT("Making exec graph...");
+  DOUT("Making exec graph...");
   // Note: the kernel_manager must outlive the exec graph
   exec_graph_t graph =
     exec_graph_t::make_gpu_exec_graph(
@@ -232,10 +283,10 @@ void gpu_mg_server_t::execute_memgraph(
   // exec_state_t state(graph, resource_manager, exec_state_t::priority_t::dfs);
   exec_state_t state(graph, resource_manager);
 
-  // DOUT("Executing...");
+  DOUT("Executing...");
   // print the execution time of event_loop()
   if (!for_remap){
-    //cudaProfilerStart();
+    cudaProfilerStart();
     get_rm_timetracker().clear();
   }
   get_rm_timetracker().clear();
@@ -247,7 +298,7 @@ void gpu_mg_server_t::execute_memgraph(
   // print the duration in milliseconds with 4 decimal places
   if (!for_remap){
     DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-    //cudaProfilerStop();
+    cudaProfilerStop();
     // print the time for each node in the exec graph
     // for (auto const& node: graph.nodes){
     //   node.op->line(std::cout);
@@ -307,6 +358,9 @@ map<int, uint64_t> gpu_mg_server_t::build_required_workspace_info(
         ret.insert({tid, wsz});
       }
     }
+  }
+  for (auto& [tid, size] : ret){
+    size *= 2;
   }
 
   return ret;

@@ -195,6 +195,8 @@ struct memgraph_t {
   // that node "occurs" at that device.
   bool is_local_to(int id, int loc) const;
 
+  vector<memgraph_t> split(int num_parts) const;
+
 public:
   struct inputmem_t {
     int loc;
@@ -413,6 +415,7 @@ public:
       } else if (is_einsummable()) {
         if (is_contraction()) out << "contraction";
         else                  out << "not-contraction";
+        out << " einsummable: " << get_einsummable();
       } else if (is_touch()) {
         out << "touch";
       } else if(is_inputmem()) {

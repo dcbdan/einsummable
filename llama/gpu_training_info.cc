@@ -13,6 +13,8 @@
 #include <cuda_runtime_api.h>
 #include <stdexcept>
 
+string delimiter = "###END_OF_STRING###\n";
+
 //./gpu_llama_train 7B gpus 1 memsize 32 use_cudagraph false split_off_inputs false max_n_layers 8 seq 512 storage 20
 void usage() {
   std::cout << "Usage: addr_zero is_client world_size memsize "
@@ -133,7 +135,6 @@ topology_t goofy_topology(){
 // }
 
 void main_rank_zero(
-  server_base_t* server,
   tensor_reader2_t& model_loader,
   args_t& pargs,
   autoplace_config_t config);
@@ -185,20 +186,9 @@ int main(int argc, char** argv) {
   args.set_default("use_cudagraph", false);
   bool use_cudagraph = args.get<bool>("use_cudagraph");
 
-  gpu_mg_server_t* gpu_server;
-  if(storage_size > 0) {
-    gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes, storage_size);
-  } else {
-    gpu_server = new gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes);
-  }
-
-  std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_server);
-
   args.set_default("split_off_inputs", false);
-  gpu_server->set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
   DOUT("storage size:                    " << storage_size);
-  DOUT("split_off_inputs:                " << gpu_server->split_off_inputs_);
 
   DOUT("num_gpus:                        " << num_gpus);
   DOUT("num_computes_per_loc:            " << num_computes_per_loc);
@@ -210,13 +200,7 @@ int main(int argc, char** argv) {
   autoplace_config_t config = autoplace_config_t::make_default01(
     num_gpus, num_computes_per_loc);
 
-  if(is_rank_zero) {
-    main_rank_zero(server.get(), reader, args, config);
-  } else {
-    server->listen();
-  }
-
-  server->shutdown();
+  main_rank_zero(reader, args, config);
 
   return 0;
 }
@@ -425,7 +409,6 @@ graph_setup_t make_graph(
 }
 
 void main_rank_zero(
-  server_base_t* server,
   tensor_reader2_t& reader,
   args_t& pargs,
   autoplace_config_t config)
@@ -486,295 +469,27 @@ void main_rank_zero(
 
   pargs.set_default("write_info", false);
   bool write_info = pargs.get<bool>("write_info");
-  pargs.set_default("load_info", false);
-  bool load_info = pargs.get<bool>("load_info");
+
+  pargs.set_default("dir", "./");
+  string save_directory = pargs.get<string>("dir"); 
+
   vector<partition_t> parts;
   vector<placement_t> full_pls;
-  if (load_info){
-    DOUT("loading decomp info (partition and placement)...");
-    string part_path = "./decomp_part.txt";
-    string pls_path = "./decomp_pls.txt";
-    std::ifstream decomp_part_file(part_path);
-    std::ifstream decomp_pls_file(pls_path);
-    if (!decomp_part_file.good() || !decomp_pls_file.good()) {
-      throw std::runtime_error("loading decomp info but info file not found");
-    }
-    std::stringstream buffer_parts;
-    std::stringstream buffer_pls;
 
-    // read all lines in decomp_info_file
-    string parts_info = "";
-    buffer_parts << decomp_part_file.rdbuf();
-    parts_info = buffer_parts.str();
+  DOUT("creating partition and placement from scratch");
+  parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
+  full_pls = alocate03(info.full_graph, parts, config.n_locs(), true);
 
-    string pls_info = "";
-    buffer_pls << decomp_pls_file.rdbuf();
-    pls_info = buffer_pls.str();
-
-    parts = from_wire_partition_list(parts_info);
-    full_pls = from_wire_placement_list(pls_info);
-
-    DOUT("loaded partition and placement");
-  } else {
-    DOUT("creating partition and placement from scratch");
-    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
-    full_pls = alocate03(info.full_graph, parts, config.n_locs(), true);
-  }
-
-  if (write_info){
-    DOUT("writing decomp info (partition and placement)...");
-    string part_path = "./decomp_part.txt";
-    string pls_path = "./decomp_pls.txt";
-    std::ofstream decomp_part_file(part_path);
-    std::ofstream decomp_pls_file(pls_path);
-    
-    string parts_info = to_wire_partition_list(parts);
-    string pls_info = to_wire_placement_list(full_pls);
-    decomp_part_file << parts_info;
-    decomp_pls_file << pls_info;
-    DOUT("wrote decomp patition to " << part_path << " and decomp placement to " << pls_path);
-  }
-  // try alocate04
-  // topology_t topo = goofy_topology();
-  // vector<placement_t> full_pls = alocate04(info.full_graph, parts, config.n_locs(), topo);
-
-  DLINE;
-  tuple<map<int, relation_t>, map<int, relation_t>, taskgraph_t> full_tg_info;
-
-  //{
-  //  auto [inn_rels_, out_rels_, tg] = taskgraph_t::make(info.full_graph, full_pls);
-  //  map<int, relation_t> inn_rels;
-  //  for(auto const& [gid, tids]: inn_rels_) {
-  //    inn_rels.insert({
-  //      gid,
-  //      relation_t {
-  //        .dtype = info.full_graph.out_dtype(gid),
-  //        .placement = full_pls[gid],
-  //        .tids = tids
-  //      }
-  //    });
-  //  }
-  //  map<int, relation_t> out_rels;
-  //  for(auto const& [gid, tids]: out_rels_) {
-  //    out_rels.insert({
-  //      gid,
-  //      relation_t {
-  //        .dtype = info.full_graph.out_dtype(gid),
-  //        .placement = full_pls[gid],
-  //        .tids = tids
-  //      }
-  //    });
-  //  }
-  //  full_tg_info = { inn_rels, out_rels, tg };
-  //}
-  {
-    checkpoint_taskgraphs_t checkpoint_taskgraphs(graphs, full_pls);
-    full_tg_info = create_barrier_taskgraph( 
-      graphs.manager,
-      checkpoint_taskgraphs);
-  }
-
-  tuple<map<int, relation_t>, map<int, relation_t>, taskgraph_t> no_barrier_tg_info;
-  DLINE;
-
-  /////////////////////////////////////////////////////////////////////////////
-  // Read in all the tensors
-  dbuffer_t embedding_matrix;
-  {
-    DLINE;
-    map<int, relation_t> relations;
-    map<int, tuple<int, buffer_t>> local_data;
-    int current_tid = 0;
-
-    auto read_into = [&](
-      string const& name, 
-      vector<uint64_t> const& shape,
-      map<int, tuple<int, buffer_t>>& local)
-    {
-      auto [rel, ds] = reader(name, shape, current_tid);
-      current_tid += rel.placement.num_parts();
-
-      vector<int> const& locs = rel.placement.locations.get();
-      vector<int> const& tids = rel.tids.get();
-
-      if(locs.size() != ds.size() || tids.size() != ds.size()) {
-        throw std::runtime_error("bwoah.");
-      }
-
-      for(int i = 0; i != ds.size(); ++i) {
-        int const& tid = tids[i];
-        int const& loc = locs[i];
-        auto& d        = ds[i];
-        local.insert({ tid, { loc, d } });
-      }
-
-      return rel;
-    };
-
-    auto read_into_local_data = [&](string const& name, vector<uint64_t> const& shape) {
-      return read_into(name, shape, local_data);
-    };
-
-    auto insert_name = [&](int gid, string const& name) {
-      relation_t rel = read_into_local_data(name, info.get_shape(gid));
-      relations.insert({gid, rel});
-    };
-
-    DLINE;
-    {
-      vector<uint64_t> shape{ margs.vocab_size, margs.dim };
-      map<int, tuple<int, buffer_t>> ds;
-      relation_t rel = read_into("tok_embeddings.weight", shape, ds);
-      server->local_insert_tensors(ds);
-      embedding_matrix = server->get_tensor(rel);
-      server->local_erase_tensors(rel.tids.get());
-    }
-
-    DLINE;
-    for(auto const& [name, id]: info.model_weight_map) {
-      if(name.find("lora") == string::npos) {
-        insert_name(id, name);
-      }
-    }
-    DLINE;
-
-    // Tell the server about the relations and local data we've gathered
-    server->local_insert_tensors(local_data);
-    for(auto const& [gid, rel]: relations) {
-      server->insert_gid_without_data(gid, rel);
-    }
-  }
-  DLINE;
-
-  for(auto const& [gid, fill]: init_fills) {
-    if(!fill.is_constant()) {
-      throw std::runtime_error("not implemented");
-    }
-    scalar_t const& value = fill.get_constant().value;
-    server->insert_constant(gid, full_pls[gid], value);
-  }
-
-  DLINE;
-  for(auto const& [name, id]: info.model_weight_map) {
-    if(name.find("lora") != string::npos) {
-      auto shape = info.get_shape(id);
-
-      // For the lora, we have (X*L0)*L1 where L0 needs to be
-      // initialized gaussiann and L1 needs to be initialized with zeros
-      dbuffer_t dbuffer = make_dbuffer(dtype, product(shape));
-
-      if(name.find("lora0") != string::npos) {
-        dbuffer.rnorm();
-        dbuffer.scale(scalar_t(dtype, write_with_ss(float(1e-3))));
-      } else if(name.find("lora1") != string::npos) {
-        dbuffer.zeros();
-      } else {
-        throw std::runtime_error("should not reach");
-      }
-
-      server->insert_tensor(id, shape, dbuffer);
-    }
-  }
-
-  DLINE;
-  server->insert_tensor(
-    info.full_freqs_cis_id,
-    info.get_shape(info.full_freqs_cis_id),
-    transformer_t::form_position_interpolation_full_freqs_cis(margs, 2048));
-  // TODO: this is how form_position_interpolation works?
-
-  /////////////////////////////////////////////////////////////////////////////
+  DOUT("writing decomp info (partition and placement)...");
+  string part_path = save_directory + "decomp_part.txt";
+  string pls_path = save_directory + "decomp_pls.txt";
+  std::ofstream decomp_part_file(part_path);
+  std::ofstream decomp_pls_file(pls_path);
   
-  DLINE;
-  pargs.set_default("tokenizer", "/home/zhimin/llama_files/es/tokenizer.model");
-  pargs.set_default("dataset", "/home/zhimin/llama_files/es/redpaj_long_samples");
-  pargs.set_default("learning_rate", 1e-9f);
-  string tokenizer_file = pargs.get<string>("tokenizer");
-  string dataset_file   = pargs.get<string>("dataset");
-
-  // check if tokenizer_file and dataset_file are valid
-  std::ifstream tokenizer_check(tokenizer_file);
-  if(!tokenizer_check.good()) {
-    throw std::runtime_error("could not open tokenizer file");
-  }
-  std::ifstream dataset_check(dataset_file);
-  if(!dataset_check.good()) {
-    throw std::runtime_error("could not open dataset file");
-  }
-  DLINE;
-
-  dataset_reader_t data_loader(tokenizer_file, dataset_file);
-
-  scalar_t _lr(dtype, write_with_ss(pargs.get<float>("learning_rate")));
-  map<string, scalar_t> vars {
-    { "beta1", scalar_t(dtype, "0.9") },
-    { "beta2", scalar_t(dtype, "0.999") },
-    { "eta", _lr },
-    { "learning_rate", _lr },
-  };
-
-  DLINE;
-  pargs.set_default<int>("niter", 1);
-  int niter = pargs.get<int>("niter");
-  DOUT("starting training")
-  for(int iter = 1; iter != niter + 1; ++iter) {
-    // Insert the actual (embeddings,label) data
-    // Note that embeddings will need to be selected from the embedding matrix
-    // and the labels will need to be one-hot encoded
-    DOUT("Iter: " << iter)
-    auto [data_tokens, label_tokens] = [&] {
-      if(which_data.size() > 0) {
-        vector<vector<int>> data_tokens;
-        vector<int> label_tokens;
-        for(auto const& which_datum: which_data) {
-          auto [datum_tokens, label_token] =
-            data_loader.datum(which_datum, margs.max_seq_len);
-          data_tokens.push_back(datum_tokens);
-          label_tokens.push_back(label_token);
-        }
-        return tuple<vector<vector<int>>, vector<int>>(data_tokens, label_tokens);
-      }
-      DOUT("random data");
-      return data_loader.random_data(margs.batch_size, margs.max_seq_len);
-    }();
-
-    DLINE;
-    server->insert_tensor(
-      info.embeddings_id,
-      info.get_shape(info.embeddings_id),
-      data_loader.make_embedding(
-        embedding_matrix,
-        vector_flatten(data_tokens)));
-
-    server->insert_tensor(
-      info.labels_id,
-      info.get_shape(info.labels_id),
-      data_loader.one_hot_encode(dtype, label_tokens));
-
-    DLINE;
-    update_vars(updater_desc, iter, vars);
-
-    DLINE;
-    {
-      auto const& [inn_rels, out_rels, taskgraph] = full_tg_info;
-      DLINE;
-      server->remap(inn_rels);
-      DLINE;
-      server->execute(taskgraph, out_rels, vars);
-      DLINE;
-    }
-    DLINE;
-
-    double loss_val = server->get_tensor_from_gid(info.loss_id).sum_to_f64();
-    DOUT("loss: " << loss_val);
-    if(std::isnan(loss_val) || std::isinf(loss_val)) {
-      DOUT("loss is nan or inf");
-      // throw std::runtime_error("loss is nan or inf");
-    }
-    if (niter > 1){
-      server->remap_gids(next_iter_remap);
-    }
-  }
-  DLINE;
+  string parts_info = to_wire_partition_list(parts);
+  string pls_info = to_wire_placement_list(full_pls);
+  decomp_part_file << parts_info;
+  decomp_pls_file << pls_info;
+  DOUT("wrote decomp patition to " << part_path << " and decomp placement to " << pls_path);
 }
 

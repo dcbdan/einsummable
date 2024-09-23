@@ -139,3 +139,35 @@ bool operator!=(placement_t const& lhs, placement_t const& rhs) {
   return !(lhs == rhs);
 }
 
+vector<placement_t> from_proto_placement_list(es_proto::PlacementList const& pl){
+  vector<placement_t> ret;
+  ret.reserve(pl.pls_size());
+  for(int i = 0; i != pl.pls_size(); ++i) {
+    ret.push_back(placement_t::from_proto(pl.pls(i)));
+  }
+  return ret;
+}
+
+es_proto::PlacementList to_proto_placement_list(vector<placement_t> const& pl) {
+  es_proto::PlacementList ret;
+  for(auto const& p: pl) {
+    es_proto::Placement* pp = ret.add_pls();
+    p.to_proto(*pp);
+  }
+  return ret;
+}
+
+vector<placement_t> from_wire_placement_list(string const& str){
+  es_proto::PlacementList p;
+  if(!p.ParseFromString(str)) {
+    throw std::runtime_error("could not parse placement list!");
+  }
+  return from_proto_placement_list(p);
+}
+
+string to_wire_placement_list(vector<placement_t> const& pl){
+  es_proto::PlacementList p = to_proto_placement_list(pl);
+  string ret;
+  p.SerializeToString(&ret);
+  return ret;
+}

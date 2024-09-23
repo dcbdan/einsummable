@@ -273,17 +273,36 @@ bool exec_state_t::try_to_launch(int id) {
   resource_ptr_t resources =
     resource_manager->try_to_acquire(resource_desc);
   if(resources) {
-    auto callback = [this, id] {
+    auto callback = [this, id, node] {
       {
         std::unique_lock lk(m_notify);
         this->just_completed.push_back(id);
+        // std::cout << "node " << id << " completed; node content: ";
+        // node.print(std::cout);
+        // std::cout << std::endl;
+        // std::cout << "nodes that are still running after completing: ";
+        // for(auto const& [id, resource] : is_running) {
+        //   std::cout << id << " ";
+        // }
+        // std::cout << std::endl;
+        // for (int i = 0; i < 2; i++){
+        //   cudaSetDevice(i);
+        //   cudaDeviceSynchronize();
+        // }
       }
 
       cv_notify.notify_one();
     };
+    // std::cout << "launching node " << id << " with content: ";
+    // node.print(std::cout);
+    // std::cout << std::endl;
     node.launch(resources, callback);
     is_running.insert({id, resources});
-
+    // std::cout << "nodes that are still running: ";
+    // for(auto const& [id, resource] : is_running) {
+    //   std::cout << id << " ";
+    // }
+    // std::cout << std::endl;
     return true;
   } else {
     return false;

@@ -116,8 +116,16 @@ message Partdim {
   repeated uint64 spans = 1;
 }
 
+message PartitionList {
+  repeated Partition parts = 1;
+}
+
 message Partition {
   repeated Partdim partdims = 1;
+}
+
+message PlacementList {
+  repeated Placement pls = 1;
 }
 
 message Placement {
