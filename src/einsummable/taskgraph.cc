@@ -374,6 +374,413 @@ taskgraph_t::make(
   return {std::move(inns), std::move(saves), std::move(ret)};
 }
 
+vector<model_parallel_placement_t> _make_model_parallel(
+  graph_t const& graph,
+  int nlocs,
+  map<int, model_parallel_placement_t> const& init_pls)
+{
+  using pl_t = model_parallel_placement_t;
+
+  for(auto const& [gid, _]: init_pls) {
+    auto const& node = graph.nodes[gid];
+    if(!(node.op.is_input() || node.op.is_fill())) {
+      throw std::runtime_error("must only specify placement for inputs and fill");
+    }
+  }
+
+  vector<model_parallel_placement_t> ret;
+  ret.reserve(graph.nodes.size());
+
+  auto get_inn_pl = [&](int inn_gid) {
+    pl_t const& op_pl = ret[inn_gid];
+    int out_rank = graph.out_shape(inn_gid).size();
+    if(op_pl.split() && op_pl.split_dim() >= out_rank) {
+      return pl_t::make_replicate();
+    } else {
+      return op_pl;
+    }
+  };
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    if(node.op.is_input()) {
+      auto iter = init_pls.find(gid);
+      if(iter == init_pls.end()) {
+        throw std::runtime_error("could not get pl for input at gid=" + write_with_ss(gid));
+      }
+      ret.push_back(iter->second);
+    } else if(node.op.is_formation()) {
+      if(node.inns.size() != 1) {
+        throw std::runtime_error("formation must have one input!");
+      }
+      int inn_gid = node.inns[0];
+      pl_t const& inn_pl = ret[inn_gid]; // don't use get_inn_pl here as that
+                                         // gets with respect to the output shape
+
+      int out_rank = node.op.out_shape().size();
+      if(inn_pl.replicate()) {
+        ret.push_back(pl_t::make_replicate());
+      } else if(inn_pl.split_dim() >= out_rank) {
+        ret.push_back(pl_t::make_replicate());
+      } else {
+        ret.push_back(pl_t::make_split(inn_pl.split_dim()));
+      }
+    } else if(node.op.is_complexer()) {
+      int inn_gid = node.inns[0];
+      pl_t inn_pl = get_inn_pl(inn_gid);
+      ret.push_back(inn_pl);
+    } else if(node.op.is_squeezer()) {
+      int inn_gid = node.inns[0];
+      pl_t inn_pl = get_inn_pl(inn_gid);
+      if(inn_pl.replicate()) {
+        ret.push_back(pl_t::make_replicate());
+      } else {
+        auto const& squeezer = node.op.get_squeezer();
+        int inn_d = inn_pl.split_dim();
+        if(squeezer.inn_shape[inn_d] == 1) {
+          throw std::runtime_error("can't split dim of size 1 in squeezer");
+        }
+        int out_d = squeezer.input_to_output(inn_d);
+        ret.push_back(pl_t::make_split(out_d));
+      }
+    } else if(node.op.is_fill()) {
+      auto iter = init_pls.find(gid);
+      if(iter == init_pls.end()) {
+        throw std::runtime_error("could not get pl for fill at gid=" + write_with_ss(gid));
+      }
+      ret.push_back(iter->second);
+    } else if(node.op.is_select()) {
+      int inn_gid = node.inns[0];
+      pl_t inn_pl = get_inn_pl(inn_gid);
+      if(inn_pl.replicate()) {
+        ret.push_back(inn_pl);
+      } else {
+        // TODO: we're essentially just assuming this select is subset
+        ret.push_back(inn_pl);
+      }
+    } else if(node.op.is_einsummable()) {
+      DOUT("");
+      DOUT("gid: " << gid << " | " << node.op.get_einsummable());
+
+      auto const& e = node.op.get_einsummable();
+      for(int which_inn = 0; which_inn != e.inns.size(); ++which_inn) {
+        int inn_gid = node.inns[which_inn];
+        pl_t inn_pl = get_inn_pl(inn_gid);
+        DOUT(inn_pl);
+      }
+
+      map<int, bool> ds;
+      for(int which_inn = 0; which_inn != e.inns.size(); ++which_inn) {
+        int inn_gid = node.inns[which_inn];
+
+        pl_t inn_pl = get_inn_pl(inn_gid);
+        vector<int> const& is = e.inns[which_inn];
+        for(int x = 0; x != is.size(); ++x) {
+          int i = is[x];
+          bool is_split = inn_pl.split() && inn_pl.split_dim() == x;
+          auto iter = ds.find(i);
+          if(iter == ds.end()) {
+            ds[i] = is_split;
+          } else {
+            if(iter->second != is_split) {
+              throw std::runtime_error("does not line up!");
+            }
+          }
+        }
+      }
+      int split_dim = -1;
+      for(auto const& [d, is_split]: ds) {
+        if(is_split) {
+          if(split_dim < 0) {
+            split_dim = d;
+          } else {
+            throw std::runtime_error("bwoah: too many splits");
+          }
+        }
+      }
+
+      ret.push_back(pl_t { .which = split_dim });
+      DOUT("result: " << ret.back());
+    } else {
+      throw std::runtime_error("not implemented");
+    }
+  }
+
+  return ret;
+}
+
+touch_t _touch_write_full(
+  vector<uint64_t> const& shape,
+  optional<castable_t> castable,
+  dtype_t dtype)
+{
+  touch_t ret {
+    .selection = {},
+    .castable = castable,
+    .dtype = dtype
+  };
+
+  auto& sels = ret.selection;
+  for(uint64_t const& d: shape) {
+    sels.push_back( touchdim_t {
+      .d_inn = d,
+      .d_out = d,
+      .offset_inn = 0,
+      .offset_out = 0,
+      .size = d
+    });
+  }
+
+  return ret;
+}
+
+tuple<
+  map<int, vector<int>>,
+  map<int, vector<int>>,
+  taskgraph_t>
+taskgraph_t::make_model_parallel(
+  graph_t const& graph,
+  int nlocs,
+  map<int, model_parallel_placement_t> const& init_pls)
+{
+  using pl_t = model_parallel_placement_t;
+
+  vector<model_parallel_placement_t> pls = _make_model_parallel(graph, nlocs, init_pls);
+
+  auto get_inn_pl = [&](int inn_gid) {
+    pl_t const& op_pl = pls[inn_gid];
+    int out_rank = graph.out_shape(inn_gid).size();
+    if(op_pl.split() && op_pl.split_dim() >= out_rank) {
+      return pl_t::make_replicate();
+    } else {
+      return op_pl;
+    }
+  };
+
+  taskgraph_t ret;
+  vector<vector<int>> rels;
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    rels.emplace_back();
+    vector<int>& new_tids = rels.back();
+    new_tids.reserve(nlocs);
+
+    auto const& pl = pls.at(gid);
+    if(node.op.is_input()) {
+      dtype_t dtype = node.op.out_dtype();
+      if(pl.replicate()) {
+        vector<uint64_t> shape = node.op.out_shape();
+        for(int loc = 0; loc != nlocs; ++loc) {
+          new_tids.push_back(ret.insert_input(loc, dtype, shape));
+        }
+      } else {
+        vector<uint64_t> total_shape = node.op.out_shape();
+        vector<partdim_t> pds;
+        for(int d = 0; d != total_shape.size(); ++d) {
+          if(pl.split_dim() == d) {
+            pds.push_back(partdim_t::split(total_shape[d], nlocs));
+          } else {
+            pds.push_back(partdim_t::singleton(total_shape[d]));
+          }
+        }
+        partition_t part(pds);
+        for(int loc = 0; loc != nlocs; ++loc) {
+          vector<uint64_t> shape = part.tensor_shape_at(loc);
+          new_tids.push_back(ret.insert_input(loc, dtype, shape));
+        }
+      }
+    } else if(node.op.is_formation()) {
+      // doing agg, is replicated  -> do all reduces
+      // doing agg, not replicated -> error
+      // no agg,    _ -> error
+      int inn_gid = node.inns[0];
+      bool has_input_agg = graph.nodes[inn_gid].op.has_aggregation();
+      if(!has_input_agg) {
+        throw std::runtime_error("expecting input to be an agg");
+      }
+      if(pl.split()) {
+        if(pl != get_inn_pl(inn_gid)) {
+          throw std::runtime_error("formation and input pl must be the same if split");
+        }
+        // in this case, the agg wasn't split and no reduction is needed
+        new_tids = rels[inn_gid];
+      } else {
+        // ok, do a bunch of all reduces
+
+        castable_t castable = graph.nodes[inn_gid].op.get_einsummable().castable.value();
+        vector<uint64_t> shape = node.op.out_shape();
+        dtype_t dtype = node.op.out_dtype();
+        touch_t touch = _touch_write_full(shape, castable, dtype);
+
+        vector<int> const& inn_tids = rels[inn_gid];
+        for(int loc = 0; loc != nlocs; ++loc) {
+          new_tids.push_back(ret.new_partial(loc, dtype, shape));
+          int out_tid = new_tids.back();
+          for(int inn_loc = 0; inn_loc != nlocs; ++inn_loc) {
+            int inn_tid = inn_tids[inn_loc];
+            if(inn_loc != loc) {
+              inn_tid = ret.insert_move(inn_loc, loc, inn_tid);
+            }
+            ret.add_to_partial(out_tid, inn_tid, touch);
+          }
+        }
+      }
+    } else if(node.op.is_complexer()) {
+      int inn_gid = node.inns[0];
+
+      pl_t inn_pl = get_inn_pl(inn_gid);
+      if(pl == inn_pl) {
+        new_tids = rels[inn_gid];
+      } else {
+        throw std::runtime_error("complexer expects same pl as input");
+      }
+    } else if(node.op.is_squeezer()) {
+      if(pl.split()) {
+        throw std::runtime_error("not implemented: split complexer");
+      }
+      int inn_gid = node.inns[0];
+      new_tids = rels[inn_gid];
+    } else if(node.op.is_fill()) {
+      dtype_t dtype = node.op.out_dtype();
+      fill_t const& full_fill = node.op.get_fill();
+      if(pl.replicate()) {
+        vector<uint64_t> shape = node.op.out_shape();
+        for(int loc = 0; loc != nlocs; ++loc) {
+          new_tids.push_back(ret.insert_constant(loc, full_fill));
+        }
+      } else {
+        vector<uint64_t> total_shape = node.op.out_shape();
+        vector<partdim_t> pds;
+        for(int d = 0; d != total_shape.size(); ++d) {
+          if(pl.split_dim() == d) {
+            pds.push_back(partdim_t::split(total_shape[d], nlocs));
+          } else {
+            pds.push_back(partdim_t::singleton(total_shape[d]));
+          }
+        }
+        partition_t part(pds);
+        for(int loc = 0; loc != nlocs; ++loc) {
+          auto hrect = part.get_hrect(loc);
+          new_tids.push_back(ret.insert_constant(loc, full_fill.select(hrect)));
+        }
+      }
+    } else if(node.op.is_select()) {
+      select_t const& select = node.op.get_select();
+      vector<touch_t> _touches = select.as_touches();
+      if(_touches.size() != 1) {
+        throw std::runtime_error("expecting select_t with one input touch!");
+      }
+      touch_t const& full_touch = _touches[0];
+
+      if(node.inns.size() != 1) {
+        throw std::runtime_error("not implemented: select with multiple inputs");
+      }
+      int inn_gid = node.inns[0];
+      vector<int> inn_tids = rels[inn_gid];
+      dtype_t dtype = node.op.out_dtype();
+      vector<uint64_t> total_shape = node.op.out_shape();
+
+      if(pl.replicate()) {
+        for(int loc = 0; loc != nlocs; ++loc) {
+          new_tids.push_back(ret.new_partial(loc, dtype, total_shape));
+          int out_tid = new_tids.back();
+          int inn_tid = inn_tids[loc];
+          ret.add_to_partial(out_tid, inn_tid, full_touch);
+        }
+      } else {
+        if(pl != get_inn_pl(inn_gid)) {
+          throw std::runtime_error("select expects same split as input");
+        }
+        int split_dim = pl.split_dim();
+        vector<uint64_t> inn_shape = graph.out_shape(inn_gid);
+        if(inn_shape[split_dim] != total_shape[split_dim]) {
+          throw std::runtime_error("expecting split dim to match: select");
+        }
+
+        partdim_t pd = partdim_t::split(total_shape[split_dim], nlocs);
+        DLINEOUT(pl);
+        for(int loc = 0; loc != nlocs; ++loc) {
+          select_t s = select;
+          s.out_shape[split_dim]            = pd.size_at(loc);
+          s.inn_regions[0][split_dim].d_inn = pd.size_at(loc);
+          s.inn_regions[0][split_dim].size  = pd.size_at(loc);
+          DLINE;
+          new_tids.push_back(ret.new_partial(loc, dtype, s.out_shape));
+          DLINE;
+          int out_tid = new_tids.back();
+          DLINEOUT(inn_tids);
+          int inn_tid = inn_tids.at(loc);
+          DLINE;
+          ret.add_to_partial(out_tid, inn_tid, s.as_touch(0));
+        }
+        // TODO: this implementation is not clear to me,
+        //       just kinda hoping it works
+        DLINE;
+      }
+    } else if(node.op.is_einsummable()) {
+      einsummable_t const& full_einsummable = node.op.get_einsummable();
+      if(pl.replicate()) {
+        for(int loc = 0; loc != nlocs; ++loc) {
+          vector<int> inn_tids;
+          for(int const& inn_gid: node.inns) {
+            inn_tids.push_back(rels[inn_gid][loc]);
+          }
+          DLINE;
+          new_tids.push_back(ret.insert_einsummable(
+            loc,
+            full_einsummable,
+            inn_tids));
+        }
+      } else {
+        int split_dim = pl.split_dim();
+        partdim_t pd = partdim_t::split(full_einsummable.join_shape[split_dim], nlocs);
+
+        for(int loc = 0; loc != nlocs; ++loc) {
+          einsummable_t e = full_einsummable;
+          e.join_shape[split_dim] = pd.size_at(loc);
+
+          vector<int> inn_tids;
+          DLINEOUT("gid is " << gid << " | " << pl);
+          for(int const& inn_gid: node.inns) {
+            inn_tids.push_back(rels[inn_gid][loc]);
+            DLINEOUT(ret.out_size(inn_tids.back()));
+          }
+          new_tids.push_back(ret.insert_einsummable(loc, e, inn_tids));
+        }
+      }
+    } else {
+      throw std::runtime_error("not implemented");
+    }
+
+    // set the saves
+    if(node.op.is_save()) {
+      for(auto const& tid: rels[gid]) {
+        ret.nodes[tid].is_save = true;
+      }
+    }
+  }
+
+  map<int, vector<int>> inn_rels;
+  map<int, vector<int>> out_rels;
+
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+
+    if(node.op.is_input()) {
+      inn_rels.insert({gid, rels[gid]});
+    }
+
+    if(node.op.is_save()) {
+      out_rels.insert({gid, rels[gid]});
+    }
+  }
+
+  return {inn_rels, out_rels, ret};
+}
+
 int taskgraph_make_state_t::access(
   int gid,
   vector<tuple<uint64_t, uint64_t>> const& hrect,
@@ -2488,7 +2895,7 @@ vtensor_t<uint64_t> taskgraph_t::possible_memory_usage() const {
       if(counts[inn] == 0) {
         auto const& inn_node = nodes[inn];
         if(!inn_node.is_save) {
-          memused[inn_node.op.out_loc()] -= inn_node.op.out_size(); 
+          memused[inn_node.op.out_loc()] -= inn_node.op.out_size();
         }
       }
     }
@@ -3830,3 +4237,27 @@ std::ostream& operator<<(std::ostream& out, touch_t const& t) {
   return out;
 }
 
+std::ostream& operator<<(std::ostream& out, model_parallel_placement_t const& v) {
+  out << "pl_t[";
+  if(v.replicate()) {
+    out << "replicate";
+  } else {
+    out << "split@" << v.split_dim();
+  }
+  out << "]";
+  return out;
+}
+
+bool operator==(model_parallel_placement_t const& lhs, model_parallel_placement_t const& rhs) {
+  if(lhs.split() && rhs.split()) {
+    return lhs.split_dim() == rhs.split_dim();
+  } else if(lhs.replicate() == rhs.replicate()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool operator!=(model_parallel_placement_t const& lhs, model_parallel_placement_t const& rhs) {
+  return !(lhs == rhs);
+}
