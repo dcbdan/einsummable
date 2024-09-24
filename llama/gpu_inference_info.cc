@@ -248,7 +248,6 @@ token_maker_t make_default_token_maker() {
 
 
 void main_rank_zero(
-  gpu_mg_server_t& server,
   tensor_reader2_t& reader,
   args_t& args)
 {
@@ -296,6 +295,9 @@ void main_rank_zero(
     }
   }
 
+  args.set_default("dir", "./");
+  string save_directory = args.get<string>("dir"); 
+
   margs.batch_size = bsz;
   margs.max_seq_len = seqlen;
 
@@ -324,155 +326,123 @@ void main_rank_zero(
     graph2.nodes[gid].op.set_save(true);
   }
 
-  DLINE;
-  dbuffer_t embedding_matrix;
-  dbuffer_t embeddings_data;
-  {
-    map<int, relation_t> relations;
-    map<int, tuple<int, buffer_t>> local_data;
-    int current_tid = 0;
-
-    auto read_into = [&](
-      string const& name, 
-      vector<uint64_t> const& shape,
-      map<int, tuple<int, buffer_t>>& local)
-    {
-      auto [rel, ds] = reader(name, shape, current_tid);
-      current_tid += rel.placement.num_parts();
-
-      vector<int> const& locs = rel.placement.locations.get();
-      vector<int> const& tids = rel.tids.get();
-
-      if(locs.size() != ds.size() || tids.size() != ds.size()) {
-        throw std::runtime_error("bwoah.");
-      }
-
-      for(int i = 0; i != ds.size(); ++i) {
-        int const& tid = tids[i];
-        int const& loc = locs[i];
-        auto& d        = ds[i];
-        local.insert({ tid, { loc, d } });
-      }
-
-      return rel;
-    };
-
-
-    auto read_into_local_data = [&](string const& name, vector<uint64_t> const& shape) {
-      return read_into(name, shape, local_data);
-    };
-
-    auto insert_name = [&](int gid, string const& name) {
-      relation_t rel = read_into_local_data(name, graph1.nodes[gid].op.out_shape());
-      relations.insert({gid, rel});
-    };
-
-    auto insert_local_buffer = [&](int gid, buffer_t data) {
-      local_data.insert({ current_tid, { 0, data }});
-
-      relation_t rel = relation_t::make_singleton(
-        graph1.nodes[gid].op.out_dtype(),
-        graph1.nodes[gid].op.out_shape(),
-        current_tid);
-      relations.insert({gid, rel});
-      current_tid += 1;
-    };
-
-
-    {
-      vector<uint64_t> shape{ margs.vocab_size, margs.dim };
-      map<int, tuple<int, buffer_t>> ds;
-      relation_t rel = read_into("tok_embeddings.weight", shape, ds);
-      server.local_insert_tensors(ds);
-      embedding_matrix = server.get_tensor(rel);
-      server.local_erase_tensors(rel.tids.get());
-    }
-
-
-    DLINE;
-    for(auto const& [name, tensor]: model.weight_map()) {
-      int gid = tensor.get_id();
-      insert_name(gid, name);
-    }
-    DLINE;
-
-    {
-      // TODO check this:
-      // int const& gid = model.full_freqs_cis;
-      int const& gid = model.full_freqs_cis.get_id();
-      buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
-      insert_local_buffer(gid, freqs_cis);
-    }
-    DLINE;
-
-    {
-      int const& gid = embeddings.get_id();
-      embeddings_data = lookup_embeddings(
-        margs.vocab_size,
-        margs.dim,
-        embedding_matrix,
-        init_tokens);
-      insert_local_buffer(gid, embeddings_data.data);
-    }
-    DLINE;
-
-    server.local_insert_tensors(local_data);
-
-    // At this point we've called local_insert_tensors on the server directly
-    // or via the reader, so tell the server how it maps to gids
-    for(auto const& [gid, rel]: relations) {
-      server.insert_gid_without_data(gid, rel);
-    }
-    DLINE;
-  }
-
-  DLINE;
-
   vector<placement_t> pls;
-  vector<partition_t> parts;
-  args.set_default("load_info", false);
-  bool load_info = args.get<bool>("load_info");
-  if (load_info) {
-    DOUT("loading decomp info (partition and placement)...");
-    string part_path = "./inference_part.txt";
-    string pls_path = "./inference_pls.txt";
-    std::ifstream decomp_part_file(part_path);
-    std::ifstream decomp_pls_file(pls_path);
-    if (!decomp_part_file.good() || !decomp_pls_file.good()) {
-      throw std::runtime_error("loading decomp info but info file not found");
-    }
-    std::stringstream buffer_parts;
-    std::stringstream buffer_pls;
+  {
+    //int num_config = num_computes_per_loc;
 
-    // read all lines in decomp_info_file
-    string parts_info = "";
-    buffer_parts << decomp_part_file.rdbuf();
-    parts_info = buffer_parts.str();
+    //args.set_default<string>("partitioner", "auto");
+    //string which = args.get<string>("partitioner");
+    //vector<partition_t> parts;
 
-    string pls_info = "";
-    buffer_pls << decomp_pls_file.rdbuf();
-    pls_info = buffer_pls.str();
+    //if(which == "auto") {
+    //  parts = apart01(graph, num_gpus * num_config, 1);
+    //  // parts = apart01(graph, num_gpus * num_config, 1, 1, parts_space_t::all_range);
+    //} else if(which == "data" || which == "dim" || which == "seq") {
+    //  // w1: hidden_dim, args.full_dim()
+    //  // w2: args.full_dim(), hidden_dim
+    //  // w3: hidden_dim, args.full_dim()
+    //  //
+    //  // wq: args.full_dim(), args.full_dim()
+    //  // wk: args.full_dim(), args.full_dim()
+    //  // wv: args.full_dim(), args.full_dim()
+    //  // wo: args.full_dim(), args.full_dim()
+    //  //
+    //  // fn, an: args.full_dim()
+    //  vector<layer_ids_t> layer_ids;
+    //  for(auto const& layer: model.layers) {
+    //    auto const& ff = layer.feedforward;
+    //    auto const& aa = layer.attention;
+    //    layer_ids.push_back(layer_ids_t {
+    //      .w1 = ff.w1.get_id(),
+    //      .w2 = ff.w2.get_id(),
+    //      .w3 = ff.w3.get_id(),
+    //      .wq = aa.wq.get_id(),
+    //      .wk = aa.wk.get_id(),
+    //      .wv = aa.wv.get_id(),
+    //      .wo = aa.wo.get_id(),
+    //      .fn = layer.attention_norm.weight.get_id(),
+    //      .an = layer.feedforward_norm.weight.get_id()
+    //    });
+    //  }
 
-    parts = from_wire_partition_list(parts_info);
-    pls = from_wire_placement_list(pls_info);
+    //  map<tuple<int, int>, partdim_t> pds;
+    //  if(which == "data") {
+    //    int id = embeddings.get_id();
+    //    pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_config) });
+    //  } else if(which == "dim") {
+    //    int split_a = num_config;
+    //    int split_b = 1;
+    //    while(split_a > margs.n_heads) {
+    //      if(split_a % 2 != 0) {
+    //        throw std::runtime_error("make num config more even..");
+    //      }
+    //      split_a /= 2;
+    //      split_b *= 2;
+    //    }
 
-    DOUT("loaded partition and placement");
-  }
-  else {
-    parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
+    //    partdim_t pda = partdim_t::split(margs.n_heads, split_a);
+    //    partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
+
+    //    partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
+    //    pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
+
+    //    pds.insert({ {embeddings.get_id(), 2}, pda });
+    //    pds.insert({ {embeddings.get_id(), 3}, pdb });
+    //    pds.insert({ {model.norm.weight.get_id(), 0}, pda });
+    //    pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
+    //    pds.insert({ {model.w_vocab.get_id(), 1}, pda });
+    //    pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
+    //    for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
+    //      pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
+    //      pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
+    //      pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
+
+    //      pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
+    //      pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
+    //      pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
+    //      pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
+
+    //      pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
+    //      pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
+    //      pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
+    //      pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
+
+    //      pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
+    //      pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
+    //    }
+    //  } else if(which == "seq") {
+    //    partdim_t pd = partdim_t::split(margs.max_seq_len, num_config);
+    //    pds.insert({ { embeddings.get_id(), 1 }, pd });
+    //    pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
+    //    pds.insert({ { model.mask.value().get_id(), 0 }, pd});
+    //    pds.insert({ { model.mask.value().get_id(), 1 }, pd});
+    //  } else {
+    //    throw std::runtime_error("missing case");
+    //  }
+
+    //  parts = apart03(graph, pds);
+    //} else {
+    //  throw std::runtime_error("missing partitioner");
+    //}
+
+    //uint64_t flops_per_byte_moved = 1000;
+    //pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
+
+    vector<partition_t> parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
     pls = alocate03(graph1, parts, num_gpus, true);
+
+    DOUT("writing decomp info (partition and placement)...");
+    string part_path = save_directory + "inference_part.txt";
+    string pls_path = save_directory + "inference_pls.txt";
+    std::ofstream decomp_part_file(part_path);
+    std::ofstream decomp_pls_file(pls_path);
+    
+    string parts_info = to_wire_partition_list(parts);
+    string pls_info = to_wire_placement_list(pls);
+    decomp_part_file << parts_info;
+    decomp_pls_file << pls_info;
+    DOUT("wrote decomp patition to " << part_path << " and decomp placement to " << pls_path);
   }
-
-  DLINEOUT("TIME TO RUN GRAPH1");
-  server.execute_graph(graph1, pls);
-
-//  server.insert_tensor(
-//    embeddings.get_id(), 
-//    pls[embeddings.get_id()],
-//    embeddings_data);
-//
-//  DLINEOUT("TIME TO RUN GRAPH2");
-//  server.execute_graph(graph2, pls);
 }
 
 // ./gpu_llama 7B 1 max_n_layers n
@@ -516,28 +486,17 @@ int main(int argc, char** argv) {
 
   vector<uint64_t> buffer_sizes;
   for (int i = 0; i < num_gpus; ++i) {
-    buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
+    buffer_sizes.push_back(10);
   }
 
-  bool use_cudagraph = args.get<bool>("use_cudagraph");
   args.set_default<uint64_t>("storage", 4);
-  auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
-  //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
-  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
 
   args.set_default("parallel_partialize", false);
-  server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
 
   args.set_default("split_off_inputs", true);
-  server.set_split_off_inputs(args.get<bool>("split_off_inputs"));
 
   tensor_reader2_t reader(num_gpus, base_data_file, num_data_files);
 
-  if(is_rank_zero) {
-    main_rank_zero(server, reader, args);
-  } else {
-    server.listen();
-  }
+  main_rank_zero(reader, args);
 
-  server.shutdown();
 }

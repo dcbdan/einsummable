@@ -683,9 +683,9 @@ vector<placement_t> alocate03(
       int nbid = parts[gid].num_parts();
       for(int bid = 0; bid != nbid; ++bid) {
         jid_t jid{ gid, bid };
-        // rw.get_loc(jid) = bid % nlocs;
-        rw.get_loc(jid) = start_loc;
-        start_loc = (start_loc + 1) % nlocs;
+        rw.get_loc(jid) = bid % nlocs;
+        // rw.get_loc(jid) = start_loc;
+        // start_loc = (start_loc + 1) % nlocs;
       }
 
       continue;

@@ -467,9 +467,6 @@ void main_rank_zero(
   }
   DLINEOUT("number of locs " << config.n_locs());
 
-  pargs.set_default("write_info", false);
-  bool write_info = pargs.get<bool>("write_info");
-
   pargs.set_default("dir", "./");
   string save_directory = pargs.get<string>("dir"); 
 
