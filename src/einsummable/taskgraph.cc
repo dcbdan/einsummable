@@ -460,14 +460,10 @@ vector<model_parallel_placement_t> _make_model_parallel(
         ret.push_back(inn_pl);
       }
     } else if(node.op.is_einsummable()) {
-      DOUT("");
-      DOUT("gid: " << gid << " | " << node.op.get_einsummable());
-
       auto const& e = node.op.get_einsummable();
       for(int which_inn = 0; which_inn != e.inns.size(); ++which_inn) {
         int inn_gid = node.inns[which_inn];
         pl_t inn_pl = get_inn_pl(inn_gid);
-        DOUT(inn_pl);
       }
 
       map<int, bool> ds;
@@ -501,7 +497,6 @@ vector<model_parallel_placement_t> _make_model_parallel(
       }
 
       ret.push_back(pl_t { .which = split_dim });
-      DOUT("result: " << ret.back());
     } else {
       throw std::runtime_error("not implemented");
     }
@@ -701,24 +696,18 @@ taskgraph_t::make_model_parallel(
         }
 
         partdim_t pd = partdim_t::split(total_shape[split_dim], nlocs);
-        DLINEOUT(pl);
         for(int loc = 0; loc != nlocs; ++loc) {
           select_t s = select;
           s.out_shape[split_dim]            = pd.size_at(loc);
           s.inn_regions[0][split_dim].d_inn = pd.size_at(loc);
           s.inn_regions[0][split_dim].size  = pd.size_at(loc);
-          DLINE;
           new_tids.push_back(ret.new_partial(loc, dtype, s.out_shape));
-          DLINE;
           int out_tid = new_tids.back();
-          DLINEOUT(inn_tids);
           int inn_tid = inn_tids.at(loc);
-          DLINE;
           ret.add_to_partial(out_tid, inn_tid, s.as_touch(0));
         }
         // TODO: this implementation is not clear to me,
         //       just kinda hoping it works
-        DLINE;
       }
     } else if(node.op.is_einsummable()) {
       einsummable_t const& full_einsummable = node.op.get_einsummable();
@@ -728,7 +717,6 @@ taskgraph_t::make_model_parallel(
           for(int const& inn_gid: node.inns) {
             inn_tids.push_back(rels[inn_gid][loc]);
           }
-          DLINE;
           new_tids.push_back(ret.insert_einsummable(
             loc,
             full_einsummable,
@@ -743,10 +731,8 @@ taskgraph_t::make_model_parallel(
           e.join_shape[split_dim] = pd.size_at(loc);
 
           vector<int> inn_tids;
-          DLINEOUT("gid is " << gid << " | " << pl);
           for(int const& inn_gid: node.inns) {
             inn_tids.push_back(rels[inn_gid][loc]);
-            DLINEOUT(ret.out_size(inn_tids.back()));
           }
           new_tids.push_back(ret.insert_einsummable(loc, e, inn_tids));
         }

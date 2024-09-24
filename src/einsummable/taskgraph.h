@@ -36,7 +36,7 @@ struct model_parallel_placement_t {
 
   partition_t make_partition(vector<uint64_t> const& shape, int nlocs) const {
     partition_t p = partition_t::singleton(shape);
-    if(p.split()) {
+    if(split()) {
       p.partdims[which] = partdim_t::split(shape[which], nlocs);
     } else {
       // correct
