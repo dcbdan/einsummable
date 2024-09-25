@@ -15,6 +15,10 @@ struct allocator_t {
     // If there is no free memory of this size, none is returned.
     optional<tuple<uint64_t, set<int>>> allocate(uint64_t sz);
 
+    //This is used when we would like to rearrange the allocator. 
+    // Return the allocated offset and deps if possible, if failed then return non (should not fail, so should be checked in wrapping function)
+    optional<tuple<uint64_t, set<int>>> allocate_first_available(uint64_t size_without_rem);
+
     optional<vector<tuple<uint64_t, set<int>>>> allocate_multiple(vector<uint64_t> sizes);
 
     // This function is specifically for allocating without any dependencies.
@@ -42,6 +46,9 @@ struct allocator_t {
     // for future use of this memory block
     void free(uint64_t offset, int del);
 
+
+    void free_from_middle(uint64_t offset, int del);
+
     void print() const;
 
     // chcek that no memory is being taken up
@@ -53,6 +60,8 @@ struct allocator_t {
 
     // Remove all dependencies from available memory
     void clear_dependencies();
+
+    uint8_t get_alignment_power();
 
 private:
     struct block_t {
@@ -141,9 +150,15 @@ public:
     // Example: We have blocks [3,4,5] with score [9,20,8]. Then the score for this range of blocks
     //          is min(9,20,8) = 8.
 
+    // Return a set of block id to evict
+    vector<int> _find_evict_block_until_size(uint64_t size_needed, vector<int> cannot_evict_bids);
+
     // For this offset, get the occupied block id at that offset
     int _get_block_id(uint64_t const& offset);
 
     double buffer_utilization() const;
     ///////////////////////////////////////////////////////////////////
+
+    //added for the use of adding allocator_rearrange()
+    uint64_t buffer_size; 
 };

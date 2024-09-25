@@ -6,6 +6,7 @@ allocator_t::allocator_t(uint64_t memsize, allocator_settings_t s)
     if (memsize == 0) {
         throw std::runtime_error("invalid memsize for allocator");
     }
+    buffer_size = memsize;
     blocks.push_back(block_t{.beg = 0, .end = memsize, .dep = -1});
 }
 
@@ -190,6 +191,14 @@ optional<tuple<uint64_t, set<int>>> allocator_t::allocate(uint64_t size_without_
     return allocate_impl(size_without_rem, false);
 }
 
+optional<tuple<uint64_t, set<int>>> allocator_t::allocate_first_available(uint64_t size_without_rem)
+{
+    set_strategy(allocator_strat_t::first);
+    auto res = allocate_impl(size_without_rem, false);
+    set_strategy(allocator_strat_t::lowest_dependency);
+    return res;
+}
+
 bool allocator_t::allocate_at_without_deps(uint64_t offset, uint64_t size)
 {
     auto beg = binary_search_find(
@@ -343,6 +352,26 @@ void allocator_t::free(uint64_t offset, int del)
     block.free(del);
 }
 
+void allocator_t::free_from_middle(uint64_t offset, int del) {
+    auto block_to_separate_iter = binary_search_find(
+        blocks.begin(), blocks.end(), [&offset](block_t const& blk) { return blk.beg <= offset; });
+
+    if (block_to_separate_iter == blocks.end()) {
+        throw std::runtime_error("did not find a block");
+    }
+
+    // fix blocks
+    auto original_end = block_to_separate_iter->end;
+    block_t block_to_separate = *block_to_separate_iter;
+    block_to_separate_iter->end = offset; //change the block to only have first half occupied up until offset
+    if (offset != block_to_separate.beg) {
+        blocks.insert(block_to_separate_iter + 1,
+                        block_t{.beg = offset,
+                                .end = original_end,
+                                .dep = del});
+    }
+}
+
 void allocator_t::print() const
 {
     auto& out = std::cout;
@@ -419,6 +448,10 @@ void allocator_t::clear_dependencies()
     blocks = new_blocks;
 }
 
+uint8_t allocator_t::get_alignment_power() {
+    return alignment_power;
+}
+
 allocator_t::save_t allocator_t::checkpoint() const
 {
     return save_t(blocks);
@@ -493,6 +526,24 @@ allocator_t::_find_best_evict_block_ids(uint64_t size, std::function<int(int)> f
 
     return ret;
 }
+
+vector<int> allocator_t::_find_evict_block_until_size(uint64_t size_needed, vector<int> cannot_evict_bids)
+{
+    vector<int> ret; //block_ids to evict
+    for (auto i = 0; i < blocks.size(); ++i) {
+        //if the size exceed, then evict no more
+        if (blocks[i].beg > size_needed) {
+            break;
+        }
+        //if not in cannot_evict, we evict
+        auto iter = find(cannot_evict_bids.begin(), cannot_evict_bids.end(), i);
+        if (iter == cannot_evict_bids.end()) {
+            ret.push_back(i);
+        }
+    }
+    return ret;
+}
+
 
 // throws exception if the block is not allocated at offset.
 // Note: we are assuming an unchanged order on blocks, so between calls of this function,
