@@ -58,7 +58,7 @@ gpu_mg_server_t::gpu_mg_server_t(
   // }
 
   // initialize the stream pool now that we have num_gpus_per_node
-  int num_streams_per_device = 5;
+  int num_streams_per_device = 10;
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 
   // When creating the gpu server, also enable peer access to have best transfer performance
@@ -235,7 +235,7 @@ void gpu_mg_server_t::execute_memgraph(
   // DOUT("Executing...");
   // print the execution time of event_loop()
   if (!for_remap){
-    //cudaProfilerStart();
+    cudaProfilerStart();
     get_rm_timetracker().clear();
   }
   get_rm_timetracker().clear();
@@ -247,7 +247,7 @@ void gpu_mg_server_t::execute_memgraph(
   // print the duration in milliseconds with 4 decimal places
   if (!for_remap){
     DOUT("Event Loop finished. Time: " << duration.count() << " ms");
-    //cudaProfilerStop();
+    cudaProfilerStop();
     // print the time for each node in the exec graph
     // for (auto const& node: graph.nodes){
     //   node.op->line(std::cout);

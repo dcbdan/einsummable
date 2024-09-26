@@ -234,28 +234,28 @@ memgraph_t::make_(
 
   optional<memgraph_t> input_memgraph;
   // new ordering
-  // if(split_off_inputs)
-  // {
-  //   DOUT("Splitting off inputs with priority_min_delta");
-  //   auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
-  //   auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
-  //   state.process(input_tg_ops);
-  //   input_memgraph = state.pop_memgraph();
-  //   state.process(core_tg_ops);
-  // } else {
-  //   state.process(order_taskgraph_priority_min_delta(taskgraph));
-  // }
-
-  // old ordering
   if(split_off_inputs)
   {
-    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    DOUT("Splitting off inputs with priority_min_delta");
+    auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
+    auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
     state.process(input_tg_ops);
     input_memgraph = state.pop_memgraph();
     state.process(core_tg_ops);
   } else {
-    state.process(order_taskgraph(taskgraph));
+    state.process(order_taskgraph_priority_min_delta(taskgraph));
   }
+
+  // old ordering
+  //if(split_off_inputs)
+  //{
+  //  auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+  //  state.process(input_tg_ops);
+  //  input_memgraph = state.pop_memgraph();
+  //  state.process(core_tg_ops);
+  //} else {
+  //  state.process(order_taskgraph(taskgraph));
+  //}
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
@@ -341,33 +341,11 @@ order_taskgraph(taskgraph_t const& taskgraph)
   return ret;
 }
 
-tuple<
-  vector<_which_op_t> ,
-  vector<_which_op_t> >
-order_split_taskgraph(taskgraph_t const& taskgraph)
-{
-  auto [inn_order, core_order] = taskgraph.get_input_core_order();
-  return {
-    build_tg_ops(taskgraph, inn_order),
-    build_tg_ops(taskgraph, core_order)
-  };
-}
-
 tuple<vector<_which_op_t>, vector<_which_op_t>>
 split_off_inputs_(
   taskgraph_t const& taskgraph,
-  vector<_which_op_t> const& all_ops_)
+  vector<_which_op_t> const& all_ops)
 {
-  vector<_which_op_t> all_inputs;
-  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
-    auto const& node = taskgraph.nodes[tid];
-    if(node.op.is_input()) {
-      all_inputs.push_back(_which_node_t { .task_id = tid });
-    }
-  }
-
-  vector<_which_op_t> all_ops = vector_concatenate(all_inputs, all_ops_);
-
   auto is_inputable = [](taskgraph_t::op_t const& op) {
     if(op.is_input()) {
       return true;
@@ -394,16 +372,33 @@ split_off_inputs_(
     }
   };
 
+  set<int> inside_inn_order;
+  for(int tid = 0; tid != taskgraph.nodes.size(); ++tid) {
+    auto const& node = taskgraph.nodes[tid];
+    if(node.op.is_input()) {
+      inside_inn_order.insert(tid);
+    }
+  }
+
   vector<_which_op_t> inn_order;
   vector<_which_op_t> core_order;
-
-  set<int> inside_inn_order;
   for(_which_op_t const& op: all_ops) {
     int id = get_id(op);
     auto const& node = taskgraph.nodes[id];
+
     if(is_inputable(node.op)) {
+      set<int> inns;
+      if(node.op.is_partialize()) {
+        auto const& p = node.op.get_partialize();
+        _which_touch_t w = std::get<_which_touch_t>(op);
+        inns.insert(
+          p.units[w.unit_id].inputs[w.touch_id].id);
+      } else {
+        inns = node.op.inputs();
+      }
+
       bool success = true;
-      for(int const& inn: node.op.inputs()) {
+      for(int const& inn: inns) {
         if(inside_inn_order.count(inn) == 0) {
           success = false;
           break;
@@ -423,10 +418,19 @@ split_off_inputs_(
     }
   }
 
-  if(inn_order.size() + core_order.size() != all_ops_.size()) {
+  if(inn_order.size() + core_order.size() != all_ops.size()) {
     throw std::runtime_error("inn order + core order incorrect in split_off_inputs_");
   }
   return {inn_order, core_order};
+}
+
+tuple<
+  vector<_which_op_t> ,
+  vector<_which_op_t> >
+order_split_taskgraph(taskgraph_t const& taskgraph)
+{
+  auto order = order_taskgraph(taskgraph);
+  return split_off_inputs_(taskgraph, order);
 }
 
 // This algorithm keeps selecting ready tasks until all tasks have
@@ -651,7 +655,6 @@ struct priority_min_delta_state_t {
   tuple<int, vector<int>> pop() {
     optional<int64_t> best_delta;
     int ret;
-
     for(auto const& [key, maybe_touch_inns]: pending) {
       int64_t delta = compute_delta(key, maybe_touch_inns);
       if(!best_delta || delta < best_delta.value()) {
@@ -1329,7 +1332,6 @@ void memgraph_make_state_t::force_allocate_tids(
       if(maybe_mem.is_stoloc()) {
         // Note: we are not pushing other tids in tids off of memory
         load_tensor_with_evict(tid, tids);
-        int const& memid = task_tensor_to_mem_node.at(tid);
       }
     } else {
       // This is an output tid that needs to be allocated
@@ -1772,42 +1774,7 @@ bool memgraph_make_state_t::register_usage(int task_id)
     memloc_t memloc = data.get_memloc();
     del_t del = del_t::from_memloc(memloc);
 
-    // The delete of task_id depends on
-    // 1. the output applys that used task_id and
-    // 2. the touch operations that used task_id
-    set<int> del_deps;
-    for(int const& task_out: node.outs) {
-      auto const& out_node = taskgraph.nodes[task_out];
-      if(out_node.op.is_apply() || out_node.op.is_move())
-      {
-        _which_node_t _task_out{task_out};
-        auto iter = task_node_to_mem_node.find(_task_out);
-        if(iter == task_node_to_mem_node.end()) {
-          // Assumption: this _task_out lived on the other side of a pop_memgraph
-        } else {
-          del_deps.insert(iter->second);
-        }
-      }
-      else if(out_node.op.is_partialize())
-      {
-        // Note: we put partializes in task_node_to_mem_node, but 
-        //       don't use task_node_to_mem_node as only the inputs
-        //       the touch get used matter here (Right?!)
-        auto const whiches = get_which_touches_from_to(
-            taskgraph,
-            task_out,
-            task_id);
-        for(auto const& which: whiches)
-        {
-          auto iter = task_touch_to_mem_node.find(which);
-          if(iter == task_touch_to_mem_node.end()) {
-            // Assumption: this which lived on the other side of a pop_memgraph
-          } else {
-            del_deps.insert(iter->second);
-          }
-        }
-      }
-    }
+    set<int> const& del_deps = tensors_on_memory.at(task_id);
 
     int del_id = memgraph.insert(op_t(del), del_deps);
 

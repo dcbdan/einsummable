@@ -308,7 +308,7 @@ void main_rank_zero(
   int ngpus);
 
 int main(int argc, char** argv) {
-  set_default_dtype(dtype_t::f32);
+  set_default_dtype(dtype_t::f16);
   args_t pargs(argc, argv);
 
   string which_model = pargs.get<string>("model");

@@ -255,7 +255,6 @@ void main_rank_zero(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("computes", 1);
   args.set_default<int>("nseq", 4096);
   args.set_default<int>("nbatch", 1);
   int num_gpus = args.get<int>("gpus");
@@ -324,7 +323,6 @@ void main_rank_zero(
     graph2.nodes[gid].op.set_save(true);
   }
 
-  DLINE;
   dbuffer_t embedding_matrix;
   dbuffer_t embeddings_data;
   {
@@ -388,13 +386,10 @@ void main_rank_zero(
       server.local_erase_tensors(rel.tids.get());
     }
 
-
-    DLINE;
     for(auto const& [name, tensor]: model.weight_map()) {
       int gid = tensor.get_id();
       insert_name(gid, name);
     }
-    DLINE;
 
     {
       // TODO check this:
@@ -403,7 +398,6 @@ void main_rank_zero(
       buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
       insert_local_buffer(gid, freqs_cis);
     }
-    DLINE;
 
     {
       int const& gid = embeddings.get_id();
@@ -414,7 +408,6 @@ void main_rank_zero(
         init_tokens);
       insert_local_buffer(gid, embeddings_data.data);
     }
-    DLINE;
 
     server.local_insert_tensors(local_data);
 
@@ -423,115 +416,126 @@ void main_rank_zero(
     for(auto const& [gid, rel]: relations) {
       server.insert_gid_without_data(gid, rel);
     }
-    DLINE;
   }
-
-  DLINE;
 
   vector<placement_t> pls;
   {
-    //int num_config = num_computes_per_loc;
+    args.set_default<string>("partitioner", "auto");
+    string which = args.get<string>("partitioner");
+    vector<partition_t> parts;
 
-    //args.set_default<string>("partitioner", "auto");
-    //string which = args.get<string>("partitioner");
-    //vector<partition_t> parts;
+    int num_computes = num_computes_per_loc;
 
-    //if(which == "auto") {
-    //  parts = apart01(graph, num_gpus * num_config, 1);
-    //  // parts = apart01(graph, num_gpus * num_config, 1, 1, parts_space_t::all_range);
-    //} else if(which == "data" || which == "dim" || which == "seq") {
-    //  // w1: hidden_dim, args.full_dim()
-    //  // w2: args.full_dim(), hidden_dim
-    //  // w3: hidden_dim, args.full_dim()
-    //  //
-    //  // wq: args.full_dim(), args.full_dim()
-    //  // wk: args.full_dim(), args.full_dim()
-    //  // wv: args.full_dim(), args.full_dim()
-    //  // wo: args.full_dim(), args.full_dim()
-    //  //
-    //  // fn, an: args.full_dim()
-    //  vector<layer_ids_t> layer_ids;
-    //  for(auto const& layer: model.layers) {
-    //    auto const& ff = layer.feedforward;
-    //    auto const& aa = layer.attention;
-    //    layer_ids.push_back(layer_ids_t {
-    //      .w1 = ff.w1.get_id(),
-    //      .w2 = ff.w2.get_id(),
-    //      .w3 = ff.w3.get_id(),
-    //      .wq = aa.wq.get_id(),
-    //      .wk = aa.wk.get_id(),
-    //      .wv = aa.wv.get_id(),
-    //      .wo = aa.wo.get_id(),
-    //      .fn = layer.attention_norm.weight.get_id(),
-    //      .an = layer.feedforward_norm.weight.get_id()
-    //    });
-    //  }
+    if(which == "auto") {
+      parts = apart01(graph1, num_gpus * num_computes, 1, 1, parts_space_t::contraction);
+      //parts = apart01(graph, num_gpus, 1);
+      // parts = apart01(graph, num_gpus, 1, 1, parts_space_t::all_range);
+    } else if(which == "data" || which == "dim" || which == "seq") {
+      // w1: hidden_dim, args.full_dim()
+      // w2: args.full_dim(), hidden_dim
+      // w3: hidden_dim, args.full_dim()
+      //
+      // wq: args.full_dim(), args.full_dim()
+      // wk: args.full_dim(), args.full_dim()
+      // wv: args.full_dim(), args.full_dim()
+      // wo: args.full_dim(), args.full_dim()
+      //
+      // fn, an: args.full_dim()
+      vector<layer_ids_t> layer_ids;
+      for(auto const& layer: model.layers) {
+        auto const& ff = layer.feedforward;
+        auto const& aa = layer.attention;
+        layer_ids.push_back(layer_ids_t {
+          .w1 = ff.w1.get_id(),
+          .w2 = ff.w2.get_id(),
+          .w3 = ff.w3.get_id(),
+          .wq = aa.wq.get_id(),
+          .wk = aa.wk.get_id(),
+          .wv = aa.wv.get_id(),
+          .wo = aa.wo.get_id(),
+          .fn = layer.attention_norm.weight.get_id(),
+          .an = layer.feedforward_norm.weight.get_id()
+        });
+      }
 
-    //  map<tuple<int, int>, partdim_t> pds;
-    //  if(which == "data") {
-    //    int id = embeddings.get_id();
-    //    pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_config) });
-    //  } else if(which == "dim") {
-    //    int split_a = num_config;
-    //    int split_b = 1;
-    //    while(split_a > margs.n_heads) {
-    //      if(split_a % 2 != 0) {
-    //        throw std::runtime_error("make num config more even..");
-    //      }
-    //      split_a /= 2;
-    //      split_b *= 2;
-    //    }
+      map<tuple<int, int>, partdim_t> pds;
+      if(which == "data") {
+        int id = embeddings.get_id();
+        pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_gpus * num_computes) });
+      } else if(which == "dim") {
+        int split_a = num_gpus * num_computes;
+        int split_b = 1;
+        while(split_a > margs.n_heads) {
+          if(split_a % 2 != 0) {
+            throw std::runtime_error("make num config more even..");
+          }
+          split_a /= 2;
+          split_b *= 2;
+        }
 
-    //    partdim_t pda = partdim_t::split(margs.n_heads, split_a);
-    //    partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
+        partdim_t pda = partdim_t::split(margs.n_heads, split_a);
+        partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
 
-    //    partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
-    //    pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
+        partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
+        pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
 
-    //    pds.insert({ {embeddings.get_id(), 2}, pda });
-    //    pds.insert({ {embeddings.get_id(), 3}, pdb });
-    //    pds.insert({ {model.norm.weight.get_id(), 0}, pda });
-    //    pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
-    //    pds.insert({ {model.w_vocab.get_id(), 1}, pda });
-    //    pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
-    //    for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
-    //      pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
-    //      pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
-    //      pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
+        pds.insert({ {embeddings.get_id(), 2}, pda });
+        pds.insert({ {embeddings.get_id(), 3}, pdb });
+        pds.insert({ {model.norm.weight.get_id(), 0}, pda });
+        pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
+        pds.insert({ {model.w_vocab.get_id(), 1}, pda });
+        pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
+        for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
+          pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
+          pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
+          pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
 
-    //      pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
-    //      pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
-    //      pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
-    //      pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
+          pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
+          pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
+          pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
+          pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
 
-    //      pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
-    //      pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
-    //      pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
-    //      pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
+          pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
+          pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
+          pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
+          pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
 
-    //      pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
-    //      pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
-    //    }
-    //  } else if(which == "seq") {
-    //    partdim_t pd = partdim_t::split(margs.max_seq_len, num_config);
-    //    pds.insert({ { embeddings.get_id(), 1 }, pd });
-    //    pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
-    //    pds.insert({ { model.mask.value().get_id(), 0 }, pd});
-    //    pds.insert({ { model.mask.value().get_id(), 1 }, pd});
-    //  } else {
-    //    throw std::runtime_error("missing case");
-    //  }
+          pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
+          pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
+        }
+      } else if(which == "seq") {
+        partdim_t pd = partdim_t::split(margs.max_seq_len, num_gpus * num_computes);
+        pds.insert({ { embeddings.get_id(), 1 }, pd });
+        pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 0 }, pd});
+        pds.insert({ { model.mask.value().get_id(), 1 }, pd});
+      } else {
+        throw std::runtime_error("missing case");
+      }
 
-    //  parts = apart03(graph, pds);
-    //} else {
-    //  throw std::runtime_error("missing partitioner");
-    //}
+      parts = apart03(graph1, pds);
+    } else {
+      throw std::runtime_error("missing partitioner");
+    }
 
     //uint64_t flops_per_byte_moved = 1000;
     //pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
 
-    vector<partition_t> parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
-    pls = alocate03(graph1, parts, num_gpus, true);
+    //vector<partition_t> parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
+
+    if(which == "auto" && num_computes == 1) {
+      pls = alocate03(graph1, parts, num_gpus, true);
+    } else {
+      uint64_t flops_per_byte_moved = 1000;
+      pls = alocate01(graph1, parts, num_gpus, flops_per_byte_moved);
+    }
+  }
+
+  {
+    std::ofstream out_pls("pls.txt");
+    for(auto const pl: pls) {
+      out_pls << pl.locations.get() << std::endl;
+    }
   }
 
   DLINEOUT("TIME TO RUN GRAPH1");
@@ -590,11 +594,14 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
   }
 
+  args.set_default("use_cudagraph", false);
   bool use_cudagraph = args.get<bool>("use_cudagraph");
   args.set_default<uint64_t>("storage", 4);
   auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
-  //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
-  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
+
+  gpu_mg_server_t server = storage_size > 0                                  ?
+    gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes, storage_size) :
+    gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes)               ;
 
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));

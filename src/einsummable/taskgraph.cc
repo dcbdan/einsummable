@@ -2726,8 +2726,39 @@ taskgraph_t::prune() const
 }
 
 vector<int> taskgraph_t::get_order() const {
+  ////////////////////////////////////
+  // DFS
+  //vector<int> ready;
+  //ready.reserve(nodes.size() / 4);
+  //auto pop_ready = [&] {
+  //  int ret = ready.back();
+  //  ready.pop_back();
+  //  return ret;
+  //};
+  //auto add_ready = [&](int x) {
+  //  ready.push_back(x);
+  //};
+  //auto has_ready = [&] {
+  //  return ready.size() > 0;
+  //};
+  ///////////////////////////////////
+  ////////////////////////////////////
+  // BFS
   vector<int> ready;
   ready.reserve(nodes.size() / 4);
+  int _ready_idx = 0;
+  auto pop_ready = [&] {
+    int ret = ready[_ready_idx];
+    _ready_idx++;
+    return ret;
+  };
+  auto add_ready = [&](int x) {
+    ready.push_back(x);
+  };
+  auto has_ready = [&] {
+    return _ready_idx < ready.size();
+  };
+  ///////////////////////////////////
 
   vector<int> counts(nodes.size(), -1);
 
@@ -2735,22 +2766,21 @@ vector<int> taskgraph_t::get_order() const {
     auto const& node = nodes[i];
     counts[i] = node.op.inputs().size();
     if(counts[i] == 0) {
-      ready.push_back(i);
+      add_ready(i);
     }
   }
 
   vector<int> ret;
   ret.reserve(nodes.size());
-  while(ready.size() > 0) {
-    ret.push_back(ready.back());
-    ready.pop_back();
+  while(has_ready()) {
+    ret.push_back(pop_ready()); 
 
     int const& id = ret.back();
     auto const& node = nodes[id];
     for(auto const& out: node.outs) {
       counts[out] -= 1;
       if(counts[out] == 0) {
-        ready.push_back(out);
+        add_ready(out);
       }
     }
   }
