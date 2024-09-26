@@ -608,8 +608,9 @@ struct priority_min_delta_state_t {
         complete_touch(tid, inn);
       }
     } else if(which_case == exec_case_t::to_partialize) {
-      int const& inn = maybe_touch_inns[0];
-      complete_touch(tid, inn);
+      for(auto const& inn: maybe_touch_inns) {
+        complete_touch(tid, inn);
+      }
     } else if(which_case == exec_case_t::exec) {
       complete_exec(tid);
     } else {
