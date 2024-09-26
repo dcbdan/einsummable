@@ -472,7 +472,7 @@ struct priority_min_delta_state_t {
   //     Case 3
   //
   // Note: For Case 3, vector<int> is empty
-  //       For Case 2, vector<int> is singleton
+  //       For Case 2, vector<int> is singleton // TODO: size >= 1?
   //       For Case 1, vector<int> is size >= 1
 
   // These are all partializes that have been started
@@ -508,9 +508,10 @@ struct priority_min_delta_state_t {
     auto const& node = taskgraph.nodes[tid];
     if(node.op.is_partialize()) {
       if(allocated_partializes.count(tid) > 0) {
-        if(maybe_touch_inns.size() != 1) {
-          throw std::runtime_error("is allocated, must be touch(es) from one input");
-        }
+        // TODO: is this the case?
+        //if(maybe_touch_inns.size() != 1) {
+        //  throw std::runtime_error("is allocated, must be touch(es) from one input");
+        //}
         return exec_case_t::to_partialize;
       } else {
         if(maybe_touch_inns.size() == 0) {
@@ -531,7 +532,7 @@ struct priority_min_delta_state_t {
       case exec_case_t::start_partialize:
         return delta_start_partialize(tid, maybe_touch_inns);
       case exec_case_t::to_partialize:
-        return delta_to_partialize(tid, maybe_touch_inns[0]);
+        return delta_to_partialize(tid, maybe_touch_inns);
       case exec_case_t::exec:
         return delta_exec(tid);
       default:
@@ -552,13 +553,15 @@ struct priority_min_delta_state_t {
     return ret;
   }
 
-  int64_t delta_to_partialize(int partialize, int inn) const
+  int64_t delta_to_partialize(int partialize, vector<int> const& inns) const
   {
-    if(will_delete_after_usage(inn)) {
-      return -1*size(inn);
-    } else {
-      return 0;
+    int64_t ret = 0;
+    for(int const& inn: inns) {
+      if(will_delete_after_usage(inn)) {
+        ret -= size(inn);
+      }
     }
+    return ret;
   }
 
   int64_t delta_exec(int tid) const
