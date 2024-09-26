@@ -51,21 +51,6 @@ void server_base_t::execute_graph(
   //  DOUT("printed tg.gv");
   //}
 
-  {
-    std::ofstream f("tgmemusage");
-    vtensor_t<uint64_t> usage = taskgraph.possible_memory_usage();
-    int num_nodes = usage.get_shape()[0];
-    int num_locs  = usage.get_shape()[1];
-    for(int tid = 0; tid != num_nodes; ++tid) {
-      f << usage.at({tid, 0});
-      for(int l = 1; l != num_locs; ++l) {
-        f << ", " << usage.at({tid, l});
-      }
-      f << std::endl;
-    }
-    DOUT("printed tgmemusage");
-  }
-
   // inn_g_to_t is input id to taskid in taskgraph 
   //TODO: this remap(remap_relations_t r) kind of function signature only appear in server_dist_base_t. We need to remove this 
   remap_relations_t r;

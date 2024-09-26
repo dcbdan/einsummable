@@ -158,6 +158,9 @@ public:
     dtype_t dtype;
     vector<uint64_t> inn_shape;
     vector<uint64_t> out_shape;
+
+    int input_to_output(int d) const;
+    int output_to_input(int d) const;
   };
 
   // This has to be an op because a (5,3) partition of reals

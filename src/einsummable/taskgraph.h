@@ -11,6 +11,42 @@ struct regiondim_t {
   uint64_t size;
 };
 
+// Every tensor is either repliacted across locations or split at a dimension
+struct model_parallel_placement_t {
+  static model_parallel_placement_t make_replicate() {
+    return model_parallel_placement_t { .which = -1 }; }
+
+  static model_parallel_placement_t make_split(int which) {
+    if(which < 0) { throw std::runtime_error("this is not split"); }
+    return model_parallel_placement_t { .which = which };
+  }
+
+  bool replicate() const { return which <  0; }
+
+  bool partition() const { return which >= 0; }
+  bool split() const { return which >= 0; }
+
+  int split_dim() const {
+    if(partition()) {
+      return which;
+    } else {
+      throw std::runtime_error("no split dim, this tensor is replicated");
+    }
+  }
+
+  partition_t make_partition(vector<uint64_t> const& shape, int nlocs) const {
+    partition_t p = partition_t::singleton(shape);
+    if(split()) {
+      p.partdims[which] = partdim_t::split(shape[which], nlocs);
+    } else {
+      // correct
+    }
+    return p;
+  }
+
+  int which; // for <0, replicate; for >= 0, split that dim
+};
+
 struct taskgraph_t {
   static
   tuple<
@@ -18,6 +54,18 @@ struct taskgraph_t {
     map<int, vtensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
     taskgraph_t>              // the actual taskgraph
   make(graph_t const& graph, vector<placement_t> const& placements);
+
+  static
+  tuple<
+    map<int, vector<int>>, // for each input, the tid for each location
+    map<int, vector<int>>, // for each save,  the tid for each location
+    taskgraph_t>
+  make_model_parallel(
+    graph_t const& graph,
+    int nlocs,
+    map<int, model_parallel_placement_t> const& pls // must specify for every input
+  );
+
 
   // Methods to construct a task graph object
   // {{{
@@ -514,3 +562,6 @@ multiple_placement_t construct_refinement_placement(
   int gid,
   std::function<placement_t const&(int)> get_placement);
 
+std::ostream& operator<<(std::ostream& out, model_parallel_placement_t const&);
+bool operator==(model_parallel_placement_t const&, model_parallel_placement_t const&);
+bool operator!=(model_parallel_placement_t const&, model_parallel_placement_t const&);

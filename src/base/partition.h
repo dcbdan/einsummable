@@ -25,6 +25,7 @@ struct partition_t {
   bool refines(partition_t const& other) const;
 
   vector<uint64_t> tensor_shape_at(vector<int> const& idxs) const;
+  vector<uint64_t> tensor_shape_at(int const& idx) const;
 
   vtensor_t<uint64_t> all_block_sizes() const;
 
@@ -39,6 +40,8 @@ struct partition_t {
   // Get the hyper-rectanuglar set represnted by this index
   vector<tuple<uint64_t, uint64_t>>
   get_hrect(vector<int> const& idxs) const;
+  vector<tuple<uint64_t, uint64_t>>
+  get_hrect(int const& idx) const;
 
   // hrect:  hyper-rectangular subset of uint64s
   // region: hyper-rectangular subset of blocks

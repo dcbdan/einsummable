@@ -42,11 +42,11 @@ add_library(einsummable
 )
 
 function(add_base_application exec dir filename)
-add_executable(${exec} ${dir}/${filename}.cc)
-target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
+  add_executable(${exec} ${dir}/${filename}.cc)
+  target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
-add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+#add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
 # add_base_application("reference"        "exps" "reference")        # TODO: delete and turn into tests
 # add_base_application("copyregion"       "exps" "copyregion")       # TODO: delete and turn into tests
 # add_base_application("scalarop"         "exps" "scalarop")         # TODO: delete and turn into tests
@@ -59,9 +59,9 @@ add_executable(tests_base tests/base.cc tests/test.cc)
 target_link_libraries(tests_base einsummable proto ${Protobuf_LIBRARIES})
 
 function(add_llama_application exec filename)
-add_executable(${exec} llama/${filename}.cc
-  llama/modules.cc llama/misc.cc llama/builder.cc)
-target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
+  add_executable(${exec} llama/${filename}.cc
+    llama/modules.cc llama/misc.cc llama/builder.cc)
+  target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
 add_llama_application("exp_apart03" "exp_apart03")
@@ -261,61 +261,59 @@ if(${GPU_EXECUTION_ENGINE})
     ${SS_FILES}
   )
 
-  function(add_gpu_application exec dir filename)
-  add_executable(${exec} ${dir}/${filename}.cc)
-
   function(add_gpu_llama_application exec filename)
-  add_executable(${exec} llama/${filename}.cc
-    llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
-    llama/dataset_reader.cc llama/piper.cc)
-  target_link_libraries(${exec}
-    gpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
-    ${CUDA_LIBRARIES}
-    cutensor
-    /usr/local/cuda-12.6/lib64/libcudart.so
-    /usr/local/cuda-12.6/lib64/libcublasLt.so
-    /usr/local/cuda-12.6/lib64/libcublas.so
-    ucx::ucp ucx::ucs)
+    add_executable(${exec} llama/${filename}.cc
+      llama/modules.cc llama/builder.cc llama/misc.cc llama/reader.cc
+      llama/dataset_reader.cc llama/piper.cc)
+    target_link_libraries(${exec}
+      gpu_execution_engine
+      proto
+      ${Protobuf_LIBRARIES}
+      ${CUDA_LIBRARIES}
+      cutensor
+      /usr/local/cuda-12.6/lib64/libcudart.so
+      /usr/local/cuda-12.6/lib64/libcublasLt.so
+      /usr/local/cuda-12.6/lib64/libcublas.so
+      ucx::ucp ucx::ucs)
   endfunction()
 
-  # target_link_libraries(${exec}
-  #   gpu_execution_engine
-  #   proto
-  #   ${Protobuf_LIBRARIES}
-  #   ${CUDA_LIBRARIES}
-  #   cutensor
-  #   cudart
-  #   cublasLt
-  #   cublas
-  #   ucx::ucp ucx::ucs)
-  target_link_libraries(${exec}
-    gpu_execution_engine
-    proto
-    ${Protobuf_LIBRARIES}
-    ${CUDA_LIBRARIES}
-    cutensor
-    /usr/local/cuda-11.8/lib64/libcudart.so
-    /usr/local/cuda-11.8/lib64/libcublasLt.so
-    /usr/local/cuda-11.8/lib64/libcublas.so
-    ucx::ucp ucx::ucs)
+  ## target_link_libraries(${exec}
+  ##   gpu_execution_engine
+  ##   proto
+  ##   ${Protobuf_LIBRARIES}
+  ##   ${CUDA_LIBRARIES}
+  ##   cutensor
+  ##   cudart
+  ##   cublasLt
+  ##   cublas
+  ##   ucx::ucp ucx::ucs)
+  #target_link_libraries(${exec}
+  #  gpu_execution_engine
+  #  proto
+  #  ${Protobuf_LIBRARIES}
+  #  ${CUDA_LIBRARIES}
+  #  cutensor
+  #  /usr/local/cuda-12.6/lib64/libcudart.so
+  #  /usr/local/cuda-12.6/lib64/libcublasLt.so
+  #  /usr/local/cuda-12.6/lib64/libcublas.so
+  #  ucx::ucp ucx::ucs)
 
-  endfunction()
+  #endfunction()
 
   # call add_gpu_application here
   ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
   # add_gpu_application("test_alignment"  "exps" "test_alignment")
 
-  add_gpu_application("basicTest" "exps" "GPU_test")
-  add_gpu_application("exp1" "exps" "GPU_chain_mul")
-  add_gpu_application("exp2" "exps" "GPU_xtreme")
-  add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
+  #add_gpu_application("basicTest" "exps" "GPU_test")
+  #add_gpu_application("exp1" "exps" "GPU_chain_mul")
+  #add_gpu_application("exp2" "exps" "GPU_xtreme")
+  #add_gpu_application("gpukm" "exps" "gpuexec_kernelmanager")
   add_gpu_llama_application("asd01" "asd01")
   add_gpu_llama_application("gpu_llama" "gpu")
   add_gpu_llama_application("gpu_llama_train" "gpu_train")
   add_gpu_llama_application("gpu_train_info" "gpu_training_info")
   add_gpu_llama_application("gpu_inference_info" "gpu_inference_info")
+  add_gpu_llama_application("gpu_model_parallel" "gpu_model_parallel")
 endif()
 
 add_dependencies(einsummable proto)

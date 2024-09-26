@@ -66,8 +66,11 @@ struct gpu_mg_server_t : server_mg_base_t
 
   void debug_mem(int device, uint64_t counts);
 
+  // TODO: hacky, don't use this
+  void _remap_tids(map<int, int> const& remap);
+
 private:
-// location is to the local gpu, not global
+  // location is to the local gpus, not global
   map<int, memstoloc_t> data_locs;
 
   vector<void*> mems;

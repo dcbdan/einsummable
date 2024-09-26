@@ -422,6 +422,47 @@ graph_t::complexer_t::inn_shape() const {
   }
 }
 
+int _convert_nonzero(
+  vector<uint64_t> const& is,
+  vector<uint64_t> const& os,
+  int d)
+{
+  if(is[d] == 1) {
+    throw std::runtime_error("cannot convert squeezer: dim size is 1");
+  }
+  int which_nonzero = 0;
+  for(int i = 0; i <= d; ++i) {
+    if(is[i] != 1) {
+      which_nonzero++;
+    }
+  }
+
+  int ret = -1;
+  for(int i = 0; i != os.size(); ++i) {
+    if(os[i] != 1) {
+      which_nonzero--;
+      if(which_nonzero == 0) {
+        ret = i;
+      }
+    }
+  }
+  if(ret == -1) {
+    throw std::runtime_error("invalid arguments: _convert_nonzero");
+  }
+  if(os[ret] != is[d]) {
+    throw std::runtime_error("sizes do not match");
+  }
+  return ret;
+}
+
+
+int graph_t::squeezer_t::input_to_output(int d) const {
+  return _convert_nonzero(inn_shape, out_shape, d);
+}
+int graph_t::squeezer_t::output_to_input(int d) const {
+  return _convert_nonzero(out_shape, inn_shape, d);
+}
+
 graph_t::op_t::op_t(graph_t::op_t::_op_t op_, bool s)
   : op(op_), is_save_(s)
 {
@@ -792,7 +833,7 @@ void graph_t::print_graphviz(
       label = write_with_ss(f);
       color = "brown";
     } else if(op.is_select()) {
-      label = "select" + write_with_ss(id);
+      label = "select" + write_with_ss(id) + "\n" + write_with_ss(op.out_shape());
       color = "gold";
     } else {
       throw std::runtime_error("printgraphviz missing graph node type");
@@ -1179,8 +1220,8 @@ recurse_construct_einsummable_op(
 
 tuple<
   graph_t,
-  map<int, int>, 
-  map<int, int>> 
+  map<int, int>,
+  map<int, int>>
 graph_t::fuse(bool absorb_into_contraction, bool duplicate_elementwise) const
 {
   // Make sure all formations have a single einsummable w/ agg input
@@ -1227,7 +1268,7 @@ graph_t::fuse(bool absorb_into_contraction, bool duplicate_elementwise) const
     //   that isn't being saved.
     // Therefore, it can be fused into all subsequent einsummables.
     // But we stll have to respect `absorb_into_contraction` and
-    // `duplicate_elementwise`. 
+    // `duplicate_elementwise`.
 
     if(node.outs.size() > 1 && !duplicate_elementwise) {
       return false;
@@ -1247,7 +1288,7 @@ graph_t::fuse(bool absorb_into_contraction, bool duplicate_elementwise) const
   graph_t ret;
   map<int, int> gid_to_fid;
   for(int gid: get_order()) {
-    auto const& node = nodes[gid]; 
+    auto const& node = nodes[gid];
     if(node.op.is_input() || node.op.is_formation() || node.op.is_complexer() ||
        node.op.is_squeezer() || node.op.is_fill() || node.op.is_select())
     {
@@ -1281,7 +1322,7 @@ graph_t::fuse(bool absorb_into_contraction, bool duplicate_elementwise) const
     auto const& node = nodes[gid];
     if(node.op.is_input()) {
       gid_inn_to_fid.insert({gid, gid_to_fid.at(gid)});
-    } 
+    }
     if(node.op.is_save()) {
       gid_save_to_fid.insert({gid, gid_to_fid.at(gid)});
     }

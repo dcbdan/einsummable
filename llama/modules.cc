@@ -356,7 +356,7 @@ tensor_t attention_t::forward(
       scores = writer->ew(scale, scores);
       //scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
       scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
-    } 
+    }
   } else {
     if(with_softmax_v3_scale) {
       scores = writer->softmax_v3_scale(
@@ -386,7 +386,7 @@ tensor_t attention_t::forward(
 }
 
 
-/* This function is called in attention::forward() 
+/* This function is called in attention::forward()
   Modifies next_kv (a field in attention_t)*/
 void attention_t::set_next_keys_and_values(tensor_t k, tensor_t v)
 {
@@ -470,7 +470,7 @@ transformer_block_t::transformer_block_t(
   : writer(w), layer_id(layer_id), args(args)
 {
   attention = attention_t(
-    writer, "attention.", args, start_pos, 
+    writer, "attention.", args, start_pos,
     lora_rank, with_softmax_v3_scale);
 
   uint64_t hidden_dim = 4 * args.dim;

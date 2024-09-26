@@ -48,6 +48,11 @@ vector<uint64_t> partition_t::tensor_shape_at(vector<int> const& idxs) const
 
   return ret;
 }
+inline
+vector<uint64_t> partition_t::tensor_shape_at(int const& idx) const
+{
+  return tensor_shape_at(index_to_idxs(block_shape(), idx));
+}
 
 inline
 vtensor_t<uint64_t> partition_t::all_block_sizes() const {
@@ -136,6 +141,13 @@ partition_t::get_hrect(vector<int> const& idxs) const
   }
 
   return ret;
+}
+
+inline
+vector<tuple<uint64_t, uint64_t>>
+partition_t::get_hrect(int const& idx) const
+{
+  return get_hrect(index_to_idxs(block_shape(), idx));
 }
 
 // hrect:  hyper-rectangular subset of uint64s

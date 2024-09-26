@@ -145,6 +145,7 @@ public:
   // if none is given
   virtual threadpool_t* get_cpu_threadpool() { return nullptr; }
 
+  map<int, relation_t> const& get_gid_map() const { return gid_map; }
 // private:
 public:
   // Note: gid_map only exists at the server
@@ -315,7 +316,7 @@ struct server_mg_base_t : server_dist_base_t {
 
   virtual map<int, uint64_t> build_required_workspace_info(
     taskgraph_t const& taskgraph, map<string, scalar_t> const& scalar_vars) = 0;
-  
+
   // server, client pairs {{{
   void execute_tg_server(
     taskgraph_t const& taskgraph,

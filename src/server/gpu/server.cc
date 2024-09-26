@@ -58,7 +58,7 @@ gpu_mg_server_t::gpu_mg_server_t(
   // }
 
   // initialize the stream pool now that we have num_gpus_per_node
-  int num_streams_per_device = 50;
+  int num_streams_per_device = 10;
   stream_pool.initialize(num_streams_per_device, num_gpus_per_node[this_rank]);
 
   // When creating the gpu server, also enable peer access to have best transfer performance
@@ -126,9 +126,9 @@ void gpu_mg_server_t::execute_memgraph(
     int ewe = 0;
     int tou = 0;
     for(auto const& node: memgraph.nodes) {
-      if(node.op.is_move()) { 
-        mov++; 
-      } else if(node.op.is_einsummable()) { 
+      if(node.op.is_move()) {
+        mov++;
+      } else if(node.op.is_einsummable()) {
         if(node.op.get_einsummable().is_contraction()) {
           con++;
         } else if(node.op.get_einsummable().has_aggregation()) {
@@ -140,7 +140,7 @@ void gpu_mg_server_t::execute_memgraph(
         tou++;
       }
     }
-    DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: " 
+    DOUT("MEMGRAPH CON/AGG/EWE/TOU/MOV: "
       << con << "/" << agg << "/" << ewe << "/" << tou << "/" << mov);
   }
 
@@ -157,7 +157,7 @@ void gpu_mg_server_t::execute_memgraph(
     streamlist.execute(
       kernel_managers,
       stream_pool(),
-      mems, 
+      mems,
       !for_remap);
 
     return;
@@ -214,7 +214,7 @@ void gpu_mg_server_t::execute_memgraph(
     // }
     // else{
     cudaGraph_t cudagraph = compile_cuda_graph(
-      memgraph, 
+      memgraph,
       kernel_managers,
       mems,
       scalar_vars);
@@ -409,7 +409,7 @@ gpu_mg_server_t::recv_make_mg_info()
     .which_storage = get_which_storage()
   };
   // Note: ret.data_locs is with respect to global gpu locations
-  // Since this is rank 0, they should be the same 
+  // Since this is rank 0, they should be the same
   auto& all_data_locs = ret.data_locs;
 
   int world_size = comm.get_world_size();
@@ -688,3 +688,17 @@ void gpu_mg_server_t::debug_mem(int device, uint64_t counts){
   printFloatGPU(mems[device], counts);
 }
 
+void gpu_mg_server_t::_remap_tids(map<int, int> const& remap) {
+  if(bool(storage)) {
+    throw std::runtime_error("don't call _remap_tids if storage is used");
+  }
+  map<int, memstoloc_t> ret;
+  for(auto const& [oid, mem]: data_locs) {
+    auto iter = remap.find(oid);
+    if(iter != remap.end()) {
+      int const& nid = iter->second;
+      ret.insert({nid, mem});
+    }
+  }
+  data_locs = ret;
+}

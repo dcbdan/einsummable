@@ -255,7 +255,6 @@ void main_rank_zero(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("computes", 1);
   args.set_default<int>("nseq", 4096);
   args.set_default<int>("nbatch", 1);
   int num_gpus = args.get<int>("gpus");
@@ -324,7 +323,6 @@ void main_rank_zero(
     graph2.nodes[gid].op.set_save(true);
   }
 
-  DLINE;
   dbuffer_t embedding_matrix;
   dbuffer_t embeddings_data;
   {
@@ -388,13 +386,10 @@ void main_rank_zero(
       server.local_erase_tensors(rel.tids.get());
     }
 
-
-    DLINE;
     for(auto const& [name, tensor]: model.weight_map()) {
       int gid = tensor.get_id();
       insert_name(gid, name);
     }
-    DLINE;
 
     {
       // TODO check this:
@@ -403,7 +398,6 @@ void main_rank_zero(
       buffer_t freqs_cis = transformer_t::form_full_freqs_cis(margs).data;
       insert_local_buffer(gid, freqs_cis);
     }
-    DLINE;
 
     {
       int const& gid = embeddings.get_id();
@@ -414,7 +408,6 @@ void main_rank_zero(
         init_tokens);
       insert_local_buffer(gid, embeddings_data.data);
     }
-    DLINE;
 
     server.local_insert_tensors(local_data);
 
@@ -423,10 +416,7 @@ void main_rank_zero(
     for(auto const& [gid, rel]: relations) {
       server.insert_gid_without_data(gid, rel);
     }
-    DLINE;
   }
-
-  DLINE;
 
   vector<placement_t> pls;
   vector<partition_t> parts;
@@ -519,11 +509,14 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
   }
 
+  args.set_default("use_cudagraph", false);
   bool use_cudagraph = args.get<bool>("use_cudagraph");
   args.set_default<uint64_t>("storage", 4);
   auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
-  //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
-  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
+
+  gpu_mg_server_t server = storage_size > 0                                  ?
+    gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes, storage_size) :
+    gpu_mg_server_t(communicator, use_cudagraph, buffer_sizes)               ;
 
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
