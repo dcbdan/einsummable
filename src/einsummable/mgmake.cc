@@ -311,11 +311,10 @@ build_tg_ops(
   return ret;
 }
 
-vector<_which_op_t>
-order_taskgraph(taskgraph_t const& taskgraph)
+void order_with_respect_to_barrier(
+  taskgraph_t const& taskgraph,
+  vector<_which_op_t>& ret)
 {
-  auto ret = build_tg_ops(taskgraph, taskgraph.get_order());
-
   // Make sure that the returned value is ordered according to 
   // barriers as well!
 
@@ -337,6 +336,14 @@ order_taskgraph(taskgraph_t const& taskgraph)
   };
 
   std::stable_sort(ret.begin(), ret.end(), compare);
+}
+
+vector<_which_op_t>
+order_taskgraph(taskgraph_t const& taskgraph)
+{
+  auto ret = build_tg_ops(taskgraph, taskgraph.get_order());
+
+  order_with_respect_to_barrier(taskgraph, ret);
 
   return ret;
 }
@@ -725,6 +732,8 @@ order_taskgraph_priority_min_delta(taskgraph_t const& taskgraph)
   if(expected_size != ret.size()) {
     throw std::runtime_error("state ret has failed us..");
   }
+
+  order_with_respect_to_barrier(taskgraph, ret);
 
   return ret;
 }
