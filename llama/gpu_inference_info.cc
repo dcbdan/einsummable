@@ -328,108 +328,13 @@ void main_rank_zero(
 
   vector<placement_t> pls;
   {
-    //int num_config = num_computes_per_loc;
-
-    //args.set_default<string>("partitioner", "auto");
-    //string which = args.get<string>("partitioner");
-    //vector<partition_t> parts;
-
-    //if(which == "auto") {
-    //  parts = apart01(graph, num_gpus * num_config, 1);
-    //  // parts = apart01(graph, num_gpus * num_config, 1, 1, parts_space_t::all_range);
-    //} else if(which == "data" || which == "dim" || which == "seq") {
-    //  // w1: hidden_dim, args.full_dim()
-    //  // w2: args.full_dim(), hidden_dim
-    //  // w3: hidden_dim, args.full_dim()
-    //  //
-    //  // wq: args.full_dim(), args.full_dim()
-    //  // wk: args.full_dim(), args.full_dim()
-    //  // wv: args.full_dim(), args.full_dim()
-    //  // wo: args.full_dim(), args.full_dim()
-    //  //
-    //  // fn, an: args.full_dim()
-    //  vector<layer_ids_t> layer_ids;
-    //  for(auto const& layer: model.layers) {
-    //    auto const& ff = layer.feedforward;
-    //    auto const& aa = layer.attention;
-    //    layer_ids.push_back(layer_ids_t {
-    //      .w1 = ff.w1.get_id(),
-    //      .w2 = ff.w2.get_id(),
-    //      .w3 = ff.w3.get_id(),
-    //      .wq = aa.wq.get_id(),
-    //      .wk = aa.wk.get_id(),
-    //      .wv = aa.wv.get_id(),
-    //      .wo = aa.wo.get_id(),
-    //      .fn = layer.attention_norm.weight.get_id(),
-    //      .an = layer.feedforward_norm.weight.get_id()
-    //    });
-    //  }
-
-    //  map<tuple<int, int>, partdim_t> pds;
-    //  if(which == "data") {
-    //    int id = embeddings.get_id();
-    //    pds.insert({ {id,0}, partdim_t::split(margs.batch_size, num_config) });
-    //  } else if(which == "dim") {
-    //    int split_a = num_config;
-    //    int split_b = 1;
-    //    while(split_a > margs.n_heads) {
-    //      if(split_a % 2 != 0) {
-    //        throw std::runtime_error("make num config more even..");
-    //      }
-    //      split_a /= 2;
-    //      split_b *= 2;
-    //    }
-
-    //    partdim_t pda = partdim_t::split(margs.n_heads, split_a);
-    //    partdim_t pdb = partdim_t::split(margs.head_dim(), split_b);
-
-    //    partdim_t pdb2 = partdim_t::split(margs.head_dim()/2, split_b);
-    //    pds.insert({ { model.full_freqs_cis.get_id(), 1 }, pdb2});
-
-    //    pds.insert({ {embeddings.get_id(), 2}, pda });
-    //    pds.insert({ {embeddings.get_id(), 3}, pdb });
-    //    pds.insert({ {model.norm.weight.get_id(), 0}, pda });
-    //    pds.insert({ {model.norm.weight.get_id(), 1}, pdb });
-    //    pds.insert({ {model.w_vocab.get_id(), 1}, pda });
-    //    pds.insert({ {model.w_vocab.get_id(), 2}, pdb });
-    //    for(auto const& [w1,w2,w3,wq,wk,wv,wo,fn,an]: layer_ids) {
-    //      pds.insert({ {w1,1}, pda });  pds.insert({ {w1,2}, pdb });
-    //      pds.insert({ {w2,0}, pda });  pds.insert({ {w2,1}, pdb });
-    //      pds.insert({ {w3,1}, pda });  pds.insert({ {w3,2}, pdb });
-
-    //      pds.insert({ {wq,0}, pda });  pds.insert({ {wq,1}, pdb });
-    //      pds.insert({ {wk,0}, pda });  pds.insert({ {wk,1}, pdb });
-    //      pds.insert({ {wv,0}, pda });  pds.insert({ {wv,1}, pdb });
-    //      pds.insert({ {wo,0}, pda });  pds.insert({ {wo,1}, pdb });
-
-    //      pds.insert({ {wq,2}, pda });  pds.insert({ {wq,3}, pdb });
-    //      pds.insert({ {wk,2}, pda });  pds.insert({ {wk,3}, pdb });
-    //      pds.insert({ {wv,2}, pda });  pds.insert({ {wv,3}, pdb });
-    //      pds.insert({ {wo,2}, pda });  pds.insert({ {wo,3}, pdb });
-
-    //      pds.insert({ {fn,0}, pda });  pds.insert({ {fn,1}, pdb });
-    //      pds.insert({ {an,0}, pda });  pds.insert({ {an,1}, pdb });
-    //    }
-    //  } else if(which == "seq") {
-    //    partdim_t pd = partdim_t::split(margs.max_seq_len, num_config);
-    //    pds.insert({ { embeddings.get_id(), 1 }, pd });
-    //    pds.insert({ { model.full_freqs_cis.get_id(), 0 }, pd});
-    //    pds.insert({ { model.mask.value().get_id(), 0 }, pd});
-    //    pds.insert({ { model.mask.value().get_id(), 1 }, pd});
-    //  } else {
-    //    throw std::runtime_error("missing case");
-    //  }
-
-    //  parts = apart03(graph, pds);
-    //} else {
-    //  throw std::runtime_error("missing partitioner");
-    //}
-
-    //uint64_t flops_per_byte_moved = 1000;
-    //pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
-
     vector<partition_t> parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
-    pls = alocate03(graph1, parts, num_gpus, true);
+    if (num_computes_per_loc == 1) {
+      pls = alocate03(graph1, parts, num_gpus, true);
+    } else {
+      uint64_t flops_per_byte_moved = 1000;
+      pls = alocate01(graph1, parts, num_gpus, flops_per_byte_moved);
+    }
 
     DOUT("writing decomp info (partition and placement)...");
     string part_path = save_directory + "inference_part.txt";

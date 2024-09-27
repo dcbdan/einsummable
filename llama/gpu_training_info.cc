@@ -471,11 +471,20 @@ void main_rank_zero(
   string save_directory = pargs.get<string>("dir"); 
 
   vector<partition_t> parts;
-  vector<placement_t> full_pls;
+  vector<placement_t> pls;
 
   DOUT("creating partition and placement from scratch");
-  parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
-  full_pls = alocate03(info.full_graph, parts, config.n_locs(), true);
+  int num_computes = config.n_compute();
+  if (num_computes == 1) {
+    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
+    pls = alocate03(info.full_graph, parts, config.n_locs(), true);
+  } else {
+    uint64_t flops_per_byte_moved = 1000;
+    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
+    pls = alocate01(info.full_graph, parts, config.n_locs(), flops_per_byte_moved);
+  }
+  // parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
+  // pls = alocate03(info.full_graph, parts, config.n_locs(), true);
 
   DOUT("writing decomp info (partition and placement)...");
   string part_path = save_directory + "decomp_part.txt";
@@ -484,7 +493,7 @@ void main_rank_zero(
   std::ofstream decomp_pls_file(pls_path);
   
   string parts_info = to_wire_partition_list(parts);
-  string pls_info = to_wire_placement_list(full_pls);
+  string pls_info = to_wire_placement_list(pls);
   decomp_part_file << parts_info;
   decomp_pls_file << pls_info;
   DOUT("wrote decomp patition to " << part_path << " and decomp placement to " << pls_path);
