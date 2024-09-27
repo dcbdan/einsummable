@@ -475,12 +475,13 @@ void main_rank_zero(
 
   DOUT("creating partition and placement from scratch");
   int num_computes = config.n_compute();
+  parts = apart01(info.full_graph, config.n_locs() * num_computes, 1, 1, parts_space_t::contraction);
   if (num_computes == 1) {
-    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
+    DOUT("using alocate03");
     pls = alocate03(info.full_graph, parts, config.n_locs(), true);
   } else {
+    DOUT("using alocate01");
     uint64_t flops_per_byte_moved = 1000;
-    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
     pls = alocate01(info.full_graph, parts, config.n_locs(), flops_per_byte_moved);
   }
   // parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
