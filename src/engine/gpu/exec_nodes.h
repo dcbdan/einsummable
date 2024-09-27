@@ -59,6 +59,20 @@ struct gpu_copy_t : exec_graph_t::op_base_t {
     }
 };
 
+struct gpu_safe_copy_t : exec_graph_t::op_base_t {
+    gpu_safe_copy_t(memgraph_t::safe_copy_t const& m) : safe_copy(m) {}
+
+    memgraph_t::safe_copy_t safe_copy;
+
+    void launch(resource_ptr_t resource, std::function<void()> callback) const;
+    // 2 resources are always needed for a copy
+    desc_ptr_t resource_description() const;
+    void       print(std::ostream& out) const
+    {
+        out << "gpu_safe_copy";
+    }
+};
+
 // NOTE: Evict and load only support GPU RAM to CPU RAM
 // TODO: if additional levels of storage is needed (such as disk)
 // then we will need to add new support for that here

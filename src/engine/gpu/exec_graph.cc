@@ -194,6 +194,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
                 .src = {loc, src_offset}, .dst = {loc, dst_offset}, .size = size};
             gpu_copy_t* op = new gpu_copy_t(move);
             insert(op_ptr_t(op), mid);
+        } else if (node.op.is_safe_copy()) {
+            gpu_safe_copy_t* op = new gpu_safe_copy_t(node.op.get_safe_copy());
+            insert(op_ptr_t(op), mid);
         } else if (node.op.is_evict()) {
             evict_count++;
             evict_bytes += node.op.get_evict().src.size;
@@ -464,6 +467,84 @@ void gpu_copy_t::launch(resource_ptr_t rsrc, std::function<void()> callback) con
                           reinterpret_cast<void*>(callback_copy),
                           0),
                       "gpu_copy_t: adding callback");
+}
+
+desc_ptr_t gpu_safe_copy_t::resource_description() const
+{
+    // 1st: gpu memory ptrs (this could be one resource or two depending on the design)
+    // 2nd: a stream
+    vector<desc_ptr_t> ret;
+    auto               my_safe_copy = safe_copy;
+    auto loc = my_safe_copy.loc;
+    ret.emplace_back(global_buffers_t::make_desc(loc));
+    ret.emplace_back(streampool_manager_t::make_desc(streampool_desc_t{loc}));
+
+    return resource_manager_t::make_desc(ret);
+}
+
+void gpu_safe_copy_t::launch(resource_ptr_t rsrc, std::function<void()> callback) const
+{
+    vector<resource_ptr_t> const& resources = resource_manager_t::get_resource(rsrc);
+
+    auto loc_buffer = global_buffers_t::get_resource(resources[0]);
+
+    auto copy_size = safe_copy.size;
+    auto src_offset = safe_copy.src_offset;
+    auto dst_offset = safe_copy.dst_offset;
+
+    void* src_mem = increment_void_ptr(loc_buffer, src_offset);
+
+    void* dst_mem = increment_void_ptr(loc_buffer, dst_offset);
+    
+    //swap src and dst if src has a smaller offset (so that we are uniformly moving from back to front of buffer)
+    if (src_mem < dst_mem) {
+        auto temp = src_mem;
+        src_mem = dst_mem;
+        dst_mem = temp;
+    }
+
+    auto stream = streampool_manager_t::get_resource(resources[1]).stream;
+    
+    // Here start to do the stream-like copy
+    if (src_offset == dst_offset) {
+        DOUT("Source and Dest location identical, no need to perform copy");
+        return;
+    }
+    uint64_t chunk_size = src_offset - dst_offset;
+
+    uint64_t num_chunks = (copy_size + chunk_size - 1) / chunk_size; 
+
+    for (uint64_t i = 0; i < num_chunks; ++i) {
+        // Calculate the start of the current chunk
+        uint64_t current_chunk_offset = i * chunk_size;
+        uint64_t current_chunk_size = std::min(chunk_size, size - current_chunk_offset);
+        cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, current_chunk_size, cudaMemcpyDeviceToDevice, stream);
+        if (cudaError != cudaSuccess) {
+            DOUT("cudaMemcpy failed with error: " << cudaGetErrorString(cudaError));
+            DOUT("gpu loc, src_offset, dst_offset: " << loc_buffer << " " << src_mem << " " << dst_mem);
+            DOUT("current chunk_size:    " << current_chunk_size);
+
+            throw std::runtime_error("CudaMemcpy failed @ gpu_safe_copy_t");
+        }
+        // Move the pointers forward
+        dst_mem += current_chunk_size;
+        src_mem += current_chunk_size;
+    }
+    std::function<void()>* callback_copy = new std::function<void()>(callback);
+
+    handle_cuda_error(cudaStreamAddCallback(
+                          stream,
+                          [](cudaStream_t stream, cudaError_t status, void* user_data) {
+                              // DOUT("in gpu_copy callback");
+                              std::function<void()>* callback_ptr =
+                                  reinterpret_cast<std::function<void()>*>(user_data);
+                              auto& callback = *callback_ptr;
+                              callback();
+                              delete callback_ptr;
+                          },
+                          reinterpret_cast<void*>(callback_copy),
+                          0),
+                      "gpu_safe_copy_t: adding callback");
 }
 
 desc_ptr_t gpu_evict_t::resource_description() const
