@@ -93,6 +93,8 @@ struct memgraph_make_state_t {
     using constant_t = memgraph_t::constant_t;
     using apply_t = memgraph_t::apply_t;
     using move_t = memgraph_t::move_t;
+    using copy_t = memgraph_t::copy_t;
+    using safe_copy_t = memgraph_t::safe_copy_t;
     using partialize_t = memgraph_t::partialize_t;
     using alloc_t = memgraph_t::alloc_t;
     using del_t = memgraph_t::del_t;
@@ -122,12 +124,24 @@ struct memgraph_make_state_t {
 
   void add_op(_which_op_t const& which_op);
 
-    // Insert an allocate node and return the alloc_t mem id
-    int allocate_with_evict(int loc, uint64_t size, vector<int> cannot_evict = {});
+  // Insert an allocate node and return the alloc_t mem id
+  int allocate_with_evict(int loc, uint64_t size, vector<int> cannot_evict = {});
+
+  // When we cannot allocate even after evict, but actually the size is enough for the op to happen
+  // it's just that the used tensors are being put in an inappropriete position.
+  // return false if size of used tensor > size of buffer, then wee have to something else than simply rearranging
+  bool rearrange_allocator(vector<int> cannot_evict, int loc);
+
 
   // Try to insert an allocate node and return the alloc_t mem id
   optional<int>
   allocate_without_evict(int loc, uint64_t size);
+
+  //specifically used when we rearrange the allocator. 
+  // Will try to allocate with first available 
+  //  (should not return nullopt because we have already evicted everything in the front)
+  optional<tuple<int, uint64_t>>
+  allocate_without_evict_first_available(int loc, uint64_t size);
 
   optional<vector<int>> find_victims(
     int loc,

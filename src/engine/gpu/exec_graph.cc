@@ -195,7 +195,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
             gpu_copy_t* op = new gpu_copy_t(move);
             insert(op_ptr_t(op), mid);
         } else if (node.op.is_safe_copy()) {
-            gpu_safe_copy_t* op = new gpu_safe_copy_t(node.op.get_safe_copy());
+            gpu_safe_copy_t* op = new gpu_safe_copy_t(node.op.get_safe_copy);
             insert(op_ptr_t(op), mid);
         } else if (node.op.is_evict()) {
             evict_count++;

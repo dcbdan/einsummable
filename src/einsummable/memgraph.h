@@ -308,6 +308,13 @@ public:
         uint64_t dst_offset;
     };
 
+    struct safe_copy_t {
+        int      loc;
+        uint64_t size;
+        uint64_t src_offset;
+        uint64_t dst_offset;
+    };
+
     // Note: every location has one storage, but a
     //       storage may have multiple locations
 
@@ -388,6 +395,7 @@ public:
                                    apply_t,
                                    move_t,
                                    copy_t,
+                                   safe_copy_t,
                                    evict_t,
                                    load_t,
                                    partialize_t,
@@ -406,6 +414,7 @@ public:
         op_t(apply_t x) : op_t(_op_t(x)) {}
         op_t(move_t x) : op_t(_op_t(x)) {}
         op_t(copy_t x) : op_t(_op_t(x)) {}
+        op_t(safe_copy_t x) : op_t(_op_t(x)) {}
         op_t(evict_t x) : op_t(_op_t(x)) {}
         op_t(load_t x) : op_t(_op_t(x)) {}
         op_t(partialize_t x) : op_t(_op_t(x)) {}
@@ -435,6 +444,10 @@ public:
         bool is_copy() const
         {
             return std::holds_alternative<copy_t>(op);
+        }
+        bool is_safe_copy() const
+        {
+            return std::holds_alternative<safe_copy_t>(op);
         }
         bool is_evict() const
         {
@@ -480,6 +493,10 @@ public:
         copy_t const& get_copy() const
         {
             return std::get<copy_t>(op);
+        }
+        safe_copy_t const& get_safe_copy() const
+        {
+            return std::get<safe_copy_t>(op);
         }
         evict_t const& get_evict() const
         {
@@ -538,6 +555,8 @@ public:
                 std::cout << "move";
             if (is_copy())
                 std::cout << "copy";
+            if (is_safe_copy())
+                std::cout << "safecopy";
             if (is_evict())
                 std::cout << "evict";
             if (is_load())
@@ -571,6 +590,8 @@ public:
                 return get_move().get_dst_loc();
             if (is_copy())
                 return get_copy().loc;
+            if (is_safe_copy())
+                return get_safe_copy().loc;
             if (is_evict())
                 return get_evict().src.loc;
             if (is_load())
@@ -620,6 +641,7 @@ public:
         void check_apply() const;
         void check_move() const;
         void check_copy() const;
+        void check_safe_copy() const;
         void check_evict() const;
         void check_load() const;
         void check_partialize() const;

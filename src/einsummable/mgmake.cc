@@ -1503,9 +1503,6 @@ bool memgraph_make_state_t::register_usage(int task_id)
     allocators.at(memloc.loc).free(memloc.offset, del_id);
 
     task_tensor_to_mem_node_erase_on_memory(task_id);
-    if (task_id == 314) {
-      DOUT("tid 314 has been deleted. Why is it still used?");
-    }
 
     return true;
   }
@@ -1718,6 +1715,138 @@ memgraph_make_state_t::find_victims(
   return evict_tids;
 }
 
+bool memgraph_make_state_t::rearrange_allocator(vector<int> cannot_evict, int loc) {
+  //first get a vector that has the cannot_evict tid to offset
+  vector<tuple<int, uint64_t, uint64_t>> tid2offset;
+  uint64_t total_size_needed = 0;
+  uint8_t alignment_power = allocators[loc].get_alignment_power();
+  for (int num : cannot_evict) {
+    //num here is tid not mid
+    //TODO: not only check if it's inside task_tensor_to_mem_node, but also check if it's on memory or storage
+    auto iter = task_tensor_to_mem_node.find(num);
+    if (iter != task_tensor_to_mem_node.end()) {
+      auto const& op = memgraph.nodes[iter->second].op;
+      auto const& mem = op.get_output_mem();
+      DOUT("pushing " << num << " ," << mem.offset);
+      total_size_needed += align_to_power_of_two(mem.size, alignment_power);
+      tid2offset.push_back({num, mem.offset, mem.size});
+    }
+  }
+  if (total_size_needed > allocators[loc].buffer_size) {
+    return false;
+  }
+  //sort according to offset, so we know which to move first. 
+  sort(tid2offset.begin(), tid2offset.end(),
+    [](const tuple<int, uint64_t, uint64_t>& a, const tuple<int, uint64_t, uint64_t>& b) {
+      return std::get<1>(a) < std::get<1>(b);  // Compare the second element (uint64_t)
+    });
+  //  first form a bidirectional mapping allocator block_id <-> tid, so that we know what tid to call evict on
+  map<int, int> bid2tid; //block id to tid
+  map<int, int> tid2bid; //tid to block id
+  for(auto const& [tid, mid]: task_tensor_to_mem_node) {
+    memstoloc_t memstoloc = memgraph.nodes[mid].op.get_output_memstoloc();
+    if(memstoloc.is_memloc()) {
+      auto const& memloc = memstoloc.get_memloc();
+      if(memloc.loc == loc) {
+        int block_id = allocators.at(loc)._get_block_id(memloc.offset);
+        bid2tid[block_id] = tid;
+        tid2bid[tid] = block_id;
+      }
+    } else {
+      // it is on storage, so we won't be evicting it
+    }
+  }
+  
+  // Start evicting until reach total size
+  // but first get bid for cannot_evict tids because allocator doesn't care about tid
+  vector<int> cannot_evict_bids;
+  cannot_evict_bids.reserve(cannot_evict.size());
+  for (int cannot_evict_tid: cannot_evict) {
+    // we need to make sure that cannot_evict_tid is in tid2bid, which means is in memory
+    // it might be the case that cannot_evict_tid is not on memory
+    auto iter = tid2bid.find(cannot_evict_tid);
+    if (iter != tid2bid.end()) {
+      cannot_evict_bids.push_back(tid2bid[cannot_evict_tid]);
+    }
+  }
+  vector<int> evict_bids = allocators.at(loc)._find_evict_block_until_size(total_size_needed, cannot_evict_bids);
+  for (auto evict_bid : evict_bids) {
+    //convert back the bid to tids
+    auto iter = bid2tid.find(evict_bid);
+    if (iter == bid2tid.end()) {
+      throw std::runtime_error("cannot find mapping, should not happen");
+    }
+    //inside evict_tensor: 1. add to memgraph 2. add evict to new graph 3. tensor_on_storage_update 4. ??
+    evict_tensor(iter->second);
+  }
+  
+  
+  //Determine if the new tensor overlaps with the old tensor location, bc we have to consider separately the cases
+  uint64_t dst_offset = 0;
+  for (auto const& [tid, src_offset, size] : tid2offset) {
+    if (dst_offset + size > src_offset) {
+      //allocate for first half that is not overlapped. Don't update the state mappings yet
+      //insert alloc node into memgraph (already done inside allocate_without_evict)
+      auto maybe_alloc_first_half_mid = allocate_without_evict_first_available(loc, src_offset - dst_offset);
+      if (!maybe_alloc_first_half_mid) {
+        throw std::runtime_error("Rearrange allocator: Should have evicted everything by now");
+      }
+      auto& [alloc_first_half_mid, given_offset] = maybe_alloc_first_half_mid.value();
+      if (given_offset != dst_offset) {
+        throw std::runtime_error("Rearrange allocator: the given dst offset does not match");
+      }
+      //create op for safe_copy
+      auto op = op_t(safe_copy_t{
+        .loc = loc,
+        .size = size,
+        .src_offset = src_offset,
+        .dst_offset = dst_offset});
+      //insert safe_copy into memgraph with correct deps
+      set<int> safe_copy_deps = tensors_on_memory.at(tid);
+      safe_copy_deps.insert(alloc_first_half_mid);
+      int safe_copy_memid = memgraph.insert(op, safe_copy_deps);
+      task_tensor_to_mem_node_update_on_memory(tid, safe_copy_memid);
+
+      //add del_t that has deps = safe_copy_mid for the second half that is not overlapping
+      memloc_t memloc = {dst_offset + size, src_offset - dst_offset, loc};
+      del_t del = del_t::from_memloc(memloc);
+      int del_id = memgraph.insert(op_t(del), {safe_copy_memid});
+      allocators.at(loc).free_from_middle(src_offset + size, del_id);
+    } else { //no overlapp
+      //allocate for first half that is not overlapped. Don't update the state mappings yet
+      //insert alloc node into memgraph (already done inside allocate_without_evict)
+      auto maybe_alloc_mid = allocate_without_evict_first_available(loc, size);
+      if (!maybe_alloc_mid) {
+        throw std::runtime_error("Rearrange allocator: Should have evicted everything by now");
+      }
+      auto& [alloc_mid, given_offset] = maybe_alloc_mid.value();
+      if (given_offset != dst_offset) {
+        throw std::runtime_error("Rearrange allocator: the given dst offset does not match");
+      }
+      task_tensor_to_mem_node_update_on_memory(tid, alloc_mid);
+
+      //TODO: Do I have to update tensors_on_memory here? I don't think so bc previously 
+      //  the only place where we update tensors_on_memory is when I do add_op.
+      auto op = op_t(move_t{
+        .src = {loc, src_offset},
+        .dst = {loc, dst_offset},
+        .size = size});
+      set<int> move_deps = tensors_on_memory.at(tid);
+      move_deps.insert(alloc_mid);
+      int move_memid = memgraph.insert(op, move_deps);
+      //delete the src since it's not gonna be deleted anywhere else
+      memloc_t memloc = {src_offset, size, loc};
+      del_t del = del_t::from_memloc(memloc);
+      int del_id = memgraph.insert(op_t(del), {move_memid});
+      allocators.at(loc).free(src_offset, del_id);
+    }
+    dst_offset += size;
+  }
+
+  return true;
+  
+}
+
 int memgraph_make_state_t::allocate_with_evict(
   int loc, uint64_t size,
   vector<int> cannot_evict)
@@ -1752,7 +1881,10 @@ int memgraph_make_state_t::allocate_with_evict(
     }
     return maybe_ret.value();
   } else {
-    rearrange_allocator(cannot_evict);
+    bool can_rearrange = rearrange_allocator(cannot_evict, loc);
+    if (!can_rearrange) {
+      throw std::runtime_error("Still cannot fit even rearranged.");
+    }
     DOUT("cannot evict: ");
     for (int num : cannot_evict) {
       //num here is tid not mid
@@ -1793,6 +1925,25 @@ optional<int> memgraph_make_state_t::allocate_without_evict(
     /* End performance debugging*/
     return new_memid;
   } else {
+    return std::nullopt;
+  }
+}
+
+optional<tuple<int, uint64_t>> memgraph_make_state_t::allocate_without_evict_first_available(
+  int loc, uint64_t size)
+{
+  auto maybe = allocators.at(loc).allocate_first_available(size);
+  if(maybe) {
+    auto const& [offset, deps] = maybe.value();
+    alloc_t alloc {
+      .loc = loc,
+      .offset = offset,
+      .size = size
+    };
+    int new_memid = memgraph.insert(op_t(alloc), deps);
+    return tuple<int, uint64_t>{new_memid, offset};
+  } else {
+    throw std::runtime_error("Cannot allocate in the front even after evicting");
     return std::nullopt;
   }
 }
