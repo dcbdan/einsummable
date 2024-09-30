@@ -429,8 +429,9 @@ void main_rank_zero(
     bool load_info = args.get<bool>("load_info");
     if (load_info) {
       DOUT("loading decomp info (partition and placement)...");
-      string part_path = "./inference_part.txt";
-      string pls_path = "./inference_pls.txt";
+      string load_path = args.get<string>("load_path");
+      string part_path = load_path + "inference_part.txt";
+      string pls_path = load_path + "inference_pls.txt";
       std::ifstream decomp_part_file(part_path);
       std::ifstream decomp_pls_file(pls_path);
       if (!decomp_part_file.good() || !decomp_pls_file.good()) {
@@ -597,7 +598,7 @@ int main(int argc, char** argv) {
   int world_size = 1;
 
   string which_model = argv[1];
-  string base_data_file = "/home/zhimin/files_mount/" + which_model;
+  string base_data_file = "/home/ubuntu/mnt/es/" + which_model;
 
   int num_data_files;
   if(which_model == "7B") {

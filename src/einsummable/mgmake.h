@@ -13,7 +13,7 @@ struct _which_touch_t {
   int touch_id;
 };
 
-// #define USE_LOCATIONWISE_APPLY_ORDERING
+//#define USE_LOCATIONWISE_APPLY_ORDERING
 
 using _which_op_t = std::variant<_which_node_t, _which_touch_t>;
 

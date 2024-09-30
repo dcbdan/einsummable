@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  base_data_file = "/home/zhimin/llama_files/es/" + base_data_file;
+  base_data_file = "/home/ubuntu/mnt/es/" + base_data_file;
 
   args_t args(argc-1, argv+1);
 
@@ -492,8 +492,9 @@ void main_rank_zero(
   vector<placement_t> full_pls;
   if (load_info){
     DOUT("loading decomp info (partition and placement)...");
-    string part_path = "./decomp_part.txt";
-    string pls_path = "./decomp_pls.txt";
+    string load_path = pargs.get<string>("load_path");
+    string part_path = load_path + "decomp_part.txt";
+    string pls_path = load_path + "decomp_pls.txt";
     std::ifstream decomp_part_file(part_path);
     std::ifstream decomp_pls_file(pls_path);
     if (!decomp_part_file.good() || !decomp_pls_file.good()) {
@@ -517,8 +518,20 @@ void main_rank_zero(
     DOUT("loaded partition and placement");
   } else {
     DOUT("creating partition and placement from scratch");
-    parts = apart01(info.full_graph, config.n_locs(), 1, 1, parts_space_t::contraction);
-    full_pls = alocate03(info.full_graph, parts, config.n_locs(), true);
+    auto num_computes = config.n_compute_per_loc();
+    DOUT("num computes: " << num_computes);
+    DOUT("num total compute: " << config.n_compute());
+    parts = apart01(info.full_graph, config.n_compute(), 1, 1, parts_space_t::contraction);
+    if (config.n_compute_per_loc() == 1){
+      DOUT("using alocate 03");
+      full_pls = alocate03(info.full_graph, parts, config.n_locs(), false);
+    }
+    else {
+      uint64_t flops_per_byte_moved = 1000;
+      DOUT("using alocate 01");
+      full_pls = alocate01(info.full_graph, parts, config.n_locs(), flops_per_byte_moved);
+    }
+    
   }
 
   if (write_info){
@@ -686,8 +699,8 @@ void main_rank_zero(
   /////////////////////////////////////////////////////////////////////////////
   
   DLINE;
-  pargs.set_default("tokenizer", "/home/zhimin/llama_files/es/tokenizer.model");
-  pargs.set_default("dataset", "/home/zhimin/llama_files/es/redpaj_long_samples");
+  pargs.set_default("tokenizer", "/home/ubuntu/mnt/es/tokenizer.model");
+  pargs.set_default("dataset", "/home/ubuntu/mnt/es/redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");

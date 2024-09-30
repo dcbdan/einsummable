@@ -6,6 +6,7 @@
 
 struct autoplace_config_t {
   int n_compute() const { return _n_locs * _n_compute_per_loc; }
+  int n_compute_per_loc() const { return _n_compute_per_loc; }
   int n_locs() const { return _n_locs; }
   uint64_t flops_per_byte_moved() const { return _flops_per_byte_moved; }
   int max_branching() const { return _max_branching.value(); }

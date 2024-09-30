@@ -234,28 +234,28 @@ memgraph_t::make_(
 
   optional<memgraph_t> input_memgraph;
   // new ordering
-  if(split_off_inputs)
-  {
-    DOUT("Splitting off inputs with priority_min_delta");
-    auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
-    auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
-    state.process(input_tg_ops);
-    input_memgraph = state.pop_memgraph();
-    state.process(core_tg_ops);
-  } else {
-    state.process(order_taskgraph_priority_min_delta(taskgraph));
-  }
-
-  // old ordering
   //if(split_off_inputs)
   //{
-  //  auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+  //  DOUT("Splitting off inputs with priority_min_delta");
+  //  auto all_ops = order_taskgraph_priority_min_delta(taskgraph);
+  //  auto [input_tg_ops, core_tg_ops] = split_off_inputs_(taskgraph, all_ops);
   //  state.process(input_tg_ops);
   //  input_memgraph = state.pop_memgraph();
   //  state.process(core_tg_ops);
   //} else {
-  //  state.process(order_taskgraph(taskgraph));
+  //  state.process(order_taskgraph_priority_min_delta(taskgraph));
   //}
+
+  // old ordering
+  if(split_off_inputs)
+  {
+    auto [input_tg_ops, core_tg_ops] = order_split_taskgraph(taskgraph);
+    state.process(input_tg_ops);
+    input_memgraph = state.pop_memgraph();
+    state.process(core_tg_ops);
+  } else {
+    state.process(order_taskgraph(taskgraph));
+  }
 
   map<int, memstoloc_t> save_to_data;
   for(int id = 0; id != taskgraph.nodes.size(); ++id)
