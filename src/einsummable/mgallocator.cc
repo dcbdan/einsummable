@@ -339,6 +339,16 @@ allocator_t::allocate_at(uint64_t offset, uint64_t size)
   return std::make_tuple(-1, deps);
 }
 
+void allocator_t::merge_occupied_blocks(uint64_t starting_offset, uint64_t size){
+
+    auto starting_iter = binary_search_find(
+        blocks.begin(), blocks.end(), [&starting_offset](block_t const& blk) { return blk.beg <= starting_offset; });
+    auto ending_iter = binary_search_find(
+        blocks.begin(), blocks.end(), [&starting_offset, size](block_t const& blk) { return blk.beg <= starting_offset+size; });
+    auto iter = blocks.erase(starting_iter, ending_iter);
+    blocks.insert(iter, block_t{.beg = starting_offset, .end = starting_offset + size, .dep = optional<int>()});
+}
+
 void allocator_t::free(uint64_t offset, int del)
 {
     auto iter = binary_search_find(
@@ -537,7 +547,7 @@ vector<int> allocator_t::_find_evict_block_until_size(uint64_t size_needed, vect
         }
         //if not in cannot_evict, we evict
         auto iter = find(cannot_evict_bids.begin(), cannot_evict_bids.end(), i);
-        if (iter == cannot_evict_bids.end()) {
+        if (iter == cannot_evict_bids.end() && blocks[i].dep == std::nullopt) {
             ret.push_back(i);
         }
     }

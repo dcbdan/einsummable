@@ -42,6 +42,9 @@ struct allocator_t {
         return strat;
     }
 
+    // merge blocks starting from starting_offset up until starting_offset + size
+    void merge_occupied_blocks(uint64_t starting_offset, uint64_t size);
+
     // delete this memory, storing the delete dependent
     // for future use of this memory block
     void free(uint64_t offset, int del);
