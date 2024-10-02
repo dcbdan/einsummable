@@ -1007,7 +1007,7 @@ void memgraph_make_state_t::allocate_tensor_force(
   int tid,
   vector<int> const& keep_tids)
 {
-  DOUT(" allocate tensor force for tid: " << tid );
+  // DOUT(" allocate tensor force for tid: " << tid );
   auto const& node = taskgraph.nodes[tid];
   if (node.op.is_input()) {
     auto iter = task_tensor_to_mem_node.find(tid);
@@ -1104,12 +1104,12 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   if(node.op.is_input()) {
     // std::cout << "inserting input tid: " << id << std::endl;
     /* For performance debugging */
-    //add the input node to mem_to_done with current threshold
-    auto iter = task_tensor_to_mem_node.find(id);
-    if (iter == task_tensor_to_mem_node.end()) {
-      throw std::runtime_error("input node is not initialized");
-    }
-    mem_to_done_insert(iter->second);
+    // //add the input node to mem_to_done with current threshold
+    // auto iter = task_tensor_to_mem_node.find(id);
+    // if (iter == task_tensor_to_mem_node.end()) {
+    //   throw std::runtime_error("input node is not initialized");
+    // }
+    // mem_to_done_insert(iter->second);
     /* End performance debugging*/
 
     // We don't actually do anything in this case
@@ -1201,7 +1201,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
 
   int new_memid = memgraph.insert(op.value(), deps);
   /* For performance debugging */
-  mem_to_done_insert(new_memid);
+  // mem_to_done_insert(new_memid);
   // all_deps_insert(deps, new_memid);
   /* End performance debugging*/
 
@@ -1249,7 +1249,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
           op_t(new_partialize),
           set<int>(in_progress.begin(), in_progress.end()));
         /* For performance debugging */
-        mem_to_done_insert(partialize_memid);
+        // mem_to_done_insert(partialize_memid);
         // DLINEOUT("before partialize all_deps insert");
         // all_deps_insert(set<int>(in_progress.begin(), in_progress.end()), partialize_memid);
         // DLINEOUT("after partialize all_deps insert");
@@ -1494,7 +1494,7 @@ bool memgraph_make_state_t::register_usage(int task_id)
 
     int del_id = memgraph.insert(op_t(del), del_deps);
     /* For performance debugging */
-    mem_to_done_insert(del_id);
+    // mem_to_done_insert(del_id);
     // DLINEOUT("before del all_deps insert");
     // all_deps_insert(del_deps, del_id);
     // DLINEOUT("before del all_deps insert");
@@ -1715,7 +1715,7 @@ memgraph_make_state_t::find_victims(
   return evict_tids;
 }
 
-bool memgraph_make_state_t::rearrange_allocator(vector<int> cannot_evict, int loc) {
+bool memgraph_make_state_t::rearrange_allocator(vector<int> cannot_evict, int loc, uint64_t out_size) {
   //first get a vector that has the cannot_evict tid to offset
   vector<tuple<int, uint64_t, uint64_t>> tid2offset;
   uint64_t total_size_needed = 0;
@@ -1727,11 +1727,12 @@ bool memgraph_make_state_t::rearrange_allocator(vector<int> cannot_evict, int lo
     if (iter != task_tensor_to_mem_node.end()) {
       auto const& op = memgraph.nodes[iter->second].op;
       auto const& mem = op.get_output_mem();
-      DOUT("pushing " << num << " ," << mem.offset);
+      // DOUT("pushing " << num << " ," << mem.offset << "original size: " << mem.size << " aligned size: " << align_to_power_of_two(mem.size, alignment_power) << ", alignment power: " << alignment_power);
       total_size_needed += align_to_power_of_two(mem.size, alignment_power);
       tid2offset.push_back({num, mem.offset, mem.size});
     }
   }
+  total_size_needed += out_size;
   if (total_size_needed > allocators[loc].buffer_size) {
     return false;
   }
@@ -1811,7 +1812,11 @@ bool memgraph_make_state_t::rearrange_allocator(vector<int> cannot_evict, int lo
       memloc_t memloc = {dst_offset + size, src_offset - dst_offset, loc};
       del_t del = del_t::from_memloc(memloc);
       int del_id = memgraph.insert(op_t(del), {safe_copy_memid});
-      allocators.at(loc).free_from_middle(src_offset + size, del_id);
+      allocators.at(loc).free_from_middle(dst_offset + size, del_id);
+
+      // * After I delete the unwanted part, I need to merge the allocate_first_half() portion with the overlapping portion
+      // Or else when I free, i won't be free both two memories at the same time
+      allocators.at(loc).merge_occupied_blocks(dst_offset, size);
     } else { //no overlapp
       //allocate for first half that is not overlapped. Don't update the state mappings yet
       //insert alloc node into memgraph (already done inside allocate_without_evict)
@@ -1881,28 +1886,34 @@ int memgraph_make_state_t::allocate_with_evict(
     }
     return maybe_ret.value();
   } else {
-    bool can_rearrange = rearrange_allocator(cannot_evict, loc);
-    if (!can_rearrange) {
-      throw std::runtime_error("Still cannot fit even rearranged.");
-    }
-    DOUT("cannot evict: ");
-    for (int num : cannot_evict) {
-      //num here is tid not mid
-      auto iter = task_tensor_to_mem_node.find(num);
-      if (iter != task_tensor_to_mem_node.end()) {
-        auto const& op = memgraph.nodes[iter->second].op;
-        auto const& mem = op.get_output_mem();
-        std::cout << num ;
-        std::cout << " offset: " << mem.offset << " size: " << mem.size;
-        std::cout << std::endl;
-      } else {
-        DOUT("should not be unable to find in task_tensor_to_mem_node");
-      }
-    }
+    // for (int num : cannot_evict) {
+    //   //num here is tid not mid
+    //   auto iter = task_tensor_to_mem_node.find(num);
+    //   if (iter != task_tensor_to_mem_node.end()) {
+    //     auto const& op = memgraph.nodes[iter->second].op;
+    //     auto const& mem = op.get_output_mem();
+    //     std::cout << num ;
+    //     std::cout << " offset: " << mem.offset << " size: " << mem.size;
+    //     std::cout << std::endl;
+    //   } else {
+    //     DOUT("should not be unable to find in task_tensor_to_mem_node");
+    //   }
+    // }
     std::cout << "size to allocate: " << size << std::endl;
-    allocators.at(loc).print();
-    throw std::runtime_error(
-      "allocate_with_evict: could not allocate even after evicting a tensor.");
+    bool can_rearrange = rearrange_allocator(cannot_evict, loc, size);
+    if (!can_rearrange) {
+      throw std::runtime_error("allocate_with_evict: could not allocate even after evicting a tensor. Still cannot fit even rearranged.");
+    }
+    auto maybe_ret = allocate_without_evict(loc, size);
+    if(!maybe_ret)
+    {
+      throw std::runtime_error(
+          "allocate_with_evict: could not allocate even after evicting a tensor"
+          " and rearranging");
+    }
+    return maybe_ret.value();
+    // throw std::runtime_error(
+    //   "allocate_with_evict: could not allocate even after evicting a tensor.");
   }
 }
 
@@ -1919,8 +1930,8 @@ optional<int> memgraph_make_state_t::allocate_without_evict(
     };
     int new_memid = memgraph.insert(op_t(alloc), deps);
     /* For performance debugging */
-    mem_to_done_insert(new_memid);
-    mem_deps_insert(deps, new_memid); 
+    // mem_to_done_insert(new_memid);
+    // mem_deps_insert(deps, new_memid); 
     // all_deps_insert(deps, new_memid);                       
     /* End performance debugging*/
     return new_memid;
@@ -1992,7 +2003,7 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
 
   int evict_mid = memgraph.insert(evict, evict_deps);
   /* For performance debugging */
-  mem_to_done_insert(evict_mid);
+  // mem_to_done_insert(evict_mid);
   /* End performance debugging*/
 
   // now free the memory, depending on the eviction having been completed

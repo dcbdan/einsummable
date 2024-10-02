@@ -195,7 +195,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
             gpu_copy_t* op = new gpu_copy_t(move);
             insert(op_ptr_t(op), mid);
         } else if (node.op.is_safe_copy()) {
-            gpu_safe_copy_t* op = new gpu_safe_copy_t(node.op.get_safe_copy);
+            gpu_safe_copy_t* op = new gpu_safe_copy_t(node.op.get_safe_copy());
             insert(op_ptr_t(op), mid);
         } else if (node.op.is_evict()) {
             evict_count++;
@@ -517,7 +517,7 @@ void gpu_safe_copy_t::launch(resource_ptr_t rsrc, std::function<void()> callback
     for (uint64_t i = 0; i < num_chunks; ++i) {
         // Calculate the start of the current chunk
         uint64_t current_chunk_offset = i * chunk_size;
-        uint64_t current_chunk_size = std::min(chunk_size, size - current_chunk_offset);
+        uint64_t current_chunk_size = std::min(chunk_size, copy_size - current_chunk_offset);
         cudaError_t cudaError = cudaMemcpyAsync(dst_mem, src_mem, current_chunk_size, cudaMemcpyDeviceToDevice, stream);
         if (cudaError != cudaSuccess) {
             DOUT("cudaMemcpy failed with error: " << cudaGetErrorString(cudaError));
@@ -527,8 +527,8 @@ void gpu_safe_copy_t::launch(resource_ptr_t rsrc, std::function<void()> callback
             throw std::runtime_error("CudaMemcpy failed @ gpu_safe_copy_t");
         }
         // Move the pointers forward
-        dst_mem += current_chunk_size;
-        src_mem += current_chunk_size;
+        dst_mem = increment_void_ptr(dst_mem, current_chunk_size);
+        src_mem = increment_void_ptr(src_mem, current_chunk_size);
     }
     std::function<void()>* callback_copy = new std::function<void()>(callback);
 

@@ -130,7 +130,7 @@ struct memgraph_make_state_t {
   // When we cannot allocate even after evict, but actually the size is enough for the op to happen
   // it's just that the used tensors are being put in an inappropriete position.
   // return false if size of used tensor > size of buffer, then wee have to something else than simply rearranging
-  bool rearrange_allocator(vector<int> cannot_evict, int loc);
+  bool rearrange_allocator(vector<int> cannot_evict, int loc, uint64_t out_size);
 
 
   // Try to insert an allocate node and return the alloc_t mem id
