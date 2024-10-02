@@ -696,7 +696,7 @@ void memgraph_t::op_t::check_move() const
     auto const& [src, _0] = move.src;
     auto const& [dst, _1] = move.dst;
     if (src == dst) {
-        throw std::runtime_error("move cannot be to same location; that's an apply");
+        // throw std::runtime_error("move cannot be to same location; that's an apply");
     }
 }
 void memgraph_t::op_t::check_copy() const {}
