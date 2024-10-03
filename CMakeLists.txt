@@ -46,7 +46,14 @@ add_executable(${exec} ${dir}/${filename}.cc)
 target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES})
 endfunction()
 
+function(add_gpu_direct_application exec dir filename)
+add_executable(${exec} ${dir}/${filename}.cc)
+target_link_libraries(${exec} einsummable proto ${Protobuf_LIBRARIES} -lucp -lucs -luct)
+endfunction()
+
 add_base_application("make_3dmatmul"    "exps" "make_3dmatmul")
+add_gpu_direct_application("gpudirect_server"    "exps" "gpudirect_server")
+add_gpu_direct_application("gpudirect_client"    "exps" "gpudirect_client")
 # add_base_application("reference"        "exps" "reference")        # TODO: delete and turn into tests
 # add_base_application("copyregion"       "exps" "copyregion")       # TODO: delete and turn into tests
 # add_base_application("scalarop"         "exps" "scalarop")         # TODO: delete and turn into tests
