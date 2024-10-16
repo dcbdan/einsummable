@@ -230,6 +230,17 @@ struct memgraph_make_state_t {
 
     vector<int> remaining_usage_counts;
 
+    /* The following fields are used to keep track of how many percentage of the einsu
+    m ops can actually happen on cpu, and how many of them can opentially eliminate some
+    use of evict and load */
+    int at_least_one_on_storage_count; //the number of ops where at least one of the ops is on memory
+    int total_apply_nodes; // the number of apply nodes in total
+    /* This is used to specify the case where we have A+B->C, and we have one of them on cpu. 
+    Then we want to see if C is being evicted in the future, and exactly how many time it has been evicted 
+    in the entire graph*/
+    map<int, int> accum_tid_to_occurance; 
+
+
     // This contains tensors who have been donated
     // to another node
     set<int> donated;
