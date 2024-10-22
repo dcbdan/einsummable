@@ -513,6 +513,7 @@ void gpu_safe_copy_t::launch(resource_ptr_t rsrc, std::function<void()> callback
     uint64_t chunk_size = src_offset - dst_offset;
 
     uint64_t num_chunks = (copy_size + chunk_size - 1) / chunk_size; 
+    DOUT("num_chunks for safe_copy: " << num_chunks);
 
     for (uint64_t i = 0; i < num_chunks; ++i) {
         // Calculate the start of the current chunk

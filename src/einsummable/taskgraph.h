@@ -378,8 +378,12 @@ public:
         {
             return get_partialize().as_touches_from();
         }
-    };
 
+        bool is_contraction() const
+        {
+            return is_apply() && get_apply().einsummable.is_contraction();
+        };
+    };
     struct node_t {
         node_t(op_t op, bool is_save) : op(op), is_save(is_save) {}
 

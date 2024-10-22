@@ -939,6 +939,7 @@ bool memgraph_make_state_t::allocate_op_output(_which_op_t const& op, bool force
   }
   if(force) {
     vector<int> keep_tids = find_used_tids(op);
+    DOUT(" allocating for the out op");
     allocate_tensor_force(tid, keep_tids);
     // DLINEOUT("allocate_op_output:success " << tid);
     return true;
@@ -980,6 +981,7 @@ bool memgraph_make_state_t::allocate_tensor_without_evict(int tid) {
       }
       // 2. update the state
       _load_tensor_helper(tid, alloc_mid.value());
+      DOUT("loading tensor from allocate without evict");
       return true;
     } else {
       // It was already on memory, all good
@@ -1009,7 +1011,6 @@ void memgraph_make_state_t::allocate_tensor_force(
   int tid,
   vector<int> const& keep_tids)
 {
-  // DOUT("allocate_tensor_force:  here we are allocating for tid " << tid);
   auto const& node = taskgraph.nodes[tid];
   if (node.op.is_input()) {
     auto iter = task_tensor_to_mem_node.find(tid);
@@ -1037,8 +1038,9 @@ void memgraph_make_state_t::allocate_tensor_force(
       // 1. allocate some memory
       int alloc_mid = allocate_with_evict(loc, size, keep_tids);
       // 2. update state
+      DOUT("about to load tid " << tid);
+      print_out_node_info(keep_tids.at(keep_tids.size()-1));
       _load_tensor_helper(tid, alloc_mid);
-
       return;
     } else {
       // DOUT("allocate_tensor_force: already on memory");
@@ -1075,28 +1077,31 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
   bool all_on_storage = true;
   bool atleast_one_on_storage = false;
   
-    vector<int> tids = find_used_tids(which_op);
-    for(int const& tid: tids) {
-      // int tid = tids[i];
-      auto iter = task_tensor_to_mem_node.find(tid);
-      if(iter != task_tensor_to_mem_node.end()) {
-        DOUT("tid: " << tid << " remaining usage of tid: " << remaining_usage_counts[tid]);
-        // We're keeping track of this tensor already; is it on memory?
-        int const& memid = iter->second;
-        auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
-        if(maybe_mem.is_stoloc()) {
-          atleast_one_on_storage = true;
-        } else {
-          all_on_storage = false;
-        }
+  vector<int> tids = find_used_tids(which_op);
+  for (size_t i=0 ; i < tids.size()-1; ++i) {
+    int tid = tids[i];
+    auto iter = task_tensor_to_mem_node.find(tid);
+    if(iter != task_tensor_to_mem_node.end()) {
+      // DOUT("tid: " << tid << " remaining usage of tid: " << remaining_usage_counts[tid]);
+      // We're keeping track of this tensor already; is it on memory?
+      int const& memid = iter->second;
+      auto maybe_mem = memgraph.nodes[memid].op.get_output_memstoloc();
+      if(maybe_mem.is_stoloc()) {
+        atleast_one_on_storage = true;
       } else {
-        // We're not keeping track of this tensor, so it must be a new tensor
-        //so I don't need to consider this case, because we only want to know where is the input 
+        all_on_storage = false;
       }
-      // Note: this will initialize inputs if they aren't already initialized,
-      allocate_tensor_force(tid, tids);  
+    } else {
+      // We're not keeping track of this tensor, so it must be a new tensor
+      //so I don't need to consider this case, because we only want to know where is the input 
     }
-    // allocate_tensor_force(tids[tids.size()-1], tids);  
+    // Note: this will initialize inputs if they aren't already initialized,
+    allocate_tensor_force(tid, tids);  
+  }
+  if (atleast_one_on_storage) {
+    DOUT(" the above two inputs has at least one on storage");
+  }
+  allocate_tensor_force(tids[tids.size()-1], tids);  
 
   /////////////////////////////////////////////////////////////////////////////
   // 2. add the op
@@ -1404,10 +1409,10 @@ void memgraph_make_state_t::process(
     
   // for getting the number of apply ops that could happen on cpu
   DOUT("total_apply_nodes: " << total_apply_nodes << " , at_least_one_on_storage_count" << at_least_one_on_storage_count);
-  std::cout << "accum_tid_to_occurance:" << std::endl;
-    for (const auto& pair : accum_tid_to_occurance) {
-        std::cout << "Key: " << pair.first << ", Value: " << pair.second << std::endl;
-    }
+  // std::cout << "accum_tid_to_occurance:" << std::endl;
+  //   for (const auto& pair : accum_tid_to_occurance) {
+  //       std::cout << "Key: " << pair.first << ", Value: " << pair.second << std::endl;
+  //   }
   
 
 
@@ -2075,6 +2080,7 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
   };
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
+  DOUT("insert load_t node mid=" << mid);
   task_tensor_to_mem_node_update_on_memory(tid, mid);
 }
 
@@ -2237,4 +2243,33 @@ void memgraph_make_state_t::print_performance_debugging(){
     std::cout << "]: " << bin_counts[i] << std::endl;
   }
   std::cout << std::endl;
+}
+
+void memgraph_make_state_t::print_out_node_info(int out_tid) {
+  std::cout << "Out TID: " << out_tid << "; ";
+  auto & task_node = taskgraph.nodes[out_tid];
+  auto iter = task_tensor_to_mem_node.find(out_tid);
+  if (iter == task_tensor_to_mem_node.end()) {
+    std::cout << "print_out_node_info: not in task_tensor_to_mem_node" << std::endl;
+  } else {
+    if (task_node.op.is_partialize() || (task_node.op.is_apply() && (!task_node.op.is_contraction()))) {
+      std::cout << "is not contraction ";
+    } else if (task_node.op.is_apply() && task_node.op.is_contraction()) {
+      std::cout << "is contraction"; 
+    }
+    // int out_mid = iter->second;
+    // std::cout << "mid: " << out_mid << "; ";
+    // auto & node = memgraph.nodes[out_mid];
+    // auto & op = node.op;
+    // std::cout << "op type: ";
+    // op.print_type();
+    // std::cout << std::endl;
+    // if (op.is_einsummable() && (op.get_einsummable().is_contraction())){
+    //   std::cout << " is contraction... ";
+    // } else if ((op.is_einsummable() && (!op.get_einsummable().is_contraction())) || op.is_touch()){
+    //   std::cout << " is not contraction... ";
+    // }
+    std::cout << "out_size: " << task_node.op.out_size();
+    std::cout << std::endl;
+  }
 }

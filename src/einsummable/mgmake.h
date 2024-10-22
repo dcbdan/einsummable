@@ -280,4 +280,5 @@ struct memgraph_make_state_t {
   void mem_deps_insert(set<int> deps, int out_mid);
   void all_deps_insert(set<int> deps, int out_mid);
   void print_performance_debugging();
+  void print_out_node_info(int out_tid);
 };
