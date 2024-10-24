@@ -327,6 +327,22 @@ public:
             return is_partialize() && get_partialize().is_straight_copy();
         }
 
+        void print_type() const
+        {
+            if (is_input())
+                std::cout << "input";
+            if (is_apply())
+                std::cout << "apply";
+            if (is_move())
+                std::cout << "move";
+            if (is_constant())
+                std::cout << "constant";
+            if (is_partialize())
+                std::cout << "partialize";
+            // std::cout << std::endl;
+        }
+
+
         input_t const& get_input() const
         {
             return std::get<input_t>(op);

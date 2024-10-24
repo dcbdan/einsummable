@@ -239,6 +239,9 @@ struct memgraph_make_state_t {
     Then we want to see if C is being evicted in the future, and exactly how many time it has been evicted 
     in the entire graph*/
     map<int, int> accum_tid_to_occurance; 
+    
+    vector<int> load_list;
+    vector<int> evict_list;
 
 
     // This contains tensors who have been donated

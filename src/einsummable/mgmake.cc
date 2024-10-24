@@ -1,5 +1,12 @@
 #include "mgmake.h"
 
+void print_set(const std::set<int>& s) {
+    for (const auto& elem : s) {
+        std::cout << elem << " "; // Print each element followed by a space
+    }
+    std::cout << std::endl; // Newline at the end
+}
+
 tuple<
   map<int, mem_t>, // input -> mem
   map<int, mem_t>, // save -> mem
@@ -939,7 +946,6 @@ bool memgraph_make_state_t::allocate_op_output(_which_op_t const& op, bool force
   }
   if(force) {
     vector<int> keep_tids = find_used_tids(op);
-    DOUT(" allocating for the out op");
     allocate_tensor_force(tid, keep_tids);
     // DLINEOUT("allocate_op_output:success " << tid);
     return true;
@@ -1038,8 +1044,10 @@ void memgraph_make_state_t::allocate_tensor_force(
       // 1. allocate some memory
       int alloc_mid = allocate_with_evict(loc, size, keep_tids);
       // 2. update state
-      DOUT("about to load tid " << tid);
-      print_out_node_info(keep_tids.at(keep_tids.size()-1));
+      // DOUT("about to load tid " << tid);
+      // print_out_node_info(keep_tids.at(keep_tids.size()-1));
+      // DOUT("the tensors on storage before load tensor helper:");
+      // print_set(tensors_on_storage);
       _load_tensor_helper(tid, alloc_mid);
       return;
     } else {
@@ -1099,7 +1107,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
     allocate_tensor_force(tid, tids);  
   }
   if (atleast_one_on_storage) {
-    DOUT(" the above two inputs has at least one on storage");
+    // DOUT(" the above two inputs has at least one on storage");
   }
   allocate_tensor_force(tids[tids.size()-1], tids);  
 
@@ -1162,10 +1170,24 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
         DOUT("all on storage for einsum node");
       } else if (atleast_one_on_storage) {
         at_least_one_on_storage_count += 1;
+        auto out_tid = tids[tids.size()-1];
         /* add the last tid (out tid) to the accum_tid_to_occurance mapping */
-        DOUT("adding " << tids[tids.size()-1] << " to the accum_tid_to_occurance");
         accum_tid_to_occurance.insert({tids[tids.size()-1], 0});
-        DOUT("at least one on storage for einsum node");
+        // What is this out_tid being used afterwards? 
+        auto const& outs_of_out_tid = taskgraph.nodes[out_tid].outs; 
+        DOUT("    -> out for out_tid " << out_tid);
+        for (auto out: outs_of_out_tid) {
+          auto const& tasknode = taskgraph.nodes[out];
+          auto const& taskop = tasknode.op;
+          taskop.print_type();
+          if (taskop.is_partialize() || (taskop.is_apply() && (!taskop.is_contraction()))) {
+            std::cout << " is not contraction; ";
+          } else if (taskop.is_apply() && taskop.is_contraction()) {
+            std::cout << " is contraction; "; 
+          }
+          std::cout << std::endl;
+        }
+        // DOUT("at least one on storage for einsum node");
       }
     }
   } else if(node.op.is_constant()) {
@@ -1230,6 +1252,7 @@ void memgraph_make_state_t::add_op(_which_op_t const& which_op)
       DOUT("all on storage for touch node");
     } else if (atleast_one_on_storage) {
       at_least_one_on_storage_count += 1;
+      accum_tid_to_occurance.insert({tids[tids.size()-1], 0});
       DOUT("at least one on storage for touch node");
     }
   } else {
@@ -1393,7 +1416,7 @@ void memgraph_make_state_t::process(
       increment_alloc_oid();
     } else if(alloc_oid == doing_oid) {
       // DLINEOUT("case: must allocate");
-      DOUT("Process loop: Must allocate here, maybe test if it's reaaally necessary to allocate here");
+      // DOUT("Process loop: Must allocate here, maybe test if it's reaaally necessary to allocate here");
       // Here, we allocate the op using eviction if needed
       allocate_op_output(all_ops[alloc_oid], true);
       increment_alloc_oid();
@@ -1409,11 +1432,20 @@ void memgraph_make_state_t::process(
     
   // for getting the number of apply ops that could happen on cpu
   DOUT("total_apply_nodes: " << total_apply_nodes << " , at_least_one_on_storage_count" << at_least_one_on_storage_count);
-  // std::cout << "accum_tid_to_occurance:" << std::endl;
-  //   for (const auto& pair : accum_tid_to_occurance) {
-  //       std::cout << "Key: " << pair.first << ", Value: " << pair.second << std::endl;
-  //   }
+  std::cout << "accum_tid_to_occurance:" << std::endl;
+    for (const auto& pair : accum_tid_to_occurance) {
+        std::cout << "Key: " << pair.first << ", Value: " << pair.second << std::endl;
+    }
   
+  DOUT("evict list: ");
+  std::sort(evict_list.begin(), evict_list.end());
+  print_vec(std::cout, evict_list);
+  std::cout << std::endl;
+  DOUT("load list: ");
+  std::sort(load_list.begin(), load_list.end());
+  print_vec(std::cout, load_list);
+  std::cout << std::endl;
+
 
 
   // print_performance_debugging();
@@ -2011,6 +2043,7 @@ optional<tuple<int, uint64_t>> memgraph_make_state_t::allocate_without_evict_fir
 
 void memgraph_make_state_t::evict_tensor(int victim_tid)
 {
+  evict_list.push_back(victim_tid);
   int node_mid = task_tensor_to_mem_node.at(victim_tid);
   auto const& node = memgraph.nodes.at(node_mid);
 
@@ -2061,17 +2094,29 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
 
   // update mapping in memgraph_make_state_t
   task_tensor_to_mem_node_update_on_storage(victim_tid, evict_mid);
+  
 
-  /* Find if victim_tid is in c`    _tid_to_occurance */
+  //check to make sure that the tensor is being marked to be on storage:
+  int new_node_mid = task_tensor_to_mem_node.at(victim_tid);
+  auto const& new_node = memgraph.nodes.at(new_node_mid);
+  if (!new_node.op.get_output_memstoloc().is_stoloc()) {
+    // new_node.op.print_type();
+    DOUT("not on storage???");
+  }
+
+  /* Find if victim_tid is in accum_tid_to_occurance */
   auto iter = accum_tid_to_occurance.find(victim_tid);
   if (iter != accum_tid_to_occurance.end()) {
     iter->second += 1;
     DOUT("added one occurance for tid " << victim_tid);
   }
+  DOUT("the tensors on storage after evict_tensor:");
+  print_set(tensors_on_storage);
 }
 
 void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
 {
+  load_list.push_back(tid);
   int const& sto_mid = task_tensor_to_mem_node.at(tid);
 
   load_t load {
@@ -2080,7 +2125,6 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
   };
 
   int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
-  DOUT("insert load_t node mid=" << mid);
   task_tensor_to_mem_node_update_on_memory(tid, mid);
 }
 
@@ -2252,10 +2296,12 @@ void memgraph_make_state_t::print_out_node_info(int out_tid) {
   if (iter == task_tensor_to_mem_node.end()) {
     std::cout << "print_out_node_info: not in task_tensor_to_mem_node" << std::endl;
   } else {
+    auto & op = task_node.op;
+    op.print_type();
     if (task_node.op.is_partialize() || (task_node.op.is_apply() && (!task_node.op.is_contraction()))) {
-      std::cout << "is not contraction ";
+      std::cout << "is not contraction; ";
     } else if (task_node.op.is_apply() && task_node.op.is_contraction()) {
-      std::cout << "is contraction"; 
+      std::cout << "is contraction; "; 
     }
     // int out_mid = iter->second;
     // std::cout << "mid: " << out_mid << "; ";
