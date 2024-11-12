@@ -256,7 +256,7 @@ void main_rank_zero(
   int this_rank = 0;
 
   // llama gpu parameters here
-  args.set_default<int>("gpus", 1);
+  args.set_default<int>("gpus", 4);
   args.set_default<int>("computes", 1);
   args.set_default<int>("nseq", 4096);
   args.set_default<int>("nbatch", 1);
@@ -315,7 +315,7 @@ void main_rank_zero(
   }));
 
   tensor_t predictions = model.forward(embeddings);
-  predictions.save_inplace();
+  // predictions.save_inplace();
 
   graph_t const& graph = writer.get_graph();
 
@@ -491,6 +491,17 @@ void main_rank_zero(
     uint64_t flops_per_byte_moved = 1000;
     pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
     server.execute_graph(graph, pls);
+  }
+
+  DOUT("about to print output tensor");
+  for(int gid = 0; gid != graph.nodes.size(); ++gid) {
+    auto const& node = graph.nodes[gid];
+    if(node.op.is_save()) {
+      dbuffer_t tensor = server.get_tensor_from_gid(gid);
+      // DOUT("Printing output tensor..." << gid);
+      // DOUT(tensor);
+      DOUT("number of zeros for gid " << gid << ": " << tensor.nelem() << " " << tensor.nzeros(tensor) << " ");
+    }
   }
 }
 

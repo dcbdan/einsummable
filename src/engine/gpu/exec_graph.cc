@@ -85,7 +85,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(memgraph_t const&            memg
 
     for (int mid = 0; mid != memgraph.nodes.size(); ++mid) {
         if (!is_local_to_here(mid)) {
-            DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
+            // DOUT("NOTE: Skipping node " << mid << " because it is not local to this gpu")
             continue;
         }
 

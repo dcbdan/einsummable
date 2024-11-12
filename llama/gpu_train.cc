@@ -544,6 +544,7 @@ void main_rank_zero(
     /////////////////////////////////
     std::cout << "size of taskgraphs: " << taskgraphs.infos.size() << std::endl;
     for(int which = 0; which != taskgraphs.infos.size(); ++which) {
+      DOUT("---------------------------------------------------------------------------------------------------------------------------------------------------------------");
       // DOUT("server remapping");
       server->remap_gids(graphs.remaps[which]);
       auto const& [init_rels, taskgraph, save_rels] = taskgraphs.infos[which];

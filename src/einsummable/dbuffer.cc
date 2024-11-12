@@ -313,6 +313,20 @@ scalar_t dbuffer_t::max() const
     }
 }
 
+
+template <typename T>
+uint64_t _find_zeros(T const* v, int n)
+{
+    uint64_t num_zeros = 0;
+    for (int i = 0; i != n; ++i) {
+        if (v[i] == static_cast<T>(0)) {
+            num_zeros += 1;
+        }
+    }
+    return num_zeros;
+}
+
+
 uint64_t dbuffer_t::nelem() const
 {
     if (size() % dtype_size(dtype) != 0) {
@@ -320,6 +334,27 @@ uint64_t dbuffer_t::nelem() const
     }
     return size() / dtype_size(dtype);
 }
+
+uint64_t dbuffer_t::nzeros(dbuffer_t const& dbuffer) const
+{
+    uint64_t    n = nelem();
+    uint64_t num_zeros;
+    if (dtype == dtype_t::f16) {
+        num_zeros = _find_zeros(dbuffer.f16(), n);
+    } else if (dtype == dtype_t::f32) {
+        num_zeros = _find_zeros(dbuffer.f32(), n);
+    } else if (dtype == dtype_t::f64) {
+        num_zeros = _find_zeros(dbuffer.f64(), n);
+    } else if (dtype == dtype_t::c64) {
+        num_zeros = 0;
+        throw std::runtime_error("should not reach for complex type");
+        // num_zeros = _find_zeros(dbuffer.c64(), n);
+    } else {
+        throw std::runtime_error("should not reach");
+    }
+    return num_zeros;
+}
+
 uint64_t const& dbuffer_t::size() const
 {
     return data->size;

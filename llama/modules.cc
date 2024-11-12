@@ -329,6 +329,7 @@ tensor_t attention_t::forward(tensor_t x, tensor_t freqs_cis, optional<tensor_t>
         // scores = writer->ew(scale, scores);
         // scores = writer->softmax_v3(scores.to_f32()).to_dtype(dtype);
         scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
+        scores.save_inplace();
         // scores = writer->softmax_v3_scale(
         //   scalar_t(dtype_t::f32, write_with_ss(scale_)),
         //   scores.to_f32()
@@ -338,6 +339,7 @@ tensor_t attention_t::forward(tensor_t x, tensor_t freqs_cis, optional<tensor_t>
         //   scalar_t(dtype, write_with_ss(scale_)));
         // scores = writer->ew(scale, scores);
         scores = writer->softmax_v1(scores.to_f32()).to_dtype(dtype);
+        scores.save_inplace();
         // scores = writer->softmax_v3_scale(
         //   scalar_t(dtype_t::f32, write_with_ss(scale_)),
         //   scores);

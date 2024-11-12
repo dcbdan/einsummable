@@ -30,6 +30,7 @@ struct dbuffer_t {
 
     uint64_t        nelem() const;
     uint64_t const& size() const;
+    uint64_t nzeros(dbuffer_t const& dbuffer) const;
 
     void     set(uint64_t which_elem, scalar_t const& val);
     void     agg_into(uint64_t which_elem, castable_t, scalar_t const& val);
