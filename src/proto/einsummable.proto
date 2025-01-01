@@ -233,6 +233,7 @@ message MemGraphNode {
     MGBarrier barrier = 11;
   }
   repeated int32 inns = 12;
+  optional int64 prio = 13; 
 }
 
 message MemGraph {

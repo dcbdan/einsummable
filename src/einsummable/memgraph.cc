@@ -318,6 +318,8 @@ void memgraph_t::to_proto(es_proto::MemGraph &mg) const
   for(auto const& node: nodes) {
     es_proto::MemGraphNode *n = mg.add_nodes();
 
+    n->set_prio(node.prio);
+
     if(node.op.is_inputmem()) {
       auto const& input = node.op.get_inputmem();
       es_proto::MGInputMem *i = n->mutable_inputmem();
@@ -451,6 +453,7 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
 
   for(int id = 0; id != mg.nodes_size(); ++id) {
     es_proto::MemGraphNode const& n = mg.nodes(id);
+    uint64_t prio = n.prio();
 
     optional<op_t> op;
     if(n.has_inputmem()) {
@@ -584,7 +587,7 @@ memgraph_t memgraph_t::from_proto(es_proto::MemGraph const& mg)
       inns.insert(n.inns(i));
     }
 
-    ret.insert(op.value(), inns);
+    ret.insert(op.value(), inns, prio);
   }
 
   return ret;
@@ -605,7 +608,7 @@ memgraph_t::get_locs_from_storage_loc(int sto_loc) const
   return ret;
 }
 
-int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps)
+int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps, uint64_t prio)
 {
   // Note that deps may include dependencies that are shadowed
   // by other dependencies.
@@ -657,7 +660,8 @@ int memgraph_t::insert(memgraph_t::op_t op, set<int> const& deps)
   nodes.push_back(node_t{
     .op = op,
     .inns = inns,
-    .outs = {}
+    .outs = {},
+    .prio = prio
   });
 
   int ret = nodes.size() - 1;
@@ -1101,7 +1105,7 @@ vector<memgraph_t> memgraph_t::split(int num_parts) const
           new_inns.insert(id_to_new_id[node_inn]);
         }
       }
-      mg.insert(node_op, new_inns);
+      mg.insert(node_op, new_inns, nodes[id].prio);
     }
     ret.push_back(mg);
   }

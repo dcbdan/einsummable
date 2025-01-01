@@ -59,6 +59,7 @@ public:
   void execute_graph(
     graph_t const& graph,
     vector<placement_t> const& placements,
+    vector<uint64_t> priority = {},
     map<string, scalar_t> const& scalar_vars = {});
 
   // Get a relation broadcast across the cluster and put it

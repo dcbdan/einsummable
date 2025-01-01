@@ -53,7 +53,7 @@ struct taskgraph_t {
     map<int, vtensor_t<int> >, // for each input, the taskgraph ids of the blocks
     map<int, vtensor_t<int> >, // for each save graph id, the taskgraph ids of the blocks
     taskgraph_t>              // the actual taskgraph
-  make(graph_t const& graph, vector<placement_t> const& placements);
+  make(graph_t const& graph, vector<placement_t> const& placements, vector<uint64_t> priority = {});
 
   static
   tuple<
@@ -201,6 +201,10 @@ public:
   bool is_save(int id) const { return nodes[id].is_save; }
 
   bool is_local_to(int id, int loc) const { return nodes[id].op.is_local_to(loc); }
+
+  void set_priority(vector<uint64_t> prio) {priority = prio; return;}
+
+  vector<uint64_t> priority;
 
 //private:
 public:
@@ -434,12 +438,13 @@ public:
   };
 
   struct node_t {
-    node_t(op_t op, bool is_save): op(op), is_save(is_save), barrier(0) {}
+    node_t(op_t op, bool is_save, uint64_t prio): op(op), is_save(is_save), barrier(0), prio(prio) {}
 
     op_t op;
     set<int> outs;
     bool is_save;
     int barrier; // not meaningful for input_t ops
+    uint64_t prio; //priority given when forming taskgraph
   };
   vector<node_t> nodes;
 

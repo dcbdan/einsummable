@@ -125,11 +125,11 @@ struct memgraph_make_state_t {
   // Insert an allocate node and return the alloc_t mem id
   int allocate_with_evict(
     int loc, uint64_t size, 
-    vector<int> cannot_evict = {});
+    vector<int> cannot_evict = {}, int tid = 0);
 
   // Try to insert an allocate node and return the alloc_t mem id
   optional<int>
-  allocate_without_evict(int loc, uint64_t size);
+  allocate_without_evict(int loc, uint64_t size, int tid = 0);
 
   // find the tid that
   // 1. is bigger than size and
@@ -197,6 +197,8 @@ struct memgraph_make_state_t {
   void task_tensor_to_mem_node_erase_on_storage(int tid);
   void task_tensor_to_mem_node_erase_on_memory(int tid);
   void _task_tensor_to_mem_node_erase(int tid);
+
+  uint64_t get_priority(int tid);
 
   taskgraph_t const& taskgraph;
   map<int, uint64_t> const& required_workspace;

@@ -283,7 +283,8 @@ tuple<
   taskgraph_t>              // the actual taskgraph
 taskgraph_t::make(
   graph_t const& graph,
-  vector<placement_t> const& placements)
+  vector<placement_t> const& placements,
+  vector<uint64_t> priority)
 {
   taskgraph_make_state_t state(graph, placements);
 
@@ -370,6 +371,7 @@ taskgraph_t::make(
 
     ret = std::move(new_tg);
   }
+  ret.set_priority(priority);
 
   return {std::move(inns), std::move(saves), std::move(ret)};
 }
@@ -3046,7 +3048,7 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
       auto const& i = n.input();
       ret.nodes.emplace_back(
         op_t(input_t { i.loc(), i.size() }),
-        is_save);
+        is_save, id);
     } else if(n.has_apply()) {
       auto const& a = n.apply();
 
@@ -3057,19 +3059,19 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
 
       ret.nodes.emplace_back(
         op_t(apply_t { a.loc(), inns, e }),
-        is_save);
+        is_save, id);
     } else if(n.has_move()) {
       auto const& m = n.move();
       ret.nodes.emplace_back(
         op_t(move_t { m.src(), m.dst(), m.inn(), m.size() }),
-        is_save);
+        is_save, id);
     } else if(n.has_constant()) {
       auto const& c = n.constant();
       auto const& f = c.fill();
 
       ret.nodes.emplace_back(
         op_t(constant_t { c.loc(), fill_t::from_proto(f) }),
-        is_save);
+        is_save, id);
     } else if(n.has_partialize()) {
       auto const& p = n.partialize();
 
@@ -3123,7 +3125,7 @@ taskgraph_t taskgraph_t::from_wire(string const& str) {
         .write_shape = write_shape,
         .units = units
       };
-      ret.nodes.emplace_back(op_t(partialize), is_save);
+      ret.nodes.emplace_back(op_t(partialize), is_save, id);
 
       ret.nodes.back().barrier = n.barrier();
     } else {
@@ -3153,8 +3155,8 @@ int taskgraph_t::insert(op_t op, bool is_save) {
   for(auto inn: op.inputs()) {
     nodes[inn].outs.insert(ret);
   }
-
-  nodes.emplace_back(op, is_save);
+  uint64_t prio = priority.at(ret);
+  nodes.emplace_back(op, is_save, prio);
 
   return ret;
 };
@@ -3165,7 +3167,7 @@ void taskgraph_t::_replace_with_new_node(
 {
   auto const& old_node = nodes[tid];
 
-  node_t new_node = node_t(op, old_node.is_save);
+  node_t new_node = node_t(op, old_node.is_save, tid);
   new_node.outs = old_node.outs;
 
   if(op.out_size() != old_node.op.out_size()) {

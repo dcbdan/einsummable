@@ -103,13 +103,13 @@ memgraph_make_state_t::pop_memgraph()
         sto.size = evict.src.size;
       }
 
-      new_mid = memgraph.insert(op_t(sto), set<int>{});
+      new_mid = memgraph.insert(op_t(sto), set<int>{}, get_priority(tid));
 
       // tensors_on_storage does not change
     } else {
       // insert on memory
       inputmem_t mem = inputmem_t::from_memloc(ret_op.get_output_memloc());
-      new_mid = memgraph.insert(op_t(mem), set<int>{});
+      new_mid = memgraph.insert(op_t(mem), set<int>{}, get_priority(tid));
 
       // this tid has not been used by any mids now
       tensors_on_memory.at(tid) = set<int>{};
@@ -965,7 +965,7 @@ memgraph_make_state_t::memgraph_make_state_t(
         .size = size
       };
 
-      int mid = memgraph.insert(op_t(input), {});
+      int mid = memgraph.insert(op_t(input), {}, get_priority(tid));
       task_tensor_to_mem_node_insert_on_memory(tid, mid);
     }
     else if(memstoloc.is_stoloc())
@@ -982,7 +982,7 @@ memgraph_make_state_t::memgraph_make_state_t(
         .size = tg.out_size(tid)
       };
 
-      int mid = memgraph.insert(op_t(input), {});
+      int mid = memgraph.insert(op_t(input), {}, get_priority(tid));
       task_tensor_to_mem_node_insert_on_storage(tid, mid);
     }
   }
@@ -1039,7 +1039,7 @@ void memgraph_make_state_t::initialize_input(int inn)
     input_tid_to_data[inn] = memstoloc_t(input_mem.as_memloc());
 
     op_t input_op = op_t(input_mem);
-    int memid = memgraph.insert(input_op, {});
+    int memid = memgraph.insert(input_op, {}, get_priority(inn));
 
     task_tensor_to_mem_node_insert_on_memory(inn, memid);
   } else {
@@ -1058,7 +1058,7 @@ void memgraph_make_state_t::initialize_input(int inn)
     input_tid_to_data[inn] = memstoloc_t(input_sto.as_stoloc());
 
     op_t input_op = op_t(input_sto);
-    int memid = memgraph.insert(input_op, {});
+    int memid = memgraph.insert(input_op, {}, get_priority(inn));
     task_tensor_to_mem_node_insert_on_storage(inn, memid);
   }
 }
@@ -1181,7 +1181,7 @@ bool memgraph_make_state_t::allocate_op(
       .fill = fill
     };
     
-    int fill_mid = memgraph.insert(op_t(constant), { alloc_mid });
+    int fill_mid = memgraph.insert(op_t(constant), { alloc_mid }, get_priority(id));
 
     // update the actual mid of the node
     task_tensor_to_mem_node[id] = fill_mid;
@@ -1296,7 +1296,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(
       .offset = offset,
       .size =  size
     };
-    int mid = memgraph.insert(op_t(alloc), deps);
+    int mid = memgraph.insert(op_t(alloc), deps, get_priority(tid));
     alloc_mids.push_back(mid);
   }
 
@@ -1324,7 +1324,7 @@ bool memgraph_make_state_t::allocate_tids_without_evict(
       .offset = offset,
       .size =  size
     };
-    int mid = memgraph.insert(op_t(alloc), deps);
+    int mid = memgraph.insert(op_t(alloc), deps, get_priority(tid));
     workspace_tensors.insert({tid, mid});
   }
 
@@ -1356,7 +1356,7 @@ void memgraph_make_state_t::force_allocate_tids(
       // See to it that the memory gets allocated, possibly with evictions.
       int loc = node.op.out_loc();
       uint64_t size = node.op.out_size();
-      int alloc_mid = allocate_with_evict(loc, size, tids);
+      int alloc_mid = allocate_with_evict(loc, size, tids, tid);
       // make sure to add the memid into task_tensor_to_mem_node
       // so we don't keep allocating this output memory!
       task_tensor_to_mem_node_insert_on_memory(tid, alloc_mid);
@@ -1368,7 +1368,7 @@ void memgraph_make_state_t::force_allocate_tids(
     auto const& node = taskgraph.nodes[tid_for_workspace];
     int loc = node.op.out_loc();
     uint64_t size = iter->second;
-    int alloc_mid = allocate_with_evict(loc, size, tids);
+    int alloc_mid = allocate_with_evict(loc, size, tids, tid_for_workspace);
     workspace_tensors.insert({tid_for_workspace, alloc_mid});
   }
 }
@@ -1546,7 +1546,7 @@ memgraph_make_state_t::add_op(
     }
   }
 
-  int new_memid = memgraph.insert(op.value(), deps);
+  int new_memid = memgraph.insert(op.value(), deps, get_priority(id));
 
 #ifdef USE_LOCATIONWISE_APPLY_ORDERING
   {
@@ -1602,7 +1602,7 @@ memgraph_make_state_t::add_op(
         partialize_t new_partialize = partialize_t::from_memloc(new_memloc);
         int partialize_memid = memgraph.insert(
           op_t(new_partialize),
-          set<int>(in_progress.begin(), in_progress.end()));
+          set<int>(in_progress.begin(), in_progress.end()), get_priority(id));
         task_tensor_to_mem_node_update_on_memory(id, partialize_memid);
 
         task_node_to_mem_node.insert({
@@ -1789,7 +1789,7 @@ bool memgraph_make_state_t::register_usage(int task_id)
 
     set<int> const& del_deps = tensors_on_memory.at(task_id);
 
-    int del_id = memgraph.insert(op_t(del), del_deps);
+    int del_id = memgraph.insert(op_t(del), del_deps, get_priority(task_id));
 
     allocators.at(memloc.loc).free(memloc.offset, del_id);
 
@@ -1826,7 +1826,7 @@ int memgraph_make_state_t::get_or_insert_barrier(int barrier) {
     deps.insert(task_node_to_mem_node.at(key));
   }
   memgraph_t::barrier_t barrier_op{ .x = barrier };
-  int barrier_mid = memgraph.insert(op_t(barrier_op), deps);
+  int barrier_mid = memgraph.insert(op_t(barrier_op), deps, get_priority(barrier)); //TODO: not so sure here, need to ask about barrier
   barriers.emplace_back(barrier, barrier_mid);
 
   return barrier_mid;
@@ -1855,7 +1855,7 @@ void memgraph_make_state_t::delete_workspace(int tid) {
   memloc_t memloc = data.get_memloc();
   del_t del = del_t::from_memloc(memloc);
 
-  int del_id = memgraph.insert(op_t(del), set<int>{ mid_op });
+  int del_id = memgraph.insert(op_t(del), set<int>{ mid_op }, get_priority(tid));
 
   allocators.at(memloc.loc).free(memloc.offset, del_id);
 }
@@ -1974,6 +1974,11 @@ void memgraph_make_state_t::_task_tensor_to_mem_node_erase(int tid)
     throw std::runtime_error("cannot erase: not on task_tensor_to_mem_ndoe");
   }
   task_tensor_to_mem_node.erase(iter);
+}
+
+uint64_t memgraph_make_state_t::get_priority(int tid)
+{
+  return taskgraph.nodes.at(tid).prio;
 }
 
 int memgraph_make_state_t::order_state_t::get(int tid)
@@ -2116,10 +2121,10 @@ memgraph_make_state_t::find_victim(
 
 int memgraph_make_state_t::allocate_with_evict(
   int loc, uint64_t size,
-  vector<int> cannot_evict)
+  vector<int> cannot_evict, int tid)
 {
   {
-    auto maybe = allocate_without_evict(loc, size);
+    auto maybe = allocate_without_evict(loc, size, tid);
     if(maybe)
     {
       return maybe.value();
@@ -2142,7 +2147,7 @@ int memgraph_make_state_t::allocate_with_evict(
     for (auto vic_tid : victims) {
       evict_tensor(vic_tid);
     }
-    auto maybe_ret = allocate_without_evict(loc, size);
+    auto maybe_ret = allocate_without_evict(loc, size, tid);
     if(!maybe_ret)
     {
       throw std::runtime_error(
@@ -2157,7 +2162,7 @@ int memgraph_make_state_t::allocate_with_evict(
 }
 
 optional<int> memgraph_make_state_t::allocate_without_evict(
-  int loc, uint64_t size)
+  int loc, uint64_t size, int tid)
 {
   auto maybe = allocators.at(loc).allocate(size);
   if(maybe) {
@@ -2167,7 +2172,7 @@ optional<int> memgraph_make_state_t::allocate_without_evict(
       .offset = offset,
       .size = size
     };
-    int new_memid = memgraph.insert(op_t(alloc), deps);
+    int new_memid = memgraph.insert(op_t(alloc), deps, get_priority(tid));
     return new_memid;
   } else {
     return std::nullopt;
@@ -2215,7 +2220,7 @@ void memgraph_make_state_t::evict_tensor(int victim_tid)
   set<int>& evict_deps = tensors_on_memory.at(victim_tid);
   evict_deps.insert(node_mid); // in case it wasn't used
 
-  int evict_mid = memgraph.insert(evict, evict_deps);
+  int evict_mid = memgraph.insert(evict, evict_deps, get_priority(victim_tid));
 
   // now free the memory, depending on the eviction having been completed
   allocators.at(evict_memloc.loc).free(evict_memloc.offset, evict_mid);
@@ -2236,7 +2241,7 @@ void memgraph_make_state_t::load_tensor_with_evict(
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
 
-  int alloc_mid = allocate_with_evict(loc, size, cannot_evict);
+  int alloc_mid = allocate_with_evict(loc, size, cannot_evict, tid);
   _load_tensor_helper(tid, alloc_mid);
 }
 
@@ -2250,7 +2255,7 @@ bool memgraph_make_state_t::load_tensor_without_evict(int tid)
   int loc = node.op.out_loc();
   uint64_t size = node.op.out_size();
 
-  auto maybe_alloc_mid = allocate_without_evict(loc, size);
+  auto maybe_alloc_mid = allocate_without_evict(loc, size, tid);
   if(maybe_alloc_mid) {
     int const& alloc_mid = maybe_alloc_mid.value();
     _load_tensor_helper(tid, alloc_mid);
@@ -2269,7 +2274,7 @@ void memgraph_make_state_t::_load_tensor_helper(int tid, int alloc_mid)
     .dst = memgraph.nodes.at(alloc_mid).op.get_output_memloc()
   };
 
-  int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid});
+  int mid = memgraph.insert(op_t(load), set<int>{alloc_mid, sto_mid}, get_priority(tid));
   task_tensor_to_mem_node_update_on_memory(tid, mid);
 }
 

@@ -13,6 +13,7 @@ void server_base_t::insert_gid_without_data(int gid, relation_t const& relation)
 void server_base_t::execute_graph(
   graph_t const& graph,
   vector<placement_t> const& placements,
+  vector<uint64_t> priority,
   map<string, scalar_t> const& scalar_vars)
 {
   auto make_relation = [&](int gid, vtensor_t<int> const& tids) {
@@ -24,7 +25,7 @@ void server_base_t::execute_graph(
   };
 
   auto [inn_g_to_t, out_g_to_t, taskgraph] =
-    taskgraph_t::make(graph, placements);
+    taskgraph_t::make(graph, placements, priority);
   if(make_parallel_partialize_groups()) {
     for(auto& node: taskgraph.nodes) {
       auto& op = node.op;

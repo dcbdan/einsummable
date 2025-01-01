@@ -491,10 +491,12 @@ public:
                    // have completed
     set<int> outs; // These nodes can't be started until this node
                    // is completed
+    uint64_t prio; //the priority of the node given when compiling taskgraph 
   };
   vector<node_t> nodes;
 
-  int insert(op_t op, set<int> const& deps);
+  int insert(op_t op, set<int> const& deps, uint64_t prio);
+
 
 private:
   friend class memgraph_make_state_t;
