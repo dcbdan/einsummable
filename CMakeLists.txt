@@ -304,6 +304,7 @@ if(${GPU_EXECUTION_ENGINE})
   ## add_gpu_application("cutensorexp"  "exps" "cutensorexp")
   # add_gpu_application("test_alignment"  "exps" "test_alignment")
   add_gpu_llama_application("rltest" "rltest")
+  add_gpu_llama_application("rltest_with_example" "rltest_with_example")
 
   #add_gpu_application("basicTest" "exps" "GPU_test")
   #add_gpu_application("exp1" "exps" "GPU_chain_mul")
