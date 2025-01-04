@@ -142,6 +142,7 @@ memgraph_t::make_(
   bool use_storage,
   bool split_off_inputs)
 {
+  std::cout << "taskgraph node size:" << taskgraph.nodes.size() << std::endl;
   int n_compute_locs = taskgraph.num_locs();
   if(mem_sizes.size() > n_compute_locs) {
     n_compute_locs = mem_sizes.size();

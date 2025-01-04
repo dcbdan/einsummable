@@ -221,7 +221,13 @@ int main(int argc, char** argv) {
   for (int i = 0; i < num_gpus; ++i){
       buffer_sizes.push_back(mem_size);
   }
-  gpu_mg_server_t server(c, buffer_sizes);
+  auto storage_size = 1 * 1000lu * 1000lu * 1000lu;
+  bool use_cudagraph = false;
+
+  gpu_mg_server_t server = storage_size > 0                                  ?
+    gpu_mg_server_t(c, use_cudagraph, buffer_sizes, storage_size) :
+    gpu_mg_server_t(c, use_cudagraph, buffer_sizes)               ;
+
   server.set_split_off_inputs(true);
 
   for(int i = 0; i < total_num_episodes; i++){
@@ -268,9 +274,10 @@ int main(int argc, char** argv) {
         server.insert_tensor(gid, placements[gid], tensor);
       }
     }
-    server.execute_graph(graph, placements, priority); // Your function here
-    inFile >> running_time;
-    std::cout << "Running time: " << running_time << " miliseconds " << std::endl;
+    std::cout << "rl prio size: " << rl_priority.size() << std::endl;
+    server.execute_graph(graph, placements, rl_priority); // Your function here
+    // inFile >> running_time;
+    // std::cout << "Running time: " << running_time << " miliseconds " << std::endl;
   }
   server.shutdown();
     
