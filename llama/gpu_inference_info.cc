@@ -328,10 +328,15 @@ void main_rank_zero(
 
   vector<placement_t> pls;
   {
+    if (num_computes_per_loc == 1) {
+      DOUT("num_computes_per_loc == 1");
+    } else {
+      DOUT("num_computes_per_loc != 1");
+    }
     vector<partition_t> parts = apart01(graph1, num_gpus * num_computes_per_loc, 1, 1, parts_space_t::contraction);
     if (num_computes_per_loc == 1) {
       DOUT("using alocate03...");
-      pls = alocate03(graph1, parts, num_gpus, true);
+      pls = alocate03(graph1, parts, num_gpus, false);
     } else {
       DOUT("using alocate01...");
       uint64_t flops_per_byte_moved = 1000;

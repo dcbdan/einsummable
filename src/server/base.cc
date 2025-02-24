@@ -45,6 +45,17 @@ void server_base_t::execute_graph(
   }
   DOUT("executing taskgraph with " << num_msgs << " moves, " << num_bytes << " bytes moved");
 
+  int num_inputs = 0;
+  int num_deps = 0;
+  for (auto const& node: taskgraph.nodes) {
+    if(node.op.is_input()) {
+      num_inputs++;
+    }
+    num_deps += node.op.inputs().size();
+  }
+  DOUT("Total number of nodes in taskgraph: " << taskgraph.nodes.size());
+  DOUT("executing taskgraph with " << num_inputs << " inputs, " << num_deps << " deps");
+
   //{
   //  std::ofstream f("tg.gv");
   //  taskgraph.print_graphviz(f);

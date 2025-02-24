@@ -208,6 +208,9 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   int evict_count = 0, load_count = 0, move_count = 0;
   uint64_t evict_bytes = 0, load_bytes = 0, move_bytes = 0;
 
+  int input_count = 0;
+  int dep_count = 0;
+
   for(int mid = 0; mid != memgraph.nodes.size(); ++mid) {
     if(!is_local_to_here(mid)) {
       if(!memgraph.nodes[mid].op.is_inputsto()) {
@@ -217,8 +220,15 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
     }
 
     auto const& node = memgraph.nodes[mid];
+    dep_count += node.inns.size();
 
     if(is_dummy(node)){
+      if (node.op.is_inputmem() || node.op.is_inputsto()) {
+        if (node.inns.size() > 0) {
+          throw std::runtime_error("inputmem or inputsto should not have inns");
+        }
+        input_count++;
+      }
       continue;
     } else if(node.op.is_apply()) {
       auto const& apply = node.op.get_apply();
@@ -314,6 +324,7 @@ exec_graph_t exec_graph_t::make_gpu_exec_graph(
   DOUT("The number of nodes in the exec_graph is " << graph.nodes.size());
   fprintf(stdout, "Exec_Graph finished. evict_count: %d, evict_bytes: %lu, load_count: %d, load_bytes: %lu\n, move_count: %d, move_bytes: %lu\n",
     evict_count, evict_bytes, load_count, load_bytes, move_count, move_bytes);
+  fprintf(stdout, "input_count: %d, dep_count: %d\n", input_count, dep_count);
   return graph;
 }
 

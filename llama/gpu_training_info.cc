@@ -474,11 +474,16 @@ void main_rank_zero(
   vector<placement_t> pls;
 
   DOUT("creating partition and placement from scratch");
-  int num_computes = config.n_compute();
-  parts = apart01(info.full_graph, config.n_locs() * num_computes, 1, 1, parts_space_t::contraction);
+  int num_computes = config.n_compute_per_loc();
+  if (num_computes == 1) {
+    DOUT("num_computes_per_loc == 1");
+  } else {
+    DOUT("num_computes: " << num_computes);
+  }
+  parts = apart01(info.full_graph, config.n_compute(), 1, 1, parts_space_t::contraction);
   if (num_computes == 1) {
     DOUT("using alocate03");
-    pls = alocate03(info.full_graph, parts, config.n_locs(), true);
+    pls = alocate03(info.full_graph, parts, config.n_locs(), false);
   } else {
     DOUT("using alocate01");
     uint64_t flops_per_byte_moved = 1000;

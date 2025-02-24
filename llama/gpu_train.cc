@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
   } else if(base_data_file == "65B") {
     num_data_files = 8;
   }
-  base_data_file = "/home/zhimin/llama_files/es/" + base_data_file;
+  base_data_file = "/home/ubuntu/mnt/es/" + base_data_file;
 
   args_t args(argc-1, argv+1);
 
@@ -492,8 +492,13 @@ void main_rank_zero(
   vector<placement_t> full_pls;
   if (load_info){
     DOUT("loading decomp info (partition and placement)...");
-    string part_path = "./decomp_part.txt";
-    string pls_path = "./decomp_pls.txt";
+    string load_path = pargs.get<string>("load_path");
+    // if load_path doesn't end with '/', add it
+    if (load_path.back() != '/') {
+      load_path += "/";
+    }
+    string part_path = load_path + "decomp_part.txt";
+    string pls_path = load_path + "decomp_pls.txt";
     std::ifstream decomp_part_file(part_path);
     std::ifstream decomp_pls_file(pls_path);
     if (!decomp_part_file.good() || !decomp_pls_file.good()) {
@@ -686,8 +691,8 @@ void main_rank_zero(
   /////////////////////////////////////////////////////////////////////////////
   
   DLINE;
-  pargs.set_default("tokenizer", "/home/zhimin/llama_files/es/tokenizer.model");
-  pargs.set_default("dataset", "/home/zhimin/llama_files/es/redpaj_long_samples");
+  pargs.set_default("tokenizer", "/home/ubuntu/mnt/es/tokenizer.model");
+  pargs.set_default("dataset", "/home/ubuntu/mnt/es/redpaj_long_samples");
   pargs.set_default("learning_rate", 1e-9f);
   string tokenizer_file = pargs.get<string>("tokenizer");
   string dataset_file   = pargs.get<string>("dataset");

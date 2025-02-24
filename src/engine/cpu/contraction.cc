@@ -112,57 +112,58 @@ void contraction_t::operator()(
 
   // bij,bjk->bik
   for(uint64_t b = 0; b != nb; ++b) {
-  for(uint64_t i = 0; i != ni; ++i) {
-    void* out_data = (char*)out + stride_out*(b*ni + i);
-    void* lhs_data = (char*)lhs + stride_lhs*(b*ni + i);
-    void* rhs_data = (char*)rhs + stride_rhs*b;
+    for(uint64_t i = 0; i != ni; ++i) {
+      void* out_data = (char*)out + stride_out*(b*ni + i);
+      void* lhs_data = (char*)lhs + stride_lhs*(b*ni + i);
+      void* rhs_data = (char*)rhs + stride_rhs*b;
 
-    void* lhs_work;
-    if(lhs_p) {
-      lhs_work = lhs_work_;
-      permute_kernel(dtype, 1024,
-        lhs_p.value().inn_shape,
-        lhs_p.value().out_perm,
-        lhs_work, lhs_data);
-    } else {
-      lhs_work = lhs_data;
+      void* lhs_work;
+      if(lhs_p) {
+        lhs_work = lhs_work_;
+        permute_kernel(dtype, 1024,
+          lhs_p.value().inn_shape,
+          lhs_p.value().out_perm,
+          lhs_work, lhs_data);
+      } else {
+        lhs_work = lhs_data;
+      }
+
+      void* rhs_work;
+      if(rhs_p) {
+        rhs_work = rhs_work_;
+        permute_kernel(dtype, 1024,
+          rhs_p.value().inn_shape,
+          rhs_p.value().out_perm,
+          rhs_work, rhs_data);
+      } else {
+        rhs_work = rhs_data;
+      }
+
+      void* out_work;
+      if(out_p) {
+        out_work = out_work_;
+      } else {
+        out_work = out_data;
+      }
+
+      batch_matrix_multiply(
+        dtype,
+        0, inner.nb,
+        true, true, true, // have batching
+        inner.ni, 0, inner.ni,
+        inner.nj, inner.nk,
+        inner.lhs_t, inner.rhs_t,
+        out_work, lhs_work, rhs_work,
+        false);
+
+      if(out_p) {
+        permute_kernel(dtype, 1024,
+          out_p.value().inn_shape,
+          out_p.value().out_perm,
+          out_data, out_work);
+      }
     }
-
-    void* rhs_work;
-    if(rhs_p) {
-      rhs_work = rhs_work_;
-      permute_kernel(dtype, 1024,
-        rhs_p.value().inn_shape,
-        rhs_p.value().out_perm,
-        rhs_work, rhs_data);
-    } else {
-      rhs_work = rhs_data;
-    }
-
-    void* out_work;
-    if(out_p) {
-      out_work = out_work_;
-    } else {
-      out_work = out_data;
-    }
-
-    batch_matrix_multiply(
-      dtype,
-      0, inner.nb,
-      true, true, true, // have batching
-      inner.ni, 0, inner.ni,
-      inner.nj, inner.nk,
-      inner.lhs_t, inner.rhs_t,
-      out_work, lhs_work, rhs_work,
-      false);
-
-    if(out_p) {
-      permute_kernel(dtype, 1024,
-        out_p.value().inn_shape,
-        out_p.value().out_perm,
-        out_data, out_work);
-    }
-  }}
+  }
 }
 
 bool contraction_t::can_make(

@@ -6,19 +6,19 @@ gpu_workspace_manager_t::gpu_workspace_manager_t() {
   // NOTE: this is hard-coded and we assume that we have enough memory for this
   auto num_gpus = 8;
   data.resize(num_gpus);
-  for (int gpu = 0; gpu < num_gpus; ++gpu) {
-    handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
-    for (int i = 0; i < 2; ++i) {
-      void* mem;
-      handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-      data[gpu].emplace_back(mem, 16 * 1024 * 1024);
-    }
-    for (int i = 0; i < num_gpus; ++i) {
-      void* mem;
-      handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
-      data[gpu].emplace_back(mem, 32 * 1024 * 1024);
-    }
-  }
+  // for (int gpu = 0; gpu < num_gpus; ++gpu) {
+  //   handle_cuda_error(cudaSetDevice(gpu), "gpu_workspace_manager_t. set device");
+  //   for (int i = 0; i < 2; ++i) {
+  //     void* mem;
+  //     handle_cuda_error(cudaMalloc(&mem, 16 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+  //     data[gpu].emplace_back(mem, 16 * 1024 * 1024);
+  //   }
+  //   for (int i = 0; i < num_gpus; ++i) {
+  //     void* mem;
+  //     handle_cuda_error(cudaMalloc(&mem, 32 * 1024 * 1024), "gpu_workspace_manager_t. cuda malloc");
+  //     data[gpu].emplace_back(mem, 32 * 1024 * 1024);
+  //   }
+  // }
 }
 
 gpu_workspace_manager_t::~gpu_workspace_manager_t() {
