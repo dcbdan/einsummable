@@ -91,8 +91,8 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(mem_size);
   }
 
-  auto gpu_ptr = new gpu_mg_server_t(communicator, buffer_sizes);
-  gpu_ptr->set_use_storage(false);
+  auto gpu_ptr = new gpu_mg_server_t(communicator, false, buffer_sizes);
+  // gpu_ptr->set_use_storage(false);
   gpu_ptr->set_split_off_inputs(false);
 
   std::unique_ptr<server_base_t> server = std::unique_ptr<server_base_t>(gpu_ptr);

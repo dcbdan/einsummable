@@ -65,6 +65,7 @@ int main(int argc, char** argv) {
   auto [_2, _3, memgraph] = memgraph_t::make(
     taskgraph,
     {},
+    vector<int>(num_processors, 0),
     vector<uint64_t>(num_processors, mem_size));
 
   print_graphviz(memgraph, "mg.gv");

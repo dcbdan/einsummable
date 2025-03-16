@@ -296,9 +296,9 @@ if(${GPU_EXECUTION_ENGINE})
     ${Protobuf_LIBRARIES}
     ${CUDA_LIBRARIES}
     cutensor
-    /usr/local/cuda-11.8/lib64/libcudart.so
-    /usr/local/cuda-11.8/lib64/libcublasLt.so
-    /usr/local/cuda-11.8/lib64/libcublas.so
+    /usr/local/cuda-12.6/lib64/libcudart.so
+    /usr/local/cuda-12.6/lib64/libcublasLt.so
+    /usr/local/cuda-12.6/lib64/libcublas.so
     ucx::ucp ucx::ucs)
 
   endfunction()

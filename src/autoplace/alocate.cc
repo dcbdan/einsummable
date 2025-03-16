@@ -42,6 +42,7 @@ vector<placement_t> alocate01(
   int nlocs,
   uint64_t flops_per_byte_moved)
 {
+  std::cout << "using alocate01" << std::endl;  
   _alocate01_rw_t rw(nlocs, flops_per_byte_moved, graph, parts);
 
   for(int const& gid: graph.get_order()) {

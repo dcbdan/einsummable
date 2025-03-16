@@ -256,7 +256,7 @@ void main_rank_zero(
 
   // llama gpu parameters here
   args.set_default<int>("computes", 1);
-  args.set_default<int>("nseq", 4096);
+  args.set_default<int>("nseq", 128);
   args.set_default<int>("nbatch", 1);
   int num_gpus = args.get<int>("gpus");
   int num_computes_per_loc = args.get<int>("computes");
@@ -430,7 +430,7 @@ void main_rank_zero(
 
   vector<placement_t> pls;
   {
-    //int num_config = num_computes_per_loc;
+    int num_config = num_computes_per_loc;
 
     //args.set_default<string>("partitioner", "auto");
     //string which = args.get<string>("partitioner");
@@ -530,8 +530,11 @@ void main_rank_zero(
     //uint64_t flops_per_byte_moved = 1000;
     //pls = alocate01(graph, parts, num_gpus, flops_per_byte_moved);
 
-    vector<partition_t> parts = apart01(graph1, num_gpus, 1, 1, parts_space_t::contraction);
-    pls = alocate03(graph1, parts, num_gpus, true);
+
+    vector<partition_t> parts = apart01(graph1, num_gpus * num_config, 1, 1, parts_space_t::contraction);
+    uint64_t flops_per_byte_moved = 1000;
+    pls = alocate01(graph1, parts, num_gpus, flops_per_byte_moved);
+    // pls = alocate03(graph1, parts, num_gpus, true);
   }
 
   DLINEOUT("TIME TO RUN GRAPH1");
@@ -561,7 +564,7 @@ int main(int argc, char** argv) {
   int world_size = 1;
 
   string which_model = argv[1];
-  string base_data_file = "/home/dcb/LLaMA/es/" + which_model;
+  string base_data_file = "/home/sarah/storage/" + which_model;
 
   int num_data_files;
   if(which_model == "7B") {
@@ -582,7 +585,8 @@ int main(int argc, char** argv) {
 
   args_t args(argc-1, argv+1);
 
-  //args.set_default<int>("gpus", 8);
+  args.set_default<int>("gpus", 4);
+  args.set_default<uint64_t>("memsize", 16);
   int num_gpus = args.get<int>("gpus");
 
   vector<uint64_t> buffer_sizes;
@@ -590,11 +594,12 @@ int main(int argc, char** argv) {
     buffer_sizes.push_back(args.get<uint64_t>("memsize") * 1000lu * 1000lu * 1000lu);
   }
 
+  args.set_default<bool>("use_cudagraph", false);
   bool use_cudagraph = args.get<bool>("use_cudagraph");
-  args.set_default<uint64_t>("storage", 4);
+  args.set_default<uint64_t>("storage", 16);
   auto storage_size = args.get<uint64_t>("storage") * 1000lu * 1000lu * 1000lu;
-  //gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
-  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
+  gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes, storage_size);
+  // gpu_mg_server_t server(communicator, use_cudagraph, buffer_sizes);
 
   args.set_default("parallel_partialize", false);
   server.set_parallel_partialize(args.get<bool>("parallel_partialize"));
